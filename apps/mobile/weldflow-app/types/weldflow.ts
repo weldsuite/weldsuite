@@ -193,6 +193,20 @@ export interface ProjectTask {
   labels?: string[] | null;
   assigneeId?: string | null;
   assigneeIds?: string[] | null;
+  /** Enriched by `GET /api/tasks/:id` (`enrichTasksWithAssignees`). */
+  assignee?: {
+    id: string;
+    name: string | null;
+    email?: string | null;
+    avatar?: string | null;
+  } | null;
+  /** Enriched by `GET /api/tasks/:id` (`enrichTasksWithAssignees`). */
+  assignees?: Array<{
+    id: string;
+    name: string | null;
+    email?: string | null;
+    avatar?: string | null;
+  }> | null;
   reporterId?: string | null;
   startDate?: string | null;
   dueDate?: string | null;

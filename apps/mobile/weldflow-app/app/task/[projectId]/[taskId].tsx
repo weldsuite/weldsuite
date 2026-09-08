@@ -27,7 +27,8 @@ import { SectionCard, DetailRow } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { TaskStatusBadge } from '@/components/status-badge';
 import { PriorityIndicator } from '@/components/PriorityIndicator';
-import { useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
+import { useProjectMembers, useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
+import { formatTaskAssigneeDisplay } from '@/lib/assignee-display';
 import { statusLabel, useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 import type { TaskStatus } from '@/types/weldflow';
@@ -53,7 +54,11 @@ export default function TaskDetailScreen() {
 
   const { data, isLoading, refetch, isError } = useTask(projectId, taskId);
   const task = data?.data;
+  const membersQuery = useProjectMembers(projectId);
   const updateStatus = useUpdateTaskStatus(projectId, taskId);
+  const assigneeDisplay = task
+    ? formatTaskAssigneeDisplay(task, membersQuery.data?.data)
+    : null;
 
   useEffect(() => {
     if (!isLoading) {
@@ -126,8 +131,8 @@ export default function TaskDetailScreen() {
         ) : null}
 
         <SectionCard title={t.task.details}>
-          {task.assigneeId ? (
-            <DetailRow label={t.task.assignee} value={task.assigneeId} />
+          {assigneeDisplay ? (
+            <DetailRow label={t.task.assignee} value={assigneeDisplay} />
           ) : null}
           {task.dueDate ? (
             <DetailRow label={t.task.dueDate} value={formatDate(task.dueDate)} />
