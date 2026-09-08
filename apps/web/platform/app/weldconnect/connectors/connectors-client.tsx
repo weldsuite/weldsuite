@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   Settings,
   BookOpen,
+  Warehouse,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -67,6 +68,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   'shopping-bag': ShoppingBag,
   store: ShoppingBag,
   'book-open': BookOpen,
+  warehouse: Warehouse,
   plug: Plug,
 };
 

@@ -193,6 +193,85 @@ app.get('/manage/status', async (c) => {
   return c.json(data);
 });
 
+/**
+ * Diagnose WeldDesk sync without printing secret values.
+ * Compares local DISCORD_PUBLIC_KEY fingerprint to widget-api DISCORD_BOT_SECRET
+ * by probing /webhook/discord/ping, and optionally checks guild KV mapping.
+ */
+app.get('/manage/debug-sync', async (c) => {
+  const guildId = c.req.query('guild_id') || undefined;
+  const localFingerprint = await sha256HexPrefix(c.env.DISCORD_PUBLIC_KEY);
+
+  let widgetPing: {
+    ok: boolean;
+    status: number;
+    secretConfigured?: boolean;
+    fingerprint?: string | null;
+    error?: string;
+  };
+
+  try {
+    const res = await fetch(`${c.env.HELPDESK_WIDGET_API_URL}/webhook/discord/ping`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bot-Secret': c.env.DISCORD_PUBLIC_KEY,
+      },
+      body: JSON.stringify(guildId ? { guild_id: guildId } : {}),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      data?: {
+        secretConfigured?: boolean;
+        fingerprint?: string;
+        guildMapped?: boolean;
+        guildId?: string | null;
+      };
+      error?: string;
+    };
+    widgetPing = {
+      ok: res.ok,
+      status: res.status,
+      secretConfigured: body.data?.secretConfigured,
+      fingerprint: body.data?.fingerprint ?? null,
+      error: body.error,
+    };
+
+    return c.json({
+      localSecretFingerprint: localFingerprint,
+      secretMatch: res.ok && body.data?.fingerprint === localFingerprint,
+      widgetPing,
+      guild: guildId
+        ? {
+            guildId,
+            mapped: body.data?.guildMapped === true,
+            hint:
+              body.data?.guildMapped === true
+                ? null
+                : 'Missing discord_guild KV — reconnect Discord in WeldDesk settings',
+          }
+        : null,
+      hints: {
+        secretMismatch:
+          'Set helpdesk-widget-api DISCORD_BOT_SECRET to the same value as discord-bot-worker DISCORD_PUBLIC_KEY',
+        guildMiss: 'Reconnect Discord OAuth in WeldDesk so discord_guild:{id} is written to shared KV',
+      },
+    });
+  } catch (err) {
+    return c.json(
+      {
+        localSecretFingerprint: localFingerprint,
+        secretMatch: false,
+        widgetPing: {
+          ok: false,
+          status: 0,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      },
+      502,
+    );
+  }
+});
+
 /** Register global slash commands (idempotent). Call once after deploy. */
 app.post('/manage/register-commands', async (c) => {
   const appId = c.env.DISCORD_APPLICATION_ID;
@@ -317,6 +396,8 @@ async function handleOpenTicket(env: Env, interaction: any): Promise<void> {
       body: JSON.stringify({
         guild_id: guildId,
         thread_id: thread.id,
+        // Panel channel — stored as metadata.parentChannelId for supportChannels filtering
+        parent_channel_id: channelId,
         user: {
           id: user.id,
           username: user.username,
@@ -326,9 +407,37 @@ async function handleOpenTicket(env: Env, interaction: any): Promise<void> {
     });
 
     if (!ticketRes.ok) {
-      const text = await ticketRes.text();
-      console.error('[Interactions] ticket webhook failed:', ticketRes.status, text);
+      const text = await ticketRes.text().catch(() => '');
+      console.error('[Interactions] ticket webhook failed:', ticketRes.status, text.slice(0, 500), {
+        guildId,
+        threadId: thread.id,
+        parentChannelId: channelId,
+      });
+
+      let syncHint =
+        'Your Discord thread was created, but WeldDesk sync failed. Please notify an admin.';
+      if (ticketRes.status === 401) {
+        syncHint =
+          'Your Discord thread was created, but WeldDesk sync failed (bot secret mismatch). An admin must sync DISCORD_BOT_SECRET with the bot public key.';
+      } else if (ticketRes.status === 404) {
+        syncHint =
+          'Your Discord thread was created, but WeldDesk sync failed (Discord server not linked). An admin should reconnect Discord in WeldDesk settings.';
+      }
+
+      await followUpInteraction(
+        env.DISCORD_APPLICATION_ID,
+        token,
+        `Thread created: <#${thread.id}>\n\n⚠️ ${syncHint}`,
+      );
+      return;
     }
+
+    console.log('[Interactions] ticket webhook ok:', {
+      guildId,
+      threadId: thread.id,
+      parentChannelId: channelId,
+      status: ticketRes.status,
+    });
 
     await followUpInteraction(
       env.DISCORD_APPLICATION_ID,
@@ -605,6 +714,17 @@ function hexToUint8Array(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
+}
+
+/** First 16 hex chars of SHA-256 — enough to compare equality, not enough to recover the secret. */
+async function sha256HexPrefix(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const bytes = new Uint8Array(digest);
+  let hex = '';
+  for (let i = 0; i < 8; i++) {
+    hex += bytes[i]!.toString(16).padStart(2, '0');
+  }
+  return hex;
 }
 
 export default app;

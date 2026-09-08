@@ -26,6 +26,7 @@ import {
   getHelpdeskAppUrl as getAppUrl,
   helpdeskOAuthRedirectUri,
   findIntegrationByGuildId,
+  putDiscordGuildMapping,
 } from '../../services/helpdesk-integrations';
 import type { IntegrationsEnv } from '../../services/integrations/connections';
 
@@ -155,11 +156,8 @@ app.get('/discord/callback', async (c) => {
     }
 
     // 6. Store KV mapping for helpdesk-widget-api: discord_guild:{guildId} → workspace info
-    await env.WORKSPACE_CACHE.put(
-      `discord_guild:${resolvedGuildId}`,
-      JSON.stringify({ clerkOrgId: orgId, internalWorkspaceId: workspace.id }),
-      { expirationTtl: 86400 * 365 }, // 1 year
-    );
+    // (no TTL — disconnect deletes explicitly; a 1y TTL silently broke ticket routing)
+    await putDiscordGuildMapping(env.WORKSPACE_CACHE, resolvedGuildId, orgId, workspace.id);
 
     // 7. Redirect back to app with the connected server selected
     const qs = new URLSearchParams({ connected: 'true' });
@@ -283,12 +281,11 @@ app.get('/slack/callback', async (c) => {
       } as unknown as typeof hci.$inferInsert);
     }
 
-    // 5. Store KV mapping for team → workspace resolution
+    // 5. Store KV mapping for team → workspace resolution (no TTL; disconnect deletes)
     if (teamId) {
       await env.WORKSPACE_CACHE.put(
         `slack_team:${teamId}`,
         JSON.stringify({ clerkOrgId: orgId, internalWorkspaceId: workspace.id }),
-        { expirationTtl: 365 * 24 * 60 * 60 }, // 1 year
       );
     }
 

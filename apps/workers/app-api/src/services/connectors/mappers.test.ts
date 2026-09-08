@@ -390,3 +390,128 @@ describe('Moneybird mappers', () => {
     expect(mapped.values).toMatchObject({ amount: '0.00', status: 'reconciled' });
   });
 });
+
+describe('Picqer mappers', () => {
+  it('maps a Picqer product with productcode and stock', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      {
+        idproduct: 88,
+        name: 'Picqer widget',
+        productcode: 'PQ-88',
+        barcode: '123',
+        price: 12.5,
+        active: true,
+        stock: [{ idwarehouse: 1, stock: 5, freestock: 4, reserved: 1 }],
+      },
+      'picqer',
+    );
+    expect(mapped?.entity).toBe('product');
+    expect(mapped?.externalId).toBe('88');
+    expect(mapped?.values).toMatchObject({
+      name: 'Picqer widget',
+      sku: 'PQ-88',
+      barcode: '123',
+      status: 'active',
+      inventoryQuantity: 4,
+    });
+  });
+
+  it('maps a Picqer order with products array and idcustomer', () => {
+    const mapped = mapConnectorRecord(
+      'order',
+      {
+        idorder: 501,
+        orderid: 'O2026-1',
+        status: 'processing',
+        idcustomer: 9,
+        emailaddress: 'buyer@example.com',
+        products: [{ idproduct: 88, productcode: 'PQ-88', name: 'Widget', amount: 2, price: 12.5 }],
+      },
+      'picqer',
+    );
+    expect(mapped?.entity).toBe('order');
+    if (mapped?.entity !== 'order') return;
+    expect(mapped.customerExternalId).toBe('9');
+    expect(mapped.lineItems).toHaveLength(1);
+    expect(mapped.values).toMatchObject({
+      orderNumber: 'O2026-1',
+      status: 'processing',
+      customerEmail: 'buyer@example.com',
+    });
+  });
+
+  it('maps Picqer customer, warehouse, picklist, and inventory rows', () => {
+    expect(
+      mapConnectorRecord(
+        'person',
+        { idcustomer: 3, name: 'Acme BV', emailaddress: 'ops@acme.test', telephone: '061234' },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ email: 'ops@acme.test', fullName: 'Acme BV' });
+
+    expect(
+      mapConnectorRecord('warehouse', { idwarehouse: 1, name: 'Main', accepts_orders: true }, 'picqer')
+        ?.values,
+    ).toMatchObject({ name: 'Main', isActive: true });
+
+    const picklist = mapConnectorRecord(
+      'picklist',
+      { idpicklist: 70, picklistid: 'P70', status: 'closed', idwarehouse: 1, idorder: 501, products: [] },
+      'picqer',
+    );
+    expect(picklist?.entity).toBe('picklist');
+    expect(picklist?.values).toMatchObject({ pickListNumber: 'P70', status: 'completed' });
+
+    const inventory = mapConnectorRecord(
+      'inventory',
+      { id: '88:1', idproduct: 88, idwarehouse: 1, stock: 5, freestock: 4, reserved: 1 },
+      'picqer',
+    );
+    expect(inventory?.entity).toBe('inventory');
+    expect(inventory?.values).toMatchObject({
+      quantityOnHand: 5,
+      quantityAvailable: 4,
+      quantityAllocated: 1,
+    });
+  });
+
+  it('maps Picqer supplier, purchase order, return, shipment, and movement', () => {
+    expect(
+      mapConnectorRecord('supplier', { idsupplier: 2, name: 'Steel Co', emailaddress: 's@co' }, 'picqer')
+        ?.values,
+    ).toMatchObject({ name: 'Steel Co', email: 's@co' });
+
+    expect(
+      mapConnectorRecord(
+        'purchase_order',
+        { idpurchaseorder: 11, purchaseorderid: 'PO-11', status: 'purchased', products: [{ amount: 3 }] },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ poNumber: 'PO-11', status: 'ordered', totalQuantityOrdered: 3 });
+
+    expect(
+      mapConnectorRecord(
+        'return',
+        { idreturn: 4, returnid: 'R4', status: 'received', products: [{ name: 'Widget', amount: 1 }] },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ returnNumber: 'R4', status: 'received' });
+
+    expect(
+      mapConnectorRecord(
+        'shipment',
+        { idshipment: 8, trackingcode: '3STRACK', provider: 'PostNL', idpicklist: 70 },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ shipmentNumber: '3STRACK', carrierName: 'PostNL', status: 'shipped' });
+
+    expect(
+      mapConnectorRecord(
+        'inventory_movement',
+        { idmovement: 6, idproduct: 88, amount: 2, idwarehouse_from: 1, idwarehouse_to: 2 },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ movementNumber: '6', quantity: 2, status: 'completed' });
+  });
+});

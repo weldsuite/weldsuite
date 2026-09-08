@@ -81,6 +81,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Same value as discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret
     // on /webhook/discord/* ingest routes.
     "DISCORD_BOT_SECRET",
+    "WIDGET_TOKEN_SECRET",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "DATABASE_URL_MASTER",
     ["BETTERSTACK_TOKEN_HELPDESK_WIDGET_API", "BETTERSTACK_TOKEN"],
   ],
 

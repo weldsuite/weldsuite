@@ -180,6 +180,32 @@ export function discordGuildId(row: HelpdeskIntegration): string | undefined {
   return undefined;
 }
 
+/**
+ * Persist guild → workspace routing for helpdesk-widget-api Discord ingest.
+ *
+ * helpdesk-widget-api resolves inbound tickets/messages via
+ * `discord_guild:{guildId}` in WORKSPACE_CACHE. Without this key the ticket
+ * webhook returns 404 and WeldDesk never creates a conversation — even when
+ * the tenant DB shows the Discord integration as connected.
+ *
+ * No TTL: disconnect deletes the key explicitly. A one-year TTL previously
+ * dropped mappings for still-connected guilds and broke ticket routing.
+ */
+export async function putDiscordGuildMapping(
+  kv: KVNamespace,
+  guildId: string,
+  clerkOrgId: string,
+  internalWorkspaceId?: string,
+): Promise<void> {
+  await kv.put(
+    `discord_guild:${guildId}`,
+    JSON.stringify({
+      clerkOrgId,
+      ...(internalWorkspaceId ? { internalWorkspaceId } : {}),
+    }),
+  );
+}
+
 // ============================================================================
 // Settings projections — the exact shapes the platform consumes
 // ============================================================================

@@ -6,6 +6,7 @@
 import { ConnectorApiError } from './types';
 import type { ConnectorProviderClient } from './provider-client';
 import { MoneybirdClient } from './moneybird/client';
+import { PicqerClient } from './picqer/client';
 import { ShopifyClient } from './shopify/client';
 import { WooCommerceClient } from './woocommerce/client';
 
@@ -33,6 +34,17 @@ export function createConnectorProviderClient(
       accessToken: credentials.accessToken || '',
       refreshToken: credentials.refreshToken || null,
       administrationId: credentials.administrationId || fallbackAccountId || null,
+    });
+  }
+  if (provider === 'picqer') {
+    const fromCreds = credentials.subdomain?.trim();
+    const fromAccount = (fallbackAccountId || '')
+      .replace(/^https?:\/\//i, '')
+      .replace(/\.picqer\.com.*$/i, '')
+      .replace(/\/+$/, '');
+    return new PicqerClient({
+      subdomain: fromCreds || fromAccount || '',
+      apiKey: credentials.apiKey || '',
     });
   }
   throw new ConnectorApiError({

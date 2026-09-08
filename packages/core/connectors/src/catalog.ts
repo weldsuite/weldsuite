@@ -18,9 +18,25 @@ export type ConnectorEntity =
   | 'invoice'
   | 'bill'
   | 'bank_account'
-  | 'bank_transaction';
+  | 'bank_transaction'
+  | 'inventory'
+  | 'warehouse'
+  | 'location'
+  | 'picklist'
+  | 'shipment'
+  | 'supplier'
+  | 'purchase_order'
+  | 'return'
+  | 'stock_count'
+  | 'inventory_movement';
 
-export type ConnectorCategory = 'ecommerce' | 'crm' | 'accounting' | 'support' | 'productivity';
+export type ConnectorCategory =
+  | 'ecommerce'
+  | 'crm'
+  | 'accounting'
+  | 'support'
+  | 'productivity'
+  | 'wms';
 
 /** Toggle the tenant enables on the connection itself. */
 export type ConnectorSyncSettingKey =
@@ -31,8 +47,17 @@ export type ConnectorSyncSettingKey =
   | 'invoices'
   | 'bills'
   | 'bankAccounts'
-  | 'bankTransactions';
-
+  | 'bankTransactions'
+  | 'inventory'
+  | 'warehouses'
+  | 'locations'
+  | 'picklists'
+  | 'shipments'
+  | 'suppliers'
+  | 'purchaseOrders'
+  | 'returns'
+  | 'stockCounts'
+  | 'movements';
 export type ConnectorCredentialFieldType = 'url' | 'text' | 'secret';
 
 export interface ConnectorCredentialField {
@@ -255,6 +280,127 @@ export const CONNECTORS: ConnectorDef[] = [
         internalEntity: 'bank_transaction',
         externalEntityType: 'moneybird_financial_mutation',
         settingKey: 'bankTransactions',
+      },
+    ],
+  },
+  {
+    provider: 'picqer',
+    label: 'Picqer',
+    description:
+      'Bidirectional sync of products, stock, warehouses, orders, pick lists, purchase orders, returns, and more with Picqer WMS.',
+    category: 'wms',
+    icon: 'warehouse',
+    delivery: 'hybrid',
+    auth: {
+      kind: 'api_key',
+      fields: [
+        {
+          key: 'subdomain',
+          label: 'Subdomain',
+          type: 'text',
+          placeholder: 'yourcompany',
+          required: true,
+        },
+        {
+          key: 'apiKey',
+          label: 'API key',
+          type: 'secret',
+          placeholder: '…',
+          required: true,
+        },
+      ],
+    },
+    syncs: [
+      {
+        syncName: 'picqer-products',
+        model: 'PicqerProduct',
+        internalEntity: 'product',
+        externalEntityType: 'picqer_product',
+        settingKey: 'products',
+      },
+      {
+        syncName: 'picqer-customers',
+        model: 'PicqerCustomer',
+        internalEntity: 'person',
+        externalEntityType: 'picqer_customer',
+        settingKey: 'customers',
+      },
+      {
+        syncName: 'picqer-orders',
+        model: 'PicqerOrder',
+        internalEntity: 'order',
+        externalEntityType: 'picqer_order',
+        settingKey: 'orders',
+      },
+      {
+        syncName: 'picqer-inventory',
+        model: 'PicqerInventory',
+        internalEntity: 'inventory',
+        externalEntityType: 'picqer_inventory',
+        settingKey: 'inventory',
+      },
+      {
+        syncName: 'picqer-warehouses',
+        model: 'PicqerWarehouse',
+        internalEntity: 'warehouse',
+        externalEntityType: 'picqer_warehouse',
+        settingKey: 'warehouses',
+      },
+      {
+        syncName: 'picqer-locations',
+        model: 'PicqerLocation',
+        internalEntity: 'location',
+        externalEntityType: 'picqer_location',
+        settingKey: 'locations',
+      },
+      {
+        syncName: 'picqer-picklists',
+        model: 'PicqerPicklist',
+        internalEntity: 'picklist',
+        externalEntityType: 'picqer_picklist',
+        settingKey: 'picklists',
+      },
+      {
+        syncName: 'picqer-shipments',
+        model: 'PicqerShipment',
+        internalEntity: 'shipment',
+        externalEntityType: 'picqer_shipment',
+        settingKey: 'shipments',
+      },
+      {
+        syncName: 'picqer-suppliers',
+        model: 'PicqerSupplier',
+        internalEntity: 'supplier',
+        externalEntityType: 'picqer_supplier',
+        settingKey: 'suppliers',
+      },
+      {
+        syncName: 'picqer-purchase-orders',
+        model: 'PicqerPurchaseOrder',
+        internalEntity: 'purchase_order',
+        externalEntityType: 'picqer_purchase_order',
+        settingKey: 'purchaseOrders',
+      },
+      {
+        syncName: 'picqer-returns',
+        model: 'PicqerReturn',
+        internalEntity: 'return',
+        externalEntityType: 'picqer_return',
+        settingKey: 'returns',
+      },
+      {
+        syncName: 'picqer-stock-counts',
+        model: 'PicqerStockCount',
+        internalEntity: 'stock_count',
+        externalEntityType: 'picqer_stock_count',
+        settingKey: 'stockCounts',
+      },
+      {
+        syncName: 'picqer-movements',
+        model: 'PicqerMovement',
+        internalEntity: 'inventory_movement',
+        externalEntityType: 'picqer_movement',
+        settingKey: 'movements',
       },
     ],
   },

@@ -15,6 +15,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
@@ -87,8 +88,14 @@ function ConnectionCard({
   const { data: logsResult } = useIntegrationSyncLogs(connection.id);
   const updateSettings = useUpdateConnectionSettings();
   const syncLogs = logsResult?.data?.slice(0, 5);
-  const syncSettings = connection.syncSettings as { syncIntervalHours?: number } | null;
+  const syncSettings = connection.syncSettings as {
+    syncIntervalHours?: number;
+    syncCompanies?: boolean;
+    syncPeople?: boolean;
+    syncOpportunities?: boolean;
+  } | null;
   const currentInterval = String(syncSettings?.syncIntervalHours || 6);
+  const currentDirection = (connection.direction as 'inbound' | 'outbound' | 'bidirectional') || 'inbound';
 
   return (
     <div className="bg-card border border-border rounded-xl p-4">
@@ -139,6 +146,51 @@ function ConnectionCard({
           </div>
         </div>
       )}
+
+      {/* Sync settings */}
+      <div className="mb-4 space-y-3 rounded-lg border border-border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-medium">{t('sweep.settings.crmSync.syncSettings')}</p>
+          <Select
+            value={currentDirection}
+            onValueChange={(v) => {
+              updateSettings.mutate({
+                connectionId: connection.id,
+                direction: v as 'inbound' | 'outbound' | 'bidirectional',
+              });
+            }}
+          >
+            <SelectTrigger className="h-7 w-[170px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inbound">{t('sweep.settings.fieldMapping.inboundOnly')}</SelectItem>
+              <SelectItem value="outbound">{t('sweep.settings.fieldMapping.outboundOnly')}</SelectItem>
+              <SelectItem value="bidirectional">{t('sweep.settings.fieldMapping.bothDirections')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          {[
+            { key: 'syncCompanies' as const, label: t('sweep.settings.crmSync.companies') },
+            { key: 'syncPeople' as const, label: t('sweep.settings.crmSync.contacts') },
+            { key: 'syncOpportunities' as const, label: t('sweep.settings.crmSync.deals') },
+          ].map((item) => (
+            <div key={item.key} className="flex items-center justify-between gap-3">
+              <span className="text-xs">{item.label}</span>
+              <Switch
+                checked={syncSettings?.[item.key] !== false}
+                onCheckedChange={(checked) => {
+                  updateSettings.mutate({
+                    connectionId: connection.id,
+                    syncSettings: { [item.key]: checked },
+                  });
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Actions */}
       <div className="flex items-center gap-2 mb-4">

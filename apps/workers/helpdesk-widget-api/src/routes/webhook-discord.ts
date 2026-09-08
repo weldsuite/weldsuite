@@ -41,10 +41,33 @@ discordWebhookRoutes.use('*', async (c, next) => {
   await next();
 });
 
+/** Secret fingerprint + optional guild KV check (no secret values returned). */
+discordWebhookRoutes.post('/ping', async (c) => {
+  const body = await c.req.json<{ guild_id?: string }>().catch(() => ({} as { guild_id?: string }));
+  const fingerprint = await sha256HexPrefix(c.env.DISCORD_BOT_SECRET || '');
+
+  let guildMapped: boolean | undefined;
+  if (body?.guild_id) {
+    const mapping = await resolveGuild(c.env, body.guild_id);
+    guildMapped = !!mapping?.clerkOrgId;
+    if (!guildMapped) {
+      console.warn('[discord-webhook] ping guild miss:', body.guild_id);
+    }
+  }
+
+  return success(c, {
+    secretConfigured: !!c.env.DISCORD_BOT_SECRET,
+    fingerprint,
+    guildId: body?.guild_id ?? null,
+    guildMapped: guildMapped ?? null,
+  });
+});
+
 discordWebhookRoutes.post('/ticket', async (c) => {
   const body = await c.req.json<{
     guild_id: string;
     thread_id: string;
+    parent_channel_id?: string;
     user: { id: string; username: string; avatar?: string | null };
   }>();
 
@@ -54,6 +77,10 @@ discordWebhookRoutes.post('/ticket', async (c) => {
 
   const mapping = await resolveGuild(c.env, body.guild_id);
   if (!mapping) {
+    console.warn('[discord-webhook] ticket create guild miss:', body.guild_id, {
+      threadId: body.thread_id,
+      parentChannelId: body.parent_channel_id ?? null,
+    });
     return error.notFound(c, 'Discord guild mapping');
   }
 
@@ -94,6 +121,8 @@ discordWebhookRoutes.post('/ticket', async (c) => {
         discordUserId: body.user.id,
         discordAvatar: avatar,
         isTicket: true,
+        // Panel channel that hosted Open Ticket — used for supportChannels monitoring
+        ...(body.parent_channel_id ? { parentChannelId: body.parent_channel_id } : {}),
       },
       createdAt: now,
       updatedAt: now,
@@ -238,6 +267,18 @@ discordWebhookRoutes.post('/message', async (c) => {
       return success(c, { ignored: true, reason: 'not_connected' });
     }
 
+    const config = (integration.config || {}) as Record<string, unknown>;
+    const supportChannels = (config.supportChannels || []) as Array<{
+      channelId: string;
+      enabled: boolean;
+    }>;
+    const enabledChannels = supportChannels.filter((ch) => ch.enabled);
+
+    // Opt-in monitoring: nothing selected → do not ingest messages
+    if (enabledChannels.length === 0) {
+      return success(c, { ignored: true, reason: 'not_monitored' });
+    }
+
     const [existingConv] = await db
       .select()
       .from(schema.helpdeskConversations)
@@ -253,6 +294,15 @@ discordWebhookRoutes.post('/message', async (c) => {
 
     if (!existingConv) {
       return success(c, { ignored: true, reason: 'unknown_thread' });
+    }
+
+    // Prefer parentChannelId stored at ticket create (Gateway MESSAGE_CREATE has no parent_id)
+    const meta = (existingConv.metadata || {}) as { parentChannelId?: string };
+    if (meta.parentChannelId) {
+      const allowed = enabledChannels.some((ch) => ch.channelId === meta.parentChannelId);
+      if (!allowed) {
+        return success(c, { ignored: true, reason: 'channel_not_monitored' });
+      }
     }
 
     let customerEmail = `discord:${body.author.id}@discord`;
@@ -537,7 +587,19 @@ discordWebhookRoutes.post('/workflow-respond', async (c) => {
 async function resolveGuild(env: Env, guildId: string): Promise<GuildMapping | null> {
   const cached = (await env.WORKSPACE_CACHE.get(`discord_guild:${guildId}`, 'json')) as GuildMapping | null;
   if (cached?.clerkOrgId) return cached;
+  console.warn('[discord-webhook] missing discord_guild KV mapping for guild', guildId);
   return null;
+}
+
+/** First 16 hex chars of SHA-256 — compare equality without exposing the secret. */
+async function sha256HexPrefix(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const bytes = new Uint8Array(digest);
+  let hex = '';
+  for (let i = 0; i < 8; i++) {
+    hex += bytes[i]!.toString(16).padStart(2, '0');
+  }
+  return hex;
 }
 
 async function publishHelpdesk(

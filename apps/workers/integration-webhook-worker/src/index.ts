@@ -219,6 +219,7 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     'x-shopify-topic',
     'x-shopify-hmac-sha256',
     'moneybird-signature',
+    'x-picqer-signature',
     'idempotency-key',
   ]) {
     const value = c.req.header(name);

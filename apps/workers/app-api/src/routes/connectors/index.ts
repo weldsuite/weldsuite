@@ -19,11 +19,13 @@ import {
   DEFAULT_ENABLED_SYNCS,
   generateWebhookSecret,
   getConnector,
+  getDefaultConnectorFieldMappings,
   listConnectors,
 } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { getWorkspaceForOrg, schema } from '../../db';
+import { generateId } from '../../lib/id';
 import {
   decryptCredentials,
   encryptCredentials,
@@ -36,6 +38,7 @@ import {
   markConnectionDisconnected,
   sanitizeConnection,
   sanitizeConnectionWithEntity,
+  seedDefaultConnectorFieldMappings,
   updateConnectionSettings,
   upsertConnection,
 } from '../../services/connectors/connections';
@@ -209,6 +212,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       externalAccountId: tested.storeUrl,
       webhookSecret: encryptedWebhookSecret,
     });
+    await seedDefaultConnectorFieldMappings(db, row.id, provider);
 
     let warning: string | null = null;
     try {
@@ -444,6 +448,11 @@ app.get('/connections/:id/records', requirePermission('integrations:read'), asyn
 const patchSchema = z.object({
   displayName: z.string().min(1).max(255).optional(),
   enabledSyncs: z.array(z.string().min(1)).optional(),
+  direction: z.enum(['inbound', 'outbound', 'bidirectional']).optional(),
+  objectSyncDirections: z
+    .record(z.enum(['inbound', 'outbound', 'bidirectional']))
+    .nullable()
+    .optional(),
   credentials: z.record(z.string().min(1)).optional(),
   entityId: z.string().min(1).max(30).nullable().optional(),
 });
@@ -493,6 +502,8 @@ app.patch(
         db,
         connectionId: row.id,
         enabledSyncs: body.enabledSyncs ? normalizeEnabledSyncs(row.provider, body.enabledSyncs) : undefined,
+        direction: body.direction,
+        objectSyncDirections: body.objectSyncDirections,
         credentials: encrypted,
         displayName: body.displayName,
         externalAccountId,
@@ -524,6 +535,98 @@ app.patch(
     } catch (err) {
       console.error('[app-api/connectors] update failed:', err);
       return connectorErrorResponse(c, err);
+    }
+  },
+);
+
+// ============================================================================
+// Field mappings (reuse integration_field_mappings, keyed by connector connection id)
+// ============================================================================
+
+app.get('/connections/:id/field-mappings', requirePermission('integrations:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const row = await getConnectionById(db, id);
+  if (!row) return error.notFound(c, 'Connection', id);
+
+  const entityType = c.req.query('entityType');
+  const fm = schema.integrationFieldMappings;
+  const conditions = [eq(fm.connectionId, id)];
+  if (entityType) conditions.push(eq(fm.entityType, entityType));
+
+  try {
+    const mappings = await db.select().from(fm).where(and(...conditions));
+    return success(c, mappings);
+  } catch (err) {
+    console.error('[app-api/connectors] field mappings failed:', err);
+    return error.internal(c, 'Failed to fetch field mappings');
+  }
+});
+
+app.get('/connections/:id/field-mappings/defaults', requirePermission('integrations:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const entityType = c.req.query('entityType');
+  if (!entityType) return error.badRequest(c, 'entityType query param required');
+
+  const row = await getConnectionById(db, id);
+  if (!row) return error.notFound(c, 'Connection', id);
+
+  return success(c, getDefaultConnectorFieldMappings(entityType, row.provider));
+});
+
+const updateConnectorFieldMappingsSchema = z.object({
+  entityType: z.string().min(1),
+  mappings: z.array(
+    z.object({
+      externalFieldPath: z.string().min(1),
+      internalFieldPath: z.string().min(1),
+      direction: z.enum(['inbound', 'outbound', 'bidirectional']).default('bidirectional'),
+      transformType: z.enum(['direct', 'lookup', 'format_date', 'custom']).default('direct'),
+      transformConfig: z.record(z.unknown()).optional(),
+      isRequired: z.boolean().default(false),
+    }),
+  ),
+});
+
+app.put(
+  '/connections/:id/field-mappings',
+  requirePermission('integrations:update'),
+  zValidator('json', updateConnectorFieldMappingsSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const row = await getConnectionById(db, id);
+    if (!row) return error.notFound(c, 'Connection', id);
+
+    const { entityType, mappings } = c.req.valid('json');
+    const fm = schema.integrationFieldMappings;
+
+    try {
+      await db.delete(fm).where(and(eq(fm.connectionId, id), eq(fm.entityType, entityType)));
+
+      if (mappings.length > 0) {
+        await db.insert(fm).values(
+          mappings.map((m, i) => ({
+            id: generateId('ifm'),
+            connectionId: id,
+            entityType,
+            externalFieldPath: m.externalFieldPath,
+            internalFieldPath: m.internalFieldPath,
+            direction: m.direction,
+            transformType: m.transformType,
+            transformConfig: m.transformConfig,
+            isRequired: m.isRequired,
+            isDefault: false,
+            position: i,
+          })),
+        );
+      }
+
+      return success(c, { entityType, count: mappings.length });
+    } catch (err) {
+      console.error('[app-api/connectors] update field mappings failed:', err);
+      return error.internal(c, 'Failed to update field mappings');
     }
   },
 );
@@ -581,6 +684,87 @@ app.post(
       return success(c, { triggered: body.syncs ?? row.enabledSyncs ?? [], full: body.full ?? false });
     } catch (err) {
       console.error('[app-api/connectors] trigger sync failed:', err);
+      return connectorErrorResponse(c, err);
+    }
+  },
+);
+
+const picqerPushSchema = z.object({
+  entity: z.enum([
+    'person',
+    'order',
+    'supplier',
+    'warehouse',
+    'purchase_order',
+    'return',
+    'inventory',
+  ]),
+  entityId: z.string().min(1),
+  warehouseId: z.string().optional(),
+  amountDelta: z.number().optional(),
+});
+
+app.post(
+  '/connections/:id/picqer/push',
+  requirePermission('integrations:update'),
+  zValidator('json', picqerPushSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const row = await getConnectionById(db, id);
+    if (!row) return error.notFound(c, 'Connection', id);
+    if (row.provider !== 'picqer') return error.badRequest(c, 'Not a Picqer connection');
+
+    const body = c.req.valid('json');
+    try {
+      const {
+        pushOrderToPicqer,
+        pushPersonToPicqer,
+        pushPurchaseOrderToPicqer,
+        pushReturnToPicqer,
+        pushStockAdjustmentToPicqer,
+        pushSupplierToPicqer,
+        pushWarehouseToPicqer,
+      } = await import('../../services/connectors/publish-picqer');
+
+      if (body.entity === 'person') {
+        return success(c, await pushPersonToPicqer({ db, env: c.env, connectionId: id, personId: body.entityId }));
+      }
+      if (body.entity === 'order') {
+        return success(c, await pushOrderToPicqer({ db, env: c.env, connectionId: id, orderId: body.entityId }));
+      }
+      if (body.entity === 'supplier') {
+        return success(c, await pushSupplierToPicqer({ db, env: c.env, connectionId: id, supplierId: body.entityId }));
+      }
+      if (body.entity === 'warehouse') {
+        return success(c, await pushWarehouseToPicqer({ db, env: c.env, connectionId: id, warehouseId: body.entityId }));
+      }
+      if (body.entity === 'purchase_order') {
+        return success(
+          c,
+          await pushPurchaseOrderToPicqer({ db, env: c.env, connectionId: id, purchaseOrderId: body.entityId }),
+        );
+      }
+      if (body.entity === 'return') {
+        return success(c, await pushReturnToPicqer({ db, env: c.env, connectionId: id, returnId: body.entityId }));
+      }
+      if (body.entity === 'inventory') {
+        if (!body.warehouseId || body.amountDelta === undefined) {
+          return error.badRequest(c, 'warehouseId and amountDelta required for inventory push');
+        }
+        await pushStockAdjustmentToPicqer({
+          db,
+          env: c.env,
+          connectionId: id,
+          productId: body.entityId,
+          warehouseId: body.warehouseId,
+          amountDelta: body.amountDelta,
+        });
+        return success(c, { ok: true });
+      }
+      return error.badRequest(c, 'Unsupported entity');
+    } catch (err) {
+      console.error('[app-api/connectors] picqer push failed:', err);
       return connectorErrorResponse(c, err);
     }
   },

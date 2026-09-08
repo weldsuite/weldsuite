@@ -583,6 +583,8 @@ app.get('/connections/:id', requirePermission('integrations:read'), async (c) =>
 
 const updateConnectionSchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  direction: z.enum(['inbound', 'outbound', 'bidirectional']).optional(),
+  entityConfig: z.record(z.enum(['inbound', 'outbound', 'bidirectional'])).optional(),
   settings: z.object({
     transportType: z.enum(['streamable-http', 'sse', 'stdio']).optional(),
     url: z.string().url().optional(),
@@ -598,6 +600,7 @@ const updateConnectionSchema = z.object({
     syncLeads: z.boolean().optional(),
     syncOpportunities: z.boolean().optional(),
     syncActivities: z.boolean().optional(),
+    syncCalendarEvents: z.boolean().optional(),
     syncIntervalHours: z.number().min(1).max(168).optional(),
   }).optional(),
 });
@@ -619,6 +622,11 @@ app.patch('/connections/:id', requirePermission('integrations:update'), zValidat
     const updates: Record<string, unknown> = { updatedAt: new Date() };
 
     if (body.name) updates.name = body.name;
+    if (body.direction) updates.direction = body.direction;
+    if (body.entityConfig) {
+      const current = (connection.entityConfig || {}) as Record<string, unknown>;
+      updates.entityConfig = { ...current, ...body.entityConfig };
+    }
 
     if (body.settings) {
       const currentSettings = (connection.settings || {}) as Record<string, unknown>;

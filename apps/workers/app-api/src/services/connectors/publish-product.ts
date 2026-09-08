@@ -9,7 +9,14 @@
  */
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { ConnectorApiError, getConnector, type ExternalProductRef, type OutboundCatalogProduct } from '@weldsuite/connectors';
+import {
+  ConnectorApiError,
+  allowsOutboundSync,
+  getConnector,
+  resolveConnectorObjectDirection,
+  type ExternalProductRef,
+  type OutboundCatalogProduct,
+} from '@weldsuite/connectors';
 import type { ProductSalesChannel } from '@weldsuite/db/schema';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
@@ -313,6 +320,17 @@ function assertWritableConnection(connection: ConnectorConnectionRow): void {
     throw new ProductSalesChannelError(
       'connection_inactive',
       'This sales channel is not connected. Reconnect the store and try again.',
+    );
+  }
+  const direction = resolveConnectorObjectDirection({
+    direction: connection.direction,
+    objectSyncDirections: connection.objectSyncDirections,
+    settingKey: 'products',
+  });
+  if (!allowsOutboundSync(direction)) {
+    throw new ProductSalesChannelError(
+      'unsupported',
+      'This connection is set to inbound-only. Enable outbound or two-way sync for products to publish.',
     );
   }
 }

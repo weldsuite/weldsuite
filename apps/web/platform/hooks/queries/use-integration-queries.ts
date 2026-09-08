@@ -36,7 +36,8 @@ export interface IntegrationConnection {
   provider: string;
   name: string | null;
   status: string;
-  direction: string;
+  direction: 'inbound' | 'outbound' | 'bidirectional' | string;
+  entityConfig?: Record<string, 'inbound' | 'outbound' | 'bidirectional'> | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   lastError: string | null;
@@ -48,6 +49,10 @@ export interface IntegrationConnection {
   syncSettings: {
     syncCompanies?: boolean;
     syncPeople?: boolean;
+    syncLeads?: boolean;
+    syncOpportunities?: boolean;
+    syncActivities?: boolean;
+    syncCalendarEvents?: boolean;
     syncIntervalHours?: number;
   } | null;
   triggerScheduleId: string | null;
@@ -197,12 +202,15 @@ export function useUpdateConnectionSettings() {
     }: {
       connectionId: string;
       name?: string;
+      direction?: 'inbound' | 'outbound' | 'bidirectional';
+      entityConfig?: Record<string, 'inbound' | 'outbound' | 'bidirectional'>;
       syncSettings?: {
         syncCompanies?: boolean;
         syncPeople?: boolean;
         syncLeads?: boolean;
         syncOpportunities?: boolean;
         syncActivities?: boolean;
+        syncCalendarEvents?: boolean;
         syncIntervalHours?: number;
       };
     }) => {

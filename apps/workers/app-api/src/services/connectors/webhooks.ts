@@ -7,6 +7,7 @@
 
 import {
   ConnectorApiError,
+  allowsInboundSync,
   connectorWebhookDeliveryUrl,
   connectorWebhookKvKey,
   enabledConnectorSyncs,
@@ -16,6 +17,7 @@ import {
   readWebhookSignatureFromHeaders,
   readWebhookTopicFromHeaders,
   readWebhookTopicFromPayload,
+  resolveConnectorObjectDirection,
   unwrapWebhookPayload,
   verifyConnectorWebhook,
   webhookTopicsFor,
@@ -226,6 +228,14 @@ export async function processConnectorWebhook(args: {
   const enabled = enabledConnectorSyncs(connector!, args.connection.enabledSyncs);
   if (!enabled.some((s) => s.syncName === sync.syncName)) {
     return { ok: true, status: 200, message: 'sync disabled' };
+  }
+  const direction = resolveConnectorObjectDirection({
+    direction: args.connection.direction,
+    objectSyncDirections: args.connection.objectSyncDirections,
+    settingKey: sync.settingKey,
+  });
+  if (!allowsInboundSync(direction)) {
+    return { ok: true, status: 200, message: 'inbound sync disabled for object' };
   }
 
   const record = unwrapWebhookPayload(args.connection.provider, payload);

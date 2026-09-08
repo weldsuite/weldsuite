@@ -62,6 +62,7 @@ import {
   mergeChannelEnabledState,
   projectDiscordSettings,
   projectSlackSettings,
+  putDiscordGuildMapping,
   resolveDiscordIntegration,
   sanitizeIntegration,
   slackAuthTest,
@@ -73,6 +74,21 @@ type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const hci = schema.helpdeskChannelIntegrations;
+
+/** Best-effort: keep widget-api guild routing in sync with a connected Discord row. */
+async function syncDiscordGuildKv(
+  c: AppContext,
+  orgId: string,
+  integration: Parameters<typeof discordGuildId>[0],
+): Promise<void> {
+  const guildId = discordGuildId(integration);
+  if (!guildId) return;
+  try {
+    await putDiscordGuildMapping(c.env.WORKSPACE_CACHE, guildId, orgId);
+  } catch (err) {
+    console.error('[app-api/helpdesk-integrations] Failed to sync discord_guild KV:', err);
+  }
+}
 
 // ============================================================================
 // Schemas
@@ -288,6 +304,7 @@ app.get('/discord/servers', requirePermission('settings:read'), async (c) => {
 
   try {
     const rows = await listIntegrationsByProvider(c.get('tenantDb'), 'discord');
+    await Promise.all(rows.map((row) => syncDiscordGuildKv(c, orgId, row)));
     return success(c, {
       servers: rows.map((row) => {
         const safe = sanitizeIntegration(row);
@@ -316,6 +333,8 @@ app.get('/discord/settings', requirePermission('settings:read'), async (c) => {
       c.req.query('integrationId'),
     );
     if (!integration) return error.notFound(c, 'Discord integration');
+
+    await syncDiscordGuildKv(c, orgId, integration);
 
     return success(c, {
       ...projectDiscordSettings(integrationConfig(integration)),
@@ -367,6 +386,8 @@ app.put(
         .update(hci)
         .set({ config: updatedConfig, updatedAt: new Date() })
         .where(eq(hci.id, integration.id));
+
+      await syncDiscordGuildKv(c, orgId, integration);
 
       const botToken = c.env.DISCORD_BOT_TOKEN;
 
@@ -502,6 +523,10 @@ app.post(
           updatedAt: new Date(),
         })
         .where(eq(hci.id, integration.id));
+
+      // Critical: ticket panels are useless if widget-api cannot resolve the guild.
+      // Re-seed KV here so open_ticket → /webhook/discord/ticket reaches this workspace.
+      await syncDiscordGuildKv(c, orgId, integration);
 
       return success(c, { messageId: message.id, ticketPanel, integrationId: integration.id });
     } catch (err) {

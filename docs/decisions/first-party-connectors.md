@@ -87,5 +87,34 @@ with a warning when the delivery URL is `http://`.
   `integration_entity_mappings`.
 - Adding a connector is a catalog entry, a provider client, mappers, webhook
   topics, and settings toggles — not a Nango integration plus a poller.
-- Outbound catalogue publish via sales channels is supported; order/customer
-  push and full bidirectional conflict handling remain open.
+- Outbound catalogue publish via sales channels is supported for ecommerce
+  connectors; Picqer adds bidirectional WMS push via
+  `/api/connectors/connections/:id/picqer/push` and product write clients.
+
+## Picqer (first `wms` connector)
+
+Picqer is a hybrid first-party connector (`category: wms`) with API-key auth
+(subdomain + API key). It syncs every overlapping WeldStash / WeldCommerce
+object: products, customers, orders, inventory, warehouses, locations,
+pick lists, shipments, suppliers, purchase orders, returns, stock counts, and
+movements.
+
+### Delivery
+
+- Live: Picqer hooks → `integration-webhook-worker` (forwards
+  `X-Picqer-Signature`) → app-api `connector-event`.
+- Catch-up: D1 `connector_sync_index` probe as for other hybrid connectors.
+- Signature: HMAC-SHA256 of the raw body, Base64 (`X-Picqer-Signature`).
+- Payload envelope: `{ event, data }` — topic from `event`, record from `data`.
+
+### Bidirectional / echo rules
+
+- Connection default direction is `bidirectional`; per-object overrides use
+  `objectSyncDirections`.
+- Inbound skips when `integration_entity_mappings.syncChecksum` matches.
+- Outbound push skips when the outbound payload checksum matches the mapping;
+  successful pushes stamp `lastSyncedAt` / checksum before any follow-up event
+  can re-queue the same payload.
+- Catalogue identity fields (SKU / name / barcode) are bidirectional; stock
+  quantities are inbound-primary from Picqer unless the object direction is
+  outbound. Fulfillment status follows Picqer picklist / shipment events.

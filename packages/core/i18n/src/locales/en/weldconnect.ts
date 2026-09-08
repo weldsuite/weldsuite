@@ -60,8 +60,8 @@ export const weldconnect = {
     disconnectDescription:
       'Syncing stops immediately. Records already imported stay in WeldSuite, and reconnecting later updates them instead of creating duplicates.',
     settings: {
-      title: 'What to sync',
-      description: 'Choose which objects this connection should import. You can change this at any time.',
+      title: 'Sync settings',
+      description: 'Choose sync direction, which objects to sync, and custom field mappings.',
       connectDescription: 'Enter store credentials, then choose which objects to sync.',
       connectDescriptionAppAuth:
         'Enter the store URL, then Connect. You will approve access on the shop — we never ask for API keys.',
@@ -70,6 +70,22 @@ export const weldconnect = {
       save: 'Save settings',
       saved: 'Sync settings saved',
       saveFailed: 'Could not save sync settings',
+      directionLabel: 'Sync direction',
+      directionDescription:
+        'One-way pulls data into WeldSuite, one-way push sends WeldSuite data out, two-way keeps both sides updated.',
+      directionInbound: 'One-way (into WeldSuite)',
+      directionOutbound: 'One-way (out to store)',
+      directionBidirectional: 'Two-way',
+      objectsLabel: 'Objects to sync',
+      objectsDescription: 'Enable objects and optionally override direction per object.',
+      mappingsLabel: 'Field mappings',
+      mappingsDescription: 'Map store fields to WeldSuite fields for each enabled object.',
+      mappingsAdd: 'Add mapping',
+      mappingsDefaults: 'Defaults',
+      mappingsSave: 'Save mappings',
+      mappingsSaved: 'Field mappings saved',
+      mappingsSaveFailed: 'Could not save field mappings',
+      mappingsEmpty: 'No custom mappings yet. Add a row or restore defaults.',
       products: 'Products',
       productsDescription: 'Articles and products from the store catalogue.',
       orders: 'Orders',

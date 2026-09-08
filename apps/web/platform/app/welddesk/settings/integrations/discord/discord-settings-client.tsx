@@ -646,7 +646,7 @@ export function DiscordSettingsClient({
                 <span className="ml-0.5">{di.discordRefresh}</span>
               </Button>
             </div>
-            {supportChannels.length === 0 && availableChannels.length > 0 && (
+            {supportChannels.filter((ch) => ch.enabled).length === 0 && availableChannels.length > 0 && (
               <Alert className="mb-4">
                 <Info className="h-4 w-4" />
                 <AlertDescription>

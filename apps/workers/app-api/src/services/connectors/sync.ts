@@ -13,8 +13,10 @@
 
 import {
   ConnectorApiError,
+  allowsInboundSync,
   enabledConnectorSyncs,
   getConnector,
+  resolveConnectorObjectDirection,
 } from '@weldsuite/connectors';
 import type { Database } from '../../db';
 import type { Env } from '../../types';
@@ -96,7 +98,14 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
   if (wantsBankTx && !hasBankAccounts && connector.provider === 'moneybird') {
     requested = ['bankAccounts', ...requested];
   }
-  const syncs = enabledConnectorSyncs(connector, requested);
+  const syncs = enabledConnectorSyncs(connector, requested).filter((sync) => {
+    const direction = resolveConnectorObjectDirection({
+      direction: args.connection.direction,
+      objectSyncDirections: args.connection.objectSyncDirections,
+      settingKey: sync.settingKey,
+    });
+    return allowsInboundSync(direction);
+  });
   if (syncs.length === 0) return { triggered: [] };
 
   const keyring = keyringFromEnv(args.env);

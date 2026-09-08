@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
   unwrapWebhookPayload,
   verifyMoneybirdWebhook,
+  verifyPicqerWebhook,
   verifyShopifyWebhook,
   verifyWooCommerceWebhook,
   webhookTopicsFor,
@@ -23,6 +24,13 @@ describe('connector webhooks', () => {
     expect(matchWebhookTopic('moneybird', 'receipt_destroyed')?.kind).toBe('delete');
     expect(matchWebhookTopic('moneybird', 'financial_account_renamed')?.settingKey).toBe('bankAccounts');
     expect(matchWebhookTopic('moneybird', 'financial_account_destroyed')?.kind).toBe('delete');
+  });
+
+  it('maps Picqer topics onto WMS setting keys', () => {
+    expect(matchWebhookTopic('picqer', 'products.free_stock_changed')?.settingKey).toBe('inventory');
+    expect(matchWebhookTopic('picqer', 'picklists.closed')?.syncName).toBe('picqer-picklists');
+    expect(matchWebhookTopic('picqer', 'picklists.shipments.created')?.settingKey).toBe('shipments');
+    expect(webhookTopicsFor('picqer').length).toBeGreaterThan(10);
   });
 
   it('builds a per-connection delivery URL', () => {
@@ -47,6 +55,20 @@ describe('connector webhooks', () => {
     const signature = await hmacSha256Base64(secret, body);
     expect(await verifyShopifyWebhook({ secret, body, signature })).toBe(true);
     expect(await verifyShopifyWebhook({ secret, body, signature: 'nope' })).toBe(false);
+  });
+
+  it('verifies a Picqer HMAC Base64 signature and unwraps data', async () => {
+    const body = '{"event":"products.free_stock_changed","data":{"idproduct":1,"stock":[]}}';
+    const secret = 'picqer_secret';
+    const signature = await hmacSha256Base64(secret, body);
+    expect(await verifyPicqerWebhook({ secret, body, signature })).toBe(true);
+    expect(await verifyPicqerWebhook({ secret, body, signature: 'nope' })).toBe(false);
+    expect(
+      unwrapWebhookPayload('picqer', {
+        event: 'products.free_stock_changed',
+        data: { idproduct: 1, freestock: 4 },
+      }),
+    ).toEqual({ idproduct: 1, freestock: 4 });
   });
 
   it('verifies a Moneybird t=,v1= HMAC hex signature and rejects stale timestamps', async () => {
