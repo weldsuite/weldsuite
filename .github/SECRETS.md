@@ -44,6 +44,7 @@ Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 | `DATABASE_URL_MASTER` | `personal-api`, `mail-inbound-worker`, `app-api`, … |
 | `DATABASE_URL_PERSONAL` | `personal-api`, `mail-inbound-worker` |
 | `CLERK_SECRET_KEY` / `CLERK_JWT_KEY` | `personal-api`, `app-api`, … |
+| `INTERNAL_API_SECRET` | `app-api`, `agent-runtime`, `integration-*`, `helpdesk-workflow-worker`, … |
 
 Copy from Doppler without printing values:
 

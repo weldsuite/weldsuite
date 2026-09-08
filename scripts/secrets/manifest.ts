@@ -217,6 +217,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
   ],
+
+  // WeldAgent cloud computer (Sandbox + Browser Run). Auth is Bearer
+  // INTERNAL_API_SECRET from app-api — must match the same env's app-api value.
+  "agent-runtime": [
+    "INTERNAL_API_SECRET",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

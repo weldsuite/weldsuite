@@ -116,7 +116,7 @@ export function DiscordSettingsClient({
   const { t } = useI18n();
   const st = useTranslations();
   const updateDiscordSettingsMutation = useUpdateDiscordSettings();
-  const discordChannelsQuery = useDiscordChannels(false);
+  const discordChannelsQuery = useDiscordChannels(integration.id, false);
   const postTicketPanelMutation = usePostTicketPanel();
 
   // Settings state
@@ -216,6 +216,29 @@ export function DiscordSettingsClient({
   // Show welcome message for new setups
   const [showWelcome, setShowWelcome] = useState(isNewSetup);
 
+  // Reset local form state when switching between Discord servers
+  useEffect(() => {
+    setSupportChannels(initialSettings?.supportChannels || []);
+    setProcessDirectMessages(initialSettings?.processDirectMessages ?? true);
+    setIgnoreBots(initialSettings?.ignoreBots ?? true);
+    setSupportPrefix(initialSettings?.supportPrefix || '');
+    setAutoReplyMessage(initialSettings?.autoReplyMessage || '');
+    setBotDisplayName(initialSettings?.botDisplayName || '');
+    setBotAvatarUrl(initialSettings?.botAvatarUrl || '');
+    setPanelChannelId(initialSettings?.ticketPanel?.channelId || '');
+    setPanelEmbedTitle(initialSettings?.ticketPanel?.embedTitle || 'Support Tickets');
+    setPanelEmbedDescription(
+      initialSettings?.ticketPanel?.embedDescription ||
+        'Click the button below to open a support ticket.',
+    );
+    setPanelEmbedColor(initialSettings?.ticketPanel?.embedColor || '#5865F2');
+    setPanelButtonText(initialSettings?.ticketPanel?.buttonText || 'Open a Ticket');
+    setPanelButtonStyle(initialSettings?.ticketPanel?.buttonStyle || 1);
+    setPanelMessageId(initialSettings?.ticketPanel?.messageId || '');
+    setAvailableChannels(guildInfo?.channels || []);
+    setHasChanges(false);
+  }, [integration.id, initialSettings, guildInfo]);
+
   useEffect(() => {
     // Mark as changed when any setting changes from initial
     const channelsChanged = JSON.stringify(supportChannels) !== JSON.stringify(initialSettings?.supportChannels || []);
@@ -266,6 +289,7 @@ export function DiscordSettingsClient({
   const handleSave = async () => {
     try {
       await updateDiscordSettingsMutation.mutateAsync({
+        integrationId: integration.id,
         supportChannels,
         processDirectMessages,
         ignoreBots,
@@ -302,6 +326,7 @@ export function DiscordSettingsClient({
     try {
       const channelName = availableChannels.find(ch => ch.channelId === panelChannelId)?.channelName;
       const result = await postTicketPanelMutation.mutateAsync({
+        integrationId: integration.id,
         channelId: panelChannelId,
         channelName,
         embedTitle: panelEmbedTitle,

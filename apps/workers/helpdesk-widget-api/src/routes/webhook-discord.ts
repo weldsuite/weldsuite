@@ -214,10 +214,11 @@ discordWebhookRoutes.post('/message', async (c) => {
   try {
     const db = await getTenantDbForWorkspace(c.env, mapping.clerkOrgId);
 
-    const [integration] = await db
+    const rows = await db
       .select({
         status: schema.helpdeskChannelIntegrations.status,
         config: schema.helpdeskChannelIntegrations.config,
+        accountInfo: schema.helpdeskChannelIntegrations.accountInfo,
       })
       .from(schema.helpdeskChannelIntegrations)
       .where(
@@ -225,8 +226,13 @@ discordWebhookRoutes.post('/message', async (c) => {
           eq(schema.helpdeskChannelIntegrations.provider, 'discord'),
           isNull(schema.helpdeskChannelIntegrations.deletedAt),
         ),
-      )
-      .limit(1);
+      );
+
+    const integration =
+      rows.find((row) => {
+        const info = row.accountInfo as { id?: string; metadata?: { guildId?: string } } | null;
+        return info?.metadata?.guildId === body.guild_id || info?.id === body.guild_id;
+      }) ?? rows[0];
 
     if (!integration || integration.status !== 'connected') {
       return success(c, { ignored: true, reason: 'not_connected' });

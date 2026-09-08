@@ -39,8 +39,11 @@ const helpdeskIntegrationKeys = {
   all: ['helpdesk', 'integrations'] as const,
   lists: () => [...helpdeskIntegrationKeys.all, 'list'] as const,
   channelStatus: (provider: string) => [...helpdeskIntegrationKeys.all, 'channel-status', provider] as const,
-  discordSettings: () => [...helpdeskIntegrationKeys.all, 'discord-settings'] as const,
-  discordChannels: () => [...helpdeskIntegrationKeys.all, 'discord-channels'] as const,
+  discordServers: () => [...helpdeskIntegrationKeys.all, 'discord-servers'] as const,
+  discordSettings: (integrationId?: string | null) =>
+    [...helpdeskIntegrationKeys.all, 'discord-settings', integrationId ?? 'default'] as const,
+  discordChannels: (integrationId?: string | null) =>
+    [...helpdeskIntegrationKeys.all, 'discord-channels', integrationId ?? 'default'] as const,
 };
 
 // =============================================================================
@@ -80,14 +83,35 @@ export function useChannelIntegrationStatus(provider: string, enabled = true) {
   });
 }
 
-export function useDiscordSettings(enabled = true) {
+/** Every connected Discord guild for the workspace. */
+export function useDiscordServers(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: helpdeskIntegrationKeys.discordSettings(),
+    queryKey: helpdeskIntegrationKeys.discordServers(),
     queryFn: async () => {
       const client = await getClient();
+      const res = await client.get<
+        Envelope<{
+          servers: Array<
+            Helpdesk.Api.ChannelIntegration & { guildId: string | null; guildName: string }
+          >;
+        }>
+      >('/helpdesk-integrations/discord/servers');
+      return res.data.servers;
+    },
+    enabled,
+  });
+}
+
+export function useDiscordSettings(integrationId?: string | null, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: helpdeskIntegrationKeys.discordSettings(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      const qs = integrationId ? `?integrationId=${encodeURIComponent(integrationId)}` : '';
       const res = await client.get<Envelope<Helpdesk.Api.DiscordIntegrationSettings>>(
-        '/helpdesk-integrations/discord/settings',
+        `/helpdesk-integrations/discord/settings${qs}`,
       );
       return res.data;
     },
@@ -95,14 +119,15 @@ export function useDiscordSettings(enabled = true) {
   });
 }
 
-export function useDiscordChannels(enabled = true) {
+export function useDiscordChannels(integrationId?: string | null, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: helpdeskIntegrationKeys.discordChannels(),
+    queryKey: helpdeskIntegrationKeys.discordChannels(integrationId),
     queryFn: async () => {
       const client = await getClient();
+      const qs = integrationId ? `?integrationId=${encodeURIComponent(integrationId)}` : '';
       const res = await client.get<Envelope<Helpdesk.Api.DiscordGuildInfo>>(
-        '/helpdesk-integrations/discord/channels',
+        `/helpdesk-integrations/discord/channels${qs}`,
       );
       return res.data;
     },
@@ -253,7 +278,9 @@ export function useUpdateDiscordSettings() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Helpdesk.Api.UpdateDiscordSettingsRequest) => {
+    mutationFn: async (
+      data: Helpdesk.Api.UpdateDiscordSettingsRequest & { integrationId?: string },
+    ) => {
       const client = await getClient();
       const res = await client.put<Envelope<Helpdesk.Api.DiscordIntegrationSettings>>(
         '/helpdesk-integrations/discord/settings',
@@ -261,9 +288,14 @@ export function useUpdateDiscordSettings() {
       );
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: helpdeskIntegrationKeys.discordSettings() });
-      qc.invalidateQueries({ queryKey: helpdeskIntegrationKeys.discordChannels() });
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: helpdeskIntegrationKeys.discordSettings(variables.integrationId),
+      });
+      qc.invalidateQueries({
+        queryKey: helpdeskIntegrationKeys.discordChannels(variables.integrationId),
+      });
+      qc.invalidateQueries({ queryKey: helpdeskIntegrationKeys.discordServers() });
     },
   });
 }
@@ -272,7 +304,9 @@ export function usePostTicketPanel() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Helpdesk.Api.PostDiscordTicketPanelRequest) => {
+    mutationFn: async (
+      data: Helpdesk.Api.PostDiscordTicketPanelRequest & { integrationId?: string },
+    ) => {
       const client = await getClient();
       const res = await client.post<Envelope<Helpdesk.Api.PostDiscordTicketPanelResponse>>(
         '/helpdesk-integrations/discord/ticket-panel',
@@ -280,8 +314,10 @@ export function usePostTicketPanel() {
       );
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: helpdeskIntegrationKeys.discordSettings() });
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: helpdeskIntegrationKeys.discordSettings(variables.integrationId),
+      });
     },
   });
 }
