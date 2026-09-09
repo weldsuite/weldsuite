@@ -1,4 +1,23 @@
-const { withAppBuildGradle } = require('@expo/config-plugins');
+const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
+
+// Match weldflow/weldchat. Fresh prebuild defaults OOM mid-lintVital on GHA.
+const GRADLE_JVMARGS =
+  '-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+
+const withIncreasedGradleMemory = (config) => {
+  return withGradleProperties(config, (config) => {
+    const items = config.modResults;
+    const existing = items.find(
+      (item) => item.type === 'property' && item.key === 'org.gradle.jvmargs',
+    );
+    if (existing) {
+      existing.value = GRADLE_JVMARGS;
+    } else {
+      items.push({ type: 'property', key: 'org.gradle.jvmargs', value: GRADLE_JVMARGS });
+    }
+    return config;
+  });
+};
 
 // Config plugin to exclude duplicate META-INF resources that cause
 // `mergeReleaseJavaResource` to fail when multiple jars (e.g. okhttp3
@@ -70,6 +89,7 @@ const withEasProject = (config) => {
 };
 
 module.exports = ({ config }) => {
+  config = withIncreasedGradleMemory(config);
   config = withAndroidPackagingExcludes(config);
   config = withEasProject(config);
 

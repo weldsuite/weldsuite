@@ -1,4 +1,29 @@
-const { withInfoPlist, withAppBuildGradle } = require('@expo/config-plugins');
+const {
+  withInfoPlist,
+  withAppBuildGradle,
+  withGradleProperties,
+} = require('@expo/config-plugins');
+
+// Match weldflow/weldchat. Fresh prebuild defaults to 2 GiB heap / 512 MiB
+// Metaspace, which OOMs mid-lintVital on GitHub runners
+// (`:react-native-keyboard-controller:lintVitalAnalyzeRelease FAILED`).
+const GRADLE_JVMARGS =
+  '-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+
+const withIncreasedGradleMemory = (config) => {
+  return withGradleProperties(config, (config) => {
+    const items = config.modResults;
+    const existing = items.find(
+      (item) => item.type === 'property' && item.key === 'org.gradle.jvmargs',
+    );
+    if (existing) {
+      existing.value = GRADLE_JVMARGS;
+    } else {
+      items.push({ type: 'property', key: 'org.gradle.jvmargs', value: GRADLE_JVMARGS });
+    }
+    return config;
+  });
+};
 
 // Add iOS URL scheme for Google Sign-In callback
 const withGoogleSignInUrlScheme = (config) => {
@@ -72,6 +97,7 @@ module.exports = ({ config }) => {
     EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: process.env.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
   };
 
+  config = withIncreasedGradleMemory(config);
   config = withGoogleSignInUrlScheme(config);
   config = withCleartextPolicy(config);
   config = withAndroidPackagingExcludes(config);

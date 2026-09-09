@@ -1,11 +1,33 @@
 const fs = require('fs');
 const path = require('path');
-const { withInfoPlist } = require('@expo/config-plugins');
-const { withAppBuildGradle } = require('@expo/config-plugins');
+const {
+  withInfoPlist,
+  withAppBuildGradle,
+  withGradleProperties,
+} = require('@expo/config-plugins');
 
 /** Must match the scaffold placeholder in app.json before `eas init` runs. */
 const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 const PROJECT_ROOT = __dirname;
+
+// Match weldflow/weldchat. Fresh prebuild defaults OOM mid-lintVital on GHA.
+const GRADLE_JVMARGS =
+  '-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+
+const withIncreasedGradleMemory = (config) => {
+  return withGradleProperties(config, (config) => {
+    const items = config.modResults;
+    const existing = items.find(
+      (item) => item.type === 'property' && item.key === 'org.gradle.jvmargs',
+    );
+    if (existing) {
+      existing.value = GRADLE_JVMARGS;
+    } else {
+      items.push({ type: 'property', key: 'org.gradle.jvmargs', value: GRADLE_JVMARGS });
+    }
+    return config;
+  });
+};
 
 /**
  * Resolves the EAS project id and keeps `updates.url` derived from it.
@@ -167,10 +189,12 @@ const withAndroidPackagingExcludes = (config) => {
 };
 
 module.exports = ({ config }) =>
-  withAndroidPackagingExcludes(
-    withGoogleSignInUrlScheme(
-      withClerkGoogleExtra(
-        withProductionCleartext(withFirebaseConfigFiles(withEasProject(config))),
+  withIncreasedGradleMemory(
+    withAndroidPackagingExcludes(
+      withGoogleSignInUrlScheme(
+        withClerkGoogleExtra(
+          withProductionCleartext(withFirebaseConfigFiles(withEasProject(config))),
+        ),
       ),
     ),
   );
