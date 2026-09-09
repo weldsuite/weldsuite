@@ -32,8 +32,8 @@ describe('parseDotenv', () => {
   });
 
   it('preserves values containing "="', () => {
-    expect(parseDotenv('URL=postgres://u:p@h/db?x=1&y=2').values.URL).toBe(
-      'postgres://u:p@h/db?x=1&y=2',
+    expect(parseDotenv('URL=https://example.com/path?x=1&y=2').values.URL).toBe(
+      'https://example.com/path?x=1&y=2',
     );
   });
 
