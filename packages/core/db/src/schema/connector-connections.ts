@@ -42,6 +42,15 @@ export type ConnectorSyncRunStatus = 'running' | 'success' | 'error' | 'partial'
 /** Encrypted provider credentials. Keys match `ConnectorDef.auth.fields`. */
 export type ConnectorCredentials = Record<string, string>;
 
+/**
+ * Connection-level sync direction.
+ * Per-object overrides live in `objectSyncDirections` (setting key → direction).
+ */
+export type ConnectorSyncDirection = 'inbound' | 'outbound' | 'bidirectional';
+
+/** Per-object sync direction overrides keyed by `ConnectorSyncSettingKey`. */
+export type ConnectorObjectSyncDirections = Partial<Record<string, ConnectorSyncDirection>>;
+
 /** Remote webhook the connector registered so the store can push changes. */
 export interface ConnectorWebhookRegistration {
   id: string;
@@ -73,6 +82,17 @@ export const connectorConnections = pgTable(
 
     /** Sync names / setting keys enabled for this connection. Null = every sync. */
     enabledSyncs: jsonb('enabled_syncs').$type<string[]>(),
+    /**
+     * Default sync direction for enabled objects.
+     * `inbound` = store → WeldSuite, `outbound` = WeldSuite → store,
+     * `bidirectional` = both (two-way).
+     */
+    direction: varchar('direction', { length: 15 })
+      .notNull()
+      .default('inbound')
+      .$type<ConnectorSyncDirection>(),
+    /** Optional per-object direction overrides (setting key → direction). */
+    objectSyncDirections: jsonb('object_sync_directions').$type<ConnectorObjectSyncDirections>(),
     /** Per-model incremental watermark: model → ISO timestamp of the last ingest. */
     syncWatermarks: jsonb('sync_watermarks').$type<Record<string, string>>(),
 

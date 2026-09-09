@@ -61,6 +61,7 @@ import {
   Boxes,
   ClipboardList,
   PackageCheck,
+  KeyRound,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -163,6 +164,19 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.navigation.moduleSidebar.welddata.findLeads, href: '/welddata', icon: Search, permission: 'prospects:read' },
+        ],
+      },
+    ],
+  },
+  weldpass: {
+    appName: 'WeldPass',
+    appIcon: KeyRound,
+    appLogo: getAppLogoConfig('weldpass'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldpass.projects, href: '/weldpass', icon: KeyRound, permission: 'secrets:read' },
         ],
       },
     ],

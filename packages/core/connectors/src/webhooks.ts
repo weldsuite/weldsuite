@@ -67,10 +67,44 @@ export const MONEYBIRD_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'moneybird', topic: 'financial_account_destroyed', settingKey: 'bankAccounts', kind: 'delete', syncName: 'moneybird-financial-accounts' },
 ];
 
+export const PICQER_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
+  { provider: 'picqer', topic: 'products.created', settingKey: 'products', kind: 'create', syncName: 'picqer-products' },
+  { provider: 'picqer', topic: 'products.changed', settingKey: 'products', kind: 'update', syncName: 'picqer-products' },
+  { provider: 'picqer', topic: 'products.free_stock_changed', settingKey: 'inventory', kind: 'update', syncName: 'picqer-inventory' },
+  { provider: 'picqer', topic: 'products.stock_changed', settingKey: 'inventory', kind: 'update', syncName: 'picqer-inventory' },
+  { provider: 'picqer', topic: 'products.stock_on_location_changed', settingKey: 'inventory', kind: 'update', syncName: 'picqer-inventory' },
+  { provider: 'picqer', topic: 'orders.created', settingKey: 'orders', kind: 'create', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.status_changed', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.completed', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.closed', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.allocated', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.paused', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'orders.resumed', settingKey: 'orders', kind: 'update', syncName: 'picqer-orders' },
+  { provider: 'picqer', topic: 'picklists.created', settingKey: 'picklists', kind: 'create', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.changed', settingKey: 'picklists', kind: 'update', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.closed', settingKey: 'picklists', kind: 'update', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.cancelled', settingKey: 'picklists', kind: 'update', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.paused', settingKey: 'picklists', kind: 'update', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.resumed', settingKey: 'picklists', kind: 'update', syncName: 'picqer-picklists' },
+  { provider: 'picqer', topic: 'picklists.shipments.created', settingKey: 'shipments', kind: 'create', syncName: 'picqer-shipments' },
+  { provider: 'picqer', topic: 'picklists.shipments.cancelled', settingKey: 'shipments', kind: 'update', syncName: 'picqer-shipments' },
+  { provider: 'picqer', topic: 'purchase_orders.created', settingKey: 'purchaseOrders', kind: 'create', syncName: 'picqer-purchase-orders' },
+  { provider: 'picqer', topic: 'purchase_orders.changed', settingKey: 'purchaseOrders', kind: 'update', syncName: 'picqer-purchase-orders' },
+  { provider: 'picqer', topic: 'purchase_orders.purchased', settingKey: 'purchaseOrders', kind: 'update', syncName: 'picqer-purchase-orders' },
+  { provider: 'picqer', topic: 'receipts.completed', settingKey: 'purchaseOrders', kind: 'update', syncName: 'picqer-purchase-orders' },
+  { provider: 'picqer', topic: 'returns.created', settingKey: 'returns', kind: 'create', syncName: 'picqer-returns' },
+  { provider: 'picqer', topic: 'returns.changed', settingKey: 'returns', kind: 'update', syncName: 'picqer-returns' },
+  { provider: 'picqer', topic: 'returns.status_changed', settingKey: 'returns', kind: 'update', syncName: 'picqer-returns' },
+  { provider: 'picqer', topic: 'returns.products_received', settingKey: 'returns', kind: 'update', syncName: 'picqer-returns' },
+  { provider: 'picqer', topic: 'movements.moved', settingKey: 'movements', kind: 'update', syncName: 'picqer-movements' },
+  { provider: 'picqer', topic: 'location_stock_counts.completed', settingKey: 'stockCounts', kind: 'update', syncName: 'picqer-stock-counts' },
+];
+
 const TOPICS_BY_PROVIDER: Record<string, ConnectorWebhookTopic[]> = {
   woocommerce: WOOCOMMERCE_WEBHOOK_TOPICS,
   shopify: SHOPIFY_WEBHOOK_TOPICS,
   moneybird: MONEYBIRD_WEBHOOK_TOPICS,
+  picqer: PICQER_WEBHOOK_TOPICS,
 };
 
 export function webhookTopicsFor(provider: string): ConnectorWebhookTopic[] {
@@ -207,6 +241,17 @@ export async function verifyMoneybirdWebhook(args: {
   return digests.some((digest) => timingSafeEqual(expected, digest));
 }
 
+/** Picqer: `X-Picqer-Signature` is HMAC-SHA256 of the raw body, Base64. */
+export async function verifyPicqerWebhook(args: {
+  secret: string;
+  body: string;
+  signature: string | null | undefined;
+}): Promise<boolean> {
+  if (!args.signature) return false;
+  const expected = await hmacSha256Base64(args.secret, args.body);
+  return timingSafeEqual(expected, args.signature.trim());
+}
+
 export async function verifyConnectorWebhook(args: {
   provider: string;
   secret: string;
@@ -216,6 +261,7 @@ export async function verifyConnectorWebhook(args: {
   if (args.provider === 'shopify') return verifyShopifyWebhook(args);
   if (args.provider === 'woocommerce') return verifyWooCommerceWebhook(args);
   if (args.provider === 'moneybird') return verifyMoneybirdWebhook(args);
+  if (args.provider === 'picqer') return verifyPicqerWebhook(args);
   return false;
 }
 
@@ -230,16 +276,31 @@ export function readWebhookTopicFromHeaders(provider: string, headers: Headers):
 }
 
 export function readWebhookTopicFromPayload(provider: string, payload: Record<string, unknown>): string | null {
-  if (provider !== 'moneybird') return null;
-  const action = payload.action;
-  return typeof action === 'string' && action.trim() ? action.trim().toLowerCase() : null;
+  if (provider === 'moneybird') {
+    const action = payload.action;
+    return typeof action === 'string' && action.trim() ? action.trim().toLowerCase() : null;
+  }
+  if (provider === 'picqer') {
+    const event = payload.event;
+    return typeof event === 'string' && event.trim() ? event.trim().toLowerCase() : null;
+  }
+  return null;
 }
 
 export function unwrapWebhookPayload(provider: string, payload: Record<string, unknown>): Record<string, unknown> {
-  if (provider !== 'moneybird') return payload;
-  const entity = payload.entity;
-  if (entity && typeof entity === 'object' && !Array.isArray(entity)) {
-    return entity as Record<string, unknown>;
+  if (provider === 'moneybird') {
+    const entity = payload.entity;
+    if (entity && typeof entity === 'object' && !Array.isArray(entity)) {
+      return entity as Record<string, unknown>;
+    }
+    return payload;
+  }
+  if (provider === 'picqer') {
+    const data = payload.data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      return data as Record<string, unknown>;
+    }
+    return payload;
   }
   return payload;
 }
@@ -253,6 +314,9 @@ export function readWebhookSignatureFromHeaders(provider: string, headers: Heade
   }
   if (provider === 'moneybird') {
     return headers.get('moneybird-signature') ?? headers.get('Moneybird-Signature');
+  }
+  if (provider === 'picqer') {
+    return headers.get('x-picqer-signature') ?? headers.get('X-Picqer-Signature');
   }
   return null;
 }

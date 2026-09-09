@@ -7,6 +7,13 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
+# @weldsuite/db's lib barrel optionally imports @clerk/nextjs (Next.js auth +
+# admin helpers). Those packages use Node `__dirname` and crash the Workers
+# runtime. Alias them out the same way app-api and external-api do.
+[alias]
+"@clerk/nextjs/server" = "./src/lib/clerk-shim.ts"
+"@clerk/nextjs" = "./src/lib/clerk-shim.ts"
+
 [observability]
 enabled = true
 head_sampling_rate = 1
@@ -18,7 +25,9 @@ head_sampling_rate = 1
 #
 # Required secrets (add via wrangler secret put or .dev.vars for local):
 # - WIDGET_TOKEN_SECRET: JWT signing secret for realtime-worker auth
+# - DISCORD_BOT_SECRET: same value as discord-bot-worker DISCORD_PUBLIC_KEY (X-Bot-Secret)
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
+# - NEON_API_KEY + DATABASE_ENCRYPTION_KEY(+_V2): tenant DB resolution
 
 [vars]
 ENVIRONMENT = "development"

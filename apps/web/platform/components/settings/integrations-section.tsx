@@ -181,6 +181,23 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
     href: '/settings/integrations/moneybird',
   },
   {
+    id: 'picqer',
+    name: 'Picqer',
+    description:
+      'Bidirectional sync of products, stock, warehouses, orders, pick lists, and purchases with Picqer WMS.',
+    category: 'Warehouse',
+    icon: (
+      <img
+        src="https://icons.duckduckgo.com/ip3/picqer.com.ico"
+        alt="Picqer"
+        className="h-6 w-6 rounded-[4px]"
+        loading="lazy"
+      />
+    ),
+    configurable: true,
+    href: '/settings/integrations/picqer',
+  },
+  {
     id: 'sendcloud',
     name: 'Sendcloud',
     description: 'Create shipping labels from WeldStash pick lists with your own Sendcloud account.',
@@ -198,7 +215,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   },
 ]
 
-const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Accounting', 'Shipping', 'Support', 'Calendar', 'AI', 'Developer Tools']
+const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'Shipping', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
 export function IntegrationsSection() {
   const router = useRouter()
@@ -237,7 +254,7 @@ export function IntegrationsSection() {
       else if (def.id === 'slack') connected = slackConnected
       else if (def.id === 'mcp_servers') connected = mcpCount > 0
       else if (def.id === 'github') connected = githubConnected
-      else if (def.id === 'woocommerce' || def.id === 'shopify' || def.id === 'moneybird') connected = connectorConnected(def.id)
+      else if (def.id === 'woocommerce' || def.id === 'shopify' || def.id === 'moneybird' || def.id === 'picqer') connected = connectorConnected(def.id)
       else if (def.id === 'sendcloud') connected = Boolean(sendcloudResult?.data?.connected)
       else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
       return { ...def, connected }

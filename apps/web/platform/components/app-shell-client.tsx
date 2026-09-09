@@ -1,5 +1,5 @@
 
-import { Suspense, lazy, useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { ComposeProvider } from '@/contexts/compose-context';
@@ -28,6 +28,11 @@ import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
 import { EntitySheetHost } from '@/components/entity-sheet';
 import { DesktopNotificationBridge } from '@/components/desktop/desktop-notification-bridge';
+import {
+  clearPendingOrganization,
+  peekPendingOrganization,
+  resolveOrganizationToActivate,
+} from '@/lib/pending-organization';
 
 // Globally-mounted overlays are lazy-loaded — they each pull big modules
 // (weldchat ~500 KB, weldmail compose ~50 KB, weldmeet meeting overlay)
@@ -70,15 +75,18 @@ export function AppShellClient({ children }: AppShellClientProps) {
     setActive,
   } = useOrganizationList({ userMemberships: true });
   const orgActivationRef = useRef(false);
+  // Captured once per page load so a just-created workspace survives the
+  // reload even if Clerk's session still has the previous org (or none).
+  const [pendingOrgId] = useState(() => peekPendingOrganization());
 
-  // When the user is signed in but Clerk hasn't surfaced an active org yet
-  // (notably right after creating a workspace from the user menu), activate
-  // their first membership IN PLACE. The old behaviour hard-redirected to
-  // /onboarding, whose own auto-activate effect then redirected back to `/`
-  // — and while Clerk's session was still settling the two full-page
-  // redirects ping-ponged, reloading the page roughly once a second.
+  // Activate the right org when Clerk hasn't (or has the wrong one).
+  // Creating a workspace from the user menu stashes the new org id in
+  // sessionStorage; that pending id must win over memberships[0], which is
+  // the *old* workspace. The previous behaviour activated the first
+  // membership whenever orgId was missing, so the reload after create
+  // dropped the user back into the workspace they just left.
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || orgId) return;
+    if (!isLoaded || !isSignedIn) return;
     // /auth, /onboarding and /invite bootstrap their own org context.
     if (
       pathname.startsWith('/auth/') ||
@@ -87,14 +95,42 @@ export function AppShellClient({ children }: AppShellClientProps) {
     ) {
       return;
     }
-    if (!orgListLoaded || !setActive) return;
+    if (!orgListLoaded || !setActive || orgActivationRef.current) return;
+
     const firstOrgId = userMemberships?.data?.[0]?.organization?.id;
-    if (!firstOrgId || orgActivationRef.current) return;
-    orgActivationRef.current = true;
-    setActive({ organization: firstOrgId }).catch(() => {
-      orgActivationRef.current = false;
+    const targetOrgId = resolveOrganizationToActivate({
+      orgId,
+      pendingOrgId,
+      firstOrgId,
     });
-  }, [isLoaded, isSignedIn, orgId, orgListLoaded, userMemberships?.data, setActive, pathname]);
+
+    if (!targetOrgId) {
+      if (pendingOrgId && pendingOrgId === orgId) {
+        clearPendingOrganization();
+      }
+      return;
+    }
+
+    orgActivationRef.current = true;
+    const switchingFromActiveOrg = Boolean(orgId) && orgId !== targetOrgId;
+    setActive({ organization: targetOrgId })
+      .then(() => {
+        clearPendingOrganization();
+        // Session already had a different org, so this page hydrated against
+        // the wrong workspace. Reload once the new org is active.
+        if (switchingFromActiveOrg) {
+          try {
+            window.localStorage.removeItem('weldsuite:query-cache');
+          } catch {
+            // storage unavailable — reload anyway
+          }
+          window.location.href = '/';
+        }
+      })
+      .catch(() => {
+        orgActivationRef.current = false;
+      });
+  }, [isLoaded, isSignedIn, orgId, orgListLoaded, userMemberships?.data, setActive, pathname, pendingOrgId]);
 
   // `?embedded=1` strips the platform shell (workspace + module sidebars) so a
   // page can be iframed inside another panel as if it were standalone — used
@@ -154,12 +190,13 @@ export function AppShellClient({ children }: AppShellClientProps) {
     return null;
   }
 
-  // No active org yet. If the user actually has memberships, the effect
-  // above is activating one in place — wait for orgId to populate rather
-  // than bouncing to /onboarding (which would loop). Only send genuinely
-  // org-less users to onboarding.
-  if (!orgId) {
+  // Wait while we activate a just-created workspace (or an org-less session
+  // that still has memberships). Don't flash the previous workspace, and
+  // don't bounce to /onboarding while that activation is in flight.
+  const activatingPendingOrg = Boolean(pendingOrgId && pendingOrgId !== orgId);
+  if (!orgId || activatingPendingOrg) {
     if (!orgListLoaded) return null;
+    if (activatingPendingOrg) return null;
     if ((userMemberships?.data?.length ?? 0) > 0) return null;
     window.location.href = '/onboarding';
     return null;

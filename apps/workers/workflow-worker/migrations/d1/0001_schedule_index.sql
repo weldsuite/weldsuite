@@ -5,9 +5,8 @@
 -- polls this table every minute instead of fanning out to every tenant Neon DB;
 -- app-api keeps it in sync on schedule CRUD.
 --
--- Apply with: wrangler d1 execute weldsuite-schedule-index-<env> --remote \
---   --file apps/workers/workflow-worker/migrations/d1/0001_schedule_index.sql
--- (already applied to all three envs at creation time).
+-- Applied automatically on deploy via:
+--   pnpm --filter workflow-worker d1:migrate:<env>
 
 CREATE TABLE IF NOT EXISTS schedule_index (
   schedule_id     TEXT PRIMARY KEY,

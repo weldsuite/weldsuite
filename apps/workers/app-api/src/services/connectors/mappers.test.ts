@@ -36,6 +36,72 @@ describe('WooCommerce product mapper', () => {
     });
     expect(mapped?.values).toMatchObject({ status: 'inactive', price: '20.00' });
   });
+
+  it('maps stock quantity and variable-product variations', () => {
+    const mapped = mapConnectorRecord('product', {
+      id: 20,
+      name: 'Variable tee',
+      slug: 'variable-tee',
+      type: 'variable',
+      status: 'publish',
+      manage_stock: false,
+      stock_quantity: null,
+      _variations: [
+        {
+          id: 201,
+          sku: 'VT-S',
+          price: '10.00',
+          manage_stock: true,
+          stock_quantity: 3,
+          status: 'publish',
+          attributes: [{ name: 'Size', option: 'S' }],
+        },
+        {
+          id: 202,
+          sku: 'VT-L',
+          price: '12.00',
+          manage_stock: true,
+          stock_quantity: 0,
+          status: 'publish',
+          attributes: [{ name: 'Size', option: 'L' }],
+        },
+      ],
+    });
+    expect(mapped?.entity).toBe('product');
+    if (mapped?.entity !== 'product') return;
+    expect(mapped.values).toMatchObject({
+      hasVariants: true,
+      variantCount: 2,
+      trackInventory: false,
+    });
+    expect(mapped.variants).toHaveLength(2);
+    expect(mapped.variants?.[0]).toMatchObject({
+      externalId: '201',
+      sku: 'VT-S',
+      inventoryQuantity: 3,
+      trackInventory: true,
+      optionValues: { Size: 'S' },
+    });
+  });
+
+  it('maps simple Woo stock onto the product', () => {
+    const mapped = mapConnectorRecord('product', {
+      id: 21,
+      name: 'Simple mug',
+      slug: 'simple-mug',
+      type: 'simple',
+      status: 'publish',
+      manage_stock: true,
+      stock_quantity: 8,
+      price: '5.00',
+    });
+    expect(mapped?.values).toMatchObject({
+      inventoryQuantity: 8,
+      trackInventory: true,
+      hasVariants: false,
+    });
+    expect(mapped?.entity === 'product' && mapped.variants).toBeFalsy();
+  });
 });
 
 describe('WooCommerce order mapper', () => {
@@ -92,7 +158,7 @@ describe('Shopify mappers', () => {
         title: 'Weld helmet',
         handle: 'weld-helmet',
         status: 'active',
-        variants: [{ price: '129.00', sku: 'WH-1', compare_at_price: '149.00' }],
+        variants: [{ price: '129.00', sku: 'WH-1', compare_at_price: '149.00', inventory_quantity: 4, inventory_management: 'shopify' }],
         images: [{ src: 'https://cdn.example/h.jpg', alt: 'Helmet' }],
       },
       'shopify',
@@ -104,6 +170,36 @@ describe('Shopify mappers', () => {
       sku: 'WH-1',
       price: '129.00',
       status: 'active',
+      inventoryQuantity: 4,
+      trackInventory: true,
+      hasVariants: false,
+    });
+  });
+
+  it('maps multi-variant Shopify products', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      {
+        id: 102,
+        title: 'Gloves',
+        handle: 'gloves',
+        status: 'active',
+        options: [{ name: 'Size' }],
+        variants: [
+          { id: 1, price: '9.00', sku: 'G-S', option1: 'S', inventory_quantity: 2, inventory_management: 'shopify' },
+          { id: 2, price: '9.00', sku: 'G-L', option1: 'L', inventory_quantity: 5, inventory_management: 'shopify' },
+        ],
+      },
+      'shopify',
+    );
+    expect(mapped?.entity).toBe('product');
+    if (mapped?.entity !== 'product') return;
+    expect(mapped.values).toMatchObject({ hasVariants: true, variantCount: 2 });
+    expect(mapped.variants?.[1]).toMatchObject({
+      externalId: '2',
+      sku: 'G-L',
+      inventoryQuantity: 5,
+      optionValues: { Size: 'L' },
     });
   });
 
@@ -292,5 +388,130 @@ describe('Moneybird mappers', () => {
     expect(mapped?.entity).toBe('bank_transaction');
     if (mapped?.entity !== 'bank_transaction') return;
     expect(mapped.values).toMatchObject({ amount: '0.00', status: 'reconciled' });
+  });
+});
+
+describe('Picqer mappers', () => {
+  it('maps a Picqer product with productcode and stock', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      {
+        idproduct: 88,
+        name: 'Picqer widget',
+        productcode: 'PQ-88',
+        barcode: '123',
+        price: 12.5,
+        active: true,
+        stock: [{ idwarehouse: 1, stock: 5, freestock: 4, reserved: 1 }],
+      },
+      'picqer',
+    );
+    expect(mapped?.entity).toBe('product');
+    expect(mapped?.externalId).toBe('88');
+    expect(mapped?.values).toMatchObject({
+      name: 'Picqer widget',
+      sku: 'PQ-88',
+      barcode: '123',
+      status: 'active',
+      inventoryQuantity: 4,
+    });
+  });
+
+  it('maps a Picqer order with products array and idcustomer', () => {
+    const mapped = mapConnectorRecord(
+      'order',
+      {
+        idorder: 501,
+        orderid: 'O2026-1',
+        status: 'processing',
+        idcustomer: 9,
+        emailaddress: 'buyer@example.com',
+        products: [{ idproduct: 88, productcode: 'PQ-88', name: 'Widget', amount: 2, price: 12.5 }],
+      },
+      'picqer',
+    );
+    expect(mapped?.entity).toBe('order');
+    if (mapped?.entity !== 'order') return;
+    expect(mapped.customerExternalId).toBe('9');
+    expect(mapped.lineItems).toHaveLength(1);
+    expect(mapped.values).toMatchObject({
+      orderNumber: 'O2026-1',
+      status: 'processing',
+      customerEmail: 'buyer@example.com',
+    });
+  });
+
+  it('maps Picqer customer, warehouse, picklist, and inventory rows', () => {
+    expect(
+      mapConnectorRecord(
+        'person',
+        { idcustomer: 3, name: 'Acme BV', emailaddress: 'ops@acme.test', telephone: '061234' },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ email: 'ops@acme.test', fullName: 'Acme BV' });
+
+    expect(
+      mapConnectorRecord('warehouse', { idwarehouse: 1, name: 'Main', accepts_orders: true }, 'picqer')
+        ?.values,
+    ).toMatchObject({ name: 'Main', isActive: true });
+
+    const picklist = mapConnectorRecord(
+      'picklist',
+      { idpicklist: 70, picklistid: 'P70', status: 'closed', idwarehouse: 1, idorder: 501, products: [] },
+      'picqer',
+    );
+    expect(picklist?.entity).toBe('picklist');
+    expect(picklist?.values).toMatchObject({ pickListNumber: 'P70', status: 'completed' });
+
+    const inventory = mapConnectorRecord(
+      'inventory',
+      { id: '88:1', idproduct: 88, idwarehouse: 1, stock: 5, freestock: 4, reserved: 1 },
+      'picqer',
+    );
+    expect(inventory?.entity).toBe('inventory');
+    expect(inventory?.values).toMatchObject({
+      quantityOnHand: 5,
+      quantityAvailable: 4,
+      quantityAllocated: 1,
+    });
+  });
+
+  it('maps Picqer supplier, purchase order, return, shipment, and movement', () => {
+    expect(
+      mapConnectorRecord('supplier', { idsupplier: 2, name: 'Steel Co', emailaddress: 's@co' }, 'picqer')
+        ?.values,
+    ).toMatchObject({ name: 'Steel Co', email: 's@co' });
+
+    expect(
+      mapConnectorRecord(
+        'purchase_order',
+        { idpurchaseorder: 11, purchaseorderid: 'PO-11', status: 'purchased', products: [{ amount: 3 }] },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ poNumber: 'PO-11', status: 'ordered', totalQuantityOrdered: 3 });
+
+    expect(
+      mapConnectorRecord(
+        'return',
+        { idreturn: 4, returnid: 'R4', status: 'received', products: [{ name: 'Widget', amount: 1 }] },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ returnNumber: 'R4', status: 'received' });
+
+    expect(
+      mapConnectorRecord(
+        'shipment',
+        { idshipment: 8, trackingcode: '3STRACK', provider: 'PostNL', idpicklist: 70 },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ shipmentNumber: '3STRACK', carrierName: 'PostNL', status: 'shipped' });
+
+    expect(
+      mapConnectorRecord(
+        'inventory_movement',
+        { idmovement: 6, idproduct: 88, amount: 2, idwarehouse_from: 1, idwarehouse_to: 2 },
+        'picqer',
+      )?.values,
+    ).toMatchObject({ movementNumber: '6', quantity: 2, status: 'completed' });
   });
 });

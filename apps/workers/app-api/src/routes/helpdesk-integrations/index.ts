@@ -58,9 +58,12 @@ import {
   helpdeskOAuthRedirectUri,
   integrationConfig,
   listIntegrations,
+  listIntegrationsByProvider,
   mergeChannelEnabledState,
   projectDiscordSettings,
   projectSlackSettings,
+  putDiscordGuildMapping,
+  resolveDiscordIntegration,
   sanitizeIntegration,
   slackAuthTest,
   slackBotToken,
@@ -71,6 +74,21 @@ type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const hci = schema.helpdeskChannelIntegrations;
+
+/** Best-effort: keep widget-api guild routing in sync with a connected Discord row. */
+async function syncDiscordGuildKv(
+  c: AppContext,
+  orgId: string,
+  integration: Parameters<typeof discordGuildId>[0],
+): Promise<void> {
+  const guildId = discordGuildId(integration);
+  if (!guildId) return;
+  try {
+    await putDiscordGuildMapping(c.env.WORKSPACE_CACHE, guildId, orgId);
+  } catch (err) {
+    console.error('[app-api/helpdesk-integrations] Failed to sync discord_guild KV:', err);
+  }
+}
 
 // ============================================================================
 // Schemas
@@ -93,7 +111,19 @@ const ticketPanelSchema = z.object({
   messageId: z.string().optional(),
 });
 
+const ticketPanelRequestSchema = z.object({
+  integrationId: z.string().optional(),
+  channelId: z.string().min(1),
+  channelName: z.string().optional(),
+  embedTitle: z.string().max(256).default('Support Tickets'),
+  embedDescription: z.string().max(4096).default('Click the button below to open a support ticket.'),
+  embedColor: z.string().default('#5865F2'),
+  buttonText: z.string().max(80).default('Open a Ticket'),
+  buttonStyle: z.number().min(1).max(4).default(1),
+});
+
 const discordSettingsSchema = z.object({
+  integrationId: z.string().optional(),
   supportChannels: z
     .array(
       z.object({
@@ -110,16 +140,6 @@ const discordSettingsSchema = z.object({
   botDisplayName: z.string().max(80).optional(),
   botAvatarUrl: z.string().url().optional().or(z.literal('')),
   ticketPanel: ticketPanelSchema.optional(),
-});
-
-const ticketPanelRequestSchema = z.object({
-  channelId: z.string().min(1),
-  channelName: z.string().optional(),
-  embedTitle: z.string().max(256).default('Support Tickets'),
-  embedDescription: z.string().max(4096).default('Click the button below to open a support ticket.'),
-  embedColor: z.string().default('#5865F2'),
-  buttonText: z.string().max(80).default('Open a Ticket'),
-  buttonStyle: z.number().min(1).max(4).default(1),
 });
 
 const sendDiscordSchema = z.object({
@@ -248,7 +268,7 @@ app.post(
 // Discord — static routes (MUST precede the /:provider and /:id handlers)
 // ============================================================================
 
-/** POST /discord/connect — begin the Discord OAuth flow. */
+/** POST /discord/connect — begin the Discord OAuth flow (adds another server). */
 app.post('/discord/connect', requirePermission('settings:update'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -277,23 +297,61 @@ app.post('/discord/connect', requirePermission('settings:update'), async (c) => 
   }
 });
 
-/** GET /discord/settings */
+/** GET /discord/servers — every connected Discord guild for this workspace. */
+app.get('/discord/servers', requirePermission('settings:read'), async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  try {
+    const rows = await listIntegrationsByProvider(c.get('tenantDb'), 'discord');
+    await Promise.all(rows.map((row) => syncDiscordGuildKv(c, orgId, row)));
+    return success(c, {
+      servers: rows.map((row) => {
+        const safe = sanitizeIntegration(row);
+        return {
+          ...safe,
+          guildId: discordGuildId(row) ?? null,
+          guildName:
+            (row.accountInfo as { name?: string } | null)?.name || row.name || 'Discord Server',
+        };
+      }),
+    });
+  } catch (err) {
+    console.error('[app-api/helpdesk-integrations] List Discord servers error:', err);
+    return error.internal(c);
+  }
+});
+
+/** GET /discord/settings?integrationId= */
 app.get('/discord/settings', requirePermission('settings:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
   try {
-    const integration = await findIntegrationByProvider(c.get('tenantDb'), 'discord');
+    const integration = await resolveDiscordIntegration(
+      c.get('tenantDb'),
+      c.req.query('integrationId'),
+    );
     if (!integration) return error.notFound(c, 'Discord integration');
 
-    return success(c, projectDiscordSettings(integrationConfig(integration)));
+    await syncDiscordGuildKv(c, orgId, integration);
+
+    return success(c, {
+      ...projectDiscordSettings(integrationConfig(integration)),
+      integrationId: integration.id,
+      guildId: discordGuildId(integration) ?? null,
+      guildName:
+        (integration.accountInfo as { name?: string } | null)?.name ||
+        integration.name ||
+        'Discord Server',
+    });
   } catch (err) {
     console.error('[app-api/helpdesk-integrations] Get Discord settings error:', err);
     return error.internal(c);
   }
 });
 
-/** PUT /discord/settings */
+/** PUT /discord/settings — body may include integrationId for multi-server. */
 app.put(
   '/discord/settings',
   requirePermission('settings:update'),
@@ -306,7 +364,7 @@ app.put(
 
     try {
       const db = c.get('tenantDb');
-      const integration = await findIntegrationByProvider(db, 'discord');
+      const integration = await resolveDiscordIntegration(db, data.integrationId);
       if (!integration) return error.notFound(c, 'Discord integration');
 
       const currentConfig = integrationConfig(integration);
@@ -328,6 +386,8 @@ app.put(
         .update(hci)
         .set({ config: updatedConfig, updatedAt: new Date() })
         .where(eq(hci.id, integration.id));
+
+      await syncDiscordGuildKv(c, orgId, integration);
 
       const botToken = c.env.DISCORD_BOT_TOKEN;
 
@@ -357,7 +417,11 @@ app.put(
         }
       }
 
-      return success(c, projectDiscordSettings(updatedConfig));
+      return success(c, {
+        ...projectDiscordSettings(updatedConfig),
+        integrationId: integration.id,
+        guildId: discordGuildId(integration) ?? null,
+      });
     } catch (err) {
       console.error('[app-api/helpdesk-integrations] Update Discord settings error:', err);
       return error.internal(c);
@@ -365,7 +429,7 @@ app.put(
   },
 );
 
-/** GET /discord/channels — live guild channels merged with configured state. */
+/** GET /discord/channels?integrationId= — live guild channels merged with configured state. */
 app.get('/discord/channels', requirePermission('settings:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -374,7 +438,10 @@ app.get('/discord/channels', requirePermission('settings:read'), async (c) => {
   if (!botToken) return error.internal(c, 'Discord bot token not configured');
 
   try {
-    const integration = await findIntegrationByProvider(c.get('tenantDb'), 'discord');
+    const integration = await resolveDiscordIntegration(
+      c.get('tenantDb'),
+      c.req.query('integrationId'),
+    );
     if (!integration) return error.notFound(c, 'Discord integration');
 
     const guildId = discordGuildId(integration);
@@ -384,8 +451,9 @@ app.get('/discord/channels', requirePermission('settings:read'), async (c) => {
     const accountInfo = integration.accountInfo as { name?: string } | null;
 
     return success(c, {
+      integrationId: integration.id,
       guildId,
-      guildName: accountInfo?.name || 'Unknown',
+      guildName: accountInfo?.name || integration.name || 'Unknown',
       channels: mergeChannelEnabledState(discordChannels, integrationConfig(integration)),
     });
   } catch (err) {
@@ -410,7 +478,7 @@ app.post(
 
     try {
       const db = c.get('tenantDb');
-      const integration = await findIntegrationByProvider(db, 'discord');
+      const integration = await resolveDiscordIntegration(db, data.integrationId);
       if (!integration) return error.notFound(c, 'Discord integration');
 
       const colorInt = parseInt(data.embedColor.replace('#', ''), 16) || 0x5865f2;
@@ -456,7 +524,11 @@ app.post(
         })
         .where(eq(hci.id, integration.id));
 
-      return success(c, { messageId: message.id, ticketPanel });
+      // Critical: ticket panels are useless if widget-api cannot resolve the guild.
+      // Re-seed KV here so open_ticket → /webhook/discord/ticket reaches this workspace.
+      await syncDiscordGuildKv(c, orgId, integration);
+
+      return success(c, { messageId: message.id, ticketPanel, integrationId: integration.id });
     } catch (err) {
       console.error('[app-api/helpdesk-integrations] Post ticket panel error:', err);
       return error.internal(c, 'Failed to post ticket panel');

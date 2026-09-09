@@ -35,7 +35,7 @@ remote = true
 
 [[kv_namespaces]]
 binding = "BROWSER_SESSIONS"
-id = "00000000000000000000000000000000"
+id = "94e80a27c70c48919b3429ce7d813c49"
 
 [observability]
 enabled = true
@@ -65,10 +65,9 @@ new_sqlite_classes = ["Sandbox"]
 binding = "BROWSER"
 remote = true
 
-# Replace with a real KV id before first deploy.
 [[env.test.kv_namespaces]]
 binding = "BROWSER_SESSIONS"
-id = "00000000000000000000000000000000"
+id = "c6f7f0099872485b8d3b21c334e907c2"
 
 [env.test.observability]
 enabled = true
@@ -99,7 +98,7 @@ binding = "BROWSER"
 
 [[env.production.kv_namespaces]]
 binding = "BROWSER_SESSIONS"
-id = "00000000000000000000000000000000"
+id = "38742dfafce84dd680e11c1d56c8245f"
 
 [env.production.observability]
 enabled = true

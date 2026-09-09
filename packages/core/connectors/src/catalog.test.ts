@@ -13,8 +13,13 @@ import {
 } from './catalog';
 
 describe('connector catalog', () => {
-  it('ships WooCommerce, Shopify, and Moneybird as first-party connectors', () => {
-    expect(listConnectors().map((c) => c.provider)).toEqual(['woocommerce', 'shopify', 'moneybird']);
+  it('ships WooCommerce, Shopify, Moneybird, and Picqer as first-party connectors', () => {
+    expect(listConnectors().map((c) => c.provider)).toEqual([
+      'woocommerce',
+      'shopify',
+      'moneybird',
+      'picqer',
+    ]);
   });
 
   it('keeps provider keys unique', () => {
@@ -109,5 +114,31 @@ describe('connector catalog', () => {
     expect(connectorSyncMode('woocommerce')).toBe('webhook_catchup');
     expect(connectorIntervalMinutes('woocommerce')).toBe(6 * 60);
     expect(connectorIntervalMinutes('unknown-poller')).toBe(15);
+  });
+
+  it('lists Picqer as a hybrid WMS connector with API key auth', () => {
+    const picqer = getConnector('picqer');
+    expect(picqer?.category).toBe('wms');
+    expect(picqer?.delivery).toBe('hybrid');
+    expect(picqer?.auth.kind).toBe('api_key');
+    expect(picqer?.auth.fields.map((f) => f.key)).toEqual(['subdomain', 'apiKey']);
+    expect(connectorSyncMode('picqer')).toBe('webhook_catchup');
+    expect(picqer?.syncs.map((s) => s.internalEntity)).toEqual([
+      'product',
+      'person',
+      'order',
+      'inventory',
+      'warehouse',
+      'location',
+      'picklist',
+      'shipment',
+      'supplier',
+      'purchase_order',
+      'return',
+      'stock_count',
+      'inventory_movement',
+    ]);
+    expect(defaultEnabledSyncs('picqer')).toContain('picklists');
+    expect(defaultEnabledSyncs('picqer')).toContain('inventory');
   });
 });

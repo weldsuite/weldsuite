@@ -1,8 +1,10 @@
 /**
  * WeldChat in-call views.
  *
- * Status → view routing for inline / fullscreen wrappers. The room itself is
- * Cloudflare RealtimeKit's official `RtkMeeting` (via `chat-meeting-room.tsx`).
+ * These render the SAME shared `MeetingRoomView` as the WeldMeet experience
+ * (via `chat-meeting-room.tsx`), driven by the WeldChat call context.
+ * This file only owns the status → view routing and the inline/fullscreen
+ * wrappers; the room itself lives in the shared `@weldsuite/weldmeet-ui` package.
  *
  * Exports consumed elsewhere:
  *   - InlineCallView  → channel / DM / group-DM conversation pages (inline)

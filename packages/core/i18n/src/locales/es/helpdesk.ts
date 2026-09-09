@@ -1861,7 +1861,7 @@ export const helpdesk = {
       discordSendPanel: 'Enviar panel',
       discordRefresh: 'Actualizar',
       discordSearchChannels: 'Buscar canales...',
-      discordNoChannelsSelected: 'Ningún canal seleccionado. El bot monitoreará todos los canales de texto para mensajes de soporte.',
+      discordNoChannelsSelected: 'Ningún canal seleccionado. La supervisión de mensajes está desactivada hasta que actives al menos un canal. Los paneles de tickets pueden seguir creando tickets en la bandeja.',
       discordNoTextChannels: 'No se encontraron canales de texto en este servidor.',
       discordNoTextChannelsHint: 'Asegúrate de que el bot tenga acceso para ver los canales.',
       discordNoChannelsMatch: 'No coinciden canales',

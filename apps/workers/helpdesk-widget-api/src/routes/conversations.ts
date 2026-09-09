@@ -14,7 +14,7 @@ import {
   listDeskMessages,
   upsertDeskVisitor,
   DeskConversationNotFoundError,
-} from '@weldsuite/db/lib';
+} from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';

@@ -685,6 +685,13 @@ export const settings = {
         overview:
           'Conecta con OAuth y elige la entidad de WeldBooks. Tras la importación inicial, Moneybird envía la mayoría de cambios por webhooks, con una sincronización de recuperación para transacciones bancarias. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite.',
       },
+      picqer: {
+        title: 'Picqer',
+        description:
+          'Sincronización bidireccional de productos, stock, almacenes, pedidos, picking y compras con Picqer WMS.',
+        overview:
+          'Introduce tu subdominio de Picqer y la clave API. Tras la importación inicial, Picqer envía cambios de stock, picking, pedidos y compras por webhooks, con una sincronización de recuperación. Las cantidades de stock tratan Picqer como verdad del almacén salvo que anules la dirección del objeto.',
+      },
       configurePrintNode: 'Configurar PrintNode',
       printNodeDescription: 'Introduce tu clave de API de PrintNode para conectar tus impresoras',
       apiKey: 'Clave de API',

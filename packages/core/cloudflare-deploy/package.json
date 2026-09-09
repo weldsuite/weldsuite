@@ -1,0 +1,24 @@
+{
+  "name": "@weldsuite/cloudflare-deploy",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.7",
+    "vitest": "^3.2.6"
+  },
+  "dependencies": {
+    "cloudflare": "^7.0.0"
+  }
+}

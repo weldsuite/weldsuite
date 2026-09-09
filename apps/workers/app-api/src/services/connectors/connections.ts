@@ -12,7 +12,12 @@
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { encryptField, maybeDecryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
-import { getConnector } from '@weldsuite/connectors';
+import {
+  getConnector,
+  getDefaultConnectorFieldMappings,
+  type ConnectorObjectSyncDirections,
+  type ConnectorSyncDirection,
+} from '@weldsuite/connectors';
 import type { ConnectorSyncRunStatus, ConnectorSyncTrigger, ConnectorWebhookRegistration } from '@weldsuite/db/schema';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
@@ -85,6 +90,8 @@ export function sanitizeConnection(
     externalAccountId: row.externalAccountId,
     entityId: options?.entityId ?? null,
     enabledSyncs: row.enabledSyncs ?? connector?.syncs.map((s) => s.settingKey) ?? [],
+    direction: row.direction ?? 'inbound',
+    objectSyncDirections: row.objectSyncDirections ?? {},
     authFields: connector?.auth.fields.map((f) => ({
       key: f.key,
       label: f.label,
@@ -273,6 +280,8 @@ export async function updateConnectionSettings(args: {
   db: Database;
   connectionId: string;
   enabledSyncs?: string[];
+  direction?: ConnectorSyncDirection;
+  objectSyncDirections?: ConnectorObjectSyncDirections | null;
   credentials?: Record<string, string>;
   displayName?: string;
   externalAccountId?: string | null;
@@ -284,6 +293,10 @@ export async function updateConnectionSettings(args: {
     .update(schema.connectorConnections)
     .set({
       ...(args.enabledSyncs ? { enabledSyncs: args.enabledSyncs } : {}),
+      ...(args.direction ? { direction: args.direction } : {}),
+      ...(args.objectSyncDirections !== undefined
+        ? { objectSyncDirections: args.objectSyncDirections }
+        : {}),
       ...(args.credentials ? { credentials: args.credentials } : {}),
       ...(args.displayName !== undefined ? { displayName: args.displayName } : {}),
       ...(args.externalAccountId !== undefined ? { externalAccountId: args.externalAccountId } : {}),
@@ -295,6 +308,49 @@ export async function updateConnectionSettings(args: {
       updatedAt: now,
     })
     .where(eq(schema.connectorConnections.id, args.connectionId));
+}
+
+/**
+ * Seed default field mappings for every entity type the connector syncs.
+ * Skips entity types that already have rows so reconnects keep custom maps.
+ */
+export async function seedDefaultConnectorFieldMappings(
+  db: Database,
+  connectionId: string,
+  provider: string,
+): Promise<void> {
+  const connector = getConnector(provider);
+  if (!connector) return;
+  const fm = schema.integrationFieldMappings;
+  const entityTypes = [...new Set(connector.syncs.map((s) => s.internalEntity))];
+
+  for (const entityType of entityTypes) {
+    const existing = await db
+      .select({ id: fm.id })
+      .from(fm)
+      .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)))
+      .limit(1);
+    if (existing.length > 0) continue;
+
+    const defaults = getDefaultConnectorFieldMappings(entityType, provider);
+    if (defaults.length === 0) continue;
+
+    await db.insert(fm).values(
+      defaults.map((m, i) => ({
+        id: generateId('ifm'),
+        connectionId,
+        entityType,
+        externalFieldPath: m.externalFieldPath,
+        internalFieldPath: m.internalFieldPath,
+        direction: m.direction,
+        transformType: m.transformType,
+        transformConfig: m.transformConfig ?? null,
+        isRequired: m.isRequired ?? false,
+        isDefault: true,
+        position: i,
+      })),
+    );
+  }
 }
 
 export async function markConnectionError(args: {
@@ -366,7 +422,13 @@ export async function finishSyncRun(args: {
   applied?: { created: number; modified: number; skipped: number; deleted: number; failed: number };
   error?: string | null;
   errorSamples?: Array<{ externalId: string; message: string }>;
+  /** @deprecated Prefer syncWatermarksPatch. Applied only when status is success and no patch is given. */
   watermark?: { model: string; at: string } | null;
+  /**
+   * Merge into connection.syncWatermarks. `null` removes a key.
+   * Applied for any run status so truncated backfills can persist a page cursor.
+   */
+  syncWatermarksPatch?: Record<string, string | null>;
 }): Promise<void> {
   const now = new Date();
   const [run] = await args.db
@@ -400,7 +462,27 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId))
     .limit(1);
 
-  const advanceWatermark = args.watermark && args.status === 'success';
+  const patch: Record<string, string | null> = { ...(args.syncWatermarksPatch ?? {}) };
+  if (
+    args.watermark
+    && args.status === 'success'
+    && args.syncWatermarksPatch === undefined
+  ) {
+    patch[args.watermark.model] = args.watermark.at;
+  }
+
+  const setEntries = Object.entries(patch).filter(([, v]) => v !== null) as Array<[string, string]>;
+  const removeKeys = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
+  let watermarksSql: ReturnType<typeof sql> | undefined;
+  if (setEntries.length > 0 || removeKeys.length > 0) {
+    watermarksSql = sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb)`;
+    if (setEntries.length > 0) {
+      watermarksSql = sql`${watermarksSql} || ${JSON.stringify(Object.fromEntries(setEntries))}::jsonb`;
+    }
+    for (const key of removeKeys) {
+      watermarksSql = sql`${watermarksSql} - ${key}`;
+    }
+  }
 
   await args.db
     .update(schema.connectorConnections)
@@ -410,13 +492,7 @@ export async function finishSyncRun(args: {
       lastError: args.error ? args.error.slice(0, 2000) : null,
       lastErrorAt: args.error ? now : null,
       recordsSynced: sql`${schema.connectorConnections.recordsSynced} + ${applied}`,
-      ...(advanceWatermark
-        ? {
-            syncWatermarks: sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb) || ${JSON.stringify(
-              { [args.watermark!.model]: args.watermark!.at },
-            )}::jsonb`,
-          }
-        : {}),
+      ...(watermarksSql ? { syncWatermarks: watermarksSql } : {}),
       status:
         connection?.status === 'auth_error'
           ? 'auth_error'

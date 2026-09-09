@@ -367,6 +367,35 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── WeldPass (secret management) ──────────────────────────────────────
+  // `read` lists keys and metadata only. Seeing a value needs `reveal`, so a
+  // developer can manage the inventory without ever reading production
+  // credentials. `sync` pushes an environment to Cloudflare/Vercel.
+  {
+    key: 'secrets',
+    label: 'Secrets (WeldPass)',
+    permissions: [
+      { key: 'secrets:read',   label: 'View secret names and metadata' },
+      {
+        key: 'secrets:reveal',
+        label: 'Reveal secret values',
+        description: 'Decrypt and read stored values. Every reveal is written to the WeldPass audit trail.',
+      },
+      { key: 'secrets:create', label: 'Create secrets and vault projects' },
+      { key: 'secrets:update', label: 'Edit secrets' },
+      { key: 'secrets:delete', label: 'Delete secrets' },
+      {
+        key: 'secrets:sync',
+        label: 'Sync secrets to deploy targets',
+        description: 'Push a vault environment to Cloudflare Workers, Cloudflare Pages or Vercel.',
+      },
+      {
+        key: 'secrets:manage',
+        label: 'Manage vaults and provider credentials',
+        description: 'Configure environments, sync targets, and the Cloudflare/Vercel API tokens WeldPass deploys with.',
+      },
+    ],
+  },
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
   // Only the MODULE-level keys live here. The per-object keys
   // (`weldobjects:<slug>:read` etc.) are generated at runtime from the
@@ -433,6 +462,9 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'weldobjects:read', 'weldobjects:manage',
   'weldobjects:*:read', 'weldobjects:*:create', 'weldobjects:*:update', 'weldobjects:*:delete',
   'weldobjects:*:scope:all',
+  // WeldPass (secret management) — admins run the vaults
+  'secrets:read', 'secrets:reveal', 'secrets:create', 'secrets:update',
+  'secrets:delete', 'secrets:sync', 'secrets:manage',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [

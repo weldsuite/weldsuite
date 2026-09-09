@@ -204,7 +204,7 @@ export const commerce = {
         salesChannelAdded: 'Gesynchroniseerd naar {name}',
         salesChannelRemoved: 'Verwijderd van {name}',
         removeSalesChannel: 'Verkoopkanaal verwijderen',
-        removeSalesChannelHint: 'Verwijdert de vermelding hier. Het product blijft in de winkel staan.',
+        removeSalesChannelHint: 'Verwijdert de vermelding hier en verwijdert het product in de winkel.',
         noSalesChannelTargets: 'Nog geen verbonden winkels. Koppel WooCommerce of Shopify in WeldConnect.',
         salesChannelAlreadyAdded: 'Toegevoegd',
         salesChannelsNone: '—',

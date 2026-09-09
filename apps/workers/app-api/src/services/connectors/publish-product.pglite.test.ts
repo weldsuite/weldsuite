@@ -1,5 +1,5 @@
 /**
- * Outbound sales-channel publish: add syncs to the store, remove is local-only.
+ * Outbound sales-channel publish: add syncs to the store; unlink deletes remotely first.
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -23,6 +23,7 @@ function fakeClient(overrides: Partial<ProductWriteClient> = {}): ProductWriteCl
     findProductBySku: async () => null,
     createProduct: async () => ({ id: '99', url: 'https://shop.example/?p=99' }),
     updateProduct: async (id) => ({ id, url: `https://shop.example/?p=${id}` }),
+    deleteProduct: async () => undefined,
     ...overrides,
   };
 }
@@ -36,6 +37,7 @@ beforeAll(async () => {
     provider: 'woocommerce',
     displayName: 'Main store',
     status: 'active',
+    direction: 'bidirectional',
     externalAccountId: 'https://shop.example',
   });
 }, 60_000);
@@ -164,7 +166,7 @@ describe('publishProductToSalesChannel', () => {
 });
 
 describe('unlinkProductSalesChannel', () => {
-  it('deletes the local listing and does not call the store client', async () => {
+  it('deletes the remote listing then the local row', async () => {
     await db.insert(schema.products).values({
       id: 'prod_pub_4',
       name: 'Jacket',
@@ -174,6 +176,7 @@ describe('unlinkProductSalesChannel', () => {
     });
 
     const createProduct = vi.fn(async () => ({ id: '41', url: null }));
+    const deleteProduct = vi.fn(async () => undefined);
     const channel = await publishProductToSalesChannel({
       db,
       env,
@@ -182,7 +185,13 @@ describe('unlinkProductSalesChannel', () => {
       client: fakeClient({ createProduct }),
     });
 
-    await unlinkProductSalesChannel({ db, productId: 'prod_pub_4', channelId: channel.id });
+    await unlinkProductSalesChannel({
+      db,
+      env,
+      productId: 'prod_pub_4',
+      channelId: channel.id,
+      client: fakeClient({ deleteProduct }),
+    });
 
     const remaining = await db
       .select()
@@ -190,6 +199,46 @@ describe('unlinkProductSalesChannel', () => {
       .where(eq(schema.productSalesChannels.productId, 'prod_pub_4'));
     expect(remaining).toHaveLength(0);
     expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(deleteProduct).toHaveBeenCalledWith('41');
+  });
+
+  it('keeps the local row when remote delete fails with a non-404 error', async () => {
+    await db.insert(schema.products).values({
+      id: 'prod_pub_4b',
+      name: 'Coat',
+      slug: 'coat-pub-4b',
+      sku: 'WH-PUB-4B',
+      price: '99.00',
+    });
+
+    const channel = await publishProductToSalesChannel({
+      db,
+      env,
+      productId: 'prod_pub_4b',
+      connectionId: 'conn_pub_woo',
+      client: fakeClient({ createProduct: async () => ({ id: '42', url: null }) }),
+    });
+
+    const { ConnectorApiError } = await import('@weldsuite/connectors');
+    await expect(
+      unlinkProductSalesChannel({
+        db,
+        env,
+        productId: 'prod_pub_4b',
+        channelId: channel.id,
+        client: fakeClient({
+          deleteProduct: async () => {
+            throw new ConnectorApiError({ message: 'boom', status: 500, kind: 'transient' });
+          },
+        }),
+      }),
+    ).rejects.toMatchObject({ code: 'sync_failed' });
+
+    const remaining = await db
+      .select()
+      .from(schema.productSalesChannels)
+      .where(eq(schema.productSalesChannels.productId, 'prod_pub_4b'));
+    expect(remaining).toHaveLength(1);
   });
 });
 

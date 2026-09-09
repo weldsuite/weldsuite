@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.34.5.
 
-Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
+Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
 ### WeldApps, user-created apps
 
@@ -82,7 +82,7 @@ All internal packages are scoped **`@weldsuite/*`** and live under category fold
 - `@weldsuite/credits`, `@weldsuite/entity-events`, `@weldsuite/feature-flags`, `@weldsuite/notifications`, Platform primitives
 - `@weldsuite/email`, `@weldsuite/transactional-email`, Email sending
 - `@weldsuite/realtime`, `@weldsuite/cloudflare-realtime`, Realtime helpers
-- `@weldsuite/cloudflare-registrar`, `@weldsuite/cloudflare-zones`, `@weldsuite/neon-provisioning`, Infra abstractions
+- `@weldsuite/cloudflare-registrar`, `@weldsuite/cloudflare-zones`, `@weldsuite/cloudflare-deploy`, `@weldsuite/neon-provisioning`, Infra abstractions
 - **All Cloudflare REST access goes through the official `cloudflare` SDK**, imported via `cloudflare/tree-shakable` (`createClient({ resources: [...] })`). Never `new Cloudflare()` — the full client bundles every resource in the API (~2 MB vs ~73 KB). Don't hand-roll `api.cloudflare.com` paths; add the resource to the relevant `@weldsuite/cloudflare-*` package instead.
 - `@weldsuite/app-sdk`, `@weldsuite/cli`, `@weldsuite/helpdesk-widget-sdk`, Published SDKs (permissive-licensed for embedding)
 - `@weldsuite/eslint-config`, `@weldsuite/typescript-config`, Shared configs
@@ -247,6 +247,42 @@ return success(c, newCustomer, 201);
 ```
 
 Fire-and-forget, uses `c.executionCtx.waitUntil(...)` internally, never blocks the response. Missing queue/realtime bindings log a warning and no-op. The events catalog at `packages/core/entity-events/src/events/` is the single source of truth for entity types + actions; agent `eventSubscriptions` and workflow `entity_event` triggers validate against the same registry.
+
+### WeldPass (secret management)
+
+Encrypted secret vaults with push sync to Cloudflare Workers, Cloudflare Pages
+and Vercel. It is a **module of the platform**, not a separate app: routes live
+in `app-api` like every other object, and the UI is a normal platform module.
+
+- **Backend**: `apps/workers/app-api/src/routes/weldpass/` +
+  `src/services/weldpass/`. Workspace-scoped through the standard
+  `clerkMiddleware()` → `workspaceDbMiddleware()` chain, so a vault belongs to
+  a workspace exactly like a customer or a ticket does.
+- **Frontend**: `apps/web/platform/app/weldpass/` with route wrappers in
+  `src/routes/weldpass/`, the `weldpass` domain client in
+  `@weldsuite/app-api-client`, and hooks in
+  `hooks/queries/use-weldpass-queries.ts`.
+- **Envelope encryption**: root key (`WELDPASS_ROOT_KEY`, a worker secret) wraps
+  a per-project KEK (`weldpass_projects.kek_wrapped`), which wraps a per-write
+  data key, which encrypts the value. Ciphertexts are AAD-bound to their
+  project/environment/key, so a row copied between environments fails to
+  decrypt instead of yielding the wrong value. **Losing `WELDPASS_ROOT_KEY`
+  makes every stored secret unrecoverable** — it is distinct from
+  `DATABASE_ENCRYPTION_KEY`, which only protects stored tenant DB URLs.
+  Rotating it rewrites only project rows (`rewrapVaultKey`), never the secrets.
+- **Permissions**: `secrets:read` lists keys and metadata; `secrets:reveal`
+  decrypts. Kept apart on purpose, so a developer can manage the inventory
+  without reading production credentials. Also `secrets:create|update|delete|
+  sync|manage`. OWNER/ADMIN get all; MEMBER/VIEWER get none until granted.
+- **No entity events.** WeldPass writes its own trail to
+  `weldpass_audit_events` (reveals included) and is EXEMPT in
+  `_event-coverage.test.ts`: the entity-event bus feeds workflows, analytics
+  and AI agents, and neither secret metadata nor production credential names
+  belong in any of them.
+- **Cloudflare REST** goes through `@weldsuite/cloudflare-deploy` (official SDK).
+  Vercel has no such wrapper and is called directly in
+  `services/weldpass/providers/vercel.ts`.
+- Schema: `packages/core/db/src/schema/weldpass.ts` (tenant DB only).
 
 ### Deleted: `apps/core-api`, `apps/api-worker`, `apps/mobile-api-worker`
 

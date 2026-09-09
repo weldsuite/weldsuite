@@ -3,6 +3,7 @@ name: Deploy
 # Deploy lives in this repo on GitHub-hosted runners.
 #   push to `develop` → test  (app-test.weldsuite.org, *-test workers)
 #   push to `main`    → production (app.weldsuite.org)
+#   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
 # Secrets live on the GitHub Environments `test` and `production`.
 # See .github/SECRETS.md.
@@ -67,6 +68,8 @@ jobs:
       ref: ${{ steps.ctx.outputs.ref }}
       cf_env: ${{ steps.ctx.outputs.cf_env }}
       run_migrations: ${{ steps.changes.outputs.migrations }}
+      run_d1_connector_migrations: ${{ steps.changes.outputs.d1_connector_migrations }}
+      run_d1_schedule_migrations: ${{ steps.changes.outputs.d1_schedule_migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
@@ -113,9 +116,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Path filters only apply to push. Manual workflow_dispatch always full-deploys:
+      # paths-filter has no push `before` SHA and would otherwise only see the tip commit
+      # (often platform-only), skipping workers/migrations/mobile.
       - name: Detect DB / mobile / worker changes
+        if: github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@v3
-        id: changes
+        id: filter
         with:
           base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
           filters: |
@@ -123,6 +130,12 @@ jobs:
               - 'packages/core/db/drizzle/**'
               - 'packages/core/db/src/schema/**'
               - 'apps/tools/migrate-databases/**'
+            d1_connector_migrations:
+              - 'apps/workers/integration-sync-worker/migrations/d1/**'
+              - 'apps/workers/integration-sync-worker/wrangler.toml'
+            d1_schedule_migrations:
+              - 'apps/workers/workflow-worker/migrations/d1/**'
+              - 'apps/workers/workflow-worker/wrangler.toml'
             weldmail:
               - 'apps/mobile/weldmail-app/**'
               - 'packages/clients/app-api-client/**'
@@ -204,8 +217,10 @@ jobs:
               - 'packages/core/entity-events/**'
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/realtime/**'
+              - 'packages/core/connectors/**'
             integration-sync-worker:
               - 'apps/workers/integration-sync-worker/**'
+              - 'packages/core/connectors/**'
             mail-inbound-worker:
               - 'apps/workers/mail-inbound-worker/**'
               - 'packages/core/email/**'
@@ -244,6 +259,110 @@ jobs:
               - 'packages/core/realtime/**'
             agent-runtime:
               - 'apps/workers/agent-runtime/**'
+            discord-bot-worker:
+              - 'apps/workers/discord-bot-worker/**'
+            helpdesk-widget-api:
+              - 'apps/workers/helpdesk-widget-api/**'
+              - 'packages/core/db/**'
+              - 'packages/core/realtime/**'
+            helpdesk-workflow-worker:
+              - 'apps/workers/helpdesk-workflow-worker/**'
+              - 'packages/core/db/**'
+              - 'packages/core/realtime/**'
+              - 'packages/core/entity-events/**'
+
+      - name: Resolve change flags
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MIGRATIONS: ${{ steps.filter.outputs.migrations }}
+          D1_CONNECTOR: ${{ steps.filter.outputs.d1_connector_migrations }}
+          D1_SCHEDULE: ${{ steps.filter.outputs.d1_schedule_migrations }}
+          WELDMAIL: ${{ steps.filter.outputs.weldmail }}
+          WELDMAIL_WEB: ${{ steps.filter.outputs.weldmail-web }}
+          WELDCHAT: ${{ steps.filter.outputs.weldchat }}
+          WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
+          WELDFLOW: ${{ steps.filter.outputs.weldflow }}
+          WELDAGENT: ${{ steps.filter.outputs.weldagent }}
+          ALL_WORKERS: ${{ steps.filter.outputs.all_workers }}
+          W_APP_API: ${{ steps.filter.outputs.app-api }}
+          W_BILLING: ${{ steps.filter.outputs.billing-worker }}
+          W_AUDIT: ${{ steps.filter.outputs.audit-log-worker }}
+          W_EXTERNAL: ${{ steps.filter.outputs.external-api }}
+          W_WEBHOOK: ${{ steps.filter.outputs.integration-webhook-worker }}
+          W_SYNC: ${{ steps.filter.outputs.integration-sync-worker }}
+          W_MAIL: ${{ steps.filter.outputs.mail-inbound-worker }}
+          W_PERSONAL: ${{ steps.filter.outputs.personal-api }}
+          W_REALTIME: ${{ steps.filter.outputs.realtime-worker }}
+          W_WORKSPACE: ${{ steps.filter.outputs.workspace-worker }}
+          W_WORKFLOW: ${{ steps.filter.outputs.workflow-worker }}
+          W_MCP: ${{ steps.filter.outputs.mcp-server }}
+          W_AGENT_RUNTIME: ${{ steps.filter.outputs.agent-runtime }}
+          W_DISCORD_BOT: ${{ steps.filter.outputs.discord-bot-worker }}
+          W_HELPDESK_WIDGET: ${{ steps.filter.outputs.helpdesk-widget-api }}
+          W_HELPDESK_WORKFLOW: ${{ steps.filter.outputs.helpdesk-workflow-worker }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual workflow_dispatch: forcing full deploy (all selectors true)"
+            {
+              echo "migrations=true"
+              echo "d1_connector_migrations=true"
+              echo "d1_schedule_migrations=true"
+              echo "weldmail=true"
+              echo "weldmail-web=true"
+              echo "weldchat=true"
+              echo "weldbooks=true"
+              echo "weldflow=true"
+              echo "weldagent=true"
+              echo "all_workers=true"
+              echo "app-api=true"
+              echo "billing-worker=true"
+              echo "audit-log-worker=true"
+              echo "external-api=true"
+              echo "integration-webhook-worker=true"
+              echo "integration-sync-worker=true"
+              echo "mail-inbound-worker=true"
+              echo "personal-api=true"
+              echo "realtime-worker=true"
+              echo "workspace-worker=true"
+              echo "workflow-worker=true"
+              echo "mcp-server=true"
+              echo "agent-runtime=true"
+              echo "discord-bot-worker=true"
+              echo "helpdesk-widget-api=true"
+              echo "helpdesk-workflow-worker=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "migrations=$MIGRATIONS"
+            echo "d1_connector_migrations=$D1_CONNECTOR"
+            echo "d1_schedule_migrations=$D1_SCHEDULE"
+            echo "weldmail=$WELDMAIL"
+            echo "weldmail-web=$WELDMAIL_WEB"
+            echo "weldchat=$WELDCHAT"
+            echo "weldbooks=$WELDBOOKS"
+            echo "weldflow=$WELDFLOW"
+            echo "weldagent=$WELDAGENT"
+            echo "all_workers=$ALL_WORKERS"
+            echo "app-api=$W_APP_API"
+            echo "billing-worker=$W_BILLING"
+            echo "audit-log-worker=$W_AUDIT"
+            echo "external-api=$W_EXTERNAL"
+            echo "integration-webhook-worker=$W_WEBHOOK"
+            echo "integration-sync-worker=$W_SYNC"
+            echo "mail-inbound-worker=$W_MAIL"
+            echo "personal-api=$W_PERSONAL"
+            echo "realtime-worker=$W_REALTIME"
+            echo "workspace-worker=$W_WORKSPACE"
+            echo "workflow-worker=$W_WORKFLOW"
+            echo "mcp-server=$W_MCP"
+            echo "agent-runtime=$W_AGENT_RUNTIME"
+            echo "discord-bot-worker=$W_DISCORD_BOT"
+            echo "helpdesk-widget-api=$W_HELPDESK_WIDGET"
+            echo "helpdesk-workflow-worker=$W_HELPDESK_WORKFLOW"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build worker matrix
         id: matrix
@@ -262,12 +381,15 @@ jobs:
           W_WORKFLOW: ${{ steps.changes.outputs.workflow-worker }}
           W_MCP: ${{ steps.changes.outputs.mcp-server }}
           W_AGENT_RUNTIME: ${{ steps.changes.outputs.agent-runtime }}
+          W_DISCORD_BOT: ${{ steps.changes.outputs.discord-bot-worker }}
+          W_HELPDESK_WIDGET: ${{ steps.changes.outputs.helpdesk-widget-api }}
+          W_HELPDESK_WORKFLOW: ${{ steps.changes.outputs.helpdesk-workflow-worker }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime"]'
+          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 13 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
+            echo "Deploying all 16 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
             exit 0
           fi
 
@@ -286,6 +408,9 @@ jobs:
           add workflow-worker "$W_WORKFLOW"
           add mcp-server "$W_MCP"
           add agent-runtime "$W_AGENT_RUNTIME"
+          add discord-bot-worker "$W_DISCORD_BOT"
+          add helpdesk-widget-api "$W_HELPDESK_WIDGET"
+          add helpdesk-workflow-worker "$W_HELPDESK_WORKFLOW"
 
           if [ ${#selected[@]} -eq 0 ]; then
             echo 'workers=[]' >> "$GITHUB_OUTPUT"
@@ -331,9 +456,56 @@ jobs:
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: pnpm migrate
 
+  # Cloudflare D1 schema (connector catch-up / CRM due-index / schedule index).
+  # Idempotent via wrangler's d1_migrations table. D1 occasionally returns
+  # transient 7429 / 504 on apply — we retry with backoff.
+  d1-migrations:
+    name: D1 Migrations
+    needs: prepare
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
+       needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
+       needs.prepare.outputs.workers != '[]')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Apply connector sync index migrations
+        if: >-
+          needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
+          contains(needs.prepare.outputs.workers, 'integration-sync-worker') ||
+          contains(needs.prepare.outputs.workers, 'integration-webhook-worker') ||
+          contains(needs.prepare.outputs.workers, 'app-api')
+        working-directory: apps/workers/integration-sync-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source ../../../.github/scripts/d1-migrate-retry.sh
+          d1_migrate_with_retry "CONNECTOR_SYNC_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
+      - name: Apply schedule index migrations
+        if: >-
+          needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
+          contains(needs.prepare.outputs.workers, 'workflow-worker')
+        working-directory: apps/workers/workflow-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source ../../../.github/scripts/d1-migrate-retry.sh
+          d1_migrate_with_retry "SCHEDULE_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
+
   workers:
     name: Deploy ${{ matrix.worker }}
-    needs: [prepare, migrations]
+    needs: [prepare, migrations, d1-migrations]
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
@@ -358,6 +530,32 @@ jobs:
           TARGET="${{ needs.prepare.outputs.cf_env }}"
           echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
           pnpm "deploy:${TARGET}"
+
+      # Discord Gateway DO must be connected after each deploy (session is not
+      # auto-started). Also re-register slash commands so /setup-support exists.
+      - name: Connect Discord Gateway
+        if: matrix.worker == 'discord-bot-worker'
+        env:
+          MANAGEMENT_SECRET: ${{ secrets.MANAGEMENT_SECRET }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MANAGEMENT_SECRET:-}" ]; then
+            echo "::warning title=Discord Gateway not connected::MANAGEMENT_SECRET is unset; call POST /manage/connect manually after secrets are configured."
+            exit 0
+          fi
+          if [ "$CF_ENV" = "test" ]; then
+            BASE="https://discord-bot-worker-test.weldsuite.org"
+          else
+            BASE="https://discord-bot-worker.weldsuite.org"
+          fi
+          echo "Connecting Gateway at $BASE ..."
+          curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/connect"
+          echo
+          curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/register-commands"
+          echo
+          curl -fsS -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/status"
+          echo
 
   # Every OTA job below needs an Expo access token. The `secrets` context is not
   # available in a job-level `if:`, so this job reads it once and exposes a plain

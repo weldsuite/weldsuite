@@ -62,7 +62,7 @@ describe('ShopifyClient', () => {
     }
     const client = new ShopifyClient(
       { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
-      { fetchImpl: workersFetch as typeof fetch },
+      { fetchImpl: workersFetch as unknown as typeof fetch },
     );
     await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
   });
@@ -94,14 +94,21 @@ describe('ShopifyClient', () => {
       { fetchImpl },
     );
 
-    const created = await client.createProduct({ name: 'Helmet', price: '19.00', status: 'active', sku: 'WH-1' });
+    const created = await client.createProduct({
+      name: 'Helmet',
+      price: '19.00',
+      status: 'active',
+      sku: 'WH-1',
+      trackInventory: true,
+      inventoryQuantity: 7,
+    });
     expect(created).toEqual({ id: '99', url: 'https://mystore.myshopify.com/products/helmet' });
     expect(calls[0]?.method).toBe('POST');
     expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
       product: {
         title: 'Helmet',
         status: 'active',
-        variants: [{ price: '19.00', sku: 'WH-1' }],
+        variants: [{ price: '19.00', sku: 'WH-1', inventory_management: 'shopify', inventory_quantity: 7 }],
       },
     });
 
@@ -114,6 +121,23 @@ describe('ShopifyClient', () => {
     expect(found).toEqual({ id: '12', url: 'https://mystore.myshopify.com/products/helmet' });
     expect(calls[2]?.url).toContain('/admin/api/2024-10/graphql.json');
     expect(await client.findProductBySku('')).toBeNull();
+  });
+
+  it('deletes a product', async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), method: String(init?.method ?? 'GET') });
+      return new Response(null, { status: 200 });
+    };
+    const client = new ShopifyClient(
+      { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
+      { fetchImpl },
+    );
+    await client.deleteProduct('99');
+    expect(calls[0]).toEqual({
+      url: expect.stringContaining('/products/99.json'),
+      method: 'DELETE',
+    });
   });
 
   it('probes hasUpdatesSince with limit=1 and updated_at_min', async () => {

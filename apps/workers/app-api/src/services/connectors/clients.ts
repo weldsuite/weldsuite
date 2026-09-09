@@ -5,6 +5,7 @@
 import {
   ConnectorApiError,
   createConnectorProviderClient,
+  PicqerClient,
   ShopifyClient,
   WooCommerceClient,
   type ConnectorProviderClient,
@@ -25,9 +26,15 @@ export function createProductWriteClient(
   provider: string,
   credentials: Record<string, string>,
   fallbackAccountId?: string | null,
-): ShopifyClient | WooCommerceClient {
+): ShopifyClient | WooCommerceClient | PicqerClient {
   const client = createConnectorClient(provider, credentials, fallbackAccountId);
-  if (client instanceof ShopifyClient || client instanceof WooCommerceClient) return client;
+  if (
+    client instanceof ShopifyClient
+    || client instanceof WooCommerceClient
+    || client instanceof PicqerClient
+  ) {
+    return client;
+  }
   throw new ConnectorApiError({
     message: `Provider '${provider}' does not support pushing catalog products`,
     status: 400,

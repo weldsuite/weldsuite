@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   Settings,
   BookOpen,
+  Warehouse,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -67,6 +68,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   'shopping-bag': ShoppingBag,
   store: ShoppingBag,
   'book-open': BookOpen,
+  warehouse: Warehouse,
   plug: Plug,
 };
 
@@ -121,7 +123,7 @@ function SyncToggles({
   const { t } = useI18n();
   const ts = t.weldconnect.connectors.settings;
 
-  const labels: Record<ConnectorSyncDef['settingKey'], { title: string; description: string }> = {
+  const labels: Record<string, { title: string; description: string }> = {
     products: { title: ts.products, description: ts.productsDescription },
     orders: { title: ts.orders, description: ts.ordersDescription },
     customers: { title: ts.customers, description: ts.customersDescription },
@@ -130,6 +132,16 @@ function SyncToggles({
     bills: { title: ts.bills, description: ts.billsDescription },
     bankAccounts: { title: ts.bankAccounts, description: ts.bankAccountsDescription },
     bankTransactions: { title: ts.bankTransactions, description: ts.bankTransactionsDescription },
+    inventory: { title: ts.inventory, description: ts.inventoryDescription },
+    warehouses: { title: ts.warehouses, description: ts.warehousesDescription },
+    locations: { title: ts.locations, description: ts.locationsDescription },
+    picklists: { title: ts.picklists, description: ts.picklistsDescription },
+    shipments: { title: ts.shipments, description: ts.shipmentsDescription },
+    suppliers: { title: ts.suppliers, description: ts.suppliersDescription },
+    purchaseOrders: { title: ts.purchaseOrders, description: ts.purchaseOrdersDescription },
+    returns: { title: ts.returns, description: ts.returnsDescription },
+    stockCounts: { title: ts.stockCounts, description: ts.stockCountsDescription },
+    movements: { title: ts.movements, description: ts.movementsDescription },
   };
 
   const uniqueSyncs = [...new Map(syncs.map((sync) => [sync.settingKey, sync])).values()];
@@ -138,7 +150,10 @@ function SyncToggles({
     <div className="space-y-3">
       {uniqueSyncs.map((sync) => {
         const on = settingEnabled(enabled, sync);
-        const copy = labels[sync.settingKey];
+        const copy = labels[sync.settingKey] ?? {
+          title: sync.settingKey,
+          description: '',
+        };
         return (
           <div key={sync.syncName} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
             <div>

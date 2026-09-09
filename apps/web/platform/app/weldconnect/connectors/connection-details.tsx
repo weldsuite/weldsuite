@@ -51,6 +51,9 @@ import {
   type ConnectorSyncedRecord,
   type ConnectorSyncRun,
 } from '@/hooks/queries/use-connector-queries';
+import { ConnectorFieldMappingEditor } from './connector-field-mapping-editor';
+
+type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
 
 const STATUS_CLASSES: Record<string, string> = {
   active: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300 border-green-200 dark:border-green-800',
@@ -122,8 +125,10 @@ function runLabel(run: ConnectorSyncRun, connection: ConnectorConnection, t: Ret
   const tc = t.weldconnect.connectors;
   if (run.syncName.includes('receipt')) return tc.types.receipts;
   const sync = connection.syncs.find((item) => item.syncName === run.syncName || item.model === run.model);
-  if (sync) return tc.settings[sync.settingKey];
-  return run.model.replace(/^(Moneybird|Shopify|WooCommerce)/, '').replace(/([A-Z])/g, ' $1').trim();
+  if (sync) {
+    return (tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey;
+  }
+  return run.model.replace(/^(Moneybird|Shopify|WooCommerce|Picqer)/, '').replace(/([A-Z])/g, ' $1').trim();
 }
 
 function triggerLabel(trigger: string, t: ReturnType<typeof useI18n>['t']): string {
@@ -157,8 +162,12 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const runs = runsData?.data ?? [];
   const records = recordsData?.data ?? [];
   const [enabledSyncs, setEnabledSyncs] = useState<string[] | null>(null);
+  const [direction, setDirection] = useState<SyncDirection | null>(null);
+  const [objectDirections, setObjectDirections] = useState<Record<string, SyncDirection> | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const currentSyncs = enabledSyncs ?? connection?.enabledSyncs ?? [];
+  const currentDirection = direction ?? connection?.direction ?? 'inbound';
+  const currentObjectDirections = objectDirections ?? connection?.objectSyncDirections ?? {};
   const needsEntity = connection?.provider === 'moneybird';
   const workspaceId = useWorkspaceId();
   const { data: entities = [] } = useQuery<Array<{ id: string; name: string; isActive?: boolean | null }>>({
@@ -176,6 +185,8 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const currentEntityId = selectedEntityId ?? connection?.entityId ?? '';
   const settingsDirty =
     enabledSyncs !== null
+    || direction !== null
+    || objectDirections !== null
     || (needsEntity && selectedEntityId !== null && selectedEntityId !== (connection?.entityId ?? ''));
 
   const handleSync = (full: boolean) => {
@@ -210,12 +221,16 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
       {
         connectionId,
         ...(enabledSyncs !== null ? { enabledSyncs: currentSyncs } : {}),
+        ...(direction !== null ? { direction: currentDirection } : {}),
+        ...(objectDirections !== null ? { objectSyncDirections: currentObjectDirections } : {}),
         ...(needsEntity && selectedEntityId !== null ? { entityId: selectedEntityId } : {}),
       },
       {
         onSuccess: () => {
           toast.success(tc.settings.saved);
           setEnabledSyncs(null);
+          setDirection(null);
+          setObjectDirections(null);
           setSelectedEntityId(null);
         },
         onError: () => toast.error(tc.settings.saveFailed),
@@ -232,6 +247,8 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
       onOpenChange={(open) => {
         if (!open) {
           setEnabledSyncs(null);
+          setDirection(null);
+          setObjectDirections(null);
           setSelectedEntityId(null);
         }
         onOpenChange(open);
@@ -419,22 +436,72 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     )}
                   </div>
                 ) : null}
+
+                <div className="mb-4 space-y-1.5">
+                  <Label htmlFor="connection-direction">{tc.settings.directionLabel}</Label>
+                  <p className="text-muted-foreground text-xs">{tc.settings.directionDescription}</p>
+                  <Select
+                    value={currentDirection}
+                    disabled={!canManage}
+                    onValueChange={(value) => setDirection(value as SyncDirection)}
+                  >
+                    <SelectTrigger id="connection-direction">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inbound">{tc.settings.directionInbound}</SelectItem>
+                      <SelectItem value="outbound">{tc.settings.directionOutbound}</SelectItem>
+                      <SelectItem value="bidirectional">{tc.settings.directionBidirectional}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="mb-2">
+                  <p className="text-sm font-medium">{tc.settings.objectsLabel}</p>
+                  <p className="text-muted-foreground text-xs">{tc.settings.objectsDescription}</p>
+                </div>
                 <div className="divide-y rounded-lg border">
                   {[...new Map(connection.syncs.map((sync) => [sync.settingKey, sync])).values()].map((sync) => {
                     const on = settingEnabled(currentSyncs, sync);
+                    const objectDirection = currentObjectDirections[sync.settingKey] ?? currentDirection;
                     return (
-                      <div key={sync.settingKey} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                        <p className="text-sm">{tc.settings[sync.settingKey]}</p>
-                        <Switch
-                          checked={on}
-                          disabled={!canManage}
-                          onCheckedChange={(checked) => {
-                            const without = currentSyncs.filter(
-                              (value) => value !== sync.settingKey && value !== sync.syncName,
-                            );
-                            setEnabledSyncs(checked ? [...without, sync.settingKey] : without);
-                          }}
-                        />
+                      <div key={sync.settingKey} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                          <p className="text-sm">
+                            {(tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey}
+                          </p>
+                          <Switch
+                            checked={on}
+                            disabled={!canManage}
+                            onCheckedChange={(checked) => {
+                              const without = currentSyncs.filter(
+                                (value) => value !== sync.settingKey && value !== sync.syncName,
+                              );
+                              setEnabledSyncs(checked ? [...without, sync.settingKey] : without);
+                            }}
+                          />
+                        </div>
+                        {on ? (
+                          <Select
+                            value={objectDirection}
+                            disabled={!canManage}
+                            onValueChange={(value) => {
+                              setObjectDirections({
+                                ...currentObjectDirections,
+                                [sync.settingKey]: value as SyncDirection,
+                              });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-full sm:w-[160px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="inbound">{tc.settings.directionInbound}</SelectItem>
+                              <SelectItem value="outbound">{tc.settings.directionOutbound}</SelectItem>
+                              <SelectItem value="bidirectional">{tc.settings.directionBidirectional}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -450,6 +517,16 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     {tc.settings.save}
                   </Button>
                 ) : null}
+
+                <div className="mt-6 space-y-2 border-t pt-4">
+                  <p className="text-sm font-medium">{tc.settings.mappingsLabel}</p>
+                  <p className="text-muted-foreground text-xs">{tc.settings.mappingsDescription}</p>
+                  <ConnectorFieldMappingEditor
+                    connectionId={connection.id}
+                    syncs={connection.syncs}
+                    canManage={canManage}
+                  />
+                </div>
                 <p className="text-muted-foreground mt-4 text-[11px] leading-relaxed">{tc.webhookHint}</p>
               </TabsContent>
             </Tabs>

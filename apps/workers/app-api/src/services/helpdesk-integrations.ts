@@ -86,6 +86,44 @@ export async function findIntegrationByProvider(
   return row;
 }
 
+/** Every live integration for a provider, newest first. */
+export async function listIntegrationsByProvider(
+  db: Database,
+  provider: string,
+): Promise<HelpdeskIntegration[]> {
+  return db
+    .select()
+    .from(hci)
+    .where(and(eq(hci.provider, provider), isNull(hci.deletedAt)))
+    .orderBy(desc(hci.createdAt));
+}
+
+/** The live Discord integration for a guild id, or undefined. */
+export async function findIntegrationByGuildId(
+  db: Database,
+  guildId: string,
+): Promise<HelpdeskIntegration | undefined> {
+  if (!guildId) return undefined;
+  const rows = await listIntegrationsByProvider(db, 'discord');
+  return rows.find((row) => discordGuildId(row) === guildId);
+}
+
+/**
+ * Resolve a Discord integration by explicit id, falling back to the first
+ * Discord row when no id is given (backward-compatible single-server callers).
+ */
+export async function resolveDiscordIntegration(
+  db: Database,
+  integrationId?: string | null,
+): Promise<HelpdeskIntegration | undefined> {
+  if (integrationId) {
+    const row = await findIntegrationById(db, integrationId);
+    if (row && row.provider === 'discord') return row;
+    return undefined;
+  }
+  return findIntegrationByProvider(db, 'discord');
+}
+
 /** The live integration for an id, or undefined. */
 export async function findIntegrationById(
   db: Database,
@@ -128,10 +166,44 @@ export function integrationConfig(row: HelpdeskIntegration): Record<string, unkn
   return (row.config || {}) as Record<string, unknown>;
 }
 
-/** The guild id recorded on a Discord integration's accountInfo metadata. */
+/** The guild id recorded on a Discord integration's accountInfo. */
 export function discordGuildId(row: HelpdeskIntegration): string | undefined {
-  const accountInfo = row.accountInfo as { metadata?: Record<string, unknown> } | null;
-  return accountInfo?.metadata?.guildId as string | undefined;
+  const accountInfo = row.accountInfo as {
+    id?: string;
+    metadata?: Record<string, unknown>;
+  } | null;
+  const fromMeta = accountInfo?.metadata?.guildId;
+  if (typeof fromMeta === 'string' && fromMeta) return fromMeta;
+  if (typeof accountInfo?.id === 'string' && accountInfo.id && accountInfo.id !== 'unknown') {
+    return accountInfo.id;
+  }
+  return undefined;
+}
+
+/**
+ * Persist guild → workspace routing for helpdesk-widget-api Discord ingest.
+ *
+ * helpdesk-widget-api resolves inbound tickets/messages via
+ * `discord_guild:{guildId}` in WORKSPACE_CACHE. Without this key the ticket
+ * webhook returns 404 and WeldDesk never creates a conversation — even when
+ * the tenant DB shows the Discord integration as connected.
+ *
+ * No TTL: disconnect deletes the key explicitly. A one-year TTL previously
+ * dropped mappings for still-connected guilds and broke ticket routing.
+ */
+export async function putDiscordGuildMapping(
+  kv: KVNamespace,
+  guildId: string,
+  clerkOrgId: string,
+  internalWorkspaceId?: string,
+): Promise<void> {
+  await kv.put(
+    `discord_guild:${guildId}`,
+    JSON.stringify({
+      clerkOrgId,
+      ...(internalWorkspaceId ? { internalWorkspaceId } : {}),
+    }),
+  );
 }
 
 // ============================================================================

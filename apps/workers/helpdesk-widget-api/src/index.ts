@@ -13,6 +13,7 @@ import { configRoutes } from './routes/config';
 import { conversationsRoutes } from './routes/conversations';
 import { realtimeRoutes } from './routes/realtime';
 import { attachmentsRoutes } from './routes/attachments';
+import { discordWebhookRoutes } from './routes/webhook-discord';
 import type { DeskWidgetSettings } from '@weldsuite/db/schema/desk-widget-settings';
 import type { Database } from './db';
 
@@ -23,6 +24,7 @@ export interface Env {
   ENVIRONMENT: string;
   NEON_API_KEY: string;
   REALTIME?: Fetcher;
+  WORKFLOW_WORKER?: Fetcher;
   STORAGE: R2Bucket;
   R2_PUBLIC_URL?: string;
   DATABASE_ENCRYPTION_KEY?: string;
@@ -30,6 +32,8 @@ export interface Env {
   ENTITY_EVENTS: Queue<import('./lib/entity-events').EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<import('./lib/entity-events').EntityEventMessage>;
   WIDGET_TOKEN_SECRET?: string;
+  /** Shared with discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret. */
+  DISCORD_BOT_SECRET?: string;
 }
 
 export type Variables = {
@@ -64,6 +68,9 @@ app.get('/health', (c) =>
     timestamp: new Date().toISOString(),
   }),
 );
+
+// Discord bot ingest — authenticated via X-Bot-Secret (not widget auth)
+app.route('/webhook/discord', discordWebhookRoutes);
 
 app.use('/api/*', rateLimitMiddleware());
 app.use('/api/*', widgetAuthMiddleware());

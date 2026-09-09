@@ -28,5 +28,6 @@ All under `/v1/*` (auth required):
 ## Deploy notes
 
 - First deploy provisions the container image (several minutes).
-- Create a real KV namespace for `BROWSER_SESSIONS` and replace the placeholder id in `wrangler.toml`.
+- `BROWSER_SESSIONS` KV is provisioned (dev / test / production) in `wrangler.toml`.
 - Align `Dockerfile` base tag with `@cloudflare/sandbox` version.
+- Set `INTERNAL_API_SECRET` with `wrangler secret put INTERNAL_API_SECRET --env test` (and production) so it matches app-api.

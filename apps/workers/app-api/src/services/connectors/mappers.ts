@@ -7,11 +7,24 @@
 
 import type { ConnectorEntity } from '@weldsuite/connectors';
 
+export interface MappedProductVariant {
+  externalId: string;
+  sku: string | null;
+  name: string | null;
+  price: string | null;
+  inventoryQuantity: number | null;
+  trackInventory: boolean;
+  optionValues: Record<string, string> | null;
+  status: string;
+  position: number;
+}
+
 export interface MappedProduct {
   entity: 'product';
   externalId: string;
   externalUrl: string | null;
   values: Record<string, unknown>;
+  variants?: MappedProductVariant[];
 }
 
 export interface MappedOrder {
@@ -87,6 +100,31 @@ export interface MappedBankTransaction {
   values: Record<string, unknown>;
 }
 
+export interface MappedWmsEntity {
+  entity:
+    | 'inventory'
+    | 'warehouse'
+    | 'location'
+    | 'picklist'
+    | 'shipment'
+    | 'supplier'
+    | 'purchase_order'
+    | 'return'
+    | 'stock_count'
+    | 'inventory_movement';
+  externalId: string;
+  values: Record<string, unknown>;
+  /** Related external ids for mapping resolution during ingest. */
+  links?: {
+    productExternalId?: string | null;
+    warehouseExternalId?: string | null;
+    locationExternalId?: string | null;
+    orderExternalId?: string | null;
+    supplierExternalId?: string | null;
+    picklistExternalId?: string | null;
+  };
+}
+
 export type MappedRecord =
   | MappedProduct
   | MappedOrder
@@ -95,7 +133,8 @@ export type MappedRecord =
   | MappedInvoice
   | MappedBill
   | MappedBankAccount
-  | MappedBankTransaction;
+  | MappedBankTransaction
+  | MappedWmsEntity;
 
 function readPath(source: Record<string, unknown>, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, segment) => {
@@ -172,15 +211,106 @@ function shopifyImages(record: Record<string, unknown>): Array<{ url: string; al
     .filter((img) => img.url);
 }
 
+function mapProductOptionValues(
+  record: Record<string, unknown>,
+  productOptions: Array<{ name: string }>,
+): Record<string, string> | null {
+  const fromAttrs = Array.isArray(record.attributes) ? (record.attributes as Array<Record<string, unknown>>) : [];
+  if (fromAttrs.length > 0) {
+    const values: Record<string, string> = {};
+    for (const attr of fromAttrs) {
+      const attrName = pickString(attr, ['name']);
+      const option = pickString(attr, ['option']);
+      if (attrName && option) values[attrName] = option;
+    }
+    return Object.keys(values).length ? values : null;
+  }
+
+  const values: Record<string, string> = {};
+  for (let i = 0; i < 3; i++) {
+    const optionName = productOptions[i]?.name;
+    const optionValue = pickString(record, [`option${i + 1}`]);
+    if (optionName && optionValue) values[optionName] = optionValue;
+  }
+  return Object.keys(values).length ? values : null;
+}
+
+function mapProductVariants(record: Record<string, unknown>): MappedProductVariant[] {
+  const wooRaw = Array.isArray(record._variations)
+    ? (record._variations as Array<Record<string, unknown>>)
+    : Array.isArray(record.variations) && record.variations.some((v) => v && typeof v === 'object')
+      ? (record.variations as Array<Record<string, unknown>>)
+      : null;
+  const shopifyRaw = !wooRaw && Array.isArray(record.variants)
+    ? (record.variants as Array<Record<string, unknown>>)
+    : null;
+  const raw = wooRaw ?? shopifyRaw ?? [];
+  if (raw.length === 0) return [];
+
+  const productOptions = Array.isArray(record.options)
+    ? (record.options as Array<Record<string, unknown>>)
+        .map((opt) => ({ name: pickString(opt, ['name']) ?? '' }))
+        .filter((opt) => opt.name)
+    : [];
+
+  const mapped: MappedProductVariant[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const variant = raw[i]!;
+    const externalId = variant.id !== undefined && variant.id !== null ? String(variant.id) : null;
+    if (!externalId) continue;
+    const optionValues = mapProductOptionValues(variant, productOptions);
+    const status = PRODUCT_STATUS[pickString(variant, ['status']) ?? ''] ?? 'active';
+    const trackInventory =
+      variant.manage_stock === true
+      || pickString(variant, ['inventory_management']) === 'shopify';
+    mapped.push({
+      externalId,
+      sku: pickString(variant, ['sku'], 100),
+      name:
+        pickString(variant, ['name', 'title'], 255)
+        ?? (optionValues ? Object.values(optionValues).join(' / ') : null),
+      price: pickString(variant, ['price', 'regular_price']),
+      inventoryQuantity: pickNumber(variant, ['stock_quantity', 'inventory_quantity']),
+      trackInventory,
+      optionValues,
+      status,
+      position: pickNumber(variant, ['menu_order', 'position']) ?? i,
+    });
+  }
+  return mapped;
+}
+
+function picqerFreeStockTotal(record: Record<string, unknown>): number | null {
+  const stock = Array.isArray(record.stock) ? (record.stock as Array<Record<string, unknown>>) : [];
+  if (stock.length === 0) return pickNumber(record, ['freestock', 'stock']);
+  let total = 0;
+  for (const row of stock) {
+    total += pickNumber(row, ['freestock', 'stock']) ?? 0;
+  }
+  return total;
+}
+
 function mapProduct(record: Record<string, unknown>, externalId: string): MappedProduct | null {
   const name = pickString(record, ['name', 'title'], 255);
   if (!name) return null;
   const slug = pickString(record, ['slug', 'handle'], 255) ?? slugify(name);
   const images = shopifyImages(record);
-  const status = PRODUCT_STATUS[pickString(record, ['status']) ?? ''] ?? 'draft';
+  const picqerActive = record.active;
+  const statusFromActive =
+    picqerActive === true ? 'active' : picqerActive === false ? 'inactive' : null;
+  const status =
+    statusFromActive
+    ?? PRODUCT_STATUS[pickString(record, ['status']) ?? '']
+    ?? 'draft';
   const price = pickString(record, ['price', 'regular_price', 'variants.0.price']) ?? '0';
-  const sku = pickString(record, ['sku', 'identifier', 'variants.0.sku'], 100);
+  const sku = pickString(record, ['sku', 'productcode', 'identifier', 'variants.0.sku'], 100);
   const compareAt = pickString(record, ['regular_price', 'variants.0.compare_at_price']);
+  const shopifyVariantCount = Array.isArray(record.variants) ? record.variants.length : 0;
+  const hasVariants = record.type === 'variable' || shopifyVariantCount > 1;
+  const variants = mapProductVariants(record);
+  const inventoryQuantity =
+    picqerFreeStockTotal(record)
+    ?? pickNumber(record, ['stock_quantity', 'variants.0.inventory_quantity']);
 
   return {
     entity: 'product',
@@ -190,6 +320,7 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
       name,
       slug,
       sku,
+      barcode: pickString(record, ['barcode'], 100),
       description: pickString(record, ['description', 'body_html']),
       shortDescription: pickString(record, ['short_description'], 500),
       price,
@@ -202,13 +333,22 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
       length: pickString(record, ['dimensions.length']),
       width: pickString(record, ['dimensions.width']),
       height: pickString(record, ['dimensions.height']),
-      trackInventory: record.manage_stock === true || pickString(record, ['variants.0.inventory_management']) === 'shopify',
+      trackInventory:
+        record.unlimitedstock === true
+          ? false
+          : record.manage_stock === true
+            || pickString(record, ['variants.0.inventory_management']) === 'shopify'
+            || Array.isArray(record.stock),
+      inventoryQuantity,
+      hasVariants,
+      variantCount: hasVariants ? variants.length : 0,
       productType: pickString(record, ['type', 'product_type'], 100),
       vendor: pickString(record, ['vendor'], 255),
       publishedAt: pickString(record, ['date_created_gmt', 'date_created', 'created_at'])
         ? new Date(pickString(record, ['date_created_gmt', 'date_created', 'created_at'])!)
         : null,
     }),
+    ...(hasVariants && variants.length ? { variants } : {}),
   };
 }
 
@@ -228,8 +368,18 @@ function mapAddress(source: Record<string, unknown> | null | undefined) {
   return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
+const PICQER_ORDER_STATUS: Record<string, string> = {
+  concept: 'pending',
+  expected: 'processing',
+  processing: 'processing',
+  paused: 'on_hold',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+};
+
 function mapOrder(record: Record<string, unknown>, externalId: string, provider: string): MappedOrder | null {
-  const orderNumber = pickString(record, ['number', 'name', 'order_number', 'id'], 50);
+  const orderNumber = pickString(record, ['number', 'name', 'orderid', 'order_number', 'reference', 'id'], 50);
   if (!orderNumber) return null;
   const wcStatus = pickString(record, ['status', 'financial_status']) ?? 'pending';
   const billing = (record.billing as Record<string, unknown> | undefined)
@@ -237,43 +387,68 @@ function mapOrder(record: Record<string, unknown>, externalId: string, provider:
     ?? undefined;
   const shipping = (record.shipping as Record<string, unknown> | undefined)
     ?? (record.shipping_address as Record<string, unknown> | undefined)
-    ?? undefined;
+    ?? (provider === 'picqer'
+      ? ({
+          address_1: pickString(record, ['deliveryname', 'address']),
+          address1: pickString(record, ['address']),
+          address_2: pickString(record, ['address2']),
+          city: pickString(record, ['city']),
+          zip: pickString(record, ['zipcode']),
+          country: pickString(record, ['country']),
+          phone: pickString(record, ['telephone']),
+        } as Record<string, unknown>)
+      : undefined);
   const customer = (record.customer as Record<string, unknown> | undefined) ?? undefined;
   const customerName =
     [pickString(billing ?? {}, ['first_name']), pickString(billing ?? {}, ['last_name'])].filter(Boolean).join(' ') ||
     [pickString(customer ?? {}, ['first_name']), pickString(customer ?? {}, ['last_name'])].filter(Boolean).join(' ') ||
-    pickString(record, ['customer_name']);
-  const lineItemsRaw = Array.isArray(record.line_items) ? (record.line_items as Array<Record<string, unknown>>) : [];
+    pickString(record, ['customer_name', 'deliveryname', 'name']);
+  const lineItemsRaw = Array.isArray(record.line_items)
+    ? (record.line_items as Array<Record<string, unknown>>)
+    : Array.isArray(record.products)
+      ? (record.products as Array<Record<string, unknown>>)
+      : [];
   const paidAt = pickString(record, ['date_paid_gmt', 'date_paid', 'processed_at']);
   const financial = pickString(record, ['financial_status']);
   const paid = Boolean(paidAt) || PAID_STATUSES.has(wcStatus) || financial === 'paid';
+  const mappedStatus =
+    PICQER_ORDER_STATUS[wcStatus]
+    ?? ORDER_STATUS[wcStatus]
+    ?? (wcStatus === 'paid' ? 'processing' : 'pending');
 
   return {
     entity: 'order',
     externalId,
-    customerExternalId: pickString(record, ['customer_id']) && pickString(record, ['customer_id']) !== '0'
-      ? pickString(record, ['customer_id'])
-      : pickString(customer ?? {}, ['id']),
+    customerExternalId:
+      (pickString(record, ['customer_id', 'idcustomer']) && pickString(record, ['customer_id', 'idcustomer']) !== '0'
+        ? pickString(record, ['customer_id', 'idcustomer'])
+        : null)
+      ?? pickString(customer ?? {}, ['id', 'idcustomer']),
     lineItems: lineItemsRaw.map((item) => ({
-      externalProductId: pickString(item, ['product_id']) && pickString(item, ['product_id']) !== '0'
-        ? pickString(item, ['product_id'])
-        : null,
-      sku: pickString(item, ['sku'], 100),
+      externalProductId:
+        pickString(item, ['product_id', 'idproduct']) && pickString(item, ['product_id', 'idproduct']) !== '0'
+          ? pickString(item, ['product_id', 'idproduct'])
+          : null,
+      sku: pickString(item, ['sku', 'productcode'], 100),
       name: pickString(item, ['name', 'title'], 255) ?? 'Item',
-      quantity: pickNumber(item, ['quantity']) ?? 1,
+      quantity: pickNumber(item, ['quantity', 'amount']) ?? 1,
       unitPrice: pickString(item, ['price', 'subtotal']) ?? '0',
-      total: pickString(item, ['total']) ?? '0',
+      total: pickString(item, ['total', 'price']) ?? '0',
       imageUrl: pickString(item, ['image.src'], 500),
     })),
     values: compact({
       orderNumber: orderNumber.replace(/^#/, ''),
-      externalOrderId: externalId,
+      externalOrderId: pickString(record, ['reference']) ?? externalId,
       sourceOrderId: externalId,
       source: provider,
-      customerEmail: pickString(billing ?? record, ['email', 'billing.email', 'contact_email', 'email'], 255),
+      customerEmail: pickString(
+        billing ?? record,
+        ['email', 'emailaddress', 'billing.email', 'contact_email'],
+        255,
+      ),
       customerName: customerName ? customerName.slice(0, 255) : null,
-      customerPhone: pickString(billing ?? {}, ['phone'], 50),
-      status: ORDER_STATUS[wcStatus] ?? (wcStatus === 'paid' ? 'processing' : 'pending'),
+      customerPhone: pickString(billing ?? record, ['phone', 'telephone'], 50),
+      status: mappedStatus,
       paymentStatus: paid ? 'paid' : 'pending',
       currency: pickString(record, ['currency'], 3) ?? 'EUR',
       subtotal: pickString(record, ['subtotal', 'subtotal_price']) ?? '0',
@@ -285,21 +460,26 @@ function mapOrder(record: Record<string, unknown>, externalId: string, provider:
       shippingAddress: mapAddress(shipping),
       paymentMethod: pickString(record, ['payment_method_title', 'payment_method', 'gateway'], 100),
       paidAt: paidAt ? new Date(paidAt) : null,
-      customerNote: pickString(record, ['customer_note', 'note']),
+      customerNote: pickString(record, ['customer_note', 'note', 'remarks']),
       itemCount: lineItemsRaw.length,
-      totalQuantity: lineItemsRaw.reduce((sum, item) => sum + (pickNumber(item, ['quantity']) ?? 0), 0),
-      completedAt: wcStatus === 'completed' && pickString(record, ['date_completed_gmt', 'date_modified_gmt', 'updated_at'])
-        ? new Date(pickString(record, ['date_completed_gmt', 'date_modified_gmt', 'updated_at'])!)
+      totalQuantity: lineItemsRaw.reduce(
+        (sum, item) => sum + (pickNumber(item, ['quantity', 'amount']) ?? 0),
+        0,
+      ),
+      fulfillmentStatus: mappedStatus === 'completed' ? 'fulfilled' : null,
+      completedAt: mappedStatus === 'completed' && pickString(record, ['date_completed_gmt', 'date_modified_gmt', 'updated_at', 'completed_at'])
+        ? new Date(pickString(record, ['date_completed_gmt', 'date_modified_gmt', 'updated_at', 'completed_at'])!)
         : null,
     }),
   };
 }
 
 function mapPerson(record: Record<string, unknown>, externalId: string, provider: string): MappedPerson | null {
-  const email = pickString(record, ['email', 'billing.email'], 255);
-  const firstName = pickString(record, ['first_name', 'billing.first_name'], 100);
-  const lastName = pickString(record, ['last_name', 'billing.last_name'], 100);
-  const fullName = [firstName, lastName].filter(Boolean).join(' ') || email;
+  const email = pickString(record, ['email', 'emailaddress', 'billing.email'], 255);
+  const firstName = pickString(record, ['first_name', 'firstname', 'billing.first_name', 'contactname'], 100);
+  const lastName = pickString(record, ['last_name', 'lastname', 'billing.last_name'], 100);
+  const companyOrName = pickString(record, ['name', 'company_name'], 255);
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || companyOrName || email;
   if (!fullName) return null;
   const billing = (record.billing as Record<string, unknown> | undefined)
     ?? (record.default_address as Record<string, unknown> | undefined)
@@ -309,14 +489,18 @@ function mapPerson(record: Record<string, unknown>, externalId: string, provider
     entity: 'person',
     externalId,
     values: compact({
-      firstName,
+      firstName: firstName ?? (companyOrName && !lastName ? companyOrName : null),
       lastName,
       fullName,
       displayName: fullName.slice(0, 255),
       email,
-      directPhone: pickString(billing, ['phone'], 50),
+      directPhone: pickString(billing, ['phone', 'telephone'], 50),
       avatarUrl: pickString(record, ['avatar_url'], 1000),
-      primaryAddress: mapAddress(billing),
+      primaryAddress: mapAddress({
+        ...billing,
+        address_1: pickString(billing, ['address_1', 'address', 'address1']),
+        postcode: pickString(billing, ['postcode', 'zipcode', 'zip']),
+      }),
       source: provider,
       inCrm: true,
       status: 'active',
@@ -331,11 +515,39 @@ export function isDeletedRecord(record: Record<string, unknown>, forceDeleted = 
 }
 
 export function externalIdOf(record: Record<string, unknown>): string | null {
-  return pickString(record, ['id', 'external_id', 'entity_id'], 255);
+  return pickString(
+    record,
+    [
+      'id',
+      'external_id',
+      'entity_id',
+      'idproduct',
+      'idorder',
+      'idcustomer',
+      'idwarehouse',
+      'idlocation',
+      'idpicklist',
+      'idshipment',
+      'idsupplier',
+      'idpurchaseorder',
+      'idreturn',
+      'idmovement',
+      'idlocation_stock_count',
+    ],
+    255,
+  );
 }
 
 export function modifiedAtOf(record: Record<string, unknown>): string | null {
-  return pickString(record, ['date_modified_gmt', 'date_modified', 'updated_at', 'date_created_gmt', 'created_at']);
+  return pickString(record, [
+    'date_modified_gmt',
+    'date_modified',
+    'updated_at',
+    'updated_at_formatted',
+    'date_created_gmt',
+    'created_at',
+    'created',
+  ]);
 }
 
 const INVOICE_STATUS: Record<string, string> = {
@@ -662,5 +874,302 @@ export function mapConnectorRecord(
       return mapBankAccount(record, externalId);
     case 'bank_transaction':
       return mapBankTransaction(record, externalId);
+    case 'inventory':
+      return mapInventory(record, externalId);
+    case 'warehouse':
+      return mapWarehouse(record, externalId);
+    case 'location':
+      return mapLocation(record, externalId);
+    case 'picklist':
+      return mapPicklist(record, externalId);
+    case 'shipment':
+      return mapShipment(record, externalId);
+    case 'supplier':
+      return mapSupplier(record, externalId);
+    case 'purchase_order':
+      return mapPurchaseOrder(record, externalId);
+    case 'return':
+      return mapReturn(record, externalId);
+    case 'stock_count':
+      return mapStockCount(record, externalId);
+    case 'inventory_movement':
+      return mapInventoryMovement(record, externalId);
   }
+}
+
+const PICKLIST_STATUS: Record<string, string> = {
+  new: 'pending',
+  open: 'pending',
+  processing: 'in_progress',
+  paused: 'assigned',
+  closed: 'completed',
+  snoozed: 'pending',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+};
+
+const PO_STATUS: Record<string, string> = {
+  concept: 'draft',
+  purchased: 'ordered',
+  received: 'received',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+};
+
+const RETURN_STATUS: Record<string, string> = {
+  concept: 'requested',
+  expected: 'approved',
+  received: 'received',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+  completed: 'processed',
+};
+
+function mapInventory(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const onHand = pickNumber(record, ['stock', 'quantityOnHand']) ?? 0;
+  const available = pickNumber(record, ['freestock', 'quantityAvailable']) ?? onHand;
+  const allocated = pickNumber(record, ['reserved', 'quantityAllocated']) ?? Math.max(0, onHand - available);
+  return {
+    entity: 'inventory',
+    externalId,
+    links: {
+      productExternalId: pickString(record, ['idproduct']),
+      warehouseExternalId: pickString(record, ['idwarehouse']),
+      locationExternalId: pickString(record, ['idlocation']),
+    },
+    values: compact({
+      quantityOnHand: onHand,
+      quantityAvailable: available,
+      quantityAllocated: allocated,
+      status: 'available',
+      metadata: { picqerProductCode: pickString(record, ['productcode']), source: 'picqer' },
+    }),
+  };
+}
+
+function mapWarehouse(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const name = pickString(record, ['name'], 255);
+  if (!name) return null;
+  return {
+    entity: 'warehouse',
+    externalId,
+    values: compact({
+      name,
+      code: pickString(record, ['code', 'idwarehouse'], 50) ?? externalId.slice(0, 50),
+      isActive: record.accepts_orders !== false && record.active !== false,
+      isDefault: record.priority === 1 || record.default === true,
+      priority: pickNumber(record, ['priority']) ?? 0,
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapLocation(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const name = pickString(record, ['name', 'remark'], 255) ?? `Location ${externalId}`;
+  const code = pickString(record, ['name', 'remark', 'code'], 50) ?? externalId.slice(0, 50);
+  return {
+    entity: 'location',
+    externalId,
+    links: {
+      warehouseExternalId: pickString(record, ['idwarehouse']),
+    },
+    values: compact({
+      name,
+      code,
+      barcode: pickString(record, ['barcode'], 100),
+      locationType: record.type === 'bulk' ? 'bulk' : 'storage',
+      isActive: record.active !== false,
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapPicklist(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const number = pickString(record, ['picklistid', 'id'], 50) ?? externalId;
+  const status = PICKLIST_STATUS[pickString(record, ['status']) ?? ''] ?? 'pending';
+  const products = Array.isArray(record.products) ? (record.products as unknown[]) : [];
+  return {
+    entity: 'picklist',
+    externalId,
+    links: {
+      warehouseExternalId: pickString(record, ['idwarehouse']),
+      orderExternalId: pickString(record, ['idorder']),
+    },
+    values: compact({
+      pickListNumber: number,
+      status,
+      priority: record.urgent === true ? 'urgent' : 'normal',
+      assignedToName: pickString(record, ['assigned_to_name', 'picker'], 255),
+      totalItems: products.length,
+      totalQuantity: products.reduce<number>((sum, item) => {
+        if (!item || typeof item !== 'object') return sum;
+        return sum + (pickNumber(item as Record<string, unknown>, ['amount', 'quantity']) ?? 0);
+      }, 0),
+      orderIds: [],
+      orderCount: pickString(record, ['idorder']) ? 1 : 0,
+      pickType: 'order',
+      completedAt: status === 'completed' ? new Date() : null,
+      shippedAt: status === 'completed' ? new Date() : null,
+      notes: pickString(record, ['remarks']),
+      metadata: { source: 'picqer', idorder: pickString(record, ['idorder']) },
+    }),
+  };
+}
+
+function mapShipment(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const number =
+    pickString(record, ['trackingcode', 'shipmentid', 'id'], 50) ?? `PICQER-${externalId}`;
+  return {
+    entity: 'shipment',
+    externalId,
+    links: {
+      picklistExternalId: pickString(record, ['idpicklist']),
+    },
+    values: compact({
+      shipmentNumber: number,
+      status: record.cancelled === true ? 'cancelled' : 'shipped',
+      type: 'outbound',
+      carrierName: pickString(record, ['provider', 'providername'], 255),
+      shippedAt: pickString(record, ['created', 'created_at'])
+        ? new Date(pickString(record, ['created', 'created_at'])!)
+        : new Date(),
+      internalNotes: pickString(record, ['trackingurl']),
+      metadata: {
+        source: 'picqer',
+        trackingcode: pickString(record, ['trackingcode']),
+        trackingurl: pickString(record, ['trackingurl']),
+      },
+    }),
+  };
+}
+
+function mapSupplier(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const name = pickString(record, ['name'], 255);
+  if (!name) return null;
+  return {
+    entity: 'supplier',
+    externalId,
+    values: compact({
+      name,
+      code: pickString(record, ['idsupplier'], 50) ?? externalId.slice(0, 50),
+      contactName: pickString(record, ['contactname'], 255),
+      email: pickString(record, ['emailaddress', 'email'], 255),
+      phone: pickString(record, ['telephone', 'phone'], 50),
+      addressLine1: pickString(record, ['address'], 255),
+      city: pickString(record, ['city'], 100),
+      postalCode: pickString(record, ['zipcode'], 20),
+      country: pickString(record, ['country'], 100),
+      isActive: true,
+      status: 'active',
+      notes: pickString(record, ['remarks']),
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapPurchaseOrder(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const poNumber = pickString(record, ['purchaseorderid', 'id'], 50) ?? externalId;
+  const status = PO_STATUS[pickString(record, ['status']) ?? ''] ?? 'draft';
+  const products = Array.isArray(record.products) ? (record.products as unknown[]) : [];
+  return {
+    entity: 'purchase_order',
+    externalId,
+    links: {
+      supplierExternalId: pickString(record, ['idsupplier']),
+      warehouseExternalId: pickString(record, ['idwarehouse']),
+    },
+    values: compact({
+      poNumber,
+      supplierName: pickString(record, ['supplier_name', 'supplier'], 255),
+      status,
+      expectedDate: pickString(record, ['delivery_date'])
+        ? new Date(pickString(record, ['delivery_date'])!)
+        : null,
+      itemCount: products.length,
+      totalQuantityOrdered: products.reduce<number>((sum, item) => {
+        if (!item || typeof item !== 'object') return sum;
+        return sum + (pickNumber(item as Record<string, unknown>, ['amount']) ?? 0);
+      }, 0),
+      supplierNotes: pickString(record, ['remarks']),
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapReturn(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const returnNumber = pickString(record, ['returnid', 'id'], 50) ?? externalId;
+  const status = RETURN_STATUS[pickString(record, ['status']) ?? ''] ?? 'requested';
+  const products = Array.isArray(record.products) ? (record.products as Array<Record<string, unknown>>) : [];
+  return {
+    entity: 'return',
+    externalId,
+    links: {
+      orderExternalId: pickString(record, ['idorder']),
+    },
+    values: compact({
+      returnNumber,
+      status,
+      customerName: pickString(record, ['name', 'customer_name'], 255),
+      customerEmail: pickString(record, ['emailaddress', 'email'], 255),
+      reason: pickString(record, ['reason'], 100),
+      reasonDetails: pickString(record, ['remarks']),
+      items: products.map((p) => ({
+        productName: pickString(p, ['name']) ?? 'Item',
+        sku: pickString(p, ['productcode']) ?? undefined,
+        quantity: pickNumber(p, ['amount', 'quantity']) ?? 1,
+      })),
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapStockCount(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  return {
+    entity: 'stock_count',
+    externalId,
+    links: {
+      warehouseExternalId: pickString(record, ['idwarehouse']),
+      locationExternalId: pickString(record, ['idlocation']),
+    },
+    values: compact({
+      countNumber: pickString(record, ['idlocation_stock_count', 'id'], 50) ?? externalId,
+      status: pickString(record, ['status']) === 'completed' ? 'completed' : 'in_progress',
+      completedAt: pickString(record, ['completed_at', 'updated_at'])
+        ? new Date(pickString(record, ['completed_at', 'updated_at'])!)
+        : null,
+      locationIds: pickString(record, ['idlocation']) ? [pickString(record, ['idlocation'])!] : [],
+      metadata: { source: 'picqer' },
+    }),
+  };
+}
+
+function mapInventoryMovement(record: Record<string, unknown>, externalId: string): MappedWmsEntity | null {
+  const amount = pickNumber(record, ['amount', 'quantity']) ?? 0;
+  return {
+    entity: 'inventory_movement',
+    externalId,
+    links: {
+      productExternalId: pickString(record, ['idproduct']),
+      warehouseExternalId: pickString(record, ['idwarehouse', 'idwarehouse_from']),
+    },
+    values: compact({
+      movementNumber: pickString(record, ['idmovement', 'id'], 50) ?? externalId,
+      movementType: 'transfer',
+      status: 'completed',
+      quantity: Math.abs(amount) || 1,
+      sku: pickString(record, ['productcode'], 100),
+      name: pickString(record, ['name'], 255),
+      sourceWarehouseId: null,
+      destWarehouseId: null,
+      completedAt: pickString(record, ['created', 'created_at'])
+        ? new Date(pickString(record, ['created', 'created_at'])!)
+        : new Date(),
+      notes: pickString(record, ['reason', 'remarks']),
+      metadata: {
+        source: 'picqer',
+        idwarehouse_from: pickString(record, ['idwarehouse_from']),
+        idwarehouse_to: pickString(record, ['idwarehouse_to', 'idwarehouse']),
+      },
+    }),
+  };
 }

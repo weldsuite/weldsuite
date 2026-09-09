@@ -1,8 +1,11 @@
 export * from './types';
 export * from './catalog';
+export * from './field-mappings';
 export * from './webhooks';
 export * from './probe';
 export * from './sync-index';
+export * from './crm-sync-index';
+export * from './tenant-work-index';
 export * from './provider-client';
 export { createConnectorProviderClient } from './factory';
 export { WooCommerceClient, createWooCommerceClient, normalizeStoreUrl } from './woocommerce/client';
@@ -40,3 +43,11 @@ export {
   revokeMoneybirdToken,
 } from './moneybird/auth';
 export type { MoneybirdAdministration, MoneybirdOAuthTokens } from './moneybird/auth';
+export {
+  PicqerClient,
+  createPicqerClient,
+  normalizePicqerSubdomain,
+  expandPicqerProductStock,
+  PICQER_USER_AGENT,
+} from './picqer/client';
+export type { PicqerCredentials, PicqerListOptions } from './picqer/client';

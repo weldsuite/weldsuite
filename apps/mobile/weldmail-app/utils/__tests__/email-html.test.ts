@@ -1,4 +1,4 @@
-import { sanitizeEmailHtml, buildEmailDocument, trimTrailingEmptyHtml } from '../email-html';
+import { sanitizeEmailHtml, buildEmailDocument, trimTrailingEmptyHtml, EMAIL_LAYOUT_PROBE, buildResponsiveEmailCss } from '../email-html';
 
 describe('sanitizeEmailHtml', () => {
   it('removes <script> blocks and their content', () => {
@@ -106,5 +106,47 @@ describe('buildEmailDocument', () => {
   it('hides quoted blocks only when hideQuotes is set', () => {
     expect(buildEmailDocument('x', { textColor: '#000', hideQuotes: true })).toContain('.gmail_quote');
     expect(buildEmailDocument('x', { textColor: '#000', hideQuotes: false })).not.toContain('.gmail_quote');
+  });
+
+  it('ships responsive rules so fixed-width ESP tables fit the phone viewport', () => {
+    const doc = buildEmailDocument(
+      '<table width="600" style="width:600px;min-width:600px"><tr><td>Hello</td></tr></table>',
+      { textColor: '#000' },
+    );
+    expect(doc).toContain('overflow-x:hidden');
+    expect(doc).toContain('max-width:100%');
+    expect(doc).toContain('min-width:0 !important');
+    expect(doc).toContain('table-layout:fixed');
+    expect(doc).toContain('overflow-wrap:anywhere');
+    expect(doc).toContain('width=device-width');
+    expect(doc).toContain('user-scalable=no');
+    // Body still contains the original markup (clamping happens at render time).
+    expect(doc).toContain('width="600"');
+  });
+});
+
+describe('EMAIL_LAYOUT_PROBE', () => {
+  it('rewrites oversized widths and reports a scaled height', () => {
+    expect(EMAIL_LAYOUT_PROBE).toContain('fitToViewport');
+    expect(EMAIL_LAYOUT_PROBE).toContain("setAttribute('width', '100%')");
+    expect(EMAIL_LAYOUT_PROBE).toContain('min-width');
+    expect(EMAIL_LAYOUT_PROBE).toContain('data-fit-scale');
+    expect(EMAIL_LAYOUT_PROBE).toContain('ReactNativeWebView');
+  });
+});
+
+describe('buildResponsiveEmailCss', () => {
+  it('caps tables, images and long words to the viewport', () => {
+    const css = buildResponsiveEmailCss({
+      textColor: '#111',
+      fontSize: 15,
+      lineHeight: 1.6,
+      hideQuotes: false,
+    });
+    expect(css).toContain('overflow-x:hidden');
+    expect(css).toContain('min-width:0 !important');
+    expect(css).toContain('table{width:100% !important;table-layout:fixed !important;');
+    expect(css).toContain('img,video{max-width:100% !important;height:auto !important;}');
+    expect(css).toContain('overflow-wrap:anywhere');
   });
 });

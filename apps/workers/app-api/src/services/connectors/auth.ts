@@ -38,6 +38,7 @@ import {
   getConnectionById,
   keyringFromEnv,
   sanitizeConnection,
+  seedDefaultConnectorFieldMappings,
   updateConnectionSettings,
   upsertConnection,
 } from './connections';
@@ -175,6 +176,7 @@ export async function completeWooCommerceAppAuth(args: {
     webhookSecret: encryptedWebhookSecret,
     enabledSyncs: row.enabledSyncs ?? undefined,
   });
+  await seedDefaultConnectorFieldMappings(db, row.id, 'woocommerce');
 
   const fresh = await getConnectionById(db, row.id);
   if (!fresh) {
@@ -321,6 +323,7 @@ async function finishMoneybirdConnection(args: {
 }): Promise<void> {
   const row = args.connection;
   if (!row) return;
+  await seedDefaultConnectorFieldMappings(args.db, row.id, 'moneybird');
   const rawWebhookSecret = generateWebhookSecret();
   try {
     await registerConnectionWebhooks({

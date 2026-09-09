@@ -77,6 +77,10 @@ const EXEMPT_ROUTES = new Set<string>([
   'workflow-builder',
   'workflow-dashboard',
   'enrichments',
+  // WeldPass — keeps its own audit trail (weldpass_audit_events). The
+  // entity-event bus feeds workflows, analytics and AI agents, and neither
+  // secret metadata nor production credential names belong in any of them.
+  'weldpass',
   '_test-fixtures',
   // Accounting read-only / singleton routes — no core-CRUD mutations.
   // accounting-settings: singleton PUT / (not PUT /:id); no post('/') create.

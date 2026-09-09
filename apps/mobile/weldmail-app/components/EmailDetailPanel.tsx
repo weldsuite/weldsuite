@@ -678,7 +678,7 @@ const styles = StyleSheet.create({
   fixedHeader: { paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: '#E5E7EB' },
   headerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 16 },
   actionButton: { padding: 6 },
-  scrollView: { flex: 1 },
+  scrollView: { flex: 1, width: '100%', overflow: 'hidden' },
   emailHeader: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 },
   subjectLine: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(128,128,128,0.2)' },
   subjectText: { fontSize: 22, fontWeight: '600', lineHeight: 28, flex: 1 },
@@ -697,7 +697,14 @@ const styles = StyleSheet.create({
   threadExpandedHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
   threadExpandedSender: { flex: 1 },
   threadRecipientText: { fontSize: 13, marginTop: 2 },
-  threadBody: { paddingLeft: 44, paddingRight: 8, paddingBottom: 6 },
+  threadBody: {
+    paddingLeft: 44,
+    paddingRight: 8,
+    paddingBottom: 6,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
   threadBodyText: { fontSize: 15, lineHeight: 22 },
   threadActions: { flexDirection: 'row', gap: 10, paddingLeft: 44, paddingTop: 6 },
   threadActionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderRadius: 8 },
@@ -736,9 +743,23 @@ const styles = StyleSheet.create({
   attachmentCardMeta: { flex: 1, minWidth: 0 },
   attachmentCardName: { fontSize: 13, fontWeight: '500' },
   attachmentCardSub: { fontSize: 11, marginTop: 2 },
-  bodySection: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 20 },
+  // Clip fixed-width HTML bodies so they cannot expand the vertical scroll
+  // into a horizontal pan on phones.
+  bodySection: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
   body: { fontSize: 16, lineHeight: 24 },
-  webViewBody: { backgroundColor: 'transparent', opacity: 0.99 },
+  webViewBody: {
+    backgroundColor: 'transparent',
+    opacity: 0.99,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
   // Floating Reply/Forward toolbar — elevated above the scrolling email (Outlook style).
   actionBar: {
     flexDirection: 'row',

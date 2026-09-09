@@ -270,7 +270,7 @@ app.delete('/:id/sales-channels/:channelId', requirePermission('products:update'
   const id = c.req.param('id');
   const channelId = c.req.param('channelId');
   try {
-    await unlinkProductSalesChannel({ db, productId: id, channelId });
+    await unlinkProductSalesChannel({ db, env: c.env, productId: id, channelId });
     const [existing] = await db.select({ name: t.name }).from(t).where(eq(t.id, id)).limit(1);
     publishEntityEvent({
       c,

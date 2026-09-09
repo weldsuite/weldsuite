@@ -25,10 +25,14 @@ import { exchangeOAuthCode, getGuild } from '../../services/integrations/discord
 import {
   getHelpdeskAppUrl as getAppUrl,
   helpdeskOAuthRedirectUri,
+  findIntegrationByGuildId,
+  putDiscordGuildMapping,
 } from '../../services/helpdesk-integrations';
 import type { IntegrationsEnv } from '../../services/integrations/connections';
 
 const app = new Hono<{ Bindings: Env }>();
+
+const DISCORD_SETTINGS_PATH = '/settings/integrations/discord';
 
 // ============================================================================
 // GET /discord/callback?code=...&state=...&guild_id=...
@@ -42,7 +46,7 @@ app.get('/discord/callback', async (c) => {
   const defaultAppUrl = getAppUrl(env);
 
   if (!code || !state) {
-    return c.redirect(`${defaultAppUrl}/welddesk/settings/integrations/discord?error=missing_params`);
+    return c.redirect(`${defaultAppUrl}${DISCORD_SETTINGS_PATH}?error=missing_params`);
   }
 
   let appUrl = defaultAppUrl;
@@ -56,7 +60,7 @@ app.get('/discord/callback', async (c) => {
     } | null;
 
     if (!stateData) {
-      return c.redirect(`${defaultAppUrl}/welddesk/settings/integrations/discord?error=invalid_state`);
+      return c.redirect(`${defaultAppUrl}${DISCORD_SETTINGS_PATH}?error=invalid_state`);
     }
 
     // Delete used state
@@ -70,7 +74,7 @@ app.get('/discord/callback', async (c) => {
     const clientSecret = env.DISCORD_CLIENT_SECRET;
     const botToken = env.DISCORD_BOT_TOKEN;
     if (!clientId || !clientSecret) {
-      return c.redirect(`${appUrl}/welddesk/settings/integrations/discord?error=config_error`);
+      return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=config_error`);
     }
 
     // 2. Exchange code for tokens
@@ -90,29 +94,30 @@ app.get('/discord/callback', async (c) => {
       }
     }
 
+    if (!resolvedGuildId) {
+      return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=missing_guild`);
+    }
+
     // 4. Get workspace ID for this org
     const workspace = await getWorkspaceForOrg(env, orgId);
 
-    // 5. Get tenant DB and upsert integration
+    // 5. Get tenant DB and upsert integration for THIS guild (multi-server)
     const db = await getTenantDbForWorkspace(env, orgId);
     const hci = schema.helpdeskChannelIntegrations;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + tokens.expires_in * 1000);
 
-    // Check for existing Discord integration
-    const [existing] = await db
-      .select()
-      .from(hci)
-      .where(and(eq(hci.provider, 'discord'), isNull(hci.deletedAt)))
-      .limit(1);
+    const existing = await findIntegrationByGuildId(db, resolvedGuildId);
+    let integrationId = existing?.id;
 
     if (existing) {
       await db
         .update(hci)
         .set({
           status: 'connected',
+          name: guildName,
           accountInfo: {
-            id: resolvedGuildId || 'unknown',
+            id: resolvedGuildId,
             name: guildName,
             metadata: { guildId: resolvedGuildId, guildName },
           },
@@ -125,14 +130,14 @@ app.get('/discord/callback', async (c) => {
         } as Partial<typeof hci.$inferInsert>)
         .where(eq(hci.id, existing.id));
     } else {
-      const id = generateId('chi');
+      integrationId = generateId('chi');
       await db.insert(hci).values({
-        id,
+        id: integrationId,
         provider: 'discord',
         status: 'connected',
         name: guildName,
         accountInfo: {
-          id: resolvedGuildId || 'unknown',
+          id: resolvedGuildId,
           name: guildName,
           metadata: { guildId: resolvedGuildId, guildName },
         },
@@ -151,19 +156,16 @@ app.get('/discord/callback', async (c) => {
     }
 
     // 6. Store KV mapping for helpdesk-widget-api: discord_guild:{guildId} → workspace info
-    if (resolvedGuildId) {
-      await env.WORKSPACE_CACHE.put(
-        `discord_guild:${resolvedGuildId}`,
-        JSON.stringify({ clerkOrgId: orgId, internalWorkspaceId: workspace.id }),
-        { expirationTtl: 86400 * 365 }, // 1 year
-      );
-    }
+    // (no TTL — disconnect deletes explicitly; a 1y TTL silently broke ticket routing)
+    await putDiscordGuildMapping(env.WORKSPACE_CACHE, resolvedGuildId, orgId, workspace.id);
 
-    // 7. Redirect back to app
-    return c.redirect(`${appUrl}/welddesk/settings/integrations/discord?connected=true`);
+    // 7. Redirect back to app with the connected server selected
+    const qs = new URLSearchParams({ connected: 'true' });
+    if (integrationId) qs.set('integrationId', integrationId);
+    return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?${qs.toString()}`);
   } catch (err) {
     console.error('[app-api/integrations-helpdesk] Discord OAuth callback error:', err);
-    return c.redirect(`${appUrl}/welddesk/settings/integrations/discord?error=callback_failed`);
+    return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=callback_failed`);
   }
 });
 
@@ -279,12 +281,11 @@ app.get('/slack/callback', async (c) => {
       } as unknown as typeof hci.$inferInsert);
     }
 
-    // 5. Store KV mapping for team → workspace resolution
+    // 5. Store KV mapping for team → workspace resolution (no TTL; disconnect deletes)
     if (teamId) {
       await env.WORKSPACE_CACHE.put(
         `slack_team:${teamId}`,
         JSON.stringify({ clerkOrgId: orgId, internalWorkspaceId: workspace.id }),
-        { expirationTtl: 365 * 24 * 60 * 60 }, // 1 year
       );
     }
 

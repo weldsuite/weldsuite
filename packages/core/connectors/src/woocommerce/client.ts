@@ -490,6 +490,17 @@ export class WooCommerceClient implements ConnectorProviderClient {
     return wooProductRef(data, this.storeUrl);
   }
 
+  async deleteProduct(id: string): Promise<void> {
+    await this.request(`products/${id}`, { method: 'DELETE', search: { force: 'true' } });
+  }
+
+  async listVariations(productId: string): Promise<Record<string, unknown>[]> {
+    const { data } = await this.request<Record<string, unknown>[]>(`products/${productId}/variations`, {
+      search: { per_page: '100' },
+    });
+    return Array.isArray(data) ? data : [];
+  }
+
   async getOrder(id: string) {
     const { data } = await this.request<Record<string, unknown>>(`orders/${id}`);
     return data;
@@ -535,11 +546,32 @@ export class WooCommerceClient implements ConnectorProviderClient {
       perPage: options.limit,
       modifiedAfter: options.modifiedAfter,
     });
+    const items =
+      sync.settingKey === 'products' ? await this.attachProductVariations(result.items) : result.items;
     return {
-      items: result.items,
+      items,
       done: result.page >= result.totalPages,
       nextCursor: null,
     };
+  }
+
+  /** Fetch variations for variable products (batched to ease rate limits). */
+  private async attachProductVariations(
+    items: Array<Record<string, unknown>>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const variable = items.filter(
+      (item) => item.type === 'variable' && item.id !== undefined && item.id !== null && !Array.isArray(item._variations),
+    );
+    const concurrency = 3;
+    for (let i = 0; i < variable.length; i += concurrency) {
+      const batch = variable.slice(i, i + concurrency);
+      await Promise.all(
+        batch.map(async (item) => {
+          item._variations = await this.listVariations(String(item.id));
+        }),
+      );
+    }
+    return items;
   }
 
   async registerWebhooks(args: {
@@ -590,6 +622,12 @@ function toWooProductBody(product: OutboundCatalogProduct): Record<string, unkno
           }
         : undefined,
     images: images.length ? images : undefined,
+    ...(product.trackInventory !== undefined
+      ? {
+          manage_stock: product.trackInventory,
+          stock_quantity: product.trackInventory ? (product.inventoryQuantity ?? 0) : undefined,
+        }
+      : {}),
   };
 }
 

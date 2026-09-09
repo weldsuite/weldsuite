@@ -8,6 +8,8 @@
     "dev": "wrangler dev",
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
+    "d1:migrate:test": "wrangler d1 migrations apply CONNECTOR_SYNC_INDEX --remote --env test",
+    "d1:migrate:production": "wrangler d1 migrations apply CONNECTOR_SYNC_INDEX --remote --env production",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

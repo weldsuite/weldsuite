@@ -12,6 +12,8 @@ const connectorKeys = {
   connection: (id: string) => [...connectorKeys.all, 'connection', id] as const,
   runs: (id: string) => [...connectorKeys.all, 'runs', id] as const,
   records: (id: string) => [...connectorKeys.all, 'records', id] as const,
+  fieldMappings: (id: string, entityType?: string) =>
+    [...connectorKeys.all, 'field-mappings', id, entityType ?? 'all'] as const,
 };
 
 export type ConnectorConnectionStatus = 'pending' | 'active' | 'auth_error' | 'sync_error' | 'paused';
@@ -28,8 +30,8 @@ export interface ConnectorAuthField {
 export interface ConnectorSyncDef {
   syncName: string;
   model: string;
-  internalEntity: 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill' | 'bank_account' | 'bank_transaction';
-  settingKey: 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills' | 'bankAccounts' | 'bankTransactions';
+  internalEntity: string;
+  settingKey: string;
 }
 
 export interface ConnectorConnection {
@@ -43,6 +45,8 @@ export interface ConnectorConnection {
   externalAccountId: string | null;
   entityId: string | null;
   enabledSyncs: string[];
+  direction: 'inbound' | 'outbound' | 'bidirectional';
+  objectSyncDirections: Record<string, 'inbound' | 'outbound' | 'bidirectional'>;
   authFields: ConnectorAuthField[];
   syncs: ConnectorSyncDef[];
   lastSyncAt: string | null;
@@ -112,6 +116,8 @@ export interface ConnectConnectorInput {
 export interface UpdateConnectorInput {
   displayName?: string;
   enabledSyncs?: string[];
+  direction?: 'inbound' | 'outbound' | 'bidirectional';
+  objectSyncDirections?: Record<string, 'inbound' | 'outbound' | 'bidirectional'> | null;
   credentials?: Record<string, string>;
   entityId?: string | null;
 }
@@ -317,5 +323,80 @@ export function useDisconnectConnector() {
       );
     },
     onSuccess: () => invalidateConnectorQueries(queryClient),
+  });
+}
+
+export interface ConnectorFieldMapping {
+  id: string;
+  connectionId: string;
+  entityType: string;
+  externalFieldPath: string;
+  internalFieldPath: string;
+  direction: 'inbound' | 'outbound' | 'bidirectional';
+  transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
+  transformConfig: Record<string, unknown> | null;
+  isRequired: boolean;
+  isDefault: boolean;
+  position: number;
+}
+
+export interface ConnectorFieldMappingDefinition {
+  externalFieldPath: string;
+  internalFieldPath: string;
+  direction: 'inbound' | 'outbound' | 'bidirectional';
+  transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
+  transformConfig?: Record<string, unknown>;
+  isRequired?: boolean;
+}
+
+export function useConnectorFieldMappings(connectionId: string | null, entityType?: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: connectorKeys.fieldMappings(connectionId ?? '', entityType),
+    enabled: Boolean(connectionId),
+    queryFn: async () => {
+      const client = await getClient();
+      const params = entityType ? `?entityType=${encodeURIComponent(entityType)}` : '';
+      return client.get<{ data: ConnectorFieldMapping[] }>(
+        `/connectors/connections/${connectionId}/field-mappings${params}`,
+      );
+    },
+  });
+}
+
+export function useConnectorDefaultFieldMappings(connectionId: string | null, entityType: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...connectorKeys.fieldMappings(connectionId ?? '', entityType), 'defaults'],
+    enabled: Boolean(connectionId && entityType),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: ConnectorFieldMappingDefinition[] }>(
+        `/connectors/connections/${connectionId}/field-mappings/defaults?entityType=${encodeURIComponent(entityType)}`,
+      );
+    },
+  });
+}
+
+export function useUpdateConnectorFieldMappings() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      connectionId: string;
+      entityType: string;
+      mappings: ConnectorFieldMappingDefinition[];
+    }) => {
+      const client = await getClient();
+      return client.put<{ data: { entityType: string; count: number } }>(
+        `/connectors/connections/${input.connectionId}/field-mappings`,
+        { entityType: input.entityType, mappings: input.mappings },
+      );
+    },
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({
+        queryKey: connectorKeys.fieldMappings(vars.connectionId, vars.entityType),
+      });
+    },
   });
 }

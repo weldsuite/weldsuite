@@ -212,7 +212,7 @@ describe('createDomainCheckoutSession saves the card for later renewals', () => 
     vi.unstubAllGlobals();
   });
 
-  it('sets payment_intent_data[setup_future_usage]=off_session', async () => {
+  it('creates a post-purchase invoice and saves the card without setup_future_usage on the PaymentIntent', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
       ok: true,
       json: async () => ({ id: 'cs_test', url: 'https://checkout.stripe.com/c/pay/cs_test' }),
@@ -225,12 +225,18 @@ describe('createDomainCheckoutSession saves the card for later renewals', () => 
       lineItems: [{ name: 'example.com', unitAmountCents: 1200, currency: 'usd' }],
       successUrl: 'https://app.example/ok',
       cancelUrl: 'https://app.example/cancel',
-      metadata: { kind: 'domain_registration' },
+      metadata: { kind: 'domain_registration', workspaceId: 'ws_1' },
     });
 
-    const body = decodeURIComponent(String(fetchMock.mock.calls[0]?.[1]?.body ?? ''));
-    expect(body).toContain('payment_intent_data[setup_future_usage]=off_session');
+    const body = decodeURIComponent(String(fetchMock.mock.calls[0]?.[1]?.body ?? '')).replace(/\+/g, ' ');
     expect(body).toContain('mode=payment');
+    expect(body).toContain('invoice_creation[enabled]=true');
+    expect(body).toContain('invoice_creation[invoice_data][description]=WeldHost domain registration: example.com');
+    expect(body).toContain('invoice_creation[invoice_data][metadata][kind]=domain_registration');
+    expect(body).toContain('invoice_creation[invoice_data][metadata][workspaceId]=ws_1');
+    expect(body).toContain('payment_method_options[card][setup_future_usage]=off_session');
+    expect(body).toContain('payment_method_options[sepa_debit][setup_future_usage]=off_session');
+    expect(body).not.toContain('payment_intent_data[setup_future_usage]');
   });
 
   it('retrieves the live invoice before adding items and finalizes with an idempotency key', async () => {

@@ -62,14 +62,15 @@ export async function handleMessage(message: Message): Promise<void> {
 
     const config = (integration.config || {}) as Record<string, unknown>;
 
-    // Check if parent channel is monitored
+    // Check if parent channel is monitored (opt-in: nothing selected → ignore)
     const supportChannels = (config.supportChannels || []) as Array<{ channelId: string; enabled: boolean }>;
-    if (supportChannels.length > 0) {
-      const channelConfig = supportChannels.find(
-        (ch) => ch.channelId === channelId || ch.channelId === parentChannelId,
-      );
-      if (!channelConfig || !channelConfig.enabled) return;
-    }
+    const enabledChannels = supportChannels.filter((ch) => ch.enabled);
+    if (enabledChannels.length === 0) return; // not_monitored
+
+    const channelConfig = enabledChannels.find(
+      (ch) => ch.channelId === channelId || ch.channelId === parentChannelId,
+    );
+    if (!channelConfig) return;
 
     // 3. Find existing ticket conversation for this thread
     const threadChannelId = channelId;

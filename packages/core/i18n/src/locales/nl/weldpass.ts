@@ -1,0 +1,190 @@
+/**
+ * WeldPass — versleutelde secret-kluizen met synchronisatie naar Cloudflare en Vercel.
+ */
+export const weldpass = {
+  title: 'WeldPass',
+  projects: 'Projecten',
+  sync: 'Synchronisatie',
+  auditLog: 'Auditlog',
+
+  projectList: {
+    subtitle: 'Versleutelde secrets voor deze werkruimte.',
+    newProject: 'Nieuw project',
+    emptyTitle: 'Nog geen projecten',
+    emptyDescription:
+      'Een project bevat de secrets van één app, verdeeld over omgevingen zoals development, preview en productie.',
+    emptyAction: 'Maak je eerste project',
+    updated: 'Bijgewerkt',
+    create: {
+      title: 'Nieuw project',
+      name: 'Naam',
+      namePlaceholder: 'Checkout API',
+      description: 'Omschrijving',
+      descriptionHint: 'Optioneel.',
+      descriptionPlaceholder: 'Secrets voor de betaaldienst',
+      environmentsNote: 'Development-, preview- en productieomgevingen worden voor je aangemaakt.',
+      submit: 'Project aanmaken',
+      failed: 'Het project kon niet worden aangemaakt.',
+    },
+  },
+
+  secrets: {
+    count: '{count} secrets',
+    countOne: '1 secret',
+    production: 'Productie',
+    emptyTitle: 'Deze omgeving is leeg',
+    emptyDescription:
+      'Voeg handmatig een secret toe, of plak een bestaand .env-bestand om alles in één keer over te nemen.',
+    addSecret: 'Secret toevoegen',
+    importEnv: '.env importeren',
+    export: 'Exporteren',
+    key: 'Sleutel',
+    value: 'Waarde',
+    updatedColumn: 'Bijgewerkt',
+    reveal: 'Tonen',
+    hide: 'Verbergen',
+    copy: 'Kopiëren',
+    history: 'Geschiedenis',
+    edit: 'Bewerken',
+    delete: 'Verwijderen',
+    deleteConfirm:
+      '{key} verwijderen? Gesynchroniseerde doelen behouden hun kopie, tenzij ze opschonen.',
+    revealFailed: 'Die waarde kon niet worden getoond.',
+    deleteFailed: 'Die secret kon niet worden verwijderd.',
+    exportFailed: 'Deze omgeving kon niet worden geëxporteerd.',
+    loadFailed: 'De secrets konden niet worden geladen.',
+    form: {
+      addTitle: 'Secret toevoegen',
+      editTitle: '{key} bewerken',
+      keyLabel: 'Sleutel',
+      keyHint: 'Letters, cijfers en underscores — de naam die je app uitleest.',
+      valueLabel: 'Waarde',
+      valueKeepHint: 'Laat leeg om de huidige waarde te behouden.',
+      noteLabel: 'Notitie',
+      noteHint: 'Optioneel. Wordt naast de sleutel getoond en is niet versleuteld.',
+      save: 'Opslaan',
+      cancel: 'Annuleren',
+      failed: 'Die secret kon niet worden opgeslagen.',
+    },
+    import: {
+      title: '.env importeren',
+      pasteLabel: 'Plak je .env-bestand',
+      pasteHint: 'Commentaar, aanhalingstekens en export-prefixen worden herkend.',
+      replaceLabel:
+        'Omgeving vervangen — verwijder elke sleutel die niet in dit bestand staat. Standaard uit, omdat een gedeeltelijke .env anders de rest zou wissen.',
+      submit: 'Importeren',
+      failed: 'Dat bestand kon niet worden geïmporteerd.',
+      completeTitle: 'Import voltooid',
+      added: '{count} toegevoegd',
+      updated: '{count} bijgewerkt',
+      unchanged: '{count} ongewijzigd',
+      removed: '{count} verwijderd',
+      skippedTitle: 'Overgeslagen regels',
+      skippedLine: 'Regel {line}: {reason}',
+      done: 'Klaar',
+    },
+    versions: {
+      title: 'Geschiedenis — {key}',
+      restore: 'Herstellen',
+      restoreNote:
+        'Herstellen maakt een nieuwe versie — er wordt niets in de geschiedenis overschreven.',
+      loadFailed: 'De geschiedenis kon niet worden geladen.',
+      restoreFailed: 'Die versie kon niet worden hersteld.',
+    },
+    autoSync: {
+      title: 'Automatische synchronisatie',
+      dismiss: 'Sluiten',
+      pushed: '{count} verstuurd',
+    },
+  },
+
+  syncPage: {
+    subtitle: 'Verstuur de omgevingen van {project} naar Cloudflare en Vercel.',
+    targets: 'Doelen',
+    addTarget: 'Doel toevoegen',
+    noTargetsTitle: 'Geen synchronisatiedoelen',
+    noTargetsNeedToken:
+      'Voeg eerst een Cloudflare- of Vercel-API-token toe en koppel daarna een omgeving aan een Worker, Pages-project of Vercel-project.',
+    noTargetsDescription:
+      'Koppel een omgeving aan een Worker, Pages-project of Vercel-project.',
+    push: 'Versturen',
+    remove: 'Verwijderen',
+    removeConfirm: '{name} verwijderen? Al verstuurde waarden blijven op het doel staan.',
+    autoSyncOn: 'Automatisch synchroniseren: aan',
+    autoSyncOff: 'Automatisch synchroniseren: uit',
+    prunes: 'Ruimt verwijderde sleutels op',
+    pushedCount: '{count} verstuurd',
+    pushFailed: 'Kon niet naar dat doel versturen.',
+    loadFailed: 'De synchronisatie-instellingen konden niet worden geladen.',
+    updateFailed: 'Dat doel kon niet worden bijgewerkt.',
+
+    tokens: 'API-tokens',
+    addToken: 'Token toevoegen',
+    noTokensTitle: 'Geen API-tokens',
+    noTokensDescription:
+      'WeldPass heeft een Cloudflare- of Vercel-token nodig om namens jou secrets te schrijven. Tokens worden versleuteld met de sleutel van dit project en nooit opnieuw getoond.',
+    tokenVerified: 'Geverifieerd',
+    tokenFailed: 'Mislukt',
+    tokenUnverified: 'Niet geverifieerd',
+    deleteTokenConfirm: '{name} verwijderen? Doelen die het gebruiken stoppen met synchroniseren.',
+
+    recentPushes: 'Recente verzendingen',
+    refresh: 'Vernieuwen',
+    nothingPushed: 'Nog niets verstuurd.',
+    runSummary: '{pushed} verstuurd',
+    runRemoved: ', {count} verwijderd',
+    runFailed: ', {count} mislukt',
+    removedTarget: 'Verwijderd doel',
+
+    tokenForm: {
+      title: 'API-token toevoegen',
+      provider: 'Aanbieder',
+      name: 'Naam',
+      nameHint: 'Waaraan je dit token later herkent.',
+      token: 'Token',
+      tokenHint:
+        'Versleuteld opgeslagen met de sleutel van dit project. Het wordt nooit opnieuw getoond.',
+      accountId: 'Account-ID',
+      accountIdHint: 'Te vinden op het overzicht van je Cloudflare-dashboard.',
+      teamId: 'Team-ID',
+      teamIdHint: 'Laat leeg voor een persoonlijk Vercel-account.',
+      submit: 'Token opslaan',
+      failed: 'Dat token kon niet worden opgeslagen.',
+    },
+
+    targetForm: {
+      title: 'Synchronisatiedoel toevoegen',
+      credential: 'API-token',
+      environment: 'Te versturen omgeving',
+      scriptName: 'Naam van het Worker-script',
+      scriptNameHint: 'De naam waaronder het is uitgerold, bijv. weldsuite-app-api-test.',
+      pagesProject: 'Naam van het Pages-project',
+      pagesEnvironment: 'Deployment-configuratie',
+      pagesEnvironmentHint: 'Pages kent alleen production en preview.',
+      vercelProject: 'Vercel-project',
+      vercelProjectHint: 'Project-ID (prj_…) of de naam ervan.',
+      vercelTargets: 'Vercel-omgevingen',
+      name: 'Naam',
+      nameHint: 'Optioneel — standaard het adres van het doel.',
+      autoSync: 'Automatisch versturen zodra een secret in deze omgeving verandert.',
+      prune:
+        'Verwijder sleutels op het doel die hier niet meer bestaan. Laat dit uit als iets anders ook variabelen op dat doel zet.',
+      submit: 'Doel toevoegen',
+      incomplete: 'Vul de doelgegevens in. Cloudflare-tokens hebben ook een account-ID nodig.',
+      failed: 'Dat doel kon niet worden aangemaakt.',
+    },
+  },
+
+  audit: {
+    subtitle:
+      'Elke wijziging en elke inzage, met wie het deed. Waarden worden nooit vastgelegd.',
+    emptyTitle: 'Nog niets vastgelegd',
+    loadFailed: 'De auditlog kon niet worden geladen.',
+  },
+
+  providers: {
+    cloudflare_workers: 'Cloudflare Workers',
+    cloudflare_pages: 'Cloudflare Pages',
+    vercel: 'Vercel',
+  },
+};

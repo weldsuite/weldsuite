@@ -16,7 +16,7 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import { getConnector, type ConnectorSyncDef } from '@weldsuite/connectors';
+import { expandPicqerProductStock, getConnector, type ConnectorSyncDef } from '@weldsuite/connectors';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
 import { promoteAccountingRole } from '../accounting-roles';
@@ -30,7 +30,14 @@ import {
   type MappedInvoice,
   type MappedOrder,
   type MappedParty,
+  type MappedProductVariant,
+  type MappedRecord,
+  type MappedWmsEntity,
 } from './mappers';
+import {
+  applyInboundFieldMappings,
+  type ConnectorFieldMappingRow,
+} from './field-mapper';
 
 export interface IngestCounts {
   created: number;
@@ -84,6 +91,38 @@ export async function recordChecksum(record: Record<string, unknown>): Promise<s
 
 function emptyCounts(): IngestCounts {
   return { created: 0, modified: 0, skipped: 0, deleted: 0, failed: 0 };
+}
+
+async function loadConnectorFieldMappings(
+  db: Database,
+  connectionId: string,
+  entityType: string,
+): Promise<ConnectorFieldMappingRow[]> {
+  const fm = schema.integrationFieldMappings;
+  return db
+    .select({
+      externalFieldPath: fm.externalFieldPath,
+      internalFieldPath: fm.internalFieldPath,
+      direction: fm.direction,
+      transformType: fm.transformType,
+      transformConfig: fm.transformConfig,
+      isRequired: fm.isRequired,
+    })
+    .from(fm)
+    .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)));
+}
+
+function applyMappingsToRecord(
+  record: Record<string, unknown>,
+  mapped: MappedRecord,
+  mappings: ConnectorFieldMappingRow[],
+): MappedRecord {
+  if (mappings.length === 0) return mapped;
+  if (!('values' in mapped) || !mapped.values) return mapped;
+  return {
+    ...mapped,
+    values: applyInboundFieldMappings(record, mapped.values, mappings),
+  } as MappedRecord;
 }
 
 export function sanitiseErrorMessage(err: unknown): string {
@@ -290,6 +329,73 @@ async function replaceOrderItems(
       total: item.total,
     });
   }
+}
+
+async function upsertProductVariants(
+  db: Database,
+  productId: string,
+  variants: MappedProductVariant[],
+): Promise<void> {
+  const existingRows = await db
+    .select()
+    .from(schema.productVariants)
+    .where(and(eq(schema.productVariants.productId, productId), isNull(schema.productVariants.deletedAt)));
+
+  type VariantIndex = { id: string; sku: string | null; attributes: unknown };
+  const bySku = new Map<string, VariantIndex>();
+  const byExternal = new Map<string, VariantIndex>();
+  for (const row of existingRows) {
+    if (row.sku) bySku.set(row.sku, row);
+    const externalId = (row.attributes as { externalId?: string } | null)?.externalId;
+    if (externalId) byExternal.set(externalId, row);
+  }
+
+  for (const variant of variants) {
+    const match = (variant.sku ? bySku.get(variant.sku) : undefined) ?? byExternal.get(variant.externalId);
+    const optionValues = variant.optionValues
+      ? Object.entries(variant.optionValues).map(([name, value]) => ({ name, value }))
+      : null;
+    const fields = {
+      name: variant.name?.trim() || optionValues?.map((o) => o.value).join(' / ') || 'Variant',
+      sku: variant.sku,
+      price: variant.price,
+      inventoryQuantity: variant.inventoryQuantity ?? 0,
+      trackInventory: variant.trackInventory,
+      optionValues,
+      status: variant.status || 'active',
+      position: variant.position,
+      attributes: { externalId: variant.externalId },
+      updatedAt: new Date(),
+    };
+
+    if (match) {
+      await db
+        .update(schema.productVariants)
+        .set(fields)
+        .where(eq(schema.productVariants.id, match.id));
+      if (variant.sku) bySku.set(variant.sku, match);
+      byExternal.set(variant.externalId, match);
+    } else {
+      const id = generateId('pvr');
+      await db.insert(schema.productVariants).values({
+        id,
+        productId,
+        ...fields,
+      });
+      const created: VariantIndex = { id, sku: variant.sku, attributes: fields.attributes };
+      if (variant.sku) bySku.set(variant.sku, created);
+      byExternal.set(variant.externalId, created);
+    }
+  }
+
+  await db
+    .update(schema.products)
+    .set({
+      hasVariants: true,
+      variantCount: variants.length,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.products.id, productId));
 }
 
 async function upsertSalesChannel(args: {
@@ -686,6 +792,11 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
   const entityId = args.sync.internalEntity === 'party' ? null : await resolveIngestEntityId(args);
+  const fieldMappings = await loadConnectorFieldMappings(
+    args.db,
+    args.connectionId,
+    args.sync.internalEntity,
+  );
 
   for (const record of args.records) {
     const externalId = externalIdOf(record);
@@ -729,7 +840,7 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
           db: args.db as never,
           workspaceId: args.workspaceId,
           userId: args.ownerId,
-          entityType: args.sync.internalEntity,
+          entityType: args.sync.internalEntity === 'invoice' ? 'invoice' : 'bill',
           action: 'deleted',
           entityId: mapping.internalEntityId,
           data: { id: mapping.internalEntityId },
@@ -737,7 +848,8 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
         continue;
       }
 
-      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
       if (!mapped) {
         counts.skipped++;
         continue;
@@ -876,6 +988,12 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
     getConnector(args.provider)?.syncs.find((sync) => sync.internalEntity === 'bank_account')?.externalEntityType
     ?? `${args.provider}_financial_account`;
 
+  const fieldMappings = await loadConnectorFieldMappings(
+    args.db,
+    args.connectionId,
+    args.sync.internalEntity,
+  );
+
   for (const record of args.records) {
     const externalId = externalIdOf(record);
     if (!externalId) {
@@ -909,7 +1027,8 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
         continue;
       }
 
-      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
       if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
         counts.failed++;
         if (errorSamples.length < MAX_ERROR_SAMPLES) {
@@ -1037,6 +1156,367 @@ function pickCurrency(values: Record<string, unknown>): string | null {
   return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 3) : null;
 }
 
+const WMS_ENTITIES = new Set([
+  'inventory',
+  'warehouse',
+  'location',
+  'picklist',
+  'shipment',
+  'supplier',
+  'purchase_order',
+  'return',
+  'stock_count',
+  'inventory_movement',
+]);
+
+function isWmsEntity(entity: string): boolean {
+  return WMS_ENTITIES.has(entity);
+}
+
+function wmsTarget(entity: MappedWmsEntity['entity']): {
+  table: PgTable;
+  idPrefix: string;
+  dedupColumn: string | null;
+  /** Stored on integration_entity_mappings.internalEntityType */
+  internalEntityType: string;
+  /** publishEntityEventRaw entity key */
+  eventEntityType:
+    | 'inventory'
+    | 'warehouse'
+    | 'wms_location'
+    | 'picklist'
+    | 'shipment'
+    | 'supplier'
+    | 'purchase_order'
+    | 'return'
+    | 'wms_cycle_count'
+    | 'wms_inventory_movement';
+} {
+  switch (entity) {
+    case 'inventory':
+      return {
+        table: schema.inventory,
+        idPrefix: 'inv',
+        dedupColumn: null,
+        internalEntityType: 'inventory',
+        eventEntityType: 'inventory',
+      };
+    case 'warehouse':
+      return {
+        table: schema.warehouses,
+        idPrefix: 'wh',
+        dedupColumn: 'code',
+        internalEntityType: 'warehouse',
+        eventEntityType: 'warehouse',
+      };
+    case 'location':
+      return {
+        table: schema.warehouseLocations,
+        idPrefix: 'wloc',
+        dedupColumn: 'code',
+        internalEntityType: 'location',
+        eventEntityType: 'wms_location',
+      };
+    case 'picklist':
+      return {
+        table: schema.pickLists,
+        idPrefix: 'pl',
+        dedupColumn: 'pickListNumber',
+        internalEntityType: 'picklist',
+        eventEntityType: 'picklist',
+      };
+    case 'shipment':
+      return {
+        table: schema.shipments,
+        idPrefix: 'shp',
+        dedupColumn: 'shipmentNumber',
+        internalEntityType: 'shipment',
+        eventEntityType: 'shipment',
+      };
+    case 'supplier':
+      return {
+        table: schema.suppliers,
+        idPrefix: 'sup',
+        dedupColumn: 'code',
+        internalEntityType: 'supplier',
+        eventEntityType: 'supplier',
+      };
+    case 'purchase_order':
+      return {
+        table: schema.purchaseOrders,
+        idPrefix: 'po',
+        dedupColumn: 'poNumber',
+        internalEntityType: 'purchase_order',
+        eventEntityType: 'purchase_order',
+      };
+    case 'return':
+      return {
+        table: schema.returns,
+        idPrefix: 'ret',
+        dedupColumn: 'returnNumber',
+        internalEntityType: 'return',
+        eventEntityType: 'return',
+      };
+    case 'stock_count':
+      return {
+        table: schema.cycleCounts,
+        idPrefix: 'cc',
+        dedupColumn: 'countNumber',
+        internalEntityType: 'stock_count',
+        eventEntityType: 'wms_cycle_count',
+      };
+    case 'inventory_movement':
+      return {
+        table: schema.inventoryMovements,
+        idPrefix: 'imv',
+        dedupColumn: 'movementNumber',
+        internalEntityType: 'inventory_movement',
+        eventEntityType: 'wms_inventory_movement',
+      };
+  }
+}
+
+async function ensureDefaultWarehouse(db: Database, ownerHint?: string | null): Promise<string> {
+  const [existing] = await db
+    .select({ id: schema.warehouses.id })
+    .from(schema.warehouses)
+    .where(isNull(schema.warehouses.deletedAt))
+    .orderBy(asc(schema.warehouses.createdAt))
+    .limit(1);
+  if (existing) return existing.id;
+  const id = generateId('wh');
+  await db.insert(schema.warehouses).values({
+    id,
+    name: 'Default warehouse',
+    code: 'DEFAULT',
+    isDefault: true,
+    isActive: true,
+    metadata: { source: 'picqer-connector', createdFor: ownerHint ?? 'sync' },
+  });
+  return id;
+}
+
+function expandWmsRecords(
+  provider: string,
+  entity: string,
+  records: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  if (provider !== 'picqer' || entity !== 'inventory') return records;
+  return records.flatMap((record) => {
+    if (Array.isArray(record.stock)) return expandPicqerProductStock(record);
+    return [record];
+  });
+}
+
+async function resolveLinkedIds(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  mapped: MappedWmsEntity;
+}): Promise<Record<string, unknown>> {
+  const extra: Record<string, unknown> = {};
+  const links = args.mapped.links ?? {};
+  if (links.productExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_product`,
+      links.productExternalId,
+    );
+    if (mapping) extra.productId = mapping.internalEntityId;
+  }
+  if (links.warehouseExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_warehouse`,
+      links.warehouseExternalId,
+    );
+    if (mapping) {
+      extra.warehouseId = mapping.internalEntityId;
+      if (args.mapped.entity === 'inventory_movement') {
+        extra.sourceWarehouseId = mapping.internalEntityId;
+        extra.destWarehouseId = mapping.internalEntityId;
+      }
+    }
+  }
+  if (links.locationExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_location`,
+      links.locationExternalId,
+    );
+    if (mapping) {
+      extra.locationId = mapping.internalEntityId;
+      if (args.mapped.entity === 'stock_count') {
+        extra.locationIds = [mapping.internalEntityId];
+      }
+    }
+  }
+  if (links.supplierExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_supplier`,
+      links.supplierExternalId,
+    );
+    if (mapping) extra.supplierId = mapping.internalEntityId;
+  }
+  if (links.orderExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_order`,
+      links.orderExternalId,
+    );
+    if (mapping) {
+      if (args.mapped.entity === 'picklist') extra.orderIds = [mapping.internalEntityId];
+      if (args.mapped.entity === 'return') extra.originalOrderId = mapping.internalEntityId;
+    }
+  }
+  if (links.picklistExternalId) {
+    const mapping = await findMapping(
+      args.db,
+      args.connectionId,
+      `${args.provider}_picklist`,
+      links.picklistExternalId,
+    );
+    if (mapping) {
+      extra.metadata = {
+        ...((args.mapped.values.metadata as Record<string, unknown> | undefined) ?? {}),
+        pickListId: mapping.internalEntityId,
+      };
+    }
+  }
+  return extra;
+}
+
+async function ingestWmsRecords(args: IngestArgs): Promise<IngestResult> {
+  const counts = emptyCounts();
+  const errorSamples: IngestResult['errorSamples'] = [];
+  const fieldMappings = await loadConnectorFieldMappings(
+    args.db,
+    args.connectionId,
+    args.sync.internalEntity,
+  );
+  const records = expandWmsRecords(args.provider, args.sync.internalEntity, args.records);
+  const defaultWarehouseId = await ensureDefaultWarehouse(args.db, args.ownerId);
+
+  for (const record of records) {
+    const externalId = externalIdOf(record);
+    if (!externalId) {
+      counts.skipped++;
+      continue;
+    }
+
+    try {
+      if (isDeletedRecord(record, args.forceDeleted)) {
+        const mapping = await findMapping(
+          args.db,
+          args.connectionId,
+          args.sync.externalEntityType,
+          externalId,
+        );
+        if (mapping) {
+          const target = wmsTarget(args.sync.internalEntity as MappedWmsEntity['entity']);
+          await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+          counts.deleted++;
+        } else {
+          counts.skipped++;
+        }
+        continue;
+      }
+
+      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
+      if (!mapped || !('entity' in mapped) || !isWmsEntity(mapped.entity)) {
+        counts.skipped++;
+        continue;
+      }
+      const wms = mapped as MappedWmsEntity;
+      const target = wmsTarget(wms.entity);
+      const linked = await resolveLinkedIds({
+        db: args.db,
+        connectionId: args.connectionId,
+        provider: args.provider,
+        mapped: wms,
+      });
+
+      const values: Record<string, unknown> = {
+        ...wms.values,
+        ...linked,
+        createdBy: wms.values.createdBy ?? args.ownerId,
+      };
+
+      if (
+        (wms.entity === 'inventory' || wms.entity === 'picklist' || wms.entity === 'stock_count')
+        && !values.warehouseId
+      ) {
+        values.warehouseId = defaultWarehouseId;
+      }
+
+      if (wms.entity === 'location' && !values.warehouseId) {
+        values.warehouseId = defaultWarehouseId;
+      }
+
+      if (wms.entity === 'inventory' && !values.productId) {
+        counts.skipped++;
+        continue;
+      }
+
+      if (wms.entity === 'inventory_movement' && !values.productId) {
+        counts.skipped++;
+        continue;
+      }
+
+      if (wms.entity === 'inventory_movement') {
+        values.sourceWarehouseId = values.sourceWarehouseId ?? defaultWarehouseId;
+        values.destWarehouseId = values.destWarehouseId ?? defaultWarehouseId;
+      }
+
+      const checksum = await recordChecksum(record);
+      const outcome = await upsertByMapping({
+        db: args.db,
+        connectionId: args.connectionId,
+        externalEntityType: args.sync.externalEntityType,
+        externalEntityId: externalId,
+        internalEntityType: target.internalEntityType,
+        table: target.table,
+        idPrefix: target.idPrefix,
+        dedupColumn: target.dedupColumn,
+        values,
+        checksum,
+      });
+
+      if (outcome.action === 'created') counts.created++;
+      else if (outcome.action === 'updated') counts.modified++;
+      else counts.skipped++;
+
+      if (outcome.action !== 'skipped') {
+        await publishEntityEventRaw({
+          env: args.env as never,
+          db: args.db as never,
+          workspaceId: args.workspaceId,
+          userId: args.ownerId,
+          entityType: target.eventEntityType,
+          action: outcome.action === 'created' ? 'created' : 'updated',
+          entityId: outcome.internalId,
+          data: { id: outcome.internalId },
+        });
+      }
+    } catch (err) {
+      counts.failed++;
+      if (errorSamples.length < MAX_ERROR_SAMPLES) {
+        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
+      }
+      console.error(`[connectors/ingest] wms record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    }
+  }
+
+  return { ...counts, errorSamples };
+}
+
 export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
   if (
     args.sync.internalEntity === 'party'
@@ -1051,11 +1531,19 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
   ) {
     return ingestBankRecords(args);
   }
+  if (isWmsEntity(args.sync.internalEntity)) {
+    return ingestWmsRecords(args);
+  }
 
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
   const target = targetFor(args.sync.internalEntity as 'product' | 'order' | 'person');
   const customerType = `${args.provider}_customer`;
+  const fieldMappings = await loadConnectorFieldMappings(
+    args.db,
+    args.connectionId,
+    args.sync.internalEntity,
+  );
 
   for (const record of args.records) {
     const externalId = externalIdOf(record);
@@ -1094,7 +1582,8 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
         continue;
       }
 
-      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
       if (!mapped) {
         counts.skipped++;
         continue;
@@ -1149,6 +1638,9 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
           price: mapped.values.price != null ? String(mapped.values.price) : null,
           listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
         });
+        if (mapped.variants?.length && outcome.action !== 'skipped') {
+          await upsertProductVariants(args.db, outcome.internalId, mapped.variants);
+        }
       }
 
       if (outcome.action === 'created') counts.created++;

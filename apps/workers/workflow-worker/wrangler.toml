@@ -63,10 +63,12 @@ id = "748b8f38937f4807b3978cacb17e1880"
 
 # D1 schedule index — local `wrangler dev` emulates this against a local SQLite
 # copy; the id points at the test database so remote-mode dev shares it.
+# Schema migrations live in ./migrations/d1 (applied by deploy.yml).
 [[d1_databases]]
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+migrations_dir = "migrations/d1"
 
 [[services]]
 binding = "REALTIME"
@@ -100,6 +102,7 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+migrations_dir = "migrations/d1"
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -134,6 +137,7 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-production"
 database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+migrations_dir = "migrations/d1"
 
 [[env.production.services]]
 binding = "REALTIME"
