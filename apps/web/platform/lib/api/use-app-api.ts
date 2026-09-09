@@ -57,6 +57,7 @@ import { createWorkspaceSettingsApi } from '@weldsuite/app-api-client/domains/wo
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
+import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { getAppApiUrl } from '@/lib/api/public-env';
 
 const APP_API_URL = getAppApiUrl();
@@ -172,6 +173,7 @@ export function useAppApi() {
       notifications: createNotificationsApi(lazyClient),
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
+      weldpass: createWeldPassApi(lazyClient),
     }),
     [lazyClient],
   );

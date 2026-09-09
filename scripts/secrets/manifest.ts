@@ -165,6 +165,9 @@ export const manifest: Record<string, SecretEntry[]> = {
   // app-api: GitHub App secrets for the install flow + callback + Projects API,
   // plus the WeldHost domain-purchase pair.
   "app-api": [
+    // WeldPass vault root key. Wraps every project KEK — losing it makes every
+    // stored secret unrecoverable, so keep a backup outside Doppler as well.
+    "WELDPASS_ROOT_KEY",
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
     "GITHUB_APP_PRIVATE_KEY",

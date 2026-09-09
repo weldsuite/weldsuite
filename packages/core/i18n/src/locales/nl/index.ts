@@ -38,6 +38,7 @@ import { welddrive } from './welddrive';
 import { weldconnect } from './weldconnect';
 import { weldsuiteHome } from './weldsuiteHome';
 import { welddata } from './welddata';
+import { weldpass } from './weldpass';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
 import { deskInbox2 } from './desk-inbox2';
@@ -85,6 +86,7 @@ export const nl = {
   weldconnect,
   weldsuiteHome,
   welddata,
+  weldpass,
   weldknow,
   weldads,
   deskInbox2,

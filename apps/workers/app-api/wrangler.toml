@@ -36,6 +36,12 @@ head_sampling_rate = 1
 #   /api/onboard for the "create additional workspace" flow (test/preview/prod)
 # - NEON_API_KEY
 # - DATABASE_ENCRYPTION_KEY (optional)
+# - WELDPASS_ROOT_KEY (required for WeldPass) — 64 hex chars. Wraps every
+#   WeldPass vault key; vault contents are unreadable without it and it is
+#   never stored in the database. Distinct from DATABASE_ENCRYPTION_KEY,
+#   which only protects stored tenant DB URLs. Generate with:
+#     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# - WELDPASS_ROOT_KEY_V2 (only during a WeldPass root-key rotation)
 # - CLOUDFLARE_API_TOKEN (for /api/domains: Zones + legacy CF registrar domains)
 # - CLOUDFLARE_ACCOUNT_ID (for /api/domains: account that owns zones)
 # - REALTIME_REGISTER_API_KEY / REALTIME_REGISTER_CUSTOMER (registrar REST)

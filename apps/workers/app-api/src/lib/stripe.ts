@@ -73,14 +73,27 @@ export async function createDomainCheckoutSession(
   secretKey: string,
   params: CreateDomainCheckoutParams,
 ): Promise<{ id: string; url: string }> {
+  const domainNames = params.lineItems.map((item) => item.name).join(', ');
+  const invoiceDescription = domainNames
+    ? `WeldHost domain registration: ${domainNames}`
+    : 'WeldHost domain registration';
+
   const body: Record<string, string> = {
     customer: params.customerId,
     mode: 'payment',
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
-    // Save the card (or SEPA mandate) so the daily auto-renew sweep can
-    // raise an off-session invoice next year without another Checkout.
-    'payment_intent_data[setup_future_usage]': 'off_session',
+    // Payment-mode Checkout only creates a charge receipt unless this is on.
+    // With it enabled, Stripe emails a paid invoice and invoice.* webhooks
+    // populate Settings → Billing.
+    'invoice_creation[enabled]': 'true',
+    'invoice_creation[invoice_data][description]': invoiceDescription,
+    // Stripe rejects payment_intent_data[setup_future_usage] together with
+    // invoice_creation. Per-method setup_future_usage still saves the card
+    // (or SEPA mandate) so the daily auto-renew sweep can raise an
+    // off-session invoice next year without another Checkout.
+    'payment_method_options[card][setup_future_usage]': 'off_session',
+    'payment_method_options[sepa_debit][setup_future_usage]': 'off_session',
   };
 
   params.lineItems.forEach((item, idx) => {
@@ -92,6 +105,7 @@ export async function createDomainCheckoutSession(
 
   for (const [k, v] of Object.entries(params.metadata)) {
     body[`metadata[${k}]`] = v;
+    body[`invoice_creation[invoice_data][metadata][${k}]`] = v;
   }
 
   const session = (await stripeRequest(

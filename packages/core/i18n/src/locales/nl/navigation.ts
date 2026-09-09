@@ -100,6 +100,9 @@ export const navigation = {
       welddata: {
         findLeads: 'Leads zoeken',
       },
+      weldpass: {
+        projects: 'Projecten',
+      },
       weldhost: {
         myDomains: 'Mijn domeinen',
         registerDomain: 'Domein registreren',

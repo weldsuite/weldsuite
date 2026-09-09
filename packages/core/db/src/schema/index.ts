@@ -371,5 +371,8 @@ export type {
 export type { HelpdeskEntityType } from './helpdesk-workflow-types';
 export type { RuleAction, RuleCondition } from './return-rules';
 
+// WeldPass (secret management) — workspace vaults
+export * from './weldpass';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

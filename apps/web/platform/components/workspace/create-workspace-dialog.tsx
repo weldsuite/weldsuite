@@ -12,6 +12,7 @@ import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/mu
 import { useDatabaseStatus, useCreateWorkspace, useFinalizeOnboarding, useAvailableApps } from '@/hooks/use-onboarding';
 import { getAppIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { setPendingOrganization } from '@/lib/pending-organization';
 
 /** Apps pre-selected when the dialog opens. Mirrors the backend default set. */
 const DEFAULT_SELECTED_APPS = ['crm', 'projects', 'task', 'mail', 'helpdesk'];
@@ -32,7 +33,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
   const finalizationTriggered = React.useRef(false);
   const createdOrgIdRef = React.useRef<string | null>(null);
 
-  const { setActive } = useOrganizationList({
+  const { setActive, userMemberships } = useOrganizationList({
     userMemberships: true,
   });
 
@@ -175,10 +176,27 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
       }
 
       createdOrgIdRef.current = result.organizationId;
+      // Survive the post-create reload even if Clerk's session still has the
+      // previous org (or none). The app shell activates this id on boot.
+      setPendingOrganization(result.organizationId);
+
+      // The org was created via the backend, so Clerk's client membership list
+      // is stale until we refetch. setActive is more likely to persist when
+      // the new membership is already in that list.
+      try {
+        await userMemberships?.revalidate?.();
+      } catch {
+        // Best-effort — setActive below may still succeed, and the pending
+        // org stash covers the reload either way.
+      }
 
       // Auto-select the new workspace as the active org right away.
       if (setActive) {
-        await setActive({ organization: result.organizationId });
+        try {
+          await setActive({ organization: result.organizationId });
+        } catch (err) {
+          console.error('[Workspace] Error activating new org (continuing):', err);
+        }
       }
 
       // Instant path: the workspace was provisioned from a warm pre-migrated

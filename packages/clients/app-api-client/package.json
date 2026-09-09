@@ -123,7 +123,8 @@
     "./domains/pick-lists": "./src/domains/pick-lists.ts",
     "./domains/sendcloud": "./src/domains/sendcloud.ts",
     "./domains/search": "./src/domains/search.ts",
-    "./domains/access-requests": "./src/domains/access-requests.ts"
+    "./domains/access-requests": "./src/domains/access-requests.ts",
+    "./domains/weldpass": "./src/domains/weldpass.ts"
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",

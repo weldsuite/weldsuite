@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { useAuth } from '@clerk/clerk-react';
 import { queryClient } from '@/lib/query-client';
+import { peekPendingOrganization } from '@/lib/pending-organization';
 
 // Single localStorage entry holding the dehydrated QueryClient cache. Every
 // successful query is written here automatically and hydrated synchronously
@@ -28,6 +29,10 @@ const persister =
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const { isLoaded, orgId } = useAuth();
+  const pendingOrgId = typeof window !== 'undefined' ? peekPendingOrganization() : null;
+  // A just-created workspace is waiting to become active — don't hydrate the
+  // previous org's cache into the singleton client while that switch settles.
+  const pendingOrgMismatch = Boolean(pendingOrgId && pendingOrgId !== orgId);
 
   if (!persister) {
     // SSR / non-browser environments — render the tree without persistence.
@@ -40,7 +45,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   // buster, so a reload after switching/leaving a workspace would rehydrate
   // the PREVIOUS workspace's data into the new one. Until Clerk loads we run
   // the same singleton client without persistence — a sub-second window.
-  if (!isLoaded) {
+  if (!isLoaded || pendingOrgMismatch) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
 
