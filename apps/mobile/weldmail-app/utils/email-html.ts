@@ -2,11 +2,13 @@
  * Helpers for safely rendering received (attacker-controlled) email HTML.
  *
  * SECURITY MODEL — the hard guarantees come from the WebView config in
- * `components/EmailHtmlView.tsx` (javaScriptEnabled=false, blocked navigation,
- * restrictive originWhitelist) plus the Content-Security-Policy injected here.
- * `sanitizeEmailHtml` is defense-in-depth: it strips the obvious dangerous nodes
- * so a future regression (e.g. re-enabling JS) can't trivially reintroduce XSS,
- * and it removes auto-loading tracking/script vectors. It is intentionally
+ * `components/EmailHtmlView.tsx` (blocked navigation, restrictive
+ * originWhitelist, CSP with no script-src) plus the Content-Security-Policy
+ * injected here. The engine is enabled only so the host-injected layout probe
+ * can measure height / clamp fixed widths; the email's own scripts stay blocked
+ * by CSP. `sanitizeEmailHtml` is defense-in-depth: it strips the obvious
+ * dangerous nodes so a future regression can't trivially reintroduce XSS, and
+ * it removes auto-loading tracking/script vectors. It is intentionally
  * conservative and must NOT be relied on as the sole control.
  */
 
@@ -80,21 +82,147 @@ export interface EmailDocumentOptions {
 }
 
 /**
+ * CSS that forces common fixed-width email layouts (tables with width="600",
+ * inline min-width, wide images) to reflow inside a phone-sized WebView.
+ * Kept as a named export so unit tests can assert the responsive rules ship.
+ */
+export function buildResponsiveEmailCss(opts: {
+  textColor: string;
+  fontSize: number;
+  lineHeight: number;
+  hideQuotes: boolean;
+}): string {
+  const { textColor, fontSize, lineHeight, hideQuotes } = opts;
+  const quoteCss = hideQuotes
+    ? '.gmail_quote,.yahoo_quoted{display:none;}blockquote{display:none;}'
+    : '';
+  return (
+    // Root: never wider than the WebView; long tokens wrap instead of expanding.
+    `html,body{width:100% !important;max-width:100% !important;overflow-x:hidden !important;` +
+    `margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;}` +
+    `body{font-family:system-ui,-apple-system,sans-serif;font-size:${fontSize}px;` +
+    `line-height:${lineHeight};color:${textColor};word-wrap:break-word;` +
+    `overflow-wrap:anywhere;}` +
+    // Marketing/transactional mail is almost always table-based with a fixed
+    // ~600px outer table (often via width="600" AND style="min-width:600px").
+    // Cap width AND zero min-width so the inline min-width cannot force a
+    // horizontal pan on phones — width:100% alone is not enough.
+    `table,td,th,div,center,section,article{max-width:100% !important;min-width:0 !important;}` +
+    `table{width:100% !important;table-layout:fixed !important;border-collapse:collapse;}` +
+    `td,th{word-wrap:break-word !important;overflow-wrap:anywhere !important;}` +
+    `img,video{max-width:100% !important;height:auto !important;}` +
+    `pre,code{white-space:pre-wrap !important;word-wrap:break-word !important;}` +
+    `a{color:#3B82F6;}` +
+    // Hide 1×1 tracking pixels that some ESPs size via attributes.
+    `img[width="1"],img[height="1"]{display:none !important;}` +
+    `${quoteCss}`
+  );
+}
+
+/**
+ * Host-injected script for the read-only email WebView.
+ *
+ * Runs as a react-native-webview user script (exempt from the page CSP) and:
+ *  1. Rewrites HTML `width` attrs / inline px widths & min-widths that exceed
+ *     the viewport so fixed ~600px ESP tables reflow on phones.
+ *  2. As a last resort, scales the body down if content is still wider than
+ *     the pane (preserves layout for emails that refuse to reflow).
+ *  3. Posts the resulting content height back to React Native so the WebView
+ *     can size itself without an inner scrollbar.
+ *
+ * Re-runs on load, resize, image load/error, ResizeObserver, and delayed ticks
+ * — late images/fonts are the usual cause of an initially-wrong height.
+ */
+export const EMAIL_LAYOUT_PROBE = `
+(function(){
+  function viewportWidth(){
+    try{
+      return document.documentElement.clientWidth || window.innerWidth || 0;
+    }catch(_){ return 0; }
+  }
+  function fitToViewport(){
+    try{
+      var max = viewportWidth();
+      if(!(max > 0) || !document.body) return 1;
+      var nodes = document.body.querySelectorAll('table,td,th,div,center,img,p,section,article,span');
+      for(var i=0;i<nodes.length;i++){
+        var el = nodes[i];
+        if(!el || el.nodeType !== 1) continue;
+        if(el.hasAttribute('width')){
+          var aw = el.getAttribute('width');
+          if(aw && aw.indexOf('%') === -1){
+            var n = parseInt(aw, 10);
+            if(n > max) el.setAttribute('width', '100%');
+          }
+        }
+        try{
+          if(el.style){
+            if(el.style.width && /px/i.test(el.style.width) && parseFloat(el.style.width) > max){
+              el.style.setProperty('width', '100%', 'important');
+            }
+            if(el.style.minWidth && /px/i.test(el.style.minWidth) && parseFloat(el.style.minWidth) > max){
+              el.style.setProperty('min-width', '0px', 'important');
+            }
+          }
+        }catch(_){}
+      }
+      // Clear any previous scale before measuring overflow.
+      document.body.style.removeProperty('transform');
+      document.body.style.removeProperty('transform-origin');
+      document.body.removeAttribute('data-fit-scale');
+      var sw = Math.max(
+        document.body.scrollWidth || 0,
+        document.documentElement ? document.documentElement.scrollWidth : 0
+      );
+      if(sw > max + 2){
+        var scale = max / sw;
+        document.body.style.setProperty('transform-origin', 'top left', 'important');
+        document.body.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+        document.body.setAttribute('data-fit-scale', String(scale));
+        return scale;
+      }
+      return 1;
+    }catch(_){ return 1; }
+  }
+  function report(){
+    try{
+      var scale = fitToViewport();
+      var b=document.body, e=document.documentElement;
+      var h=Math.max(
+        b?b.scrollHeight:0, b?b.offsetHeight:0,
+        e?e.scrollHeight:0, e?e.offsetHeight:0
+      );
+      // transform:scale does not shrink layout height — adjust the reported
+      // value so the native WebView hugs the visibly scaled content.
+      if(scale > 0 && scale < 1) h = Math.ceil(h * scale);
+      if(h>0 && window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(String(Math.ceil(h))); }
+    }catch(_){}
+  }
+  report();
+  window.addEventListener('load', report);
+  window.addEventListener('resize', report);
+  var imgs=document.images||[];
+  for(var i=0;i<imgs.length;i++){
+    var im=imgs[i];
+    if(im && !im.complete){ im.addEventListener('load', report); im.addEventListener('error', report); }
+  }
+  try{ if(window.ResizeObserver && document.body){ new ResizeObserver(report).observe(document.body); } }catch(_){}
+  setTimeout(report, 300);
+  setTimeout(report, 1000);
+})();
+true;
+`;
+
+/**
  * Build the full, sanitized, CSP-protected HTML document string fed to the
  * read-only email WebView. Pure (no React Native deps) so it is unit-testable.
  */
 export function buildEmailDocument(html: string, opts: EmailDocumentOptions): string {
   const { textColor, fontSize = 15, lineHeight = 1.6, hideQuotes = false } = opts;
-  const quoteCss = hideQuotes
-    ? '.gmail_quote,.yahoo_quoted{display:none;}blockquote{display:none;}'
-    : '';
-  const style =
-    `body{font-family:system-ui,-apple-system,sans-serif;font-size:${fontSize}px;` +
-    `line-height:${lineHeight};color:${textColor};margin:0;padding:0;word-wrap:break-word;}` +
-    `img{max-width:100%;height:auto;}a{color:#3B82F6;}pre,code{white-space:pre-wrap;}${quoteCss}`;
+  const style = buildResponsiveEmailCss({ textColor, fontSize, lineHeight, hideQuotes });
   return (
     `<!DOCTYPE html><html><head>` +
-    `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">` +
+    `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">` +
     `<meta http-equiv="Content-Security-Policy" content="${EMAIL_CSP}">` +
     `<style>${style}</style>` +
     `</head><body>${trimTrailingEmptyHtml(sanitizeEmailHtml(html))}</body></html>`

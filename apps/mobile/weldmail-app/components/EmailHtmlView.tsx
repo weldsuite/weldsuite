@@ -1,7 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { Linking, type StyleProp, type ViewStyle } from 'react-native';
+import { Linking, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { buildEmailDocument, type EmailDocumentOptions } from '@/utils/email-html';
+import {
+  buildEmailDocument,
+  EMAIL_LAYOUT_PROBE,
+  type EmailDocumentOptions,
+} from '@/utils/email-html';
 
 interface EmailHtmlViewProps extends EmailDocumentOptions {
   /** Raw (untrusted) email HTML body. */
@@ -10,45 +14,6 @@ interface EmailHtmlViewProps extends EmailDocumentOptions {
   initialHeight?: number;
   style?: StyleProp<ViewStyle>;
 }
-
-/**
- * Host-injected script that measures the rendered document height and posts it
- * back to React Native. It runs as a react-native-webview *user script*, which
- * is injected by the native layer (WKUserScript / evaluateJavascript) and is
- * therefore exempt from the page's `default-src 'none'` CSP — while the email's
- * OWN scripts stay blocked by that same CSP (see utils/email-html). It only
- * reads layout and calls `postMessage`; it never touches page content.
- *
- * Re-measures on load, on window resize, as each image finishes loading, via a
- * ResizeObserver, and on a couple of delayed ticks — the usual causes of an
- * initially-wrong height (late images/fonts) all trigger a fresh report.
- */
-const HEIGHT_REPORTER = `
-(function(){
-  function report(){
-    try{
-      var b=document.body, e=document.documentElement;
-      var h=Math.max(
-        b?b.scrollHeight:0, b?b.offsetHeight:0,
-        e?e.scrollHeight:0, e?e.offsetHeight:0
-      );
-      if(h>0 && window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(String(Math.ceil(h))); }
-    }catch(_){}
-  }
-  report();
-  window.addEventListener('load', report);
-  window.addEventListener('resize', report);
-  var imgs=document.images||[];
-  for(var i=0;i<imgs.length;i++){
-    var im=imgs[i];
-    if(im && !im.complete){ im.addEventListener('load', report); im.addEventListener('error', report); }
-  }
-  try{ if(window.ResizeObserver && document.body){ new ResizeObserver(report).observe(document.body); } }catch(_){}
-  setTimeout(report, 300);
-  setTimeout(report, 1000);
-})();
-true;
-`;
 
 /**
  * Hardened, read-only renderer for received email HTML.
@@ -66,12 +31,13 @@ true;
  *  - constrained origins, disabled file access, no multiple windows, no mixed
  *    (cleartext) content.
  *
- * JavaScript is enabled ONLY so the host-injected HEIGHT_REPORTER can measure
- * the content height (`javaScriptEnabled={false}` makes iOS never fire
- * `onContentSizeChange`, freezing the body at `initialHeight`). The page's own
- * scripts remain blocked by the CSP above, so enabling the engine does not let
- * attacker code run. Height is authoritative from the injected probe, with
- * native `onContentSizeChange` as a fallback until the first probe arrives.
+ * JavaScript is enabled ONLY so the host-injected EMAIL_LAYOUT_PROBE can
+ * measure content height and clamp fixed-width layouts (`javaScriptEnabled=
+ * {false}` makes iOS never fire `onContentSizeChange`, freezing the body at
+ * `initialHeight`). The page's own scripts remain blocked by the CSP above, so
+ * enabling the engine does not let attacker code run. Height is authoritative
+ * from the injected probe, with native `onContentSizeChange` as a fallback
+ * until the first probe arrives.
  */
 export default function EmailHtmlView({
   html,
@@ -98,41 +64,49 @@ export default function EmailHtmlView({
   };
 
   return (
-    <WebView
-      source={{ html: document }}
-      style={[style, { height }]}
-      // Only the inline document (about:blank / data:) may load in-frame.
-      originWhitelist={['about:*', 'data:*']}
-      // Engine on strictly for the host-injected height probe; the email's own
-      // scripts are blocked by the document CSP (default-src 'none').
-      javaScriptEnabled
-      injectedJavaScript={HEIGHT_REPORTER}
-      onMessage={onProbeMessage}
-      scrollEnabled={false}
-      onShouldStartLoadWithRequest={(req) => {
-        const url = req.url || '';
-        // Allow the initial inline render.
-        if (url === 'about:blank' || url === '' || url.startsWith('data:')) return true;
-        // Open genuine web links externally; block everything else
-        // (javascript:, file:, custom schemes, in-frame redirects).
-        if (/^https?:\/\//i.test(url)) Linking.openURL(url).catch(() => {});
-        return false;
-      }}
-      onContentSizeChange={(e) => {
-        // Fallback only: the injected probe is authoritative once it reports.
-        if (hasProbeHeight.current) return;
-        // `contentSize` is present at runtime but not in react-native-webview's
-        // WebViewNativeEvent type, so narrow it explicitly rather than cast to any.
-        const contentSize = (e.nativeEvent as { contentSize?: { height: number } }).contentSize;
-        const h = contentSize ? Math.ceil(contentSize.height) : 0;
-        if (h > 0) setHeight(h);
-      }}
-      setSupportMultipleWindows={false}
-      allowsLinkPreview={false}
-      allowFileAccess={false}
-      allowFileAccessFromFileURLs={false}
-      allowUniversalAccessFromFileURLs={false}
-      mixedContentMode="never"
-    />
+    // Clip any residual overflow so a wide ESP table cannot expand the parent
+    // ScrollView and force the whole message screen to pan horizontally.
+    <View style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', alignSelf: 'stretch' }}>
+      <WebView
+        source={{ html: document }}
+        style={[style, { height, width: '100%', alignSelf: 'stretch' }]}
+        // Only the inline document (about:blank / data:) may load in-frame.
+        originWhitelist={['about:*', 'data:*']}
+        // Engine on strictly for the host-injected layout probe; the email's own
+        // scripts are blocked by the document CSP (default-src 'none').
+        javaScriptEnabled
+        injectedJavaScript={EMAIL_LAYOUT_PROBE}
+        onMessage={onProbeMessage}
+        scrollEnabled={false}
+        // Android: scale the page to the WebView width when content is wider.
+        scalesPageToFit
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        onShouldStartLoadWithRequest={(req) => {
+          const url = req.url || '';
+          // Allow the initial inline render.
+          if (url === 'about:blank' || url === '' || url.startsWith('data:')) return true;
+          // Open genuine web links externally; block everything else
+          // (javascript:, file:, custom schemes, in-frame redirects).
+          if (/^https?:\/\//i.test(url)) Linking.openURL(url).catch(() => {});
+          return false;
+        }}
+        onContentSizeChange={(e) => {
+          // Fallback only: the injected probe is authoritative once it reports.
+          if (hasProbeHeight.current) return;
+          // `contentSize` is present at runtime but not in react-native-webview's
+          // WebViewNativeEvent type, so narrow it explicitly rather than cast to any.
+          const contentSize = (e.nativeEvent as { contentSize?: { height: number } }).contentSize;
+          const h = contentSize ? Math.ceil(contentSize.height) : 0;
+          if (h > 0) setHeight(h);
+        }}
+        setSupportMultipleWindows={false}
+        allowsLinkPreview={false}
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        mixedContentMode="never"
+      />
+    </View>
   );
 }
