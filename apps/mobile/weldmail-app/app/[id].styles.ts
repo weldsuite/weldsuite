@@ -57,7 +57,7 @@ export const styles = StyleSheet.create({
     borderRadius: 7,
   },
 
-  scrollView: { flex: 1 },
+  scrollView: { flex: 1, width: '100%', overflow: 'hidden' },
 
   // Subject block — large heading just below the top bar, above the sender
   subjectBlock: {
@@ -180,9 +180,22 @@ export const styles = StyleSheet.create({
   detailEmailLine: { fontSize: 13, flex: 1 },
 
   // Body — px-3, text-sm, leading-relaxed (line-height: 1.625)
-  bodySection: { paddingHorizontal: 12, paddingBottom: 16 },
+  // overflow:'hidden' + width clamp so fixed-width HTML bodies cannot expand
+  // the vertical ScrollView into a horizontal pan (App Store Connect etc.).
+  bodySection: {
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
   body: { fontSize: 14, lineHeight: 23, color: '#374151' },
-  webViewBody: { backgroundColor: 'transparent', opacity: 0.99 },
+  webViewBody: {
+    backgroundColor: 'transparent',
+    opacity: 0.99,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
 
   // Attachments — mt-6 uppercase tracking-wide header + chips
   attachmentsBlock: {
@@ -285,7 +298,14 @@ export const styles = StyleSheet.create({
   threadExpandedHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 },
   threadExpandedSender: { flex: 1, minWidth: 0 },
   threadRecipientText: { fontSize: 12.5, marginTop: 2 },
-  threadBody: { paddingLeft: 0, paddingRight: 4, paddingBottom: 8 },
+  threadBody: {
+    paddingLeft: 0,
+    paddingRight: 4,
+    paddingBottom: 8,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
   threadBodyText: { fontSize: 14, lineHeight: 22 },
   threadActions: { flexDirection: 'row', gap: 8, paddingLeft: 0, paddingTop: 4 },
   threadActionButton: {
