@@ -34,6 +34,7 @@
           "ios": {
             "deploymentTarget": "17.0",
             "useFrameworks": "static",
+            "buildReactNativeFromSource": true,
             "extraPods": [
               { "name": "GoogleUtilities", "modular_headers": true },
               { "name": "RecaptchaInterop", "modular_headers": true }

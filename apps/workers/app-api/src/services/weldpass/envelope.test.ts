@@ -85,8 +85,8 @@ describe('vault keys', () => {
 describe('secret values', () => {
   it('round-trips a value', async () => {
     const { kek } = await vaultKey({ v1: KEY_A });
-    const sealed = await sealSecret(kek, location, 'postgres://user:pw@host/db');
-    expect(await openSecret(kek, location, sealed)).toBe('postgres://user:pw@host/db');
+    const sealed = await sealSecret(kek, location, 'example-db-password');
+    expect(await openSecret(kek, location, sealed)).toBe('example-db-password');
   });
 
   it('never stores the plaintext', async () => {
