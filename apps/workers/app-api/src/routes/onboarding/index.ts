@@ -133,6 +133,17 @@ const FALLBACK_CATALOG = [
     category: 'Infrastructure',
     path: '/host',
   },
+  // Deliberately not in DEFAULT_WORKSPACE_APPS: a secrets manager is opt-in,
+  // not something every new workspace should silently have installed.
+  {
+    code: 'weldpass',
+    name: 'WeldPass',
+    description:
+      'Encrypted secret vaults for your apps, synced to Cloudflare Workers, Cloudflare Pages and Vercel',
+    icon: 'KeyRound',
+    category: 'Infrastructure',
+    path: '/weldpass',
+  },
 ];
 
 const createWorkspaceInput = z.object({

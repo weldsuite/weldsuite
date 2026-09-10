@@ -1324,6 +1324,13 @@
       "when": 1787800000000,
       "tag": "0188_connector_sync_direction_mappings",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1787900000000,
+      "tag": "0189_weldpass_secret_vaults",
+      "breakpoints": true
     }
   ]
 }
