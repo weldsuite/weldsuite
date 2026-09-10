@@ -75,12 +75,35 @@ import {
   updateEnvironment,
   updateProject,
 } from '../../services/weldpass/vault';
-import { environmentFor, keyring, vaultFor } from './helpers';
+import { environmentFor, keyring, toWeldPassErrorResponse, vaultFor } from './helpers';
 import { syncTargetConfigSchema } from './sync-config';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const SECRETS_BASE = '/projects/:projectId/environments/:environmentId/secrets';
+
+/**
+ * Error boundary for the whole WeldPass surface.
+ *
+ * The services throw typed domain errors (vault not found, unusable secret key,
+ * provider failure, undecryptable vault) and this turns them into the standard
+ * envelope, so the handlers stay free of repetitive try/catch.
+ *
+ * It has to be `onError`, not a `use('*')` try/catch: Hono's compose hands a
+ * thrown error to the app's error handler directly, so an upstream middleware's
+ * `await next()` never sees it. A sub-app's `onError` does survive
+ * `parent.route()` — and takes precedence over the parent's — which is why the
+ * router can own this rather than leaning on app-api's global handler. That
+ * precedence also means anything *not* ours has to get the same treatment the
+ * global handler would give it, hence the fallback below.
+ */
+app.onError((err, c) => {
+  const response = toWeldPassErrorResponse(err, c);
+  if (response) return response;
+
+  console.error('[weldpass] unhandled error:', err);
+  return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
+});
 
 // ---------------------------------------------------------------------------
 // Schemas (Zod v3, per the monorepo rule)

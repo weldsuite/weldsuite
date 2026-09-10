@@ -25,7 +25,6 @@ import { clerkMiddleware } from './middleware/clerk';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
 import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { weldpassRoutes } from './routes/weldpass';
-import { toWeldPassErrorResponse } from './routes/weldpass/helpers';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
 import { accountingDocumentsRoutes } from './routes/accounting-documents';
@@ -780,12 +779,6 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
-  // WeldPass services throw typed domain errors (vault not found, bad secret
-  // key, provider failure, undecryptable vault). Translate them before the
-  // generic 500 so callers get an actionable code instead of "unexpected".
-  const weldpass = toWeldPassErrorResponse(err, c);
-  if (weldpass) return weldpass;
-
   console.error('App API error:', err);
   return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
 });

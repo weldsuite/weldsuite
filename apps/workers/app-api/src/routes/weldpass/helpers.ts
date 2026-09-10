@@ -62,8 +62,8 @@ export async function environmentFor(c: WeldPassContext) {
 }
 
 /**
- * Translate the errors the WeldPass services throw. Called from app-api's
- * global `onError`, so the routes stay free of repetitive try/catch.
+ * Translate the errors the WeldPass services throw. Called from the WeldPass
+ * router-s own `onError` boundary.
  * Returns `null` for anything that is not a WeldPass error.
  */
 export function toWeldPassErrorResponse(err: unknown, c: WeldPassContext): Response | null {
