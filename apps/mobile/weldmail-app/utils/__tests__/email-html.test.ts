@@ -113,10 +113,12 @@ describe('buildEmailDocument', () => {
       '<table width="600" style="width:600px;min-width:600px"><tr><td>Hello</td></tr></table>',
       { textColor: '#000' },
     );
-    expect(doc).toContain('overflow-x:hidden');
+    expect(doc).toContain('overflow-x:auto');
     expect(doc).toContain('max-width:100%');
     expect(doc).toContain('min-width:0 !important');
-    expect(doc).toContain('table-layout:fixed');
+    // Must NOT force width:100%/table-layout:fixed — that collapses nested ESP bodies.
+    expect(doc).not.toContain('table-layout:fixed');
+    expect(doc).not.toMatch(/table\{width:100% !important/);
     expect(doc).toContain('overflow-wrap:anywhere');
     expect(doc).toContain('width=device-width');
     expect(doc).toContain('user-scalable=no');
@@ -126,26 +128,30 @@ describe('buildEmailDocument', () => {
 });
 
 describe('EMAIL_LAYOUT_PROBE', () => {
-  it('rewrites oversized widths and reports a scaled height', () => {
+  it('rewrites oversized widths and reports height without transform scaling', () => {
     expect(EMAIL_LAYOUT_PROBE).toContain('fitToViewport');
     expect(EMAIL_LAYOUT_PROBE).toContain("setAttribute('width', '100%')");
     expect(EMAIL_LAYOUT_PROBE).toContain('min-width');
-    expect(EMAIL_LAYOUT_PROBE).toContain('data-fit-scale');
+    expect(EMAIL_LAYOUT_PROBE).toContain('max >= 120');
+    expect(EMAIL_LAYOUT_PROBE).not.toContain('data-fit-scale');
+    expect(EMAIL_LAYOUT_PROBE).not.toMatch(/transform.*scale/);
     expect(EMAIL_LAYOUT_PROBE).toContain('ReactNativeWebView');
   });
 });
 
 describe('buildResponsiveEmailCss', () => {
-  it('caps tables, images and long words to the viewport', () => {
+  it('caps tables, images and long words to the viewport without collapsing layout', () => {
     const css = buildResponsiveEmailCss({
       textColor: '#111',
       fontSize: 15,
       lineHeight: 1.6,
       hideQuotes: false,
     });
-    expect(css).toContain('overflow-x:hidden');
+    expect(css).toContain('overflow-x:auto');
     expect(css).toContain('min-width:0 !important');
-    expect(css).toContain('table{width:100% !important;table-layout:fixed !important;');
+    expect(css).toContain('max-width:100% !important');
+    expect(css).not.toContain('table-layout:fixed');
+    expect(css).not.toMatch(/table\{width:100% !important/);
     expect(css).toContain('img,video{max-width:100% !important;height:auto !important;}');
     expect(css).toContain('overflow-wrap:anywhere');
   });

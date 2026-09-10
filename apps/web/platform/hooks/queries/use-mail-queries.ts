@@ -561,7 +561,26 @@ export function useMailDomains() {
     queryKey: mailKeys.domains(),
     queryFn: () => mailDomains.list(),
   });
-}// =============================================================================
+}
+
+export function useUpdateMailDomain() {
+  const { mailDomains } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: import('@weldsuite/app-api-client/schemas/mail-domains').UpdateMailDomainInput;
+    }) => mailDomains.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.domains() });
+      qc.invalidateQueries({ queryKey: appSettingsKeys.mail() });
+    },
+  });
+}
+// =============================================================================
 // WeldMail (shared {slug}.weldmail.com addresses)
 // =============================================================================
 

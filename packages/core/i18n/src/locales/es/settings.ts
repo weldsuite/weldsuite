@@ -987,6 +987,23 @@ export const settings = {
       description: 'Gestiona tus cuentas de correo y crea nuevas',
       tabs: {
         accounts: 'Cuentas',
+        domains: 'Dominios',
+      },
+      domains: {
+        description:
+          'Entrega el correo enviado a direcciones desconocidas de un dominio personalizado a un buzón elegido. Desactivado por defecto.',
+        noDomains: 'Sin dominios personalizados',
+        noDomainsDescription:
+          'Añade un dominio personalizado en WeldHost y crea una cuenta de correo en él para configurar el catch-all.',
+        catchAll: 'Catch-all',
+        catchAllHint: 'Recibe correo de cualquier dirección de este dominio que no sea un buzón registrado.',
+        mailbox: 'Buzón catch-all',
+        mailboxPlaceholder: 'Selecciona un buzón',
+        enableNeedsMailbox: 'Selecciona un buzón antes de activar el catch-all',
+        messages: {
+          updated: 'Ajustes del dominio actualizados',
+          updateFailed: 'No se pudieron actualizar los ajustes del dominio',
+        },
       },
       accounts: {
         noAccounts: 'No hay cuentas de correo',

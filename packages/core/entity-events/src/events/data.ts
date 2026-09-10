@@ -268,6 +268,8 @@ export interface MailDomainEventData {
   domainName: string;
   dnsStatus?: string | null;
   isPrimary?: boolean | null;
+  catchAllEnabled?: boolean | null;
+  catchAllAccountId?: string | null;
 }
 
 // ===========================================================================

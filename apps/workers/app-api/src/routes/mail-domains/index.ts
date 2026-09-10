@@ -42,7 +42,13 @@ const createBody = z.object({
   maxEmailAccounts: z.number().int().min(1).max(10000).optional(),
 });
 
-const updateBody = createBody.omit({ domainName: true }).partial();
+const updateBody = createBody
+  .omit({ domainName: true })
+  .extend({
+    catchAllEnabled: z.boolean().optional(),
+    catchAllAccountId: z.string().min(1).max(30).nullable().optional(),
+  })
+  .partial();
 
 function mapDomainError(c: Parameters<typeof error.badRequest>[0], err: MailDomainError) {
   switch (err.code) {
@@ -50,6 +56,10 @@ function mapDomainError(c: Parameters<typeof error.badRequest>[0], err: MailDoma
       return error.notFound(c, 'Domain');
     case 'DUPLICATE_DOMAIN':
       return error.conflict(c, err.message);
+    case 'CATCH_ALL_CUSTOM_DOMAIN_ONLY':
+    case 'CATCH_ALL_ACCOUNT_REQUIRED':
+    case 'CATCH_ALL_ACCOUNT_INVALID':
+      return error.badRequest(c, err.message);
     case 'CLOUDFLARE_PROVISION_FAILED':
     case 'CLOUDFLARE_VERIFY_FAILED':
       return c.json(
@@ -121,9 +131,11 @@ const updateRoute = async (
   c: import('hono').Context<{ Bindings: Env; Variables: Variables }, '/:id'>,
 ) => {
   const id = c.req.param('id');
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;
   try {
-    const result = await domains.updateDomain(c.get('tenantDb'), id, data);
+    const result = await domains.updateDomain(c.env, c.get('tenantDb'), orgId, id, data);
     publishEntityEvent({
       c,
       entityType: 'mail_domain',
@@ -134,6 +146,8 @@ const updateRoute = async (
         domainName: result.after.domainName,
         dnsStatus: result.after.dnsStatus,
         isPrimary: result.after.isPrimary,
+        catchAllEnabled: result.after.catchAllEnabled,
+        catchAllAccountId: result.after.catchAllAccountId,
       },
     });
     return success(c, result.after);

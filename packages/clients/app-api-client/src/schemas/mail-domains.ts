@@ -21,7 +21,13 @@ export const createMailDomainSchema = z.object({
   maxEmailAccounts: z.number().int().min(1).max(10000).optional(),
 });
 
-export const updateMailDomainSchema = createMailDomainSchema.omit({ domainName: true }).partial();
+export const updateMailDomainSchema = createMailDomainSchema
+  .omit({ domainName: true })
+  .extend({
+    catchAllEnabled: z.boolean().optional(),
+    catchAllAccountId: z.string().min(1).max(30).nullable().optional(),
+  })
+  .partial();
 
 export const listMailDomainsQuery = z.object({
   isActive: z.coerce.boolean().optional(),

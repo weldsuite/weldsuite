@@ -23,6 +23,10 @@ import {
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
 import { scoreInboundSpam } from './spam-filter';
+import {
+  expandCatchAllCandidates,
+  isCatchAllRegistryEmail,
+} from './catch-all';
 import type { Env } from '../index';
 
 export type StoreEmailResult = {
@@ -156,17 +160,23 @@ export function collectRecipientEmails(email: ParsedEmail): string[] {
 }
 
 /**
- * Find mail accounts by recipient email addresses
- * @param env - Worker environment bindings
- * @param recipientEmails - List of recipient email addresses to look up
+ * Find mail accounts by recipient email addresses.
+ * Exact registry matches win; unmatched custom-domain addresses fall back
+ * to an active `*@domain` catch-all sentinel when configured.
  */
 export async function findRecipientAccounts(
   env: Env,
   recipientEmails: string[]
 ): Promise<RecipientAccount[]> {
   const masterDb = getMasterDb(env);
+  const normalizedRecipients = [
+    ...new Set(recipientEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  ];
+  if (normalizedRecipients.length === 0) {
+    return [];
+  }
 
-  const registered = await masterDb
+  const exactRegistered = await masterDb
     .select({
       email: masterSchema.mailAccountRegistry.email,
       accountId: masterSchema.mailAccountRegistry.accountId,
@@ -177,20 +187,51 @@ export async function findRecipientAccounts(
     .from(masterSchema.mailAccountRegistry)
     .where(
       and(
-        inArray(masterSchema.mailAccountRegistry.email, recipientEmails),
+        inArray(masterSchema.mailAccountRegistry.email, normalizedRecipients),
         eq(masterSchema.mailAccountRegistry.isActive, true)
       )
     );
 
+  const matchedEmails = new Set(exactRegistered.map((r) => r.email.toLowerCase()));
+  const catchAllCandidates = expandCatchAllCandidates(normalizedRecipients, matchedEmails);
+
+  let catchAllRegistered: typeof exactRegistered = [];
+  if (catchAllCandidates.length > 0) {
+    catchAllRegistered = await masterDb
+      .select({
+        email: masterSchema.mailAccountRegistry.email,
+        accountId: masterSchema.mailAccountRegistry.accountId,
+        tenantKind: masterSchema.mailAccountRegistry.tenantKind,
+        workspaceId: masterSchema.mailAccountRegistry.workspaceId,
+        personalAccountId: masterSchema.mailAccountRegistry.personalAccountId,
+      })
+      .from(masterSchema.mailAccountRegistry)
+      .where(
+        and(
+          inArray(masterSchema.mailAccountRegistry.email, catchAllCandidates),
+          eq(masterSchema.mailAccountRegistry.isActive, true)
+        )
+      );
+  }
+
+  // Exact matches first so they populate results before catch-all; then
+  // dedupe by accountId so hello@ + random@ (catch-all → hello) stores once.
+  const registered = [...exactRegistered, ...catchAllRegistered];
   if (registered.length === 0) {
     return [];
   }
 
   const results: RecipientAccount[] = [];
+  const seenAccountIds = new Set<string>();
 
   for (const reg of registered) {
+    if (seenAccountIds.has(reg.accountId)) continue;
+
     try {
       if (reg.tenantKind === 'personal' && reg.personalAccountId) {
+        // Catch-all is workspace/custom-domain only; skip personal sentinels.
+        if (isCatchAllRegistryEmail(reg.email)) continue;
+
         const [personalAccount] = await masterDb
           .select({
             id: masterSchema.personalAccounts.id,
@@ -210,6 +251,7 @@ export async function findRecipientAccounts(
           continue;
         }
 
+        seenAccountIds.add(reg.accountId);
         results.push({
           accountId: reg.accountId,
           accountEmail: reg.email,
@@ -259,16 +301,27 @@ export async function findRecipientAccounts(
 
       const [accountAccess] = await tenantDb
         .select({
+          email: tenantSchema.mailAccounts.email,
           isShared: tenantSchema.mailAccounts.isShared,
           assignedUserIds: tenantSchema.mailAccounts.assignedUserIds,
         })
         .from(tenantSchema.mailAccounts)
-        .where(eq(tenantSchema.mailAccounts.id, reg.accountId))
+        .where(
+          and(
+            eq(tenantSchema.mailAccounts.id, reg.accountId),
+            isNull(tenantSchema.mailAccounts.deletedAt),
+          ),
+        )
         .limit(1);
 
-      const assigned = accountAccess?.assignedUserIds ?? undefined;
+      if (!accountAccess) {
+        console.warn(`[Recipients] Mail account ${reg.accountId} not found or deleted`);
+        continue;
+      }
+
+      const assigned = accountAccess.assignedUserIds ?? undefined;
       const scopeToAssigned =
-        accountAccess && !accountAccess.isShared && assigned !== undefined && assigned.length > 0;
+        !accountAccess.isShared && assigned !== undefined && assigned.length > 0;
 
       const eligibleMembers = scopeToAssigned
         ? members.filter((m) => assigned!.includes(m.userId))
@@ -276,10 +329,16 @@ export async function findRecipientAccounts(
 
       const uniqueMembers = [...new Map(eligibleMembers.map((m) => [m.userId, m])).values()];
 
+      // Catch-all registry email is `*@domain`; deliver into the real mailbox address.
+      const accountEmail = isCatchAllRegistryEmail(reg.email)
+        ? accountAccess.email
+        : reg.email;
+
       if (uniqueMembers.length > 0 && workspace.clerkOrgId) {
+        seenAccountIds.add(reg.accountId);
         results.push({
           accountId: reg.accountId,
-          accountEmail: reg.email,
+          accountEmail,
           tenantKind: 'workspace',
           workspaceId: reg.workspaceId,
           clerkOrgId: workspace.clerkOrgId,

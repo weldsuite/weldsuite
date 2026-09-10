@@ -9,6 +9,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import { mailAccounts } from './mail-accounts';
 
 // DNS status enum
 export const mailDomainDnsStatusEnum = pgEnum('mail_domain_dns_status', [
@@ -77,6 +78,16 @@ export const mailDomains = pgTable('mail_domains', {
   /** Catch-all routing rule id returned by `PUT /zones/{id}/email/routing/rules/catch_all`. */
   cloudflareRoutingRuleId: varchar('cloudflare_routing_rule_id', { length: 255 }),
 
+  /**
+   * Opt-in app-level catch-all: unmatched addresses on this custom domain are
+   * delivered into `catchAllAccountId`. Off by default. Cloudflare's zone
+   * catch-all (route everything to the inbound worker) is separate.
+   */
+  catchAllEnabled: boolean('catch_all_enabled').notNull().default(false),
+  catchAllAccountId: varchar('catch_all_account_id', { length: 30 }).references(
+    () => mailAccounts.id,
+  ),
+
   // Metadata
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 
@@ -89,6 +100,7 @@ export const mailDomains = pgTable('mail_domains', {
   index('mail_domains_is_active_idx').on(table.isActive),
   index('mail_domains_is_primary_idx').on(table.isPrimary),
   index('mail_domains_external_domain_id_idx').on(table.externalDomainId),
+  index('mail_domains_catch_all_account_id_idx').on(table.catchAllAccountId),
 ]);
 
 export type MailDomain = typeof mailDomains.$inferSelect;
