@@ -172,4 +172,62 @@ describe('MoneybirdClient', () => {
     expect(calls[1]?.method).toBe('POST');
     expect(calls[1]?.body).toContain('"ids"');
   });
+
+  it('downloads a sales invoice PDF following redirects as binary', async () => {
+    const calls: string[] = [];
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // %PDF
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: {
+          'content-type': 'application/pdf',
+          'content-disposition': 'attachment; filename="invoice-2026-001.pdf"',
+        },
+      });
+    };
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    const file = await client.downloadSalesInvoicePdf('inv1');
+    expect(calls[0]).toContain('/sales_invoices/inv1/download_pdf.json');
+    expect(file.contentType).toBe('application/pdf');
+    expect(file.filename).toBe('invoice-2026-001.pdf');
+    expect(new Uint8Array(file.bytes)).toEqual(pdfBytes);
+  });
+
+  it('downloads a purchase invoice attachment as binary', async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      });
+    };
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    const file = await client.downloadDocumentAttachment({
+      kind: 'purchase_invoice',
+      documentId: 'doc1',
+      attachmentId: 'att1',
+    });
+    expect(calls[0]).toContain('/documents/purchase_invoices/doc1/attachments/att1/download.json');
+    expect(file.bytes.byteLength).toBe(3);
+  });
+
+  it('maps download 404 to a permanent error', async () => {
+    const fetchImpl: typeof fetch = async () => new Response('missing', { status: 404 });
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    await expect(client.downloadSalesInvoicePdf('inv1')).rejects.toMatchObject({
+      status: 404,
+      kind: 'permanent',
+    });
+  });
 });

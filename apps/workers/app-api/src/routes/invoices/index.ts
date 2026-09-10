@@ -35,6 +35,7 @@ import {
   writeAccountingAudit,
 } from '../../services/accounting-guards';
 import { generateInvoiceHtml } from '../../services/accounting-invoice-html';
+import { streamDocumentAttachment } from '../../lib/document-attachment';
 import {
   buildComplianceNotices,
   collectInvoiceTaxCategories,
@@ -243,6 +244,32 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/invoices] get failed:', err);
     return error.internal(c, 'Failed to fetch invoice');
+  }
+});
+
+// GET /:id/attachments/:index — stream a synced Moneybird (or other) file from R2
+app.get('/:id/attachments/:index', requirePermission('invoices:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const { invoices } = schema;
+  const invoiceId = c.req.param('id');
+  const index = Number(c.req.param('index'));
+
+  try {
+    const [invoice] = await db
+      .select({ attachmentKeys: invoices.attachmentKeys })
+      .from(invoices)
+      .where(and(eq(invoices.id, invoiceId), isNull(invoices.deletedAt)))
+      .limit(1);
+    if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
+
+    return streamDocumentAttachment(c, {
+      attachmentKeys: invoice.attachmentKeys,
+      index,
+      workspaceId: c.get('workspaceId') || c.get('orgId'),
+    });
+  } catch (err) {
+    console.error('[app-api/invoices] attachment download failed:', err);
+    return error.internal(c, 'Failed to download attachment');
   }
 });
 

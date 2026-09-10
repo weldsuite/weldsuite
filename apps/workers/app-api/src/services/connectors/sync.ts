@@ -16,6 +16,7 @@ import {
   allowsInboundSync,
   enabledConnectorSyncs,
   getConnector,
+  MoneybirdClient,
   resolveConnectorObjectDirection,
 } from '@weldsuite/connectors';
 import type { Database } from '../../db';
@@ -31,9 +32,28 @@ import {
   startSyncRun,
   type ConnectorConnectionRow,
 } from './connections';
+import {
+  MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
+  type MoneybirdAttachmentSyncContext,
+} from './moneybird-attachments';
 
 const MAX_PAGES = 10;
 const PER_PAGE = 100;
+
+function moneybirdAttachmentContext(
+  env: Env,
+  client: ReturnType<typeof createConnectorClient>,
+  workspaceId: string,
+  budget: { remaining: number },
+): MoneybirdAttachmentSyncContext | null {
+  if (!(client instanceof MoneybirdClient) || !env.STORAGE) return null;
+  return {
+    client,
+    storage: env.STORAGE,
+    workspaceId,
+    budget,
+  };
+}
 
 export interface SyncConnectionArgs {
   db: Database;
@@ -115,6 +135,13 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
     credentials,
     args.connection.externalAccountId,
   );
+  const attachmentBudget = { remaining: MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET };
+  const moneybirdAttachments = moneybirdAttachmentContext(
+    args.env,
+    client,
+    args.workspaceId,
+    attachmentBudget,
+  );
 
   for (const sync of syncs) {
     const pageKey = pageWatermarkKey(sync.model);
@@ -176,6 +203,7 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
           workspaceId: args.workspaceId,
           entityId: credentials.entityId?.trim() || null,
           env: args.env as unknown as Record<string, unknown>,
+          moneybirdAttachments,
         });
         Object.assign(applied, addCounts(applied, ingested));
         errorSamples.push(...ingested.errorSamples.slice(0, 5 - errorSamples.length));

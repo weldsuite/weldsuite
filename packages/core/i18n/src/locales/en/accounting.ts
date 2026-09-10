@@ -1973,6 +1973,10 @@ export const accounting = {
       cancel: 'Cancel',
       rejecting: 'Rejecting...',
       rejectConfirm: 'Reject',
+      originalDocuments: 'Original documents',
+      openAttachment: 'Open',
+      attachmentFallback: 'Document {n}',
+      failedToOpenAttachment: 'Failed to open document',
     },
 
     // Contact/Customer pages
@@ -2040,6 +2044,10 @@ export const accounting = {
       amountPaid: 'Amount Paid',
       balanceDue: 'Balance Due',
       failedToPdf: 'Failed to generate PDF',
+      originalDocuments: 'Original documents',
+      openAttachment: 'Open',
+      attachmentFallback: 'Document {n}',
+      failedToOpenAttachment: 'Failed to open document',
     },
 
     // Invoice dialog (create invoice)

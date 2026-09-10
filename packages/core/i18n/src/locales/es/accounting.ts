@@ -1813,6 +1813,10 @@ export const accounting = {
       cancel: 'Cancelar',
       rejecting: 'Rechazando...',
       rejectConfirm: 'Rechazar',
+      originalDocuments: 'Documentos originales',
+      openAttachment: 'Abrir',
+      attachmentFallback: 'Documento {n}',
+      failedToOpenAttachment: 'No se pudo abrir el documento',
     },
 
     contacts: {
@@ -1878,6 +1882,10 @@ export const accounting = {
       amountPaid: 'Importe Pagado',
       balanceDue: 'Saldo Pendiente',
       failedToPdf: 'No se pudo generar el PDF',
+      originalDocuments: 'Documentos originales',
+      openAttachment: 'Abrir',
+      attachmentFallback: 'Documento {n}',
+      failedToOpenAttachment: 'No se pudo abrir el documento',
     },
 
     invoiceDialog: {

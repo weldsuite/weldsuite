@@ -14,6 +14,7 @@ import {
   generateWebhookSecret,
   getConnector,
   matchWebhookTopic,
+  MoneybirdClient,
   readWebhookSignatureFromHeaders,
   readWebhookTopicFromHeaders,
   readWebhookTopicFromPayload,
@@ -40,6 +41,24 @@ import {
 import { ingestRecords } from './ingest';
 import { modifiedAtOf } from './mappers';
 import { touchConnectorIndexWebhook } from '../../lib/connector-sync-index';
+import {
+  MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
+  type MoneybirdAttachmentSyncContext,
+} from './moneybird-attachments';
+
+function moneybirdAttachmentContext(
+  env: Env,
+  client: ReturnType<typeof createConnectorClient>,
+  workspaceId: string,
+): MoneybirdAttachmentSyncContext | null {
+  if (!(client instanceof MoneybirdClient) || !env.STORAGE) return null;
+  return {
+    client,
+    storage: env.STORAGE,
+    workspaceId,
+    budget: { remaining: MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET },
+  };
+}
 
 export function connectorWebhookBaseUrl(env: Env): string {
   const explicit = (env as { CONNECTOR_WEBHOOK_BASE_URL?: string }).CONNECTOR_WEBHOOK_BASE_URL;
@@ -269,6 +288,7 @@ export async function processConnectorWebhook(args: {
       entityId: credentials.entityId?.trim() || null,
       env: args.env as unknown as Record<string, unknown>,
       forceDeleted: topic.kind === 'delete',
+      moneybirdAttachments: moneybirdAttachmentContext(args.env, client, args.workspaceId),
     });
     await finishSyncRun({
       db: args.db,

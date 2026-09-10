@@ -27,7 +27,12 @@ export type { WooCommerceAuthCallbackPayload, WooCommerceAuthState } from './woo
 export { ShopifyClient, createShopifyClient, normalizeShopDomain, SHOPIFY_API_VERSION } from './shopify/client';
 export type { ShopifyCredentials, ShopifyListOptions, ShopifyListResult } from './shopify/client';
 export { MoneybirdClient, createMoneybirdClient } from './moneybird/client';
-export type { MoneybirdCredentials, MoneybirdListOptions } from './moneybird/client';
+export type {
+  MoneybirdCredentials,
+  MoneybirdListOptions,
+  MoneybirdDocumentAttachmentKind,
+  MoneybirdBinaryDownload,
+} from './moneybird/client';
 export {
   MONEYBIRD_API_BASE,
   MONEYBIRD_AUTH_STATE_TTL_SECONDS,

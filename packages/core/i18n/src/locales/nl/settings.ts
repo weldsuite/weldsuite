@@ -718,9 +718,9 @@ export const settings = {
       moneybird: {
         title: 'Moneybird',
         description:
-          'Importeer contacten, verkoopfacturen, producten, inkoopfacturen, bankrekeningen en banktransacties uit Moneybird naar WeldBooks.',
+          'Importeer contacten, verkoopfacturen (met PDF), producten, inkoopfacturen en bonnen (met bijlagen), bankrekeningen en banktransacties uit Moneybird naar WeldBooks.',
         overview:
-          'Verbind via OAuth en kies de WeldBooks-entiteit. Na de eerste import pusht Moneybird de meeste wijzigingen via webhooks, met een periodieke inhaal-sync voor banktransacties. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding.',
+          'Verbind via OAuth en kies de WeldBooks-entiteit. Na de eerste import pusht Moneybird de meeste wijzigingen via webhooks, met een periodieke inhaal-sync voor banktransacties. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding. Factuur-PDF’s en bijlagen worden opgeslagen om in WeldBooks te bekijken.',
       },
       picqer: {
         title: 'Picqer',

@@ -681,9 +681,9 @@ export const settings = {
       moneybird: {
         title: 'Moneybird',
         description:
-          'Importa contactos, facturas de venta, productos, facturas de compra, cuentas bancarias y transacciones bancarias de Moneybird a WeldBooks.',
+          'Importa contactos, facturas de venta (con PDF), productos, facturas de compra y tickets (con adjuntos), cuentas bancarias y transacciones bancarias de Moneybird a WeldBooks.',
         overview:
-          'Conecta con OAuth y elige la entidad de WeldBooks. Tras la importación inicial, Moneybird envía la mayoría de cambios por webhooks, con una sincronización de recuperación para transacciones bancarias. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite.',
+          'Conecta con OAuth y elige la entidad de WeldBooks. Tras la importación inicial, Moneybird envía la mayoría de cambios por webhooks, con una sincronización de recuperación para transacciones bancarias. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite. Los PDF y adjuntos se almacenan para verlos en WeldBooks.',
       },
       picqer: {
         title: 'Picqer',

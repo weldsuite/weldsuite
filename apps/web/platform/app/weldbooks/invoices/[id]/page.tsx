@@ -20,6 +20,7 @@ import {
   useFinalizeInvoice,
 } from '@/hooks/queries/use-accounting-queries';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import {
   generateInvoicePdf,
@@ -90,6 +91,7 @@ export default function InvoiceDetailPage() {
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
 
   const handleDownload = async () => {
     if (!data?.data) return;
@@ -106,6 +108,26 @@ export default function InvoiceDetailPage() {
       toast.error(ti.failedToPdf);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleOpenAttachment = async (index: number, fallbackName: string) => {
+    setOpeningAttachment(index);
+    try {
+      const { blob, filename } = await accountingApi.getInvoiceAttachment(id, index);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = filename || fallbackName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('[Invoice] attachment open failed', err);
+      toast.error(ti.failedToOpenAttachment);
+    } finally {
+      setOpeningAttachment(null);
     }
   };
 
@@ -203,6 +225,30 @@ export default function InvoiceDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {invoice.attachmentKeys && invoice.attachmentKeys.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{ti.originalDocuments}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {invoice.attachmentKeys.map((key, index) => {
+              const name = key.split('/').pop() || ti.attachmentFallback.replace('{n}', String(index + 1));
+              return (
+                <Button
+                  key={`${key}-${index}`}
+                  variant="outline"
+                  size="sm"
+                  disabled={openingAttachment === index}
+                  onClick={() => handleOpenAttachment(index, name)}
+                >
+                  {openingAttachment === index ? ti.generatingPdf : `${ti.openAttachment}: ${name}`}
+                </Button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Line Items */}
       <Card>

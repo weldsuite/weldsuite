@@ -31,9 +31,41 @@ export interface MoneybirdListOptions {
   updatedAfter?: string;
 }
 
+export type MoneybirdDocumentAttachmentKind = 'sales_invoice' | 'purchase_invoice' | 'receipt';
+
+export interface MoneybirdBinaryDownload {
+  bytes: ArrayBuffer;
+  contentType: string;
+  filename: string | null;
+}
+
 const DEFAULT_PER_PAGE = 100;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
+/** Binary downloads (PDF redirects) can be slower than JSON list calls. */
+const BINARY_TIMEOUT_MS = 45_000;
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      return utf8[1].trim().replace(/^"|"$/g, '') || null;
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || null;
+}
+
+function attachmentApiPath(kind: MoneybirdDocumentAttachmentKind, documentId: string, attachmentId: string): string {
+  if (kind === 'sales_invoice') {
+    return `sales_invoices/${documentId}/attachments/${attachmentId}/download`;
+  }
+  const folder = kind === 'purchase_invoice' ? 'purchase_invoices' : 'receipts';
+  return `documents/${folder}/${documentId}/attachments/${attachmentId}/download`;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -401,6 +433,99 @@ export class MoneybirdClient implements ConnectorProviderClient {
 
   async deleteWebhook(id: string): Promise<void> {
     await this.request(`webhooks/${id}`, { method: 'DELETE' });
+  }
+
+  /**
+   * Download a binary Moneybird resource. Endpoints like `download_pdf` and
+   * attachment `download` respond with a short-lived redirect; we follow it
+   * (or use the redirected body) and return raw bytes — never JSON.parse.
+   */
+  private async requestBinary(path: string): Promise<MoneybirdBinaryDownload> {
+    if (!this.administrationId) {
+      throw new ConnectorApiError({
+        message: 'Moneybird administration is not selected',
+        status: 400,
+        kind: 'permanent',
+      });
+    }
+    const url = new URL(
+      `${MONEYBIRD_API_BASE}/${this.administrationId}/${path.replace(/^\//, '')}`,
+    );
+    if (!url.pathname.endsWith('.json')) url.pathname = `${url.pathname}.json`;
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), BINARY_TIMEOUT_MS);
+      try {
+        const response = await this.fetchImpl(url.toString(), {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: '*/*',
+          },
+          redirect: 'follow',
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          const kind = classifyStatus(response.status);
+          const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 200);
+          const error = new ConnectorApiError({
+            message:
+              response.status === 401 || response.status === 403
+                ? 'Moneybird rejected the access token'
+                : snippet
+                  ? `Moneybird download failed (${response.status}): ${snippet}`
+                  : `Moneybird download failed (${response.status})`,
+            status: response.status,
+            kind,
+            body: text.slice(0, 500),
+            retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
+          });
+          if (!error.retryable || attempt === MAX_RETRIES) throw error;
+          lastError = error;
+          await sleep(error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
+          continue;
+        }
+
+        const bytes = await response.arrayBuffer();
+        return {
+          bytes,
+          contentType: response.headers.get('content-type') || 'application/octet-stream',
+          filename: filenameFromContentDisposition(response.headers.get('content-disposition')),
+        };
+      } catch (err) {
+        if (err instanceof ConnectorApiError) throw err;
+        lastError = err;
+        if (attempt === MAX_RETRIES) {
+          throw new ConnectorApiError({
+            message: 'Could not reach Moneybird',
+            status: 503,
+            kind: 'transient',
+          });
+        }
+        await sleep(400 * 2 ** attempt);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new ConnectorApiError({ message: 'Moneybird download failed', status: 503, kind: 'transient' });
+  }
+
+  downloadSalesInvoicePdf(id: string): Promise<MoneybirdBinaryDownload> {
+    return this.requestBinary(`sales_invoices/${id}/download_pdf`);
+  }
+
+  downloadDocumentAttachment(args: {
+    kind: MoneybirdDocumentAttachmentKind;
+    documentId: string;
+    attachmentId: string;
+  }): Promise<MoneybirdBinaryDownload> {
+    return this.requestBinary(attachmentApiPath(args.kind, args.documentId, args.attachmentId));
   }
 }
 
