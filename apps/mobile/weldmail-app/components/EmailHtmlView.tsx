@@ -34,7 +34,7 @@ interface EmailHtmlViewProps extends EmailDocumentOptions {
  *
  * SECURITY MODEL — email bodies are fully attacker-controlled. Guarantees:
  *  - CSP (`default-src 'none'`, no script-src) around the body;
- *  - regex sanitizer strips script/iframe/on*/javascript: as defense-in-depth;
+ *  - regex sanitizer strips script/iframe/on*=/javascript: as defense-in-depth;
  *  - blocked in-frame navigations (links open externally);
  *  - no file access, no multiple windows, no mixed cleartext content.
  *
