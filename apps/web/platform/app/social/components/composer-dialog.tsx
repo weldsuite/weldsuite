@@ -32,6 +32,7 @@ import {
   usePublishSocialPost,
   useScheduleSocialPost,
   useCreateSocialMedia,
+  useCreateSocialApproval,
 } from '@/hooks/queries/use-social-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import type { SocialAccount, SocialMedia } from '@weldsuite/app-api-client/domains/social';
@@ -92,6 +93,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const publishPost = usePublishSocialPost();
   const schedulePost = useScheduleSocialPost();
   const createMedia = useCreateSocialMedia();
+  const createApproval = useCreateSocialApproval();
   const { uploadFile, isUploading } = useFileUpload({
     folder: 'social-media',
     entityType: 'social',
@@ -272,6 +274,47 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     }
   };
 
+  const approvalRequired = Boolean(settingsData?.data?.defaultApprovalRequired);
+
+  /** Save with intended schedule + open an approval request. Approve later auto-schedules. */
+  const handleSubmitForApproval = async () => {
+    if (!scheduledAt) return;
+    if (mediaRequiredWarning) {
+      toast.error(mediaRequiredWarning);
+      return;
+    }
+    const instant = zonedWallClockToInstant(scheduledAt, effectiveTimezone);
+    if (!instant) {
+      toast.error(t.social.messages.invalidScheduleTime);
+      return;
+    }
+    try {
+      let postId = editPost?.id;
+      const payload = {
+        ...buildPostData('pending_approval'),
+        scheduledAt: instant.toISOString(),
+        timezone: effectiveTimezone,
+      };
+      if (!postId) {
+        const res = await createPost.mutateAsync(payload);
+        postId = res.data?.id;
+      } else {
+        await updatePost.mutateAsync({ id: postId, ...payload });
+      }
+      if (postId) {
+        await createApproval.mutateAsync({
+          postId,
+          status: 'pending',
+          submissionNotes: undefined,
+        });
+      }
+      toast.success(t.social.messages.approvalSubmitted);
+      onOpenChange(false);
+    } catch {
+      toast.error(t.social.posts.submitForApproval);
+    }
+  };
+
   const handlePublishNow = async () => {
     if (mediaRequiredWarning) {
       toast.error(mediaRequiredWarning);
@@ -354,6 +397,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     updatePost.isPending ||
     publishPost.isPending ||
     schedulePost.isPending ||
+    createApproval.isPending ||
     createMedia.isPending ||
     isUploading;
 
@@ -563,7 +607,22 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
           >
             {t.social.posts.saveDraft}
           </Button>
-          {scheduleMode && (
+          {scheduleMode && approvalRequired && (
+            <Button
+              variant="secondary"
+              onClick={() => void handleSubmitForApproval()}
+              disabled={
+                isLoading ||
+                !content ||
+                !scheduledAt ||
+                selectedAccountIds.length === 0 ||
+                !!mediaRequiredWarning
+              }
+            >
+              {t.social.posts.submitForApproval}
+            </Button>
+          )}
+          {scheduleMode && !approvalRequired && (
             <Button
               variant="secondary"
               onClick={() => void handleSchedule()}

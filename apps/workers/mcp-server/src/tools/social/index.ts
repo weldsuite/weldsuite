@@ -40,8 +40,10 @@ export const socialTools: ToolDefinition[] = [
     scope: 'social_posts:write',
     description:
       'Create a new social post. This only stores the post — it does not send it. ' +
-      'Follow with publish_social_post to post it now, or schedule_social_post to have it go out later; ' +
-      'a post created with status "scheduled" is never delivered on its own.',
+      'For human-approved weekly content: set status "pending_approval", include scheduledAt + timezone, ' +
+      'then call create_social_approval. Approving in the UI auto-schedules at scheduledAt — do NOT call ' +
+      'schedule_social_post or publish_social_post yourself. ' +
+      'A post created with status "scheduled" is never delivered on its own.',
     inputSchema: createSocialPostSchema.shape,
     method: 'POST',
     path: '/v1/social-posts',
@@ -259,6 +261,51 @@ export const socialTools: ToolDefinition[] = [
     inputSchema: { id: z.string().describe('The social media asset id (smed_…)') },
     method: 'DELETE',
     path: '/v1/social-media/:id',
+    pathParams: { id: 'id' },
+  },
+
+  // ── Social Approvals ──────────────────────────────────────────────────────
+  {
+    name: 'search_social_approvals',
+    scope: 'social_posts:read',
+    description: 'List/search social approval requests. Filter by status (pending, approved, rejected, …).',
+    inputSchema: {
+      status: z.string().optional().describe('Filter by approval status'),
+      postId: z.string().optional().describe('Filter by social post id'),
+      cursor: z.string().optional(),
+      limit: z.coerce.number().min(1).max(200).optional(),
+    },
+    method: 'GET',
+    path: '/v1/social-approvals',
+  },
+  {
+    name: 'create_social_approval',
+    scope: 'social_posts:write',
+    description:
+      'Submit a social post for human approval. Sets the post to pending_approval. ' +
+      'The post should already have content, targetAccountIds, and ideally scheduledAt + timezone. ' +
+      'When a human approves in WeldSocial → Approvals, delivery is auto-scheduled at scheduledAt. ' +
+      'Do not call schedule_social_post after this.',
+    inputSchema: {
+      postId: z.string().describe('Social post id to submit'),
+      submissionNotes: z.string().optional().describe('Notes for the reviewer'),
+      assignedToUserId: z.string().optional().describe('Optional approver user id'),
+    },
+    method: 'POST',
+    path: '/v1/social-approvals',
+  },
+  {
+    name: 'approve_social_approval',
+    scope: 'social_posts:write',
+    description:
+      'Approve a pending social approval. Automatically schedules the post at its scheduledAt ' +
+      '(if set) via PostPeer. Prefer humans doing this in the UI; agents should rarely call this.',
+    inputSchema: {
+      id: z.string().describe('Social approval id (sap_…)'),
+      decisionNotes: z.string().optional(),
+    },
+    method: 'POST',
+    path: '/v1/social-approvals/:id/approve',
     pathParams: { id: 'id' },
   },
 

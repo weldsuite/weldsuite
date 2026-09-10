@@ -11,7 +11,8 @@ import { Label } from '@weldsuite/ui/components/label';
 import {
   useSocialApprovals,
   useSocialPosts,
-  useUpdateSocialApproval,
+  useApproveSocialApproval,
+  useRejectSocialApproval,
 } from '@/hooks/queries/use-social-queries';
 import type { SocialApproval, SocialPost } from '@weldsuite/app-api-client/domains/social';
 
@@ -25,19 +26,43 @@ export function ApprovalsClient() {
 
   const { data: approvalsData, isLoading } = useSocialApprovals({ status: 'pending' });
   const { data: postsData } = useSocialPosts({});
-  const updateApproval = useUpdateSocialApproval();
+  const approveApproval = useApproveSocialApproval();
+  const rejectApproval = useRejectSocialApproval();
 
   const approvals = approvalsData?.data || [];
   const posts = postsData?.data || [];
+  const busy = approveApproval.isPending || rejectApproval.isPending;
 
   const getPost = (postId: string) => posts.find((p: SocialPost) => p.id === postId);
 
-  const handleAction = async (id: string, status: string) => {
+  const handleApprove = async (id: string) => {
     try {
-      await updateApproval.mutateAsync({ id, status, decisionNotes: notes[id] });
-      if (status === 'approved') toast.success(t.social.messages.postApproved);
-      else if (status === 'rejected') toast.success(t.social.messages.postRejected);
-      else toast.success(t.social.queue.requestRevision);
+      const res = await approveApproval.mutateAsync({ id, decisionNotes: notes[id] });
+      const scheduled = res.data?.scheduled;
+      const scheduleError = res.data?.scheduleError;
+      if (scheduled) {
+        toast.success(t.social.messages.postScheduled);
+      } else if (scheduleError) {
+        toast.success(t.social.messages.postApproved);
+        toast.error(scheduleError);
+      } else {
+        toast.success(t.social.messages.postApproved);
+      }
+    } catch {
+      // ignore — mutation surfaces via toast elsewhere if wired
+    }
+  };
+
+  const handleReject = async (id: string, revision: boolean) => {
+    try {
+      await rejectApproval.mutateAsync({
+        id,
+        decisionNotes: notes[id],
+        rejectionReason: notes[id],
+        revision,
+      });
+      if (revision) toast.success(t.social.queue.requestRevision);
+      else toast.success(t.social.messages.postRejected);
     } catch {
       // ignore
     }
@@ -69,8 +94,15 @@ export function ApprovalsClient() {
                 <CardContent className="p-4 space-y-3">
                   {/* Post preview */}
                   {post && (
-                    <div className="bg-muted rounded p-3">
+                    <div className="bg-muted rounded p-3 space-y-1">
                       <p className="text-sm">{post.content || '—'}</p>
+                      {post.scheduledAt && (
+                        <p className="text-xs text-muted-foreground">
+                          {t.social.posts.scheduledFor}:{' '}
+                          {formatDate(new Date(post.scheduledAt), 'MMM d, yyyy HH:mm')}
+                          {post.timezone ? ` (${post.timezone})` : ''}
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -96,24 +128,24 @@ export function ApprovalsClient() {
                   <div className="flex gap-2">
                     <Button
                       size="sm"
-                      onClick={() => handleAction(approval.id, 'approved')}
-                      disabled={updateApproval.isPending}
+                      onClick={() => void handleApprove(approval.id)}
+                      disabled={busy}
                     >
                       {t.social.queue.approve}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleAction(approval.id, 'revision_requested')}
-                      disabled={updateApproval.isPending}
+                      onClick={() => void handleReject(approval.id, true)}
+                      disabled={busy}
                     >
                       {t.social.queue.requestRevision}
                     </Button>
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => handleAction(approval.id, 'rejected')}
-                      disabled={updateApproval.isPending}
+                      onClick={() => void handleReject(approval.id, false)}
+                      disabled={busy}
                     >
                       {t.social.queue.reject}
                     </Button>
