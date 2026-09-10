@@ -98,17 +98,20 @@ export function buildResponsiveEmailCss(opts: {
     : '';
   return (
     // Root: never wider than the WebView; long tokens wrap instead of expanding.
-    `html,body{width:100% !important;max-width:100% !important;overflow-x:hidden !important;` +
+    // Use overflow-x:auto (not hidden) so a layout glitch cannot clip the entire
+    // body to an empty pane — the native wrapper still clips horizontal pan.
+    `html,body{width:100% !important;max-width:100% !important;overflow-x:auto !important;` +
     `margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;}` +
     `body{font-family:system-ui,-apple-system,sans-serif;font-size:${fontSize}px;` +
     `line-height:${lineHeight};color:${textColor};word-wrap:break-word;` +
     `overflow-wrap:anywhere;}` +
     // Marketing/transactional mail is almost always table-based with a fixed
     // ~600px outer table (often via width="600" AND style="min-width:600px").
-    // Cap width AND zero min-width so the inline min-width cannot force a
-    // horizontal pan on phones — width:100% alone is not enough.
+    // Cap max-width and zero min-width so inline min-width cannot force a
+    // horizontal pan. Do NOT force width:100% / table-layout:fixed on every
+    // table — that collapses many nested ESP layouts to an empty body.
     `table,td,th,div,center,section,article{max-width:100% !important;min-width:0 !important;}` +
-    `table{width:100% !important;table-layout:fixed !important;border-collapse:collapse;}` +
+    `table{border-collapse:collapse;}` +
     `td,th{word-wrap:break-word !important;overflow-wrap:anywhere !important;}` +
     `img,video{max-width:100% !important;height:auto !important;}` +
     `pre,code{white-space:pre-wrap !important;word-wrap:break-word !important;}` +
@@ -125,10 +128,13 @@ export function buildResponsiveEmailCss(opts: {
  * Runs as a react-native-webview user script (exempt from the page CSP) and:
  *  1. Rewrites HTML `width` attrs / inline px widths & min-widths that exceed
  *     the viewport so fixed ~600px ESP tables reflow on phones.
- *  2. As a last resort, scales the body down if content is still wider than
- *     the pane (preserves layout for emails that refuse to reflow).
- *  3. Posts the resulting content height back to React Native so the WebView
+ *  2. Posts the resulting content height back to React Native so the WebView
  *     can size itself without an inner scrollbar.
+ *
+ * Deliberately does NOT apply `transform: scale(...)`. Scaling from a premature
+ * (near-zero) viewport measurement collapsed the body to a few pixels and made
+ * the whole message look empty. CSS max-width/min-width clamps plus width-attr
+ * rewriting are enough for phone fit.
  *
  * Re-runs on load, resize, image load/error, ResizeObserver, and delayed ticks
  * — late images/fonts are the usual cause of an initially-wrong height.
@@ -143,8 +149,11 @@ export const EMAIL_LAYOUT_PROBE = `
   function fitToViewport(){
     try{
       var max = viewportWidth();
-      if(!(max > 0) || !document.body) return 1;
-      var nodes = document.body.querySelectorAll('table,td,th,div,center,img,p,section,article,span');
+      // Wait until the WebView has a real layout width. Rewriting against a
+      // tiny/zero viewport turns 600px tables into 100%-of-nothing and the
+      // height probe then locks the native WebView at a few pixels.
+      if(!(max >= 120) || !document.body) return;
+      var nodes = document.body.querySelectorAll('table,td,th,div,center,img,section,article');
       for(var i=0;i<nodes.length;i++){
         var el = nodes[i];
         if(!el || el.nodeType !== 1) continue;
@@ -166,35 +175,16 @@ export const EMAIL_LAYOUT_PROBE = `
           }
         }catch(_){}
       }
-      // Clear any previous scale before measuring overflow.
-      document.body.style.removeProperty('transform');
-      document.body.style.removeProperty('transform-origin');
-      document.body.removeAttribute('data-fit-scale');
-      var sw = Math.max(
-        document.body.scrollWidth || 0,
-        document.documentElement ? document.documentElement.scrollWidth : 0
-      );
-      if(sw > max + 2){
-        var scale = max / sw;
-        document.body.style.setProperty('transform-origin', 'top left', 'important');
-        document.body.style.setProperty('transform', 'scale(' + scale + ')', 'important');
-        document.body.setAttribute('data-fit-scale', String(scale));
-        return scale;
-      }
-      return 1;
-    }catch(_){ return 1; }
+    }catch(_){}
   }
   function report(){
     try{
-      var scale = fitToViewport();
+      fitToViewport();
       var b=document.body, e=document.documentElement;
       var h=Math.max(
         b?b.scrollHeight:0, b?b.offsetHeight:0,
         e?e.scrollHeight:0, e?e.offsetHeight:0
       );
-      // transform:scale does not shrink layout height — adjust the reported
-      // value so the native WebView hugs the visibly scaled content.
-      if(scale > 0 && scale < 1) h = Math.ceil(h * scale);
       if(h>0 && window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(String(Math.ceil(h))); }
     }catch(_){}
   }

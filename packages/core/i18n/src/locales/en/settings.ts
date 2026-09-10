@@ -1057,6 +1057,23 @@ export const settings = {
       description: 'Manage your email accounts and create new ones',
       tabs: {
         accounts: 'Accounts',
+        domains: 'Domains',
+      },
+      domains: {
+        description:
+          'Deliver mail sent to unknown addresses on a custom domain into a chosen mailbox. Off by default.',
+        noDomains: 'No custom domains',
+        noDomainsDescription:
+          'Add a custom domain in WeldHost and create a mail account on it to configure catch-all.',
+        catchAll: 'Catch-all',
+        catchAllHint: 'Receive mail for any address on this domain that is not a registered mailbox.',
+        mailbox: 'Catch-all mailbox',
+        mailboxPlaceholder: 'Select a mailbox',
+        enableNeedsMailbox: 'Select a mailbox before enabling catch-all',
+        messages: {
+          updated: 'Domain settings updated',
+          updateFailed: 'Failed to update domain settings',
+        },
       },
       accounts: {
         noAccounts: 'No email accounts',

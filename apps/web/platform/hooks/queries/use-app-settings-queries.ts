@@ -13,6 +13,7 @@ import type {
   AutomationSettingsData,
 } from '@/hooks/queries/use-helpdesk-queries';
 import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-accounts';
+import type { MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
 import type { EmailAccount } from '@/app/settings/apps/weldmail/accounts/email-accounts-list';
 
 const MAIL_ACCOUNT_STATUSES: EmailAccount['status'][] = [
@@ -87,11 +88,11 @@ export function useMailAppSettings() {
       const [accountsRes, domainsRes] = await Promise.all([
         // Email accounts + domains load from app-api (api-worker is obsolete).
         mailAccounts.list({ limit: 100 }).catch(() => ({ data: [] as MailAccountRow[] })),
-        mailDomains.list().catch(() => ({ data: [] as unknown[] })),
+        mailDomains.list().catch(() => ({ data: [] as MailDomainRow[] })),
       ]);
       return {
         accounts: (accountsRes?.data || []).map(toEmailAccount),
-        domains: domainsRes?.data || [],
+        domains: (domainsRes?.data || []) as MailDomainRow[],
         // TODO(phase-out): plan usage/limits have NO app-api endpoint. The old
         // legacy call to `/mail/usage` was removed rather than carried over:
         // api-worker mounts no `/api/mail` router at all, so it 404'd and its

@@ -1057,6 +1057,23 @@ export const settings = {
       description: 'Beheer uw e-mailaccounts en maak nieuwe aan',
       tabs: {
         accounts: 'Accounts',
+        domains: 'Domeinen',
+      },
+      domains: {
+        description:
+          'Bezorg mail naar onbekende adressen op een eigen domein in een gekozen mailbox. Standaard uitgeschakeld.',
+        noDomains: 'Geen eigen domeinen',
+        noDomainsDescription:
+          'Voeg een eigen domein toe in WeldHost en maak er een mailaccount op aan om catch-all in te stellen.',
+        catchAll: 'Catch-all',
+        catchAllHint: 'Ontvang mail voor elk adres op dit domein dat geen geregistreerde mailbox is.',
+        mailbox: 'Catch-all mailbox',
+        mailboxPlaceholder: 'Selecteer een mailbox',
+        enableNeedsMailbox: 'Selecteer eerst een mailbox voordat u catch-all inschakelt',
+        messages: {
+          updated: 'Domeininstellingen bijgewerkt',
+          updateFailed: 'Domeininstellingen bijwerken mislukt',
+        },
       },
       accounts: {
         noAccounts: 'Geen e-mailaccounts',

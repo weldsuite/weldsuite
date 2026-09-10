@@ -595,7 +595,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
             />
           ) : (
             <Text style={[styles.body, { color: colors.text }]}>
-              {email.textContent || email.body || email.preview || email.snippet || 'No content'}
+              {email.textBody || email.textContent || email.body || email.preview || email.snippet || 'No content'}
             </Text>
           )}
         </View>

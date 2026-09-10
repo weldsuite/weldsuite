@@ -15,6 +15,7 @@ import type { Env } from '../../types';
 import { generateId } from '../../lib/id';
 import * as cfEmail from '../../lib/cloudflare-email';
 import { hasAccessToAccount, isAdminOrOwner, userAccessCondition } from './access';
+import { clearCatchAllForAccount } from './domains';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
 
@@ -527,6 +528,10 @@ export async function deleteMailAccount(env: Env, db: Database, id: string, user
     .update(mailAccounts)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
+
+  // If this mailbox was a domain catch-all target, disable catch-all and
+  // deactivate the master `*@domain` sentinel so unmatched mail stops landing.
+  await clearCatchAllForAccount(env, db, id);
 
   return { found: true as const, account };
 }

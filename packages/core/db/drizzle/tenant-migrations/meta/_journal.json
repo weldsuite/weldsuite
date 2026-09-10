@@ -1331,6 +1331,13 @@
       "when": 1787900000000,
       "tag": "0189_weldpass_secret_vaults",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1788000000000,
+      "tag": "0190_mail_domain_catch_all",
+      "breakpoints": true
     }
   ]
 }

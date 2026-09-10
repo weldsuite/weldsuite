@@ -1,10 +1,11 @@
-import { Users } from 'lucide-react';
+import { Users, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import EmailAccountsSettingsPage from './accounts/page';
+import MailDomainsSettingsPage from './domains/page';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { getTranslations } from '@/lib/i18n';
 
-const TAB_VALUES = ['accounts'] as const;
+const TAB_VALUES = ['accounts', 'domains'] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 export default function WeldMailSettingsPage() {
@@ -14,6 +15,7 @@ export default function WeldMailSettingsPage() {
 
   const tabs: PageTab[] = [
     { id: 'accounts', label: ts.weldmail.tabs.accounts, icon: Users },
+    { id: 'domains', label: ts.weldmail.tabs.domains, icon: Globe },
   ];
   const tabParam = searchParams.get('tab');
   const activeTab: TabValue = TAB_VALUES.includes(tabParam as TabValue)
@@ -42,6 +44,7 @@ export default function WeldMailSettingsPage() {
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={handleTabChange} />
       <div className="mt-6">
         {activeTab === 'accounts' && <EmailAccountsSettingsPage />}
+        {activeTab === 'domains' && <MailDomainsSettingsPage />}
       </div>
     </div>
   );

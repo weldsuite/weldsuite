@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Linking, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
@@ -49,23 +49,31 @@ export default function EmailHtmlView({
   style,
 }: EmailHtmlViewProps) {
   const [height, setHeight] = useState(initialHeight);
-  // Once the injected probe reports, it wins over the native content-size
-  // callback (which can lag or clamp on iOS).
+  // Once the injected probe reports a sane height, it wins over the native
+  // content-size callback (which can lag or clamp on iOS).
   const hasProbeHeight = useRef(false);
   const document = buildEmailDocument(html, { textColor, fontSize, lineHeight, hideQuotes });
 
+  // New message ⇒ forget the previous probe lock, otherwise a collapsed height
+  // from a bad early measurement sticks across opens.
+  useEffect(() => {
+    hasProbeHeight.current = false;
+    setHeight(initialHeight);
+  }, [html, initialHeight]);
+
   const onProbeMessage = (e: WebViewMessageEvent) => {
     const h = parseInt(e.nativeEvent.data, 10);
-    // Only trust a sane, positive measurement from our own probe.
-    if (Number.isFinite(h) && h > 0 && h < 100000) {
+    // Reject near-zero measurements — those come from a probe that ran before
+    // the WebView had a real layout width and would hide the whole body.
+    if (Number.isFinite(h) && h >= 40 && h < 100000) {
       hasProbeHeight.current = true;
       setHeight(h);
     }
   };
 
   return (
-    // Clip any residual overflow so a wide ESP table cannot expand the parent
-    // ScrollView and force the whole message screen to pan horizontally.
+    // Clip residual horizontal overflow so a wide ESP table cannot expand the
+    // parent ScrollView into a horizontal pan. Vertical size comes from `height`.
     <View style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', alignSelf: 'stretch' }}>
       <WebView
         source={{ html: document }}
@@ -79,6 +87,7 @@ export default function EmailHtmlView({
         onMessage={onProbeMessage}
         scrollEnabled={false}
         // Android: scale the page to the WebView width when content is wider.
+        // Safe now that we no longer also apply transform:scale in the probe.
         scalesPageToFit
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
@@ -98,7 +107,7 @@ export default function EmailHtmlView({
           // WebViewNativeEvent type, so narrow it explicitly rather than cast to any.
           const contentSize = (e.nativeEvent as { contentSize?: { height: number } }).contentSize;
           const h = contentSize ? Math.ceil(contentSize.height) : 0;
-          if (h > 0) setHeight(h);
+          if (h >= 40) setHeight(h);
         }}
         setSupportMultipleWindows={false}
         allowsLinkPreview={false}

@@ -42,6 +42,9 @@ export interface MailDomainRow {
   cloudflareZoneId: string | null;
   cloudflareRoutingEnabled: boolean | null;
   cloudflareRoutingRuleId: string | null;
+  /** Opt-in app-level catch-all for unmatched addresses on this domain. */
+  catchAllEnabled: boolean;
+  catchAllAccountId: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
