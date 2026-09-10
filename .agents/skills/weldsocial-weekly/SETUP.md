@@ -10,8 +10,9 @@ Cursor Automations cannot be created via API/MCP — activate this in the UI.
 4. **Tools:** enable **WeldSuite MCP**, **Higgsfield MCP**, and **Memories** (optional: Send to Slack for the digest). Prefer omitting publish/schedule tools if your allowlist is per-tool. **Do not enable Buffer** (or any Buffer connector) on this automation — existing Buffer schedules must stay untouched.
 5. **Prompt:** paste the full prompt from [`.cursor/automations/weldsocial-weekly-prompt.md`](../../../.cursor/automations/weldsocial-weekly-prompt.md).
 6. Authenticate both MCPs for the automation identity (Private = your OAuth; Team Owned = team service account). Higgsfield uses OAuth to your Higgsfield account (credits apply on MCP generations).
-7. Optional but recommended: in Memories, note what Buffer already has queued for the upcoming week (channels + days) so the agent only drafts the **extra** WeldSocial slots.
-8. Save → Activate → **Run now** once to verify drafts land in `/social/drafts` and that nothing in Buffer changed.
+7. In WeldSocial settings, enable **Require approval for posts** (`defaultApprovalRequired`) so the composer’s schedule path uses Submit for Approval.
+8. Optional: note Buffer’s existing next-week coverage in Memories so the agent only drafts the **extra** WeldSocial slots.
+9. Save → Activate → **Run now** once. Confirm items land in `/social/approvals` (not live). Click Approve on one test post and confirm it moves to `/social/queue` scheduled — Buffer unchanged.
 
 ## Visual pipeline
 

@@ -97,6 +97,12 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
     targetAccountIds: rest.targetAccountIds ?? accountIds ?? [],
     createdByUserId: rest.createdByUserId ?? userId,
   };
+  if (typeof data.scheduledAt === 'string' && data.scheduledAt) {
+    data.scheduledAt = new Date(data.scheduledAt);
+  }
+  if (data.status === 'pending_approval' && !data.approvalRequestedAt) {
+    data.approvalRequestedAt = new Date();
+  }
   const id = generateId('spo');
   const now = new Date();
   try {
