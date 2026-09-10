@@ -52,7 +52,7 @@ new_sqlite_classes = ["RateLimiter"]
 [env.test]
 name = "weldsuite-mcp-server-test"
 routes = [{ pattern = "mcp-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "test", MCP_SERVER_URL = "https://mcp-test.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk" }
+vars = { ENVIRONMENT = "test", MCP_SERVER_URL = "https://mcp-test.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk", R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org" }
 
 [[env.test.durable_objects.bindings]]
 name = "RATE_LIMITER"
@@ -86,7 +86,7 @@ head_sampling_rate = 1
 [env.production]
 name = "weldsuite-mcp-server"
 routes = [{ pattern = "mcp.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "production", MCP_SERVER_URL = "https://mcp.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ" }
+vars = { ENVIRONMENT = "production", MCP_SERVER_URL = "https://mcp.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ", R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org" }
 
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMITER"

@@ -54,6 +54,12 @@ export interface MultiSelectProps {
   contentClassName?: string
   id?: string
   "aria-label"?: string
+  /**
+   * Pass through to Radix Popover. Use `true` when nested inside a Dialog so
+   * the portaled list remains clickable (Dialog otherwise sets pointer-events
+   * none on the body outside its content).
+   */
+  modal?: boolean
 }
 
 /**
@@ -77,6 +83,7 @@ export function MultiSelect({
   contentClassName,
   id,
   "aria-label": ariaLabel,
+  modal = false,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false)
   const selected = value ?? []
@@ -104,7 +111,7 @@ export function MultiSelect({
   const overflowCount = selected.length - visibleChips.length
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={modal}>
       <PopoverTrigger asChild>
         <Button
           id={id}

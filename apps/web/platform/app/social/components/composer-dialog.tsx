@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { ImagePlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -21,7 +22,6 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
-import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/multi-select';
 import {
   useSocialAccounts,
   useSocialMedia,
@@ -33,6 +33,7 @@ import {
   useScheduleSocialPost,
   useCreateSocialMedia,
 } from '@/hooks/queries/use-social-queries';
+import { useFileUpload } from '@/hooks/use-file-upload';
 import type { SocialAccount, SocialMedia } from '@weldsuite/app-api-client/domains/social';
 import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
 import {
@@ -62,9 +63,16 @@ interface ComposerDialogProps {
   defaultAccountIds?: string[];
 }
 
+function mediaKindFromMime(mimeType: string, fileName: string): 'image' | 'video' | 'gif' {
+  if (mimeType === 'image/gif' || fileName.toLowerCase().endsWith('.gif')) return 'gif';
+  if (mimeType.startsWith('video/')) return 'video';
+  return 'image';
+}
+
 export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds }: ComposerDialogProps) {
   const { t, format } = useI18n();
   const st = useTranslations();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
@@ -72,7 +80,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const [scheduledAt, setScheduledAt] = useState('');
   const [timezone, setTimezone] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
-  const [mediaFileName, setMediaFileName] = useState('');
+  const [showUrlField, setShowUrlField] = useState(false);
 
   const { data: accountsData } = useSocialAccounts();
   const { data: mediaData } = useSocialMedia();
@@ -84,6 +92,21 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const publishPost = usePublishSocialPost();
   const schedulePost = useScheduleSocialPost();
   const createMedia = useCreateSocialMedia();
+  const { uploadFile, isUploading } = useFileUpload({
+    folder: 'social-media',
+    entityType: 'social',
+    isPublic: true,
+    allowedTypes: [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'video/mp4',
+      'video/webm',
+      'video/quicktime',
+    ],
+    maxFileSize: 25 * 1024 * 1024,
+  });
 
   // Memoised because the option list below derives from it — a fresh `[]` every
   // render would rebuild the dropdown options on every keystroke in the editor.
@@ -150,27 +173,9 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       setScheduledAt('');
       setTimezone('');
     }
+    setMediaUrl('');
+    setShowUrlField(false);
   }, [editPost, defaultAccountIds, open]);
-
-  // The label doubles as the dropdown's search text AND is the only part a
-  // screen reader announces (the icon is decorative), so it carries everything
-  // that identifies the channel: name, handle, and platform. One brand name
-  // routinely exists on several platforms, and searching "linkedin" should find
-  // them. The icon stays uncoloured — X and TikTok are pure black and vanish
-  // against a dark chip.
-  const accountOptions: MultiSelectOption[] = useMemo(
-    () =>
-      accounts.map((account: SocialAccount) => {
-        const platformName = t.social.accounts.platforms[account.platform] ?? account.platform;
-        const named = account.username ? `${account.name} (@${account.username})` : account.name;
-        return {
-          value: account.id,
-          label: `${named} · ${platformName}`,
-          icon: <SocialPlatformIcon platform={account.platform} />,
-        };
-      }),
-    [accounts, t]
-  );
 
   // Instagram rejects text-only posts at the platform level, and the failure
   // only surfaces AFTER submission as a 500 carrying PostPeer's own message
@@ -196,9 +201,15 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         })
       : null;
 
+  const toggleAccount = (id: string, checked: boolean) => {
+    setSelectedAccountIds((prev) =>
+      checked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((v) => v !== id),
+    );
+  };
+
   const toggleMedia = (id: string) => {
     setSelectedMediaIds((prev) =>
-      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id],
     );
   };
 
@@ -284,29 +295,71 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     }
   };
 
-  const handleAddMedia = async () => {
+  const registerUploadedMedia = async (uploaded: {
+    fileName: string;
+    url: string;
+    mimeType: string;
+    fileSize: number;
+  }) => {
+    const res = await createMedia.mutateAsync({
+      fileName: uploaded.fileName,
+      url: uploaded.url,
+      mimeType: uploaded.mimeType,
+      fileSize: uploaded.fileSize,
+      mediaType: mediaKindFromMime(uploaded.mimeType, uploaded.fileName),
+      status: 'ready',
+      thumbnailUrl: uploaded.mimeType.startsWith('image/') ? uploaded.url : undefined,
+    });
+    const newId = res.data?.id;
+    if (newId) setSelectedMediaIds((prev) => [...prev, newId]);
+  };
+
+  const handleFilePick = async (files: FileList | null) => {
+    if (!files?.length) return;
+    try {
+      for (const file of Array.from(files)) {
+        const uploaded = await uploadFile(file);
+        if (!uploaded) {
+          toast.error(t.social.media.upload);
+          continue;
+        }
+        await registerUploadedMedia(uploaded);
+      }
+    } catch {
+      toast.error(t.social.media.upload);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAddMediaUrl = async () => {
     if (!mediaUrl) return;
     try {
       const res = await createMedia.mutateAsync({
-        fileName: mediaFileName || mediaUrl.split('/').pop() || 'image',
+        fileName: mediaUrl.split('/').pop() || 'image',
         url: mediaUrl,
         mediaType: 'image',
+        status: 'ready',
       });
       const newId = res.data?.id;
       if (newId) setSelectedMediaIds((prev) => [...prev, newId]);
       setMediaUrl('');
-      setMediaFileName('');
     } catch {
-      // ignore
+      toast.error(t.social.media.upload);
     }
   };
 
   const isLoading =
-    createPost.isPending || updatePost.isPending || publishPost.isPending || schedulePost.isPending;
+    createPost.isPending ||
+    updatePost.isPending ||
+    publishPost.isPending ||
+    schedulePost.isPending ||
+    createMedia.isPending ||
+    isUploading;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {editPost ? t.social.posts.editPost : t.social.posts.newPost}
@@ -314,22 +367,43 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* Account selection */}
-          {accounts.length > 0 && (
-            <div className="space-y-1.5">
-              <Label htmlFor="composer-accounts">{t.social.accounts.connectedAccounts}</Label>
-              <MultiSelect
-                id="composer-accounts"
-                options={accountOptions}
-                value={selectedAccountIds}
-                onChange={setSelectedAccountIds}
-                placeholder={t.social.accounts.selectAccounts}
-                searchPlaceholder={t.social.accounts.searchAccounts}
-                emptyText={t.social.accounts.noAccountsFound}
-                maxDisplay={4}
-              />
-            </div>
-          )}
+          {/* Account selection — checkboxes, not a Popover MultiSelect: Radix
+              Dialog traps pointer events so a portaled popover cannot be clicked. */}
+          <div className="space-y-1.5">
+            <Label>{t.social.accounts.connectedAccounts}</Label>
+            {accounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {st('sweep.miscA.composerDialog.noAccountsHint')}
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                {accounts.map((account: SocialAccount) => {
+                  const checked = selectedAccountIds.includes(account.id);
+                  const platformName =
+                    t.social.accounts.platforms[
+                      account.platform as keyof typeof t.social.accounts.platforms
+                    ] ?? account.platform;
+                  const named = account.username
+                    ? `${account.name} (@${account.username})`
+                    : account.name;
+                  return (
+                    <label
+                      key={account.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(v) => toggleAccount(account.id, Boolean(v))}
+                      />
+                      <SocialPlatformIcon platform={account.platform} colored className="h-4 w-4" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{named}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{platformName}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Content */}
           <div className="space-y-1.5">
@@ -340,22 +414,22 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
               value={content}
               onChange={(e) => setContent(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground text-right">
+            <p className="text-right text-xs text-muted-foreground">
               {st('sweep.miscA.composerDialog.charactersCount', { count: content.length })}
             </p>
           </div>
 
           {/* Media */}
-          {mediaItems.length > 0 && (
-            <div className="space-y-2">
-              <Label>{t.social.media.title}</Label>
+          <div className="space-y-2">
+            <Label>{t.social.media.title}</Label>
+            {mediaItems.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {mediaItems.map((item: SocialMedia) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => toggleMedia(item.id)}
-                    className={`relative rounded border-2 overflow-hidden w-16 h-16 flex items-center justify-center text-xs ${
+                    className={`relative flex h-16 w-16 items-center justify-center overflow-hidden rounded border-2 text-xs ${
                       selectedMediaIds.includes(item.id)
                         ? 'border-primary'
                         : 'border-transparent'
@@ -365,7 +439,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
                       <img
                         src={item.thumbnailUrl || item.url || undefined}
                         alt={item.fileName || st('sweep.miscA.composerDialog.mediaAlt')}
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     ) : (
                       <span className="text-muted-foreground">{item.fileName}</span>
@@ -373,29 +447,62 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* URL upload */}
-          <div className="space-y-1.5">
-            <Label>{t.social.media.upload}</Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://..."
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                className="flex-1"
-              />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+              multiple
+              className="hidden"
+              onChange={(e) => void handleFilePick(e.target.files)}
+            />
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleAddMedia}
-                disabled={!mediaUrl || createMedia.isPending}
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
               >
-                {st('sweep.miscA.composerDialog.add')}
+                {isUploading ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <ImagePlus className="mr-1.5 h-4 w-4" />
+                )}
+                {isUploading
+                  ? st('sweep.miscA.composerDialog.uploading')
+                  : st('sweep.miscA.composerDialog.chooseFiles')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowUrlField((v) => !v)}
+              >
+                {st('sweep.miscA.composerDialog.orPasteUrl')}
               </Button>
             </div>
+
+            {showUrlField && (
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://..."
+                  value={mediaUrl}
+                  onChange={(e) => setMediaUrl(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleAddMediaUrl()}
+                  disabled={!mediaUrl || createMedia.isPending}
+                >
+                  {st('sweep.miscA.composerDialog.add')}
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Sits directly under both remedies — the media picker and the
@@ -448,10 +555,10 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
           )}
         </div>
 
-        <DialogFooter className="flex gap-2 flex-wrap">
+        <DialogFooter className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={handleSaveDraft}
+            onClick={() => void handleSaveDraft()}
             disabled={isLoading || !content}
           >
             {t.social.posts.saveDraft}
@@ -459,7 +566,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
           {scheduleMode && (
             <Button
               variant="secondary"
-              onClick={handleSchedule}
+              onClick={() => void handleSchedule()}
               disabled={
                 isLoading ||
                 !content ||
@@ -472,7 +579,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             </Button>
           )}
           <Button
-            onClick={handlePublishNow}
+            onClick={() => void handlePublishNow()}
             disabled={
               isLoading || !content || selectedAccountIds.length === 0 || !!mediaRequiredWarning
             }

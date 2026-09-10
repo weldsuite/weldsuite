@@ -362,6 +362,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                   searchPlaceholder={t('sweep.shared.searchAppsPlaceholder')}
                   emptyText={t('sweep.shared.noAppsFound')}
                   maxDisplay={6}
+                  modal
                 />
               </div>
             </div>
