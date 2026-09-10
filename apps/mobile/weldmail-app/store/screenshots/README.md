@@ -1,6 +1,6 @@
 # Screenshots
 
-Marketing captures that match the WeldFlow mobile UI (coral `#E84C3D`, floating pill nav, project/task rows, KPI chips). Generated from `scenes.html`.
+Marketing captures that match the WeldMail mobile UI (coral `#F06543`, inbox rows, label drawer, compose sheet). Generated from `scenes.html`.
 
 ```bash
 npx --yes playwright install chromium
@@ -20,10 +20,10 @@ These are UI-faithful mockups for listing review. If App Store / Play reject the
 ## Shot list (same order on every size)
 
 1. Sign in
-2. Home
-3. Projects
-4. Project detail
-5. Task detail
-6. My tasks
+2. Inbox
+3. Labels
+4. Message
+5. Compose
+6. Search
 
 Upload in that order. Play Console: phone screenshots from `android-phone/`, feature graphic from `android-feature-graphic/feature-graphic.png`. App Store Connect: 6.7" from `ios-6.7/` (1284×2778), 6.5" from `ios-6.5/` if that slot is shown, 13" iPad from `ios-ipad-13/`.
