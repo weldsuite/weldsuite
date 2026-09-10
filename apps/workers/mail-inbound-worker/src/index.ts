@@ -17,6 +17,7 @@ import {
   collectRecipientEmails,
 } from './lib/email-storage';
 import { adaptCloudflareEmail } from './lib/cf-email-adapter';
+import { scoreInboundSpam } from './lib/spam-filter';
 import type { ForwardableEmailMessage } from '@weldsuite/email/providers/cloudflare';
 import { sql } from 'drizzle-orm';
 import { getMasterDb } from './db';
@@ -140,22 +141,34 @@ async function emailHandler(
     const result = await processInboundEmail(env, email, attachments);
     console.log(`[Email] Processed: ${result.stored} stored, ${result.notified} notified`);
 
-    // Run downstream specialised inboxes in parallel — failures here must
-    // not reject the message, since the main mail pipeline already accepted it.
-    ctx.waitUntil(
-      Promise.allSettled([
-        processAccountingInboxEmail(env, email, attachments).then((r) => {
-          if (r.processed) {
-            console.log(`[Email] Accounting inbox: ${r.documentIds.length} documents created`);
-          }
-        }),
-        processHelpdeskInboxEmail(env, email).then((r) => {
-          if (r.processed) {
-            console.log(`[Email] Helpdesk inbox: ${r.conversationIds.length} conversations updated/created`);
-          }
-        }),
-      ]),
-    );
+    // Skip WeldDesk / accounting fan-out for mail the heuristic filter
+    // classifies as spam (no thread-cap — fan-out is not mailbox-thread-aware).
+    const fanoutSpam = scoreInboundSpam(email, {
+      attachmentNames: attachments.map((a) => a.fileName).filter(Boolean),
+      recipientEmails: collectRecipientEmails(email),
+    });
+    if (fanoutSpam.isSpam) {
+      console.log(
+        `[Email] Skipping helpdesk/accounting fan-out (spam score=${fanoutSpam.score} reasons=[${fanoutSpam.reasons.join(', ')}])`,
+      );
+    } else {
+      // Run downstream specialised inboxes in parallel — failures here must
+      // not reject the message, since the main mail pipeline already accepted it.
+      ctx.waitUntil(
+        Promise.allSettled([
+          processAccountingInboxEmail(env, email, attachments).then((r) => {
+            if (r.processed) {
+              console.log(`[Email] Accounting inbox: ${r.documentIds.length} documents created`);
+            }
+          }),
+          processHelpdeskInboxEmail(env, email).then((r) => {
+            if (r.processed) {
+              console.log(`[Email] Helpdesk inbox: ${r.conversationIds.length} conversations updated/created`);
+            }
+          }),
+        ]),
+      );
+    }
 
     if (result.recipients === 0) {
       // No matching mailbox in our registry — reject with a 5xx so CF retries

@@ -22,7 +22,14 @@ import {
   sendPersonalEmailPushNotification,
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
+import { scoreInboundSpam } from './spam-filter';
 import type { Env } from '../index';
+
+export type StoreEmailResult = {
+  messageId: string;
+  threadId: string;
+  isSpam: boolean;
+};
 
 /**
  * Parsed attachment from MIME parsing.
@@ -297,8 +304,9 @@ export async function findRecipientAccounts(
 async function storePersonalEmail(
   env: Env,
   account: RecipientAccount,
-  email: ParsedEmail
-): Promise<{ messageId: string; threadId: string } | null> {
+  email: ParsedEmail,
+  attachmentNames: string[] = [],
+): Promise<StoreEmailResult | null> {
   try {
     if (!account.personalAccountId) {
       console.error('[Store] Missing personalAccountId for personal mail');
@@ -333,6 +341,42 @@ async function storePersonalEmail(
       references: email.references,
     });
 
+    let isExistingHamThread = false;
+    if (isReply) {
+      const lookupIds = [
+        ...(email.inReplyTo ? [email.inReplyTo] : []),
+        ...(email.references || []),
+      ];
+      if (lookupIds.length > 0) {
+        const prior = await personalDb
+          .select({
+            isSpam: personalSchema.personalMailMessages.isSpam,
+          })
+          .from(personalSchema.personalMailMessages)
+          .where(
+            and(
+              eq(personalSchema.personalMailMessages.accountId, account.accountId),
+              or(
+                inArray(personalSchema.personalMailMessages.messageId, lookupIds),
+                inArray(personalSchema.personalMailMessages.threadId, lookupIds),
+              ),
+              eq(personalSchema.personalMailMessages.isSpam, false),
+            ),
+          )
+          .limit(1);
+        isExistingHamThread = prior.length > 0;
+      }
+    }
+
+    const spam = scoreInboundSpam(email, {
+      attachmentNames,
+      isExistingHamThread,
+      recipientEmails: [account.accountEmail, ...collectRecipientEmails(email)],
+    });
+    console.log(
+      `[Spam] Personal ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
+    );
+
     await personalDb.insert(personalSchema.personalMailMessages).values({
       id: dbMessageId,
       personalAccountId: account.personalAccountId,
@@ -349,12 +393,13 @@ async function storePersonalEmail(
       sentDate: email.receivedAt,
       receivedDate: new Date(),
       isRead: false,
+      isSpam: spam.isSpam,
       hasAttachments: email.hasAttachments,
       attachmentCount: email.attachmentCount,
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: ['INBOX'],
+      labels: spam.isSpam ? ['SPAM'] : ['INBOX'],
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -363,7 +408,7 @@ async function storePersonalEmail(
     });
 
     console.log(`[Store] Personal email stored ${dbMessageId} for ${account.accountEmail}`);
-    return { messageId: dbMessageId, threadId };
+    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam };
   } catch (error) {
     console.error('[Store] Failed to store personal email:', error);
     return null;
@@ -379,10 +424,11 @@ async function storePersonalEmail(
 export async function storeEmail(
   env: Env,
   account: RecipientAccount,
-  email: ParsedEmail
-): Promise<{ messageId: string; threadId: string } | null> {
+  email: ParsedEmail,
+  attachmentNames: string[] = [],
+): Promise<StoreEmailResult | null> {
   if (account.tenantKind === 'personal') {
-    return storePersonalEmail(env, account, email);
+    return storePersonalEmail(env, account, email, attachmentNames);
   }
 
   try {
@@ -418,6 +464,7 @@ export async function storeEmail(
     // Check if this is a reply to an existing message in the DB
     const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
     let threadId: string = email.messageId;
+    let isExistingHamThread = false;
 
     if (isReply) {
       // Look up existing messages by inReplyTo or references to find the thread
@@ -439,6 +486,7 @@ export async function storeEmail(
           .select({
             threadId: tenantSchema.mailMessages.threadId,
             messageId: tenantSchema.mailMessages.messageId,
+            isSpam: tenantSchema.mailMessages.isSpam,
           })
           .from(tenantSchema.mailMessages)
           .where(
@@ -458,6 +506,7 @@ export async function storeEmail(
         if (existingThreadId) {
           threadId = existingThreadId;
           matched = true;
+          isExistingHamThread = existingMessages[0]?.isSpam === false;
           console.log(`[Store] Found existing thread ${threadId} for reply (by messageId)`);
         }
       }
@@ -473,6 +522,7 @@ export async function storeEmail(
           const subjectMatch = await tenantDb
             .select({
               threadId: tenantSchema.mailMessages.threadId,
+              isSpam: tenantSchema.mailMessages.isSpam,
             })
             .from(tenantSchema.mailMessages)
             .where(
@@ -489,6 +539,7 @@ export async function storeEmail(
           if (subjectThreadId) {
             threadId = subjectThreadId;
             matched = true;
+            isExistingHamThread = subjectMatch[0]?.isSpam === false;
             console.log(`[Store] Found existing thread ${threadId} for reply (by subject)`);
           }
         }
@@ -506,6 +557,15 @@ export async function storeEmail(
       threadId = email.messageId;
     }
 
+    const spam = scoreInboundSpam(email, {
+      attachmentNames,
+      isExistingHamThread,
+      recipientEmails: [account.accountEmail, ...collectRecipientEmails(email)],
+    });
+    console.log(
+      `[Spam] ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
+    );
+
     // Insert message
     await tenantDb.insert(tenantSchema.mailMessages).values({
       id: dbMessageId,
@@ -522,12 +582,13 @@ export async function storeEmail(
       sentDate: email.receivedAt,
       receivedDate: new Date(),
       isRead: false,
+      isSpam: spam.isSpam,
       hasAttachments: email.hasAttachments,
       attachmentCount: email.attachmentCount,
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: ['INBOX'],
+      labels: spam.isSpam ? ['SPAM'] : ['INBOX'],
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -544,7 +605,7 @@ export async function storeEmail(
       console.error(`[Store] Failed to apply keyword labels for ${dbMessageId}:`, labelErr);
     }
 
-    return { messageId: dbMessageId, threadId };
+    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam };
   } catch (error) {
     console.error(`[Store] Failed to store email:`, error);
     return null;
@@ -571,11 +632,12 @@ export async function processInboundEmail(
     return { stored: 0, notified: 0, recipients: 0 };
   }
 
+  const attachmentNames = (attachments ?? []).map((a) => a.fileName).filter(Boolean);
   let stored = 0;
   let notified = 0;
 
   for (const account of accounts) {
-    const result = await storeEmail(env, account, email);
+    const result = await storeEmail(env, account, email, attachmentNames);
     if (!result) continue;
     stored++;
 
@@ -602,7 +664,7 @@ async function finishWorkspaceDelivery(
   account: RecipientAccount,
   email: ParsedEmail,
   attachments: ParsedAttachment[] | undefined,
-  result: { messageId: string; threadId: string },
+  result: StoreEmailResult,
   preview: string,
 ): Promise<number> {
   const workspaceId = account.workspaceId;
@@ -685,7 +747,12 @@ async function finishWorkspaceDelivery(
       console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
     }
 
-    // Send push notification to mobile devices
+    // Skip Expo push for spam — still publish realtime above so open clients
+    // can refresh the Spam folder without a banner interruption.
+    if (result.isSpam) {
+      continue;
+    }
+
     try {
       await sendNewEmailPushNotification(env, {
         userId,
@@ -718,7 +785,7 @@ async function finishPersonalDelivery(
   account: RecipientAccount,
   email: ParsedEmail,
   attachments: ParsedAttachment[] | undefined,
-  result: { messageId: string; threadId: string },
+  result: StoreEmailResult,
   preview: string,
 ): Promise<number> {
   const { personalAccountId, clerkUserId } = account;
@@ -757,20 +824,22 @@ async function finishPersonalDelivery(
     return 0;
   }
 
-  // Push first: it is what surfaces a banner when the app is backgrounded or
-  // closed, which is the common case for inbound mail. The realtime publish
-  // below only reaches a client that already has the app open.
-  try {
-    await sendPersonalEmailPushNotification(env, {
-      clerkUserId,
-      messageId: result.messageId,
-      accountId: account.accountId,
-      from: email.from,
-      subject: email.subject,
-      preview,
-    });
-  } catch (pushErr) {
-    console.error(`[Push] Failed to send personal push to ${clerkUserId}:`, pushErr);
+  // Push first for ham only: it is what surfaces a banner when the app is
+  // backgrounded or closed. Spam still gets realtime below so open clients
+  // can refresh the Spam folder without a push interruption.
+  if (!result.isSpam) {
+    try {
+      await sendPersonalEmailPushNotification(env, {
+        clerkUserId,
+        messageId: result.messageId,
+        accountId: account.accountId,
+        from: email.from,
+        subject: email.subject,
+        preview,
+      });
+    } catch (pushErr) {
+      console.error(`[Push] Failed to send personal push to ${clerkUserId}:`, pushErr);
+    }
   }
 
   try {

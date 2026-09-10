@@ -39,6 +39,7 @@ const updateBody = z.object({
   isRead: z.boolean().optional(),
   isStarred: z.boolean().optional(),
   isTrash: z.boolean().optional(),
+  isSpam: z.boolean().optional(),
   labels: z.array(z.string()).optional(),
 });
 
@@ -391,6 +392,7 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
     body.isRead === undefined &&
     body.isStarred === undefined &&
     body.isTrash === undefined &&
+    body.isSpam === undefined &&
     body.labels === undefined
   ) {
     return error.badRequest(c, 'No fields to update');
@@ -399,7 +401,10 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
   try {
     const personalDb = getPersonalDb(c.env);
     const [existing] = await personalDb
-      .select({ id: personalMailMessages.id })
+      .select({
+        id: personalMailMessages.id,
+        labels: personalMailMessages.labels,
+      })
       .from(personalMailMessages)
       .where(
         and(
@@ -417,12 +422,28 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
       isRead?: boolean;
       isStarred?: boolean;
       isTrash?: boolean;
+      isSpam?: boolean;
       labels?: string[];
     } = { updatedAt: new Date() };
     if (body.isRead !== undefined) patch.isRead = body.isRead;
     if (body.isStarred !== undefined) patch.isStarred = body.isStarred;
     if (body.isTrash !== undefined) patch.isTrash = body.isTrash;
     if (body.labels !== undefined) patch.labels = body.labels;
+
+    if (body.isSpam === true && body.labels === undefined) {
+      patch.isSpam = true;
+      const cur = (existing.labels as string[] | null) ?? [];
+      patch.labels = [...new Set([...cur.filter((l) => l !== 'INBOX'), 'SPAM'])];
+    } else if (body.isSpam === false && body.labels === undefined) {
+      patch.isSpam = false;
+      let next = ((existing.labels as string[] | null) ?? []).filter((l) => l !== 'SPAM');
+      if (!next.includes('TRASH') && !next.includes('ARCHIVE')) {
+        next = [...new Set([...next, 'INBOX'])];
+      }
+      patch.labels = next;
+    } else if (body.isSpam !== undefined) {
+      patch.isSpam = body.isSpam;
+    }
 
     const [updated] = await personalDb
       .update(personalMailMessages)
