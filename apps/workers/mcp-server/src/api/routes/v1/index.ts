@@ -51,6 +51,7 @@ import userApps from './user-apps';
 import socialAccounts from './social-accounts';
 import socialAnalytics from './social-analytics';
 import socialCampaigns from './social-campaigns';
+import socialMedia from './social-media';
 import socialPosts from './social-posts';
 import webhooks from './webhooks';
 import whiteboards from './whiteboards';
@@ -105,6 +106,7 @@ v1.get('/', async (c) => {
       '/v1/social-accounts',
       '/v1/social-analytics',
       '/v1/social-campaigns',
+      '/v1/social-media',
       '/v1/social-posts',
       '/v1/sprints',
       '/v1/task-comments',
@@ -176,6 +178,7 @@ v1.route('/settings', settings);
 v1.route('/social-accounts', socialAccounts);
 v1.route('/social-analytics', socialAnalytics);
 v1.route('/social-campaigns', socialCampaigns);
+v1.route('/social-media', socialMedia);
 v1.route('/social-posts', socialPosts);
 v1.route('/sprints', sprints);
 v1.route('/task-comments', taskComments);

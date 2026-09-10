@@ -72,14 +72,60 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('smed');
   const now = new Date();
+  const userId = c.get('userId') ?? 'system';
+  const fileName = String(data.fileName ?? 'asset');
+  const url = typeof data.url === 'string' ? data.url : undefined;
+  const explicitType = typeof data.mediaType === 'string' ? data.mediaType : undefined;
+  const lower = fileName.toLowerCase();
+  const mediaType =
+    explicitType === 'image' || explicitType === 'video' || explicitType === 'gif'
+      ? explicitType
+      : lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')
+        ? 'video'
+        : lower.endsWith('.gif')
+          ? 'gif'
+          : 'image';
+  const mimeType =
+    data.mimeType ||
+    data.contentType ||
+    (lower.endsWith('.png')
+      ? 'image/png'
+      : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+        ? 'image/jpeg'
+        : lower.endsWith('.gif')
+          ? 'image/gif'
+          : lower.endsWith('.webp')
+            ? 'image/webp'
+            : lower.endsWith('.mp4')
+              ? 'video/mp4'
+              : mediaType === 'video'
+                ? 'video/mp4'
+                : 'image/png');
+  const fileSize = typeof data.fileSize === 'number' ? data.fileSize : typeof data.size === 'number' ? data.size : 0;
+  const storagePath = data.storagePath || (url ? `url:${url}` : `social-media/${id}/${fileName}`);
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({
+      id,
+      ...data,
+      fileName,
+      originalName: data.originalName || fileName,
+      mimeType,
+      fileSize,
+      mediaType,
+      storagePath,
+      url: url ?? null,
+      storageProvider: data.storageProvider || (url ? 'url' : 'r2'),
+      status: url ? 'ready' : (data.status ?? 'uploading'),
+      uploadedByUserId: data.uploadedByUserId || userId,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'social_media',
       entityId: id,
       action: 'created',
-      data: { id, fileName: data.fileName, mediaType: data.mediaType, status: data.status ?? 'uploading' },
+      data: { id, fileName, mediaType, status: url ? 'ready' : (data.status ?? 'uploading') },
     });
     return success(c, { id }, 201);
   } catch (err) {

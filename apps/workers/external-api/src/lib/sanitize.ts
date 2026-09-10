@@ -13,6 +13,7 @@ const SERVER_OWNED_FIELDS = [
   'deletedAt',
   'connectedByUserId',
   'createdByUserId',
+  'uploadedByUserId',
 ] as const;
 
 export function stripServerFields(body: Record<string, unknown>): Record<string, unknown> {
