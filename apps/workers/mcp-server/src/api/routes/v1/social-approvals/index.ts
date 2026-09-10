@@ -9,10 +9,10 @@
  */
 
 import { Hono } from 'hono';
+import { requireScope } from '../../../lib/scopes';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   publishPost,
@@ -21,13 +21,13 @@ import {
   SocialInsufficientCreditsError,
 } from '@weldsuite/social-publishing';
 import { createSocialApprovalSchema, updateSocialApprovalSchema } from '@weldsuite/core-api-client/schemas/social-approvals';
-import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema } from '../../db';
-import { socialContext } from '../../lib/social-context';
+import type { HonoEnv } from '../../../types';
+import { cursorPagination, error, list, noContent, success } from '../../../lib/response';
+import { generateId } from '../../../lib/id';
+import { schema } from '../../../db';
+import { socialContext, resolveClerkOrgId } from '../../../lib/social-context';
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+const app = new Hono<HonoEnv>();
 const t = schema.socialApprovals;
 const posts = schema.socialPosts;
 
@@ -36,7 +36,7 @@ const decideSchema = z.object({
   rejectionReason: z.string().optional(),
 });
 
-app.get('/', requirePermission('posts:read'), async (c) => {
+app.get('/', requireScope('social_posts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
@@ -69,12 +69,12 @@ app.get('/', requirePermission('posts:read'), async (c) => {
     const totalCount = Number(countRes[0]?.count ?? 0);
     return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
-    console.error('[app-api/social-approvals] list failed:', err);
+    console.error('[mcp-server/social-approvals] list failed:', err);
     return error.internal(c, 'Failed to list social approvals');
   }
 });
 
-app.get('/:id', requirePermission('posts:read'), async (c) => {
+app.get('/:id', requireScope('social_posts:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -82,12 +82,12 @@ app.get('/:id', requirePermission('posts:read'), async (c) => {
     if (!row) return error.notFound(c, 'Social approval', id);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/social-approvals] get failed:', err);
+    console.error('[mcp-server/social-approvals] get failed:', err);
     return error.internal(c, 'Failed to fetch social approval');
   }
 });
 
-app.post('/', requirePermission('posts:create'), zValidator('json', createSocialApprovalSchema), async (c) => {
+app.post('/', requireScope('social_posts:write'), zValidator('json', createSocialApprovalSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
   const userId = c.get('userId') ?? 'system';
@@ -143,7 +143,7 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
     });
     return success(c, { id, postId }, 201);
   } catch (err) {
-    console.error('[app-api/social-approvals] create failed:', err);
+    console.error('[mcp-server/social-approvals] create failed:', err);
     return error.internal(c, 'Failed to create social approval');
   }
 });
@@ -152,7 +152,7 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
  * POST /:id/approve — approve the pending request and auto-schedule when the
  * post already has an intended `scheduledAt`.
  */
-app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
+app.post('/:id/approve', requireScope('social_posts:write'), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId') ?? 'system';
@@ -213,7 +213,11 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
           post.scheduledAt instanceof Date
             ? post.scheduledAt.toISOString()
             : new Date(post.scheduledAt).toISOString();
-        publishResult = await publishPost(db, socialContext(c.env), workspaceId, post.id, {
+        const orgId = await resolveClerkOrgId(c.env, workspaceId);
+        if (!orgId) {
+          throw new Error('Workspace is not linked to an organization');
+        }
+        publishResult = await publishPost(db, socialContext(c.env), orgId, post.id, {
           now: false,
           scheduledAt,
           timezone: post.timezone ?? undefined,
@@ -235,7 +239,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
         // Approval still succeeds — scheduling can be retried from the queue/composer.
         scheduleError =
           err instanceof Error ? err.message : 'Failed to auto-schedule after approval';
-        console.error('[app-api/social-approvals] auto-schedule after approve failed:', err);
+        console.error('[mcp-server/social-approvals] auto-schedule after approve failed:', err);
         if (err instanceof PostPeerNotConfiguredError) {
           scheduleError = 'Social publishing is not configured';
         } else if (err instanceof SocialPublishConflictError) {
@@ -263,7 +267,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
       publishResult,
     });
   } catch (err) {
-    console.error('[app-api/social-approvals] approve failed:', err);
+    console.error('[mcp-server/social-approvals] approve failed:', err);
     return error.internal(c, 'Failed to approve social post');
   }
 });
@@ -271,7 +275,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
 /**
  * POST /:id/reject — reject (or request revision) and bounce the post to draft.
  */
-app.post('/:id/reject', requirePermission('posts:update'), zValidator('json', decideSchema), async (c) => {
+app.post('/:id/reject', requireScope('social_posts:write'), zValidator('json', decideSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId') ?? 'system';
   const id = c.req.param('id');
@@ -327,12 +331,12 @@ app.post('/:id/reject', requirePermission('posts:update'), zValidator('json', de
 
     return success(c, { approvalId: id, postId: approval.postId, status: nextStatus });
   } catch (err) {
-    console.error('[app-api/social-approvals] reject failed:', err);
+    console.error('[mcp-server/social-approvals] reject failed:', err);
     return error.internal(c, 'Failed to reject social approval');
   }
 });
 
-app.patch('/:id', requirePermission('posts:update'), zValidator('json', updateSocialApprovalSchema), async (c) => {
+app.patch('/:id', requireScope('social_posts:write'), zValidator('json', updateSocialApprovalSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
@@ -367,12 +371,12 @@ app.patch('/:id', requirePermission('posts:update'), zValidator('json', updateSo
     });
     return success(c, { id });
   } catch (err) {
-    console.error('[app-api/social-approvals] update failed:', err);
+    console.error('[mcp-server/social-approvals] update failed:', err);
     return error.internal(c, 'Failed to update social approval');
   }
 });
 
-app.delete('/:id', requirePermission('posts:delete'), async (c) => {
+app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -388,9 +392,9 @@ app.delete('/:id', requirePermission('posts:delete'), async (c) => {
     });
     return noContent(c);
   } catch (err) {
-    console.error('[app-api/social-approvals] delete failed:', err);
+    console.error('[mcp-server/social-approvals] delete failed:', err);
     return error.internal(c, 'Failed to delete social approval');
   }
 });
 
-export const socialApprovalsRoutes = app;
+export default app;
