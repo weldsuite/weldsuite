@@ -4,8 +4,8 @@
  */
 
 import type { Context } from 'hono';
-import type { Env, Variables } from '../../types';
-import { error } from '../../lib/response';
+import type { Env, Variables } from '../types';
+import { error } from './response';
 
 export async function streamDocumentAttachment(
   c: Context<{ Bindings: Env; Variables: Variables }>,
