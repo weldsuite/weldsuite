@@ -103,8 +103,26 @@ async function request<T>(method: string, path: string, data?: unknown): Promise
   return response.json();
 }
 
+async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = await getAuthHeaders();
+  delete headers['Content-Type'];
+  const response = await fetch(`${APP_API_URL}${API_PREFIX}${path}`, {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new WeldbooksApiError(formatErrorMessage(body, response.status), response.status, body);
+  }
+  const disposition = response.headers.get('content-disposition');
+  const match = disposition ? /filename="?([^";]+)"?/i.exec(disposition) : null;
+  return { blob: await response.blob(), filename: match?.[1] ?? null };
+}
+
 export const weldbooksApi = {
   get: <T>(path: string) => request<T>('GET', path),
+  getBlob: (path: string) => requestBlob(path),
   post: <T>(path: string, data?: unknown) => request<T>('POST', path, data),
   put: <T>(path: string, data?: unknown) => request<T>('PUT', path, data),
   patch: <T>(path: string, data?: unknown) => request<T>('PATCH', path, data),

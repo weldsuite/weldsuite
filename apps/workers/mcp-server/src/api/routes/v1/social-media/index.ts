@@ -1,9 +1,10 @@
 /**
  * Social media asset routes — /v1/social-media/*
  *
- * URL-registration path for agents: pass fileName + url (+ optional mediaType,
- * altText). Server fills NOT NULL storage fields so drafts can attach hosted
- * creatives without an R2 upload hop.
+ * Two create paths:
+ *   - POST /          — register metadata for an already-hosted URL
+ *   - POST /upload    — store bytes in R2 (base64 or fetched sourceUrl) and
+ *                       return a ready asset with a public URL for posts
  *
  * Scopes: social_posts:read | social_posts:write (media is part of posting).
  */
@@ -24,6 +25,13 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
+import {
+  SocialMediaUploadError,
+  guessMediaType,
+  guessMime,
+  resolveUploadBytes,
+  storeSocialMediaBytes,
+} from './upload';
 
 const listSocialMediaQuery = z.object({
   cursor: z.string().optional(),
@@ -32,29 +40,23 @@ const listSocialMediaQuery = z.object({
   status: z.string().optional(),
 });
 
+const uploadSocialMediaSchema = z
+  .object({
+    fileName: z.string().min(1).max(500).optional(),
+    /** Raw or data-URL base64 of the file bytes. */
+    contentBase64: z.string().min(1).optional(),
+    /** HTTPS URL to fetch and store into WeldSuite R2. */
+    sourceUrl: z.string().url().optional(),
+    mimeType: z.string().max(255).optional(),
+    mediaType: z.enum(['image', 'video', 'gif']).optional(),
+    altText: z.string().max(2000).optional(),
+  })
+  .refine((v) => Boolean(v.contentBase64 || v.sourceUrl), {
+    message: 'Provide contentBase64 or sourceUrl',
+  });
+
 const table = schema.socialMedia;
 const app = new Hono<HonoEnv>();
-
-function guessMime(fileName: string, mediaType: string): string {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.mp4')) return 'video/mp4';
-  if (lower.endsWith('.webm')) return 'video/webm';
-  if (mediaType === 'video') return 'video/mp4';
-  if (mediaType === 'gif') return 'image/gif';
-  return 'image/png';
-}
-
-function guessMediaType(fileName: string, explicit?: string): 'image' | 'video' | 'gif' {
-  if (explicit === 'image' || explicit === 'video' || explicit === 'gif') return explicit;
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) return 'video';
-  if (lower.endsWith('.gif')) return 'gif';
-  return 'image';
-}
 
 app.get('/', requireScope('social_posts:read'), zValidator('query', listSocialMediaQuery), async (c) => {
   const db = c.get('tenantDb');
@@ -64,6 +66,81 @@ app.get('/', requireScope('social_posts:read'), zValidator('query', listSocialMe
   if (q.status) where.push(eq(table.status, q.status as typeof table.status._.data));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
+});
+
+app.post('/upload', requireScope('social_posts:write'), zValidator('json', uploadSocialMediaSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const body = c.req.valid('json');
+  const userId = c.get('userId');
+  const workspaceId = c.get('workspaceId');
+  const storage = c.env.STORAGE;
+
+  if (!storage) return error.internal(c, 'Storage is not configured');
+  if (!workspaceId) return error.unauthorized(c);
+
+  try {
+    const loaded = await resolveUploadBytes({
+      contentBase64: body.contentBase64,
+      sourceUrl: body.sourceUrl,
+    });
+    const fileName =
+      body.fileName ||
+      loaded.fileName ||
+      (body.mediaType === 'video' ? 'upload.mp4' : 'upload.png');
+
+    const id = generateId('smed');
+    const stored = await storeSocialMediaBytes({
+      storage,
+      r2PublicUrl: c.env.R2_PUBLIC_URL,
+      workspaceId,
+      assetId: id,
+      fileName,
+      bytes: loaded.bytes,
+      mimeType: body.mimeType || loaded.mimeType,
+      mediaType: body.mediaType,
+    });
+
+    const now = new Date();
+    const [row] = await db
+      .insert(table)
+      .values({
+        id,
+        createdAt: now,
+        updatedAt: now,
+        fileName: stored.fileName,
+        originalName: stored.originalName,
+        mimeType: stored.mimeType,
+        fileSize: stored.fileSize,
+        mediaType: stored.mediaType,
+        storagePath: stored.storagePath,
+        url: stored.url,
+        thumbnailUrl: stored.mediaType === 'image' || stored.mediaType === 'gif' ? stored.url : null,
+        storageProvider: 'r2',
+        status: 'ready',
+        altText: body.altText ?? null,
+        uploadedByUserId: userId,
+      } as typeof table.$inferInsert)
+      .returning();
+
+    if (!row) return error.internal(c, 'Failed to create social media asset');
+
+    publishEntityEvent({
+      c,
+      entityType: 'social_media',
+      entityId: id,
+      action: 'created',
+      data: { id, fileName: row.fileName, mediaType: row.mediaType, status: row.status },
+    });
+    return success(c, row, 201);
+  } catch (err) {
+    if (err instanceof SocialMediaUploadError) {
+      return err.status === 500
+        ? error.internal(c, err.message)
+        : error.badRequest(c, err.message);
+    }
+    console.error('[mcp/social-media] upload failed:', err);
+    return error.internal(c, 'Failed to upload social media asset');
+  }
 });
 
 app.get('/:id', requireScope('social_posts:read'), async (c) => {
@@ -87,7 +164,7 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
 
   const fileName = String(body.fileName ?? 'asset');
   const url = typeof body.url === 'string' ? body.url : undefined;
-  const mediaType = guessMediaType(fileName, typeof body.mediaType === 'string' ? body.mediaType : undefined);
+  const mediaType = guessMediaType(fileName, typeof body.mimeType === 'string' ? body.mimeType : undefined, typeof body.mediaType === 'string' ? body.mediaType : undefined);
   const mimeType =
     (typeof body.mimeType === 'string' && body.mimeType) ||
     (typeof body.contentType === 'string' && body.contentType) ||

@@ -9,7 +9,7 @@
 import { and, asc, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { Database } from '../../db';
-import { labelCondition, addLabels, removeLabels } from './labels';
+import { labelCondition, addLabels, removeLabels, SYSTEM_LABELS } from './labels';
 
 const { mailMessages, mailAttachments, people: contacts } = schema;
 
@@ -278,7 +278,28 @@ export async function updateMessage(
   if (!existing) return null;
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(data)) if (v !== undefined) patch[k] = v;
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) patch[k] = v;
+  }
+
+  // Keep isSpam in sync with system labels (same pattern as trash/restore).
+  // Explicit `labels` in the patch wins when the caller sets both.
+  if (data.isSpam === true && data.labels === undefined) {
+    patch.isSpam = true;
+    patch.labels = addLabels(
+      removeLabels(existing.labels as string[] | null, SYSTEM_LABELS.INBOX),
+      SYSTEM_LABELS.SPAM,
+    );
+  } else if (data.isSpam === false && data.labels === undefined) {
+    patch.isSpam = false;
+    let next = removeLabels(existing.labels as string[] | null, SYSTEM_LABELS.SPAM);
+    const hasTrashOrArchive =
+      next.includes(SYSTEM_LABELS.TRASH) || next.includes(SYSTEM_LABELS.ARCHIVE);
+    if (!hasTrashOrArchive) {
+      next = addLabels(next, SYSTEM_LABELS.INBOX);
+    }
+    patch.labels = next;
+  }
 
   await db
     .update(mailMessages)

@@ -38,6 +38,10 @@ import {
   applyInboundFieldMappings,
   type ConnectorFieldMappingRow,
 } from './field-mapper';
+import {
+  syncMoneybirdDocumentAttachments,
+  type MoneybirdAttachmentSyncContext,
+} from './moneybird-attachments';
 
 export interface IngestCounts {
   created: number;
@@ -66,6 +70,11 @@ export interface IngestArgs {
   entityId?: string | null;
   /** Webhook delete topics send a stub payload without status=trash. */
   forceDeleted?: boolean;
+  /**
+   * Moneybird PDF / attachment download context. When set, invoice and bill
+   * ingest stores files in R2 and writes `attachmentKeys`.
+   */
+  moneybirdAttachments?: MoneybirdAttachmentSyncContext | null;
 }
 
 const MAX_ERROR_SAMPLES = 5;
@@ -788,6 +797,48 @@ async function replaceDocumentItems(args: {
   }
 }
 
+async function maybeSyncMoneybirdAttachments(args: {
+  args: IngestArgs;
+  internalId: string;
+  entity: 'invoice' | 'bill';
+  externalId: string;
+  record: Record<string, unknown>;
+  /** When true, always attempt download. When false, only if attachmentKeys empty. */
+  force: boolean;
+}): Promise<void> {
+  const ctx = args.args.moneybirdAttachments;
+  if (!ctx || args.args.provider !== 'moneybird') return;
+  if (ctx.budget.remaining <= 0) return;
+
+  const table = args.entity === 'invoice' ? schema.invoices : schema.bills;
+  const cols = table as unknown as { id: typeof schema.invoices.id; attachmentKeys: typeof schema.invoices.attachmentKeys };
+
+  if (!args.force) {
+    const [row] = await args.args.db
+      .select({ attachmentKeys: cols.attachmentKeys })
+      .from(table)
+      .where(eq(cols.id, args.internalId))
+      .limit(1);
+    // null/undefined = never attempted (catch-up). [] or [...] = already tried.
+    if (row?.attachmentKeys != null) return;
+  }
+
+  const keys = await syncMoneybirdDocumentAttachments({
+    ctx,
+    externalEntityType: args.args.sync.externalEntityType,
+    externalId: args.externalId,
+    record: args.record,
+  });
+  // null = budget exhausted with nothing stored — leave keys empty for retry.
+  if (keys === null) return;
+  // Empty array after soft-fails: still write so we don't hammer drafts forever
+  // on every checksum-skip pass. Create/update will retry when the record changes.
+  await args.args.db
+    .update(table)
+    .set({ attachmentKeys: keys, updatedAt: new Date() } as never)
+    .where(eq(cols.id, args.internalId));
+}
+
 async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> {
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
@@ -951,6 +1002,15 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
           data: { id: outcome.internalId },
         });
       }
+
+      await maybeSyncMoneybirdAttachments({
+        args,
+        internalId: outcome.internalId,
+        entity: document.entity,
+        externalId,
+        record,
+        force: outcome.action !== 'skipped',
+      });
 
       if (outcome.action === 'created') counts.created++;
       else if (outcome.action === 'updated') counts.modified++;

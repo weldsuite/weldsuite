@@ -64,6 +64,12 @@ export interface Env {
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
+  /**
+   * Public base URL for objects in STORAGE (no trailing slash). Used when
+   * `upload_social_media` stores bytes so PostPeer can fetch the asset.
+   * Falls back to the test CDN host when unset.
+   */
+  R2_PUBLIC_URL?: string;
 
   // --- WeldSocial (PostPeer publishing) ----------------------------------
   // Read by publish_social_post / schedule_social_post via

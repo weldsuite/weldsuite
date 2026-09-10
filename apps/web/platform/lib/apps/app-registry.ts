@@ -20,6 +20,7 @@ import {
   Database,
   Zap,
   Megaphone,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -109,6 +110,13 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     icon: '/assets/images/weldhost/icon.svg',
     logo: makeLogo('weldhost'),
     sidebarIconClass: 'h-[27px] w-[27px]',
+  },
+  // No `icon`/`logo` yet — WeldPass has no SVG artwork, so the getters fall
+  // back to the lucide icon. Add the asset files and a `makeLogo('weldpass')`
+  // here when it exists; nothing else needs to change.
+  weldpass: {
+    lucideIcon: KeyRound,
+    shortName: 'Secrets',
   },
   weldchat: {
     lucideIcon: MessageCircle,

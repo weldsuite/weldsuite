@@ -2007,6 +2007,10 @@ export const accounting = {
       cancel: 'Annuleren',
       rejecting: 'Afwijzen...',
       rejectConfirm: 'Afwijzen',
+      originalDocuments: 'Originele documenten',
+      openAttachment: 'Openen',
+      attachmentFallback: 'Document {n}',
+      failedToOpenAttachment: 'Document openen mislukt',
     },
 
     // Contact/Customer pages
@@ -2074,6 +2078,10 @@ export const accounting = {
       amountPaid: 'Betaald Bedrag',
       balanceDue: 'Te Betalen Saldo',
       failedToPdf: 'PDF genereren mislukt',
+      originalDocuments: 'Originele documenten',
+      openAttachment: 'Openen',
+      attachmentFallback: 'Document {n}',
+      failedToOpenAttachment: 'Document openen mislukt',
     },
 
     // Invoice dialog (create invoice)

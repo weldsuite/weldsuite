@@ -32,6 +32,8 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { toast } from 'sonner';
 
 function statusVariant(status: string) {
   switch (status) {
@@ -76,6 +78,7 @@ export default function BillDetailPage() {
 
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -92,6 +95,26 @@ export default function BillDetailPage() {
   }
 
   const items = bill.items ?? [];
+
+  const handleOpenAttachment = async (index: number, fallbackName: string) => {
+    setOpeningAttachment(index);
+    try {
+      const { blob, filename } = await accountingApi.getBillAttachment(id, index);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = filename || fallbackName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('[Bill] attachment open failed', err);
+      toast.error(tb.failedToOpenAttachment);
+    } finally {
+      setOpeningAttachment(null);
+    }
+  };
 
   const handleApprove = () => {
     approveBill.mutate(id, {
@@ -213,6 +236,30 @@ export default function BillDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {bill.attachmentKeys && bill.attachmentKeys.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{tb.originalDocuments}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {bill.attachmentKeys.map((key, index) => {
+              const name = key.split('/').pop() || tb.attachmentFallback.replace('{n}', String(index + 1));
+              return (
+                <Button
+                  key={`${key}-${index}`}
+                  variant="outline"
+                  size="sm"
+                  disabled={openingAttachment === index}
+                  onClick={() => handleOpenAttachment(index, name)}
+                >
+                  {openingAttachment === index ? '…' : `${tb.openAttachment}: ${name}`}
+                </Button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

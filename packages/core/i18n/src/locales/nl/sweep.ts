@@ -23,7 +23,11 @@ export const sweep = {
       "charactersCount": "{count} tekens",
       "mediaAlt": "media",
       "add": "Toevoegen",
-      "selectTimezone": "Selecteer tijdzone"
+      "selectTimezone": "Selecteer tijdzone",
+      "chooseFiles": "Bestanden kiezen",
+      "uploading": "Uploaden…",
+      "orPasteUrl": "Of plak een afbeeldings-URL",
+      "noAccountsHint": "Koppel eerst een account om te kiezen waar dit gepost wordt."
     },
     "socialAccounts": {
       "syncAll": "Alles synchroniseren",

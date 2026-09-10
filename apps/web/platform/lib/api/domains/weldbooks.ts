@@ -110,6 +110,7 @@ export interface Invoice {
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  attachmentKeys?: string[] | null;
   taxBreakdown?: Array<{
     taxRateId: string;
     taxRateName: string;
@@ -163,6 +164,7 @@ export interface Bill {
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  attachmentKeys?: string[] | null;
 }
 
 export interface BillDetail extends Bill {
@@ -470,6 +472,8 @@ export const accountingApi = {
     weldbooksApi.get<PaginatedResponse<Invoice>>(`/invoices${buildQuery(params || {})}`),
   getInvoice: (id: string) => weldbooksApi.get<ApiResponse<InvoiceDetail>>(`/invoices/${id}`),
   getInvoicePdf: (id: string) => weldbooksApi.get<string>(`/invoices/${id}/pdf`),
+  getInvoiceAttachment: (id: string, index: number) =>
+    weldbooksApi.getBlob(`/invoices/${id}/attachments/${index}`),
   createInvoice: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<InvoiceDetail>>('/invoices', data),
   updateInvoice: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Invoice>>(`/invoices/${id}`, data),
   deleteInvoice: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/invoices/${id}`),
@@ -486,6 +490,8 @@ export const accountingApi = {
   listBills: (params?: { status?: string; contactId?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<Bill>>(`/bills${buildQuery(params || {})}`),
   getBill: (id: string) => weldbooksApi.get<ApiResponse<BillDetail>>(`/bills/${id}`),
+  getBillAttachment: (id: string, index: number) =>
+    weldbooksApi.getBlob(`/bills/${id}/attachments/${index}`),
   createBill: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Bill>>('/bills', data),
   updateBill: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}`, data),
   deleteBill: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/bills/${id}`),

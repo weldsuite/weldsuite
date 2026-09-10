@@ -222,7 +222,7 @@ export const CONNECTORS: ConnectorDef[] = [
     provider: 'moneybird',
     label: 'Moneybird',
     description:
-      'Sync contacts, sales invoices, products, purchase invoices, bank accounts, and bank transactions from Moneybird into WeldBooks.',
+      'Sync contacts, sales invoices (with PDFs), products, purchase invoices and receipts (with attachments), bank accounts, and bank transactions from Moneybird into WeldBooks.',
     category: 'accounting',
     icon: 'book-open',
     delivery: 'hybrid',

@@ -33,6 +33,7 @@ import {
 } from '../../services/accounting-guards';
 import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
 import { lineItemsForBill, normalizeOcrResult } from '../../services/accounting-ocr';
+import { streamDocumentAttachment } from '../../lib/document-attachment';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -161,6 +162,32 @@ app.get('/:id', requirePermission('bills:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/bills] get failed:', err);
     return error.internal(c, 'Failed to fetch bill');
+  }
+});
+
+// GET /:id/attachments/:index — stream a synced Moneybird (or other) file from R2
+app.get('/:id/attachments/:index', requirePermission('bills:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const { bills } = schema;
+  const billId = c.req.param('id');
+  const index = Number(c.req.param('index'));
+
+  try {
+    const [bill] = await db
+      .select({ attachmentKeys: bills.attachmentKeys })
+      .from(bills)
+      .where(and(eq(bills.id, billId), isNull(bills.deletedAt)))
+      .limit(1);
+    if (!bill) return error.notFound(c, 'Bill', billId);
+
+    return streamDocumentAttachment(c, {
+      attachmentKeys: bill.attachmentKeys,
+      index,
+      workspaceId: c.get('workspaceId') || c.get('orgId'),
+    });
+  } catch (err) {
+    console.error('[app-api/bills] attachment download failed:', err);
+    return error.internal(c, 'Failed to download attachment');
   }
 });
 

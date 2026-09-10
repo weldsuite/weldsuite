@@ -192,9 +192,10 @@ export const socialTools: ToolDefinition[] = [
     name: 'create_social_media',
     scope: 'social_posts:write',
     description:
-      'Register a social media asset from a hosted URL (or storage metadata). ' +
-      'Pass fileName + url (+ optional mediaType, altText). Returns an id to put in create_social_post.mediaIds. ' +
-      'Does not upload bytes — the URL must already be publicly reachable.',
+      'Register a social media asset from an already-hosted public URL (metadata only). ' +
+      'Prefer upload_social_media when you have image/video bytes or a URL that should be ' +
+      'copied into WeldSuite storage — that returns a ready asset PostPeer can fetch. ' +
+      'Pass fileName + url (+ optional mediaType, altText). Returns an id for create_social_post.mediaIds.',
     inputSchema: {
       fileName: z.string().describe('Filename including extension, e.g. kill-sprawl.png'),
       url: z.string().optional().describe('Public HTTPS URL of the asset'),
@@ -206,6 +207,34 @@ export const socialTools: ToolDefinition[] = [
     },
     method: 'POST',
     path: '/v1/social-media',
+  },
+  {
+    name: 'upload_social_media',
+    scope: 'social_posts:write',
+    description:
+      'Upload an image or video into WeldSuite storage and create a social media asset. ' +
+      'Use this when composing a post so media lives in WeldSuite (not a third-party host). ' +
+      'Pass either contentBase64 (raw or data-URL) or sourceUrl (fetched and stored). ' +
+      'Returns a ready asset id to put in create_social_post.mediaIds.',
+    inputSchema: {
+      fileName: z
+        .string()
+        .optional()
+        .describe('Filename including extension, e.g. launch.png. Inferred from sourceUrl when omitted.'),
+      contentBase64: z
+        .string()
+        .optional()
+        .describe('File bytes as base64 (optionally a data:image/...;base64,... URL)'),
+      sourceUrl: z
+        .string()
+        .optional()
+        .describe('HTTPS URL to download and store in WeldSuite R2'),
+      mimeType: z.string().optional().describe('e.g. image/png — inferred when possible'),
+      mediaType: z.enum(['image', 'video', 'gif']).optional(),
+      altText: z.string().optional().describe('Accessibility alt text'),
+    },
+    method: 'POST',
+    path: '/v1/social-media/upload',
   },
   {
     name: 'update_social_media',

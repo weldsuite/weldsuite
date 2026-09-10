@@ -8,7 +8,9 @@
     "dev": "wrangler dev",
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
@@ -26,6 +28,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
     "typescript": "^5.7",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }
