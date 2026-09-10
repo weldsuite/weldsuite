@@ -451,10 +451,13 @@ export function useCreateBankTransaction() {
       counterpartyBic?: string;
       reference?: string;
       notes?: string;
+      categoryAccountId?: string;
     }) => accountingApi.createBankTransaction(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.bankTransactions.all });
       qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
       qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
     },
   });

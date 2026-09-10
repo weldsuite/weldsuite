@@ -13,6 +13,9 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingBankAccounts: () => ({
     data: { data: [{ id: 'ba_1', name: 'Checking', iban: 'NL00TEST' }] },
   }),
+  useAccountingAccounts: () => ({
+    data: { data: [{ id: 'acc_other', code: '8100', name: 'Other income', type: 'revenue', isActive: true }] },
+  }),
   useCreateBankTransaction: () => ({
     mutate,
     isPending: false,

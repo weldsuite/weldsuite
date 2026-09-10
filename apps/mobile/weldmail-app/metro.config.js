@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const fs = require('fs');
 const path = require('path');
 
 const projectRoot = __dirname;
@@ -17,15 +18,69 @@ config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/clients/personal-api-client'),
 ];
 
-// Resolve only from this app and the workspace root, never from a nested
-// node_modules. The dependency tree no longer contains a second copy of any
-// native module, but this keeps a stray nested one from being bundled if it
-// ever comes back — and it keeps pure-JS deps (nanoid, react-is) single too.
-//
-// The rest of what used to live here is now the SDK 57 default and was removed:
-// `nodeModulesPaths` already resolves app → workspace root, package exports are
-// on by default, and the `extraNodeModules` singleton map for
-// react-native/expo-*/reanimated only masked duplication that no longer exists.
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+  path.resolve(monorepoRoot, 'node_modules'),
+];
 config.resolver.disableHierarchicalLookup = true;
+
+// mobile-ui uses package.json "exports"; required for workspace resolution.
+config.resolver.unstable_enablePackageExports = true;
+
+// Keep one copy of native/runtime packages — prefer the app's SDK 57 copies,
+// fall back to hoisted monorepo deps for packages not installed locally.
+function resolvePackageDir(pkg) {
+  const local = path.join(projectRoot, 'node_modules', pkg);
+  if (fs.existsSync(local)) return local;
+  return path.join(monorepoRoot, 'node_modules', pkg);
+}
+
+const singletons = [
+  'react',
+  'react-native',
+  'expo',
+  '@clerk/expo',
+  'react-native-reanimated',
+  'react-native-worklets',
+  'react-native-gesture-handler',
+  'react-native-safe-area-context',
+  'react-native-screens',
+  'react-native-svg',
+  'react-native-keyboard-controller',
+  'expo-secure-store',
+  'expo-notifications',
+  'expo-haptics',
+  'expo-linking',
+  'mixpanel-react-native',
+];
+
+config.resolver.extraNodeModules = Object.fromEntries(
+  singletons.map((pkg) => [pkg, resolvePackageDir(pkg)]),
+);
+
+// RN's AbortController polyfill (abort-controller) does EventTarget.call(signal).
+// event-target-shim v6's default export is a native ES6 class, which throws
+// "Class constructor invoked without new" under that pattern — an immediate
+// production launch crash. Force the ES5 build (same fix as weldchat/weldflow).
+const eventTargetShimRoot = resolvePackageDir('event-target-shim');
+const eventTargetShimEntry = path.join(eventTargetShimRoot, 'es5.js');
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  'event-target-shim': eventTargetShimRoot,
+};
+
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'event-target-shim') {
+    return {
+      type: 'sourceFile',
+      filePath: eventTargetShimEntry,
+    };
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 module.exports = config;

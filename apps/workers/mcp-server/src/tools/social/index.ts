@@ -165,6 +165,74 @@ export const socialTools: ToolDefinition[] = [
     pathParams: { id: 'id' },
   },
 
+  // ── Social Media assets ───────────────────────────────────────────────────
+  {
+    name: 'search_social_media',
+    scope: 'social_posts:read',
+    description: 'List/search social media assets (images, videos, gifs). Cursor-paginated.',
+    inputSchema: {
+      mediaType: z.string().optional().describe('Filter by media type (image, video, gif)'),
+      status: z.string().optional().describe('Filter by status (uploading, processing, ready, error, deleted)'),
+      cursor: z.string().optional().describe('Pagination cursor from a previous response'),
+      limit: z.coerce.number().min(1).max(200).optional().describe('Page size (1-200, default 25)'),
+    },
+    method: 'GET',
+    path: '/v1/social-media',
+  },
+  {
+    name: 'get_social_media',
+    scope: 'social_posts:read',
+    description: 'Get full details of a social media asset.',
+    inputSchema: { id: z.string().describe('The social media asset id (smed_…)') },
+    method: 'GET',
+    path: '/v1/social-media/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'create_social_media',
+    scope: 'social_posts:write',
+    description:
+      'Register a social media asset from a hosted URL (or storage metadata). ' +
+      'Pass fileName + url (+ optional mediaType, altText). Returns an id to put in create_social_post.mediaIds. ' +
+      'Does not upload bytes — the URL must already be publicly reachable.',
+    inputSchema: {
+      fileName: z.string().describe('Filename including extension, e.g. kill-sprawl.png'),
+      url: z.string().optional().describe('Public HTTPS URL of the asset'),
+      mediaType: z.enum(['image', 'video', 'gif']).optional().describe('Defaults from file extension'),
+      altText: z.string().optional().describe('Accessibility alt text'),
+      mimeType: z.string().optional(),
+      fileSize: z.number().optional(),
+      originalName: z.string().optional(),
+    },
+    method: 'POST',
+    path: '/v1/social-media',
+  },
+  {
+    name: 'update_social_media',
+    scope: 'social_posts:write',
+    description: 'Update a social media asset (alt text, url, status, etc.).',
+    inputSchema: {
+      id: z.string().describe('The social media asset id (smed_…)'),
+      fileName: z.string().optional(),
+      url: z.string().optional(),
+      altText: z.string().optional(),
+      mediaType: z.enum(['image', 'video', 'gif']).optional(),
+      status: z.string().optional(),
+    },
+    method: 'PATCH',
+    path: '/v1/social-media/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'delete_social_media',
+    scope: 'social_posts:write',
+    description: 'Soft-delete a social media asset.',
+    inputSchema: { id: z.string().describe('The social media asset id (smed_…)') },
+    method: 'DELETE',
+    path: '/v1/social-media/:id',
+    pathParams: { id: 'id' },
+  },
+
   // ── Social Campaigns ──────────────────────────────────────────────────────
   {
     name: 'search_social_campaigns',

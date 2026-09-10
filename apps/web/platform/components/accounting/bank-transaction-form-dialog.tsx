@@ -20,10 +20,12 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
+  useAccountingAccounts,
   useAccountingBankAccounts,
   useCreateBankTransaction,
 } from '@/hooks/queries/use-accounting-queries';
-import type { BankAccount } from '@/lib/api/domains/weldbooks';
+import type { Account, BankAccount } from '@/lib/api/domains/weldbooks';
+import { ledgerCategoryAccounts } from './categorize-bank-transaction-panel';
 
 interface BankTransactionFormDialogProps {
   open: boolean;
@@ -52,6 +54,8 @@ export function BankTransactionFormDialog({
   const t = useTranslations();
   const { data: accountsRes } = useAccountingBankAccounts();
   const accounts = (accountsRes?.data ?? []) as BankAccount[];
+  const { data: ledgerRes } = useAccountingAccounts();
+  const ledgerOptions = ledgerCategoryAccounts((ledgerRes?.data ?? []) as Account[]);
 
   const [bankAccountId, setBankAccountId] = useState('');
   const [date, setDate] = useState(todayIsoDate);
@@ -61,6 +65,7 @@ export function BankTransactionFormDialog({
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyIban, setCounterpartyIban] = useState('');
   const [reference, setReference] = useState('');
+  const [categoryAccountId, setCategoryAccountId] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +77,7 @@ export function BankTransactionFormDialog({
     setCounterpartyName('');
     setCounterpartyIban('');
     setReference('');
+    setCategoryAccountId('');
   }, [open, lockedBankAccountId]);
 
   const createMutation = useCreateBankTransaction();
@@ -96,6 +102,7 @@ export function BankTransactionFormDialog({
         counterpartyName: counterpartyName.trim() || undefined,
         counterpartyIban: counterpartyIban.trim() || undefined,
         reference: reference.trim() || undefined,
+        ...(categoryAccountId ? { categoryAccountId } : {}),
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -213,6 +220,31 @@ export function BankTransactionFormDialog({
                 onChange={(e) => setReference(e.target.value)}
               />
             </div>
+          </div>
+
+          <div>
+            <Label htmlFor="bt-category">{t('sweep.weldbooks.bankTransactionForm.categoryLabel')}</Label>
+            <Select
+              value={categoryAccountId || '__none__'}
+              onValueChange={(v) => setCategoryAccountId(v === '__none__' ? '' : v)}
+            >
+              <SelectTrigger id="bt-category">
+                <SelectValue placeholder={t('sweep.weldbooks.bankTransactionForm.categoryPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">
+                  {t('sweep.weldbooks.bankTransactionForm.categoryNone')}
+                </SelectItem>
+                {ledgerOptions.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.code} — {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('sweep.weldbooks.bankTransactionForm.categoryHint')}
+            </p>
           </div>
         </div>
 

@@ -148,6 +148,219 @@ describe('/api/bank-transactions · pglite integration', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST / with categoryAccountId posts a journal entry and reconciles', async () => {
+    await db.insert(schema.accounts).values([
+      {
+        id: 'acc_bank_cat',
+        entityId: 'ent_cat_bt',
+        code: '1100',
+        name: 'Bank',
+        type: 'asset',
+        subtype: 'bank',
+        normalSide: 'debit',
+        currentBalance: '0',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 'acc_other_income_cat',
+        entityId: 'ent_cat_bt',
+        code: '8100',
+        name: 'Other income',
+        type: 'revenue',
+        subtype: 'other_income',
+        normalSide: 'credit',
+        currentBalance: '0',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    await db.insert(schema.bankAccounts).values({
+      id: 'ba_cat_in',
+      entityId: 'ent_cat_bt',
+      name: 'PayPal',
+      currency: 'EUR',
+      currentBalance: '0.00',
+      ledgerAccountId: 'acc_bank_cat',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:create'), tenantDb: db },
+    });
+
+    const res = await request('/api/bank-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bankAccountId: 'ba_cat_in',
+        date: '2026-09-10',
+        amount: 42.5,
+        description: 'PayPal fee refund settlement',
+        counterpartyName: 'PayPal',
+        categoryAccountId: 'acc_other_income_cat',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      data: { id: string; status: string; journalEntryId: string | null };
+    };
+    expect(body.data.status).toBe('reconciled');
+    expect(body.data.journalEntryId).toMatch(/^je_/);
+
+    const [txn] = await db
+      .select()
+      .from(schema.bankTransactions)
+      .where(eq(schema.bankTransactions.id, body.data.id))
+      .limit(1);
+    expect(txn?.status).toBe('reconciled');
+    expect(txn?.reconciliationType).toBe('manual');
+    expect(txn?.categoryAccountId).toBe('acc_other_income_cat');
+    expect(txn?.journalEntryId).toBe(body.data.journalEntryId);
+
+    const [entry] = await db
+      .select()
+      .from(schema.journalEntries)
+      .where(eq(schema.journalEntries.id, body.data.journalEntryId!))
+      .limit(1);
+    expect(entry?.status).toBe('posted');
+    expect(entry?.sourceType).toBe('bank_transaction');
+    expect(entry?.sourceId).toBe(body.data.id);
+    expect(entry?.totalDebit).toBe('42.50');
+    expect(entry?.totalCredit).toBe('42.50');
+
+    const lines = await db
+      .select()
+      .from(schema.journalLines)
+      .where(eq(schema.journalLines.journalEntryId, body.data.journalEntryId!));
+    const byAccount = Object.fromEntries(lines.map((l) => [l.accountId, l]));
+    expect(byAccount.acc_bank_cat?.debit).toBe('42.50');
+    expect(byAccount.acc_bank_cat?.credit).toBe('0.00');
+    expect(byAccount.acc_other_income_cat?.debit).toBe('0.00');
+    expect(byAccount.acc_other_income_cat?.credit).toBe('42.50');
+
+    const [bankGl] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, 'acc_bank_cat')).limit(1);
+    const [incomeGl] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, 'acc_other_income_cat')).limit(1);
+    expect(Number(bankGl?.currentBalance)).toBe(42.5);
+    expect(Number(incomeGl?.currentBalance)).toBe(-42.5);
+  });
+
+  it('POST / returns 400 when categorizing without a linked ledger account', async () => {
+    await seedBankAccount('ba_cat_nogl');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:create'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bankAccountId: 'ba_cat_nogl',
+        date: '2026-09-10',
+        amount: 10,
+        categoryAccountId: 'acc_other_income_cat',
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /:id/reconcile type=manual posts money-out to an expense account', async () => {
+    await db.insert(schema.accounts).values([
+      {
+        id: 'acc_bank_out',
+        entityId: 'ent_cat_out',
+        code: '1100',
+        name: 'Bank',
+        type: 'asset',
+        subtype: 'bank',
+        normalSide: 'debit',
+        currentBalance: '200',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 'acc_bank_fees',
+        entityId: 'ent_cat_out',
+        code: '4650',
+        name: 'Bank fees',
+        type: 'expense',
+        subtype: 'operating_expense',
+        normalSide: 'debit',
+        currentBalance: '0',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    await db.insert(schema.bankAccounts).values({
+      id: 'ba_cat_out',
+      entityId: 'ent_cat_out',
+      name: 'PayPal',
+      currency: 'EUR',
+      currentBalance: '200.00',
+      ledgerAccountId: 'acc_bank_out',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(schema.bankTransactions).values({
+      id: 'bt_cat_out',
+      entityId: 'ent_cat_out',
+      bankAccountId: 'ba_cat_out',
+      date: new Date('2026-09-10'),
+      amount: '-12.00',
+      description: 'PayPal fee',
+      status: 'unreconciled',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/bt_cat_out/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual', categoryAccountId: 'acc_bank_fees' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { status: string; journalEntryId: string } };
+    expect(body.data.status).toBe('reconciled');
+    expect(body.data.journalEntryId).toMatch(/^je_/);
+
+    const lines = await db
+      .select()
+      .from(schema.journalLines)
+      .where(eq(schema.journalLines.journalEntryId, body.data.journalEntryId));
+    const byAccount = Object.fromEntries(lines.map((l) => [l.accountId, l]));
+    expect(byAccount.acc_bank_fees?.debit).toBe('12.00');
+    expect(byAccount.acc_bank_out?.credit).toBe('12.00');
+    expect(byAccount.acc_bank_fees?.credit).toBe('0.00');
+    expect(byAccount.acc_bank_out?.debit).toBe('0.00');
+  });
+
+  it('POST /:id/reconcile type=manual without categoryAccountId returns 400', async () => {
+    await seedBankAccount('ba_cat_manual_missing');
+    await db.insert(schema.bankTransactions).values({
+      id: 'bt_cat_missing',
+      entityId: 'ent_manual_bt',
+      bankAccountId: 'ba_cat_manual_missing',
+      date: new Date('2026-09-10'),
+      amount: '5.00',
+      status: 'unreconciled',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/bt_cat_missing/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('POST / returns 403 without banking:create', async () => {
     const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
       context: { permissions: permissions('banking:read'), tenantDb: db },
