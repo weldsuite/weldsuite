@@ -146,7 +146,6 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
         {(message.htmlBody) ? (
           <EmailHtmlView
             html={message.htmlBody}
-            textColor={colors.text}
             fontSize={16}
             lineHeight={1.6}
             hideQuotes
@@ -587,7 +586,6 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
           {(email.bodyHtml || email.htmlBody || email.htmlContent) ? (
             <EmailHtmlView
               html={email.bodyHtml || email.htmlBody || email.htmlContent}
-              textColor={colors.text}
               fontSize={16}
               lineHeight={1.6}
               initialHeight={300}
@@ -678,7 +676,7 @@ const styles = StyleSheet.create({
   fixedHeader: { paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: '#E5E7EB' },
   headerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 16 },
   actionButton: { padding: 6 },
-  scrollView: { flex: 1, width: '100%', overflow: 'hidden' },
+  scrollView: { flex: 1 },
   emailHeader: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 },
   subjectLine: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(128,128,128,0.2)' },
   subjectText: { fontSize: 22, fontWeight: '600', lineHeight: 28, flex: 1 },
@@ -755,7 +753,7 @@ const styles = StyleSheet.create({
   },
   body: { fontSize: 16, lineHeight: 24 },
   webViewBody: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#ffffff',
     opacity: 0.99,
     width: '100%',
     alignSelf: 'stretch',

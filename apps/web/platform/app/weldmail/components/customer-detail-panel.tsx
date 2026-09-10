@@ -1,24 +1,16 @@
 
-import { lazy, Suspense, useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePathname } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { Loader2, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { CustomerDetailView } from '@/components/customer-detail';
+import { useObjectPanel } from '@/components/object-panel';
 import {
   usePeopleByEmails,
   useCreatePerson,
 } from '@/hooks/queries/use-people-queries';
 import { useI18n } from '@/lib/i18n/provider';
-
-// People (contacts) render the dedicated person object panel — the same
-// full-fat panel the CRM People list uses. Lazy so the body only ships when a
-// person is actually opened.
-const PersonPanel = lazy(() =>
-  import('@/components/objects/person/person-panel').then((m) => ({
-    default: m.PersonPanel,
-  })),
-);
 
 interface CustomerDetailPanelProps {
   email: string;
@@ -37,6 +29,59 @@ interface CustomerDetailPanelProps {
   useSharedComponent?: boolean;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
+}
+
+/**
+ * Bridge a resolved person id onto the global object-panel stack.
+ *
+ * `PersonPanel` (via `EntityDetailView`) is an in-flow flex sibling meant to
+ * be mounted by `ObjectPanelHost` next to `ModuleContent`. Rendering it
+ * inline inside mail/message content parks it under the email body instead
+ * of on the right — so we drive the host instead of mounting the panel here.
+ */
+function usePersonObjectPanelBridge({
+  personId,
+  isOpen,
+  onClose,
+}: {
+  personId: string | null;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { open, closeAll, stack } = useObjectPanel();
+  // Only reverse-sync after we've observed our person on the stack, so the
+  // brief empty-stack window between `open()` and the jotai update doesn't
+  // immediately bounce `onClose()`.
+  const wasOnStackRef = useRef(false);
+
+  useEffect(() => {
+    if (!personId) return;
+
+    if (isOpen) {
+      open({ type: 'person', id: personId });
+      return;
+    }
+
+    if (wasOnStackRef.current) {
+      closeAll();
+      wasOnStackRef.current = false;
+    }
+  }, [isOpen, personId, open, closeAll]);
+
+  useEffect(() => {
+    if (!isOpen || !personId) return;
+
+    const onStack = stack.some((h) => h.type === 'person' && h.id === personId);
+    if (onStack) {
+      wasOnStackRef.current = true;
+      return;
+    }
+
+    if (wasOnStackRef.current) {
+      wasOnStackRef.current = false;
+      onClose();
+    }
+  }, [stack, isOpen, personId, onClose]);
 }
 
 export function CustomerDetailPanel({
@@ -126,6 +171,15 @@ export function CustomerDetailPanel({
   const entityType =
     effectiveId?.startsWith('person_') || !customerId ? 'contact' : 'customer';
 
+  const personIdForBridge =
+    entityType === 'contact' && effectiveId ? effectiveId : null;
+
+  usePersonObjectPanelBridge({
+    personId: personIdForBridge,
+    isOpen: isOpen && !!personIdForBridge,
+    onClose,
+  });
+
   // Show loading shell while resolving person, or error if resolution failed.
   if (!effectiveId) {
     if (!isOpen) return null;
@@ -155,15 +209,10 @@ export function CustomerDetailPanel({
     );
   }
 
-  // A resolved person (the email-click path, and any `pers_`-prefixed id) opens
-  // the new person object panel. Only true customers fall back to the legacy
-  // customer detail view, which is still mid-migration.
+  // People open through ObjectPanelHost (see bridge above). Nothing to mount
+  // inline — mounting PersonPanel here would place it under the email body.
   if (entityType === 'contact') {
-    return (
-      <Suspense fallback={null}>
-        <PersonPanel id={effectiveId} isOpen={isOpen} onClose={onClose} />
-      </Suspense>
-    );
+    return null;
   }
 
   return (

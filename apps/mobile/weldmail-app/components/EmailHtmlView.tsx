@@ -3,6 +3,8 @@ import { Linking, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
   buildEmailDocument,
+  EMAIL_CANVAS_BG,
+  EMAIL_CANVAS_TEXT,
   EMAIL_LAYOUT_PROBE,
   type EmailDocumentOptions,
 } from '@/utils/email-html';
@@ -18,30 +20,32 @@ interface EmailHtmlViewProps extends EmailDocumentOptions {
 /**
  * Hardened, read-only renderer for received email HTML.
  *
- * SECURITY MODEL — email bodies are fully attacker-controlled. The hard
- * guarantees are:
- *  - a strict Content-Security-Policy (`default-src 'none'`, no `script-src`)
- *    injected around the body (see utils/email-html), so the engine blocks the
- *    email's inline <script>, inline event handlers and javascript: URIs even
- *    though the JS engine is on;
- *  - a regex sanitizer that strips <script>/<iframe>/on*=/javascript: as
- *    defense-in-depth;
- *  - blocked in-frame navigation — real web links open in the system browser
- *    instead (so a malicious body can't redirect/phish in-place);
- *  - constrained origins, disabled file access, no multiple windows, no mixed
- *    (cleartext) content.
+ * Rendering model matches platform `IsolatedHtmlContent` / Gmail / Outlook:
+ * the message always sits on a WHITE canvas with dark default text — even when
+ * the app is in dark mode.
+ *
+ * LOADING — react-native-webview requires `originWhitelist={['*']}` for
+ * `source={{ html }}`. A tighter list (`about:*` / `data:*` only) leaves a
+ * blank white/black pane because the engine's real bootstrap URL is often
+ * `applewebdata://…` (iOS) or `file://…` (Android). Navigation safety is
+ * enforced in `onShouldStartLoadWithRequest` instead: http(s) opens in the
+ * system browser; javascript:/vbscript: are blocked; only the inline document
+ * may render in-frame.
+ *
+ * SECURITY MODEL — email bodies are fully attacker-controlled. Guarantees:
+ *  - CSP (`default-src 'none'`, no script-src) around the body;
+ *  - regex sanitizer strips script/iframe/on*/javascript: as defense-in-depth;
+ *  - blocked in-frame navigations (links open externally);
+ *  - no file access, no multiple windows, no mixed cleartext content.
  *
  * JavaScript is enabled ONLY so the host-injected EMAIL_LAYOUT_PROBE can
- * measure content height and clamp fixed-width layouts (`javaScriptEnabled=
- * {false}` makes iOS never fire `onContentSizeChange`, freezing the body at
- * `initialHeight`). The page's own scripts remain blocked by the CSP above, so
- * enabling the engine does not let attacker code run. Height is authoritative
- * from the injected probe, with native `onContentSizeChange` as a fallback
- * until the first probe arrives.
+ * measure height / clamp fixed widths. The email's own scripts stay blocked
+ * by CSP.
  */
 export default function EmailHtmlView({
   html,
-  textColor,
+  textColor = EMAIL_CANVAS_TEXT,
+  backgroundColor = EMAIL_CANVAS_BG,
   fontSize,
   lineHeight,
   hideQuotes,
@@ -52,7 +56,14 @@ export default function EmailHtmlView({
   // Once the injected probe reports a sane height, it wins over the native
   // content-size callback (which can lag or clamp on iOS).
   const hasProbeHeight = useRef(false);
-  const document = buildEmailDocument(html, { textColor, fontSize, lineHeight, hideQuotes });
+  const webRef = useRef<WebView>(null);
+  const documentHtml = buildEmailDocument(html, {
+    textColor,
+    backgroundColor,
+    fontSize,
+    lineHeight,
+    hideQuotes,
+  });
 
   // New message ⇒ forget the previous probe lock, otherwise a collapsed height
   // from a bad early measurement sticks across opens.
@@ -74,37 +85,54 @@ export default function EmailHtmlView({
   return (
     // Clip residual horizontal overflow so a wide ESP table cannot expand the
     // parent ScrollView into a horizontal pan. Vertical size comes from `height`.
-    <View style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', alignSelf: 'stretch' }}>
+    <View
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        alignSelf: 'stretch',
+        backgroundColor,
+      }}
+    >
       <WebView
-        source={{ html: document }}
-        style={[style, { height, width: '100%', alignSelf: 'stretch' }]}
-        // Only the inline document (about:blank / data:) may load in-frame.
-        originWhitelist={['about:*', 'data:*']}
-        // Engine on strictly for the host-injected layout probe; the email's own
-        // scripts are blocked by the document CSP (default-src 'none').
+        ref={webRef}
+        // Docs: html sources require originWhitelist=['*']. Navigation is still
+        // gated below — this only lets the engine bootstrap the inline doc.
+        originWhitelist={['*']}
+        source={{ html: documentHtml, baseUrl: 'https://email.local/' }}
+        style={[style, { height, width: '100%', alignSelf: 'stretch', backgroundColor }]}
         javaScriptEnabled
         injectedJavaScript={EMAIL_LAYOUT_PROBE}
         onMessage={onProbeMessage}
         scrollEnabled={false}
-        // Android: scale the page to the WebView width when content is wider.
-        // Safe now that we no longer also apply transform:scale in the probe.
-        scalesPageToFit
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
+        // iOS may kill the content process under memory pressure → blank pane.
+        onContentProcessDidTerminate={() => webRef.current?.reload()}
         onShouldStartLoadWithRequest={(req) => {
           const url = req.url || '';
-          // Allow the initial inline render.
-          if (url === 'about:blank' || url === '' || url.startsWith('data:')) return true;
-          // Open genuine web links externally; block everything else
-          // (javascript:, file:, custom schemes, in-frame redirects).
-          if (/^https?:\/\//i.test(url)) Linking.openURL(url).catch(() => {});
+          // Bootstrap of the inline document (platform-specific schemes).
+          if (
+            !url ||
+            url === 'about:blank' ||
+            url.startsWith('about:') ||
+            url.startsWith('data:') ||
+            url.startsWith('applewebdata:') ||
+            url.startsWith('file:') ||
+            url.startsWith('https://email.local')
+          ) {
+            return true;
+          }
+          // Real web links → system browser; never navigate in-frame.
+          if (/^https?:\/\//i.test(url)) {
+            Linking.openURL(url).catch(() => {});
+            return false;
+          }
+          // javascript:, vbscript:, custom schemes, etc.
           return false;
         }}
         onContentSizeChange={(e) => {
-          // Fallback only: the injected probe is authoritative once it reports.
           if (hasProbeHeight.current) return;
-          // `contentSize` is present at runtime but not in react-native-webview's
-          // WebViewNativeEvent type, so narrow it explicitly rather than cast to any.
           const contentSize = (e.nativeEvent as { contentSize?: { height: number } }).contentSize;
           const h = contentSize ? Math.ceil(contentSize.height) : 0;
           if (h >= 40) setHeight(h);

@@ -72,9 +72,20 @@ export function trimTrailingEmptyHtml(html: string): string {
   return out;
 }
 
+/** Canvas every HTML email is authored against (Gmail/Outlook reading pane). */
+export const EMAIL_CANVAS_BG = '#ffffff';
+export const EMAIL_CANVAS_TEXT = '#1a1a1a';
+
 export interface EmailDocumentOptions {
-  /** Body text color (themed). */
-  textColor: string;
+  /**
+   * Default body text color. Prefer the light-canvas default — do NOT pass the
+   * app theme text color. In dark mode that is white, which makes plain-text
+   * parts invisible on the white email canvas (and emails with dark inline
+   * colors vanish on a transparent/black WebView).
+   */
+  textColor?: string;
+  /** Page background. Always light — emails are not dark-mode inverted. */
+  backgroundColor?: string;
   fontSize?: number;
   lineHeight?: number;
   /** Hide quoted/previous-message blocks (gmail_quote / blockquote). */
@@ -88,20 +99,26 @@ export interface EmailDocumentOptions {
  */
 export function buildResponsiveEmailCss(opts: {
   textColor: string;
+  backgroundColor: string;
   fontSize: number;
   lineHeight: number;
   hideQuotes: boolean;
 }): string {
-  const { textColor, fontSize, lineHeight, hideQuotes } = opts;
+  const { textColor, backgroundColor, fontSize, lineHeight, hideQuotes } = opts;
   const quoteCss = hideQuotes
     ? '.gmail_quote,.yahoo_quoted{display:none;}blockquote{display:none;}'
     : '';
   return (
+    // Force a light canvas even when the OS/app is in dark mode. Auto dark
+    // styling turns the WebView black; ESP templates keep dark text → "black
+    // content". color-scheme:light opts the document out of that inversion.
+    `html{color-scheme:light only;supported-color-schemes:light;}` +
     // Root: never wider than the WebView; long tokens wrap instead of expanding.
     // Use overflow-x:auto (not hidden) so a layout glitch cannot clip the entire
     // body to an empty pane — the native wrapper still clips horizontal pan.
     `html,body{width:100% !important;max-width:100% !important;overflow-x:auto !important;` +
-    `margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;}` +
+    `margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;` +
+    `background:${backgroundColor} !important;}` +
     `body{font-family:system-ui,-apple-system,sans-serif;font-size:${fontSize}px;` +
     `line-height:${lineHeight};color:${textColor};word-wrap:break-word;` +
     `overflow-wrap:anywhere;}` +
@@ -120,6 +137,44 @@ export function buildResponsiveEmailCss(opts: {
     `img[width="1"],img[height="1"]{display:none !important;}` +
     `${quoteCss}`
   );
+}
+
+/**
+ * If the stored payload is a full HTML document, keep its `<style>` blocks and
+ * body markup (plus safe body bgcolor/style) so ESP head CSS is not dropped
+ * when we re-wrap it in our CSP shell.
+ */
+export function unwrapEmailHtml(html: string): string {
+  if (!html) return '';
+  const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+  const bodyMatch = html.match(/<body\b([^>]*)>([\s\S]*?)<\/body>/i);
+  if (!headMatch && !bodyMatch) return html;
+
+  const styles: string[] = [];
+  if (headMatch) {
+    const styleRe = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
+    let sm: RegExpExecArray | null;
+    while ((sm = styleRe.exec(headMatch[1])) !== null) styles.push(sm[0]);
+  }
+
+  let body = bodyMatch ? bodyMatch[2] : html;
+  let wrapperOpen = '';
+  let wrapperClose = '';
+  if (bodyMatch) {
+    const attrs = bodyMatch[1] ?? '';
+    const styleAttr = attrs.match(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i);
+    const bgAttr = attrs.match(/\sbgcolor\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i);
+    if (styleAttr || bgAttr) {
+      wrapperOpen =
+        `<div` +
+        (bgAttr ? ` bgcolor=${bgAttr[1]}` : '') +
+        (styleAttr ? ` style=${styleAttr[1]}` : '') +
+        `>`;
+      wrapperClose = '</div>';
+    }
+  }
+
+  return `${styles.join('')}${wrapperOpen}${body}${wrapperClose}`;
 }
 
 /**
@@ -206,15 +261,34 @@ true;
 /**
  * Build the full, sanitized, CSP-protected HTML document string fed to the
  * read-only email WebView. Pure (no React Native deps) so it is unit-testable.
+ *
+ * Always uses a light canvas (white bg + dark default text), matching the
+ * platform `IsolatedHtmlContent` / Gmail / Outlook reading pane — never the
+ * app dark-theme colors.
  */
-export function buildEmailDocument(html: string, opts: EmailDocumentOptions): string {
-  const { textColor, fontSize = 15, lineHeight = 1.6, hideQuotes = false } = opts;
-  const style = buildResponsiveEmailCss({ textColor, fontSize, lineHeight, hideQuotes });
+export function buildEmailDocument(html: string, opts: EmailDocumentOptions = {}): string {
+  const {
+    textColor = EMAIL_CANVAS_TEXT,
+    backgroundColor = EMAIL_CANVAS_BG,
+    fontSize = 15,
+    lineHeight = 1.6,
+    hideQuotes = false,
+  } = opts;
+  const style = buildResponsiveEmailCss({
+    textColor,
+    backgroundColor,
+    fontSize,
+    lineHeight,
+    hideQuotes,
+  });
+  const body = trimTrailingEmptyHtml(sanitizeEmailHtml(unwrapEmailHtml(html)));
   return (
     `<!DOCTYPE html><html><head>` +
     `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">` +
+    `<meta name="color-scheme" content="light only">` +
+    `<meta name="supported-color-schemes" content="light">` +
     `<meta http-equiv="Content-Security-Policy" content="${EMAIL_CSP}">` +
     `<style>${style}</style>` +
-    `</head><body>${trimTrailingEmptyHtml(sanitizeEmailHtml(html))}</body></html>`
+    `</head><body>${body}</body></html>`
   );
 }

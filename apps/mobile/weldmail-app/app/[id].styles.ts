@@ -57,7 +57,7 @@ export const styles = StyleSheet.create({
     borderRadius: 7,
   },
 
-  scrollView: { flex: 1, width: '100%', overflow: 'hidden' },
+  scrollView: { flex: 1 },
 
   // Subject block — large heading just below the top bar, above the sender
   subjectBlock: {
@@ -191,7 +191,7 @@ export const styles = StyleSheet.create({
   },
   body: { fontSize: 14, lineHeight: 23, color: '#374151' },
   webViewBody: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#ffffff',
     opacity: 0.99,
     width: '100%',
     alignSelf: 'stretch',

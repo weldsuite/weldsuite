@@ -179,7 +179,6 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
         {(message.htmlBody) ? (
           <EmailHtmlView
             html={message.htmlBody}
-            textColor={colors.text}
             fontSize={15}
             lineHeight={1.6}
             hideQuotes
@@ -724,7 +723,6 @@ export default function EmailDetailScreen() {
           {(email.bodyHtml || email.htmlBody || email.htmlContent) ? (
             <EmailHtmlView
               html={email.bodyHtml || email.htmlBody || email.htmlContent}
-              textColor={colors.text}
               fontSize={14}
               lineHeight={1.625}
               initialHeight={300}
