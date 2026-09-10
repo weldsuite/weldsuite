@@ -549,4 +549,48 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: `${HELP_BASE}/social`,
     contactUrl: SUPPORT_EMAIL,
   },
+  {
+    code: 'weldpass',
+    name: 'WeldPass',
+    description: 'Encrypted secrets for your team, pushed straight to Cloudflare and Vercel.',
+    icon: 'KeyRound',
+    category: 'Infrastructure',
+    path: '/weldpass',
+    overview:
+      'WeldPass keeps the environment variables your apps run on out of chat threads and .env files on laptops. Every value is encrypted with a key that never leaves the worker, split across environments like development, preview and production, and pushed to Cloudflare Workers, Cloudflare Pages or Vercel on demand — or automatically, the moment it changes. Listing secrets and reading them are separate permissions, so a developer can manage the inventory without ever seeing a production credential, and every reveal is recorded.',
+    features: [
+      'Envelope encryption — a per-secret data key, a per-project key, and a root key held only by the worker',
+      'Push sync to Cloudflare Workers, Cloudflare Pages and Vercel, manually or on every change',
+      'Separate "view names" and "reveal values" permissions, so read access is not blanket access',
+      'Full version history with one-click restore of any earlier value',
+      'Import and export .env files, so moving an existing project over takes one paste',
+      'Audit trail covering every write and every reveal, with who and when',
+    ],
+    howItWorks: [
+      {
+        title: 'Create a project',
+        description: 'Development, preview and production environments are set up for you.',
+      },
+      {
+        title: 'Bring your secrets',
+        description: 'Paste an existing .env file or add values one at a time.',
+      },
+      {
+        title: 'Connect a target',
+        description: 'Add a Cloudflare or Vercel API token and point an environment at a Worker, Pages project or Vercel project.',
+      },
+      {
+        title: 'Push',
+        description: 'Sync on demand, or let a change to any secret push itself.',
+      },
+    ],
+    sortOrder: 150,
+    version: '1.0.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-09-10',
+    websiteUrl: 'https://weldsuite.com/weldpass',
+    documentationUrl: `${HELP_BASE}/weldpass`,
+    contactUrl: SUPPORT_EMAIL,
+  },
 ];
