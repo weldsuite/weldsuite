@@ -257,7 +257,11 @@ export const sweep = {
       "ibanLabel": "IBAN tegenpartij",
       "referenceLabel": "Referentie",
       "createButton": "Transactie toevoegen",
-      "creating": "Toevoegen…"
+      "creating": "Toevoegen…",
+      "categoryLabel": "Boeken op grootboekrekening",
+      "categoryHint": "Optioneel. Gebruik dit voor geld dat geen klantfactuur is, zoals een PayPal-fee-terugbetaling of settlement.",
+      "categoryNone": "Nog niet boeken — later afstemmen",
+      "categoryPlaceholder": "Selecteer rekening (optioneel)"
     },
     "entitySwitcher": {
       "createEntity": "Entiteit aanmaken",

@@ -256,6 +256,7 @@ export interface BankTransaction {
   reconciledBillId?: string | null;
   categoryAccountId?: string | null;
   contactId?: string | null;
+  journalEntryId?: string | null;
 }
 
 export interface ReconciliationRuleCondition {
@@ -525,6 +526,7 @@ export const accountingApi = {
     counterpartyBic?: string;
     reference?: string;
     notes?: string;
+    categoryAccountId?: string;
   }) => weldbooksApi.post<ApiResponse<BankTransaction>>('/bank-transactions', data),
   importBankTransactions: (data: { bankAccountId: string; content: string; fileName: string; format?: string }) =>
     weldbooksApi.post<ApiResponse<{ batchId: string; format: string; totalParsed: number; imported: number; duplicates: number; autoReconciled: number; errors: Array<{ line?: number; message: string }> }>>('/bank-transactions/import', data),

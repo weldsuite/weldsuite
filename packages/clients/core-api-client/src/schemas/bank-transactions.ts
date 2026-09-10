@@ -18,6 +18,8 @@ export const createBankTransactionSchema = z.object({
   counterpartyBic: z.string().max(11).optional(),
   reference: z.string().max(255).optional(),
   notes: z.string().optional(),
+  /** When set, the cashbook line is posted to this GL account immediately (no invoice). */
+  categoryAccountId: z.string().min(1).optional(),
 });
 
 export const updateBankTransactionSchema = createBankTransactionSchema.partial();
