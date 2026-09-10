@@ -33,6 +33,20 @@ Navigation groups sales, purchases, banking, and reporting in the module sidebar
 
 ---
 
+## Money that is not a customer payment
+
+Do **not** create an invoice when the money did not come from a customer. A payment-processor settlement, fee refund, interest credit, or owner deposit is not sales.
+
+Book it against a ledger account instead:
+
+1. Link the bank (or PayPal) account to a GL account such as **Bank**.
+2. If the line is already on the statement, open **Banking → Reconciliation**, select it, and **Categorize** it — for example **Other income** (a settlement) or **Bank fees** (a refund of processing fees, which reduces that expense).
+3. If it is not on a statement yet, use **Add transaction**, choose **Money in**, and pick the same ledger account so WeldBooks posts it immediately.
+
+You can also post a **journal entry** (debit bank, credit the income or expense account). Categorizing from banking does that for you.
+
+---
+
 ## Next steps
 
 - [WeldCommerce overview](/weldcommerce)

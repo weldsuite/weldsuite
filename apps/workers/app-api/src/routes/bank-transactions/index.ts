@@ -3,10 +3,12 @@
  *
  * Ported from apps/api-worker/src/routes/accounting/bank-transactions.ts.
  * Transactions enter the ledger via POST / (manual cashbook entry) or
- * POST /import (MT940 / CAMT.053 / CSV statement files). There is no
- * generic update/delete surface — reconciliation state changes go through
- * /:id/reconcile, /:id/exclude, and /auto-reconcile, and every one of them
- * is written to the accounting audit log (administratieplicht).
+ * POST /import (MT940 / CAMT.053 / CSV statement files). POST / can also
+ * take `categoryAccountId` to post immediately (fee refunds, settlements).
+ * Reconciliation state changes go through /:id/reconcile (invoice, bill,
+ * or manual + categoryAccountId → posted journal), /:id/exclude, and
+ * /auto-reconcile. Every one of them is written to the accounting audit log
+ * (administratieplicht).
  *
  * Permissions: banking:read | banking:create | banking:update.
  */
@@ -25,7 +27,14 @@ import { schema } from '../../db';
 import { resolveEntityId } from '../../lib/entity-context';
 import { parseBankFile } from '../../services/bank-parsers';
 import { autoReconcileBatch } from '../../services/accounting-reconciliation';
-import { writeAccountingAudit } from '../../services/accounting-guards';
+import {
+  ClosedPeriodError,
+  writeAccountingAudit,
+} from '../../services/accounting-guards';
+import {
+  BankCategorizeError,
+  categorizeBankTransaction,
+} from '../../services/accounting-bank-categorize';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -127,6 +136,12 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     const [bankAccount] = await db.select().from(bankAccounts)
       .where(and(eq(bankAccounts.id, data.bankAccountId), isNull(bankAccounts.deletedAt))).limit(1);
     if (!bankAccount) return error.notFound(c, 'Bank account', data.bankAccountId);
+    if (data.categoryAccountId && !bankAccount.ledgerAccountId) {
+      return error.badRequest(
+        c,
+        'This bank account is not linked to a ledger account. Edit the bank account and choose a GL account first.',
+      );
+    }
 
     const date = parseDate(data.date);
     if (!date) return error.badRequest(c, 'Invalid date');
@@ -171,6 +186,19 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       updatedAt: now,
     }).where(eq(bankAccounts.id, data.bankAccountId));
 
+    let journalEntryId: string | null = null;
+    if (data.categoryAccountId) {
+      const [inserted] = await db.select().from(bankTransactions)
+        .where(eq(bankTransactions.id, id)).limit(1);
+      if (!inserted) return error.internal(c, 'Failed to create bank transaction');
+      const posted = await categorizeBankTransaction(db, {
+        txn: inserted,
+        categoryAccountId: data.categoryAccountId,
+        userId: c.get('userId'),
+      });
+      journalEntryId = posted.journalEntryId;
+    }
+
     await writeAccountingAudit(c, db, {
       accountingEntityId: bankAccount.entityId,
       entityType: 'bank_transaction',
@@ -182,6 +210,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
         amount: { old: null, new: amount },
         description: { old: null, new: txn.description },
         source: { old: null, new: 'manual' },
+        ...(journalEntryId ? { journalEntryId: { old: null, new: journalEntryId } } : {}),
       },
     });
     publishEntityEvent({
@@ -195,12 +224,29 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
         amount,
         description: txn.description,
         date: date.toISOString(),
-        status: 'unreconciled',
+        status: journalEntryId ? 'reconciled' : 'unreconciled',
       },
     });
+    if (journalEntryId) {
+      publishEntityEvent({
+        c,
+        entityType: 'journal_entry',
+        entityId: journalEntryId,
+        action: 'created',
+        data: { id: journalEntryId, sourceType: 'bank_transaction', sourceId: id },
+      });
+    }
 
-    return success(c, txn, 201);
+    return success(c, {
+      ...txn,
+      status: journalEntryId ? 'reconciled' : 'unreconciled',
+      journalEntryId,
+      categoryAccountId: data.categoryAccountId ?? null,
+    }, 201);
   } catch (err) {
+    if (err instanceof BankCategorizeError || err instanceof ClosedPeriodError) {
+      return error.badRequest(c, err.message);
+    }
     console.error('[app-api/bank-transactions] create failed:', err);
     return error.internal(c, 'Failed to create bank transaction');
   }
@@ -479,6 +525,45 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
       .where(and(eq(bankTransactions.id, txnId), isNull(bankTransactions.deletedAt))).limit(1);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
 
+    if (data.type === 'manual') {
+      if (!data.categoryAccountId) {
+        return error.badRequest(c, 'categoryAccountId is required to categorize a transaction without an invoice or bill');
+      }
+      const posted = await categorizeBankTransaction(db, {
+        txn,
+        categoryAccountId: data.categoryAccountId,
+        contactId: data.contactId,
+        userId: c.get('userId'),
+      });
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: txn.entityId,
+        entityType: 'bank_transaction',
+        entityId: txnId,
+        action: 'reconciled',
+        changes: {
+          status: { old: txn.status, new: 'reconciled' },
+          reconciliationType: { old: txn.reconciliationType, new: 'manual' },
+          categoryAccountId: { old: txn.categoryAccountId, new: data.categoryAccountId },
+          journalEntryId: { old: txn.journalEntryId, new: posted.journalEntryId },
+        },
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'bank_transaction',
+        entityId: txnId,
+        action: 'updated',
+        data: { id: txnId, bankAccountId: txn.bankAccountId, amount: txn.amount || '0', description: txn.description, status: 'reconciled' },
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'journal_entry',
+        entityId: posted.journalEntryId,
+        action: 'created',
+        data: { id: posted.journalEntryId, sourceType: 'bank_transaction', sourceId: txnId },
+      });
+      return success(c, { id: txnId, status: 'reconciled', journalEntryId: posted.journalEntryId });
+    }
+
     const updateData: Record<string, unknown> = {
       status: 'reconciled',
       reconciliationType: data.type,
@@ -515,6 +600,9 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
 
     return success(c, { id: txnId, status: 'reconciled' });
   } catch (err) {
+    if (err instanceof BankCategorizeError || err instanceof ClosedPeriodError) {
+      return error.badRequest(c, err.message);
+    }
     console.error('[app-api/bank-transactions] reconcile failed:', err);
     return error.internal(c, 'Failed to reconcile transaction');
   }

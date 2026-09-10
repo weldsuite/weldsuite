@@ -257,7 +257,11 @@ export const sweep = {
       "ibanLabel": "Counterparty IBAN",
       "referenceLabel": "Reference",
       "createButton": "Add transaction",
-      "creating": "Adding…"
+      "creating": "Adding…",
+      "categoryLabel": "[TRANSLATE] Post to ledger account",
+      "categoryHint": "[TRANSLATE] Optional. Use this for money that is not a customer invoice, such as a PayPal fee refund or settlement.",
+      "categoryNone": "[TRANSLATE] Don’t post yet — reconcile later",
+      "categoryPlaceholder": "[TRANSLATE] Select account (optional)"
     },
     "entitySwitcher": {
       "createEntity": "Create entity",

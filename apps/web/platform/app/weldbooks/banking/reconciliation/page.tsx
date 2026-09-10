@@ -13,13 +13,15 @@ import {
 } from '@weldsuite/ui/components/select';
 import { ArrowLeft, CheckCircle2, XCircle, Link2 } from 'lucide-react';
 import {
+  useAccountingAccounts,
   useAccountingBankAccounts,
   useAccountingBankTransactions,
 } from '@/hooks/queries/use-accounting-queries';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { accountingApi, type Account } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { CategorizeBankTransactionPanel } from '@/components/accounting/categorize-bank-transaction-panel';
 
 interface TransactionSuggestion {
   type: string;
@@ -46,6 +48,8 @@ export default function BankReconciliationPage() {
   const { data: txnData, isLoading } = useAccountingBankTransactions(
     selectedAccountId ? { bankAccountId: selectedAccountId, status: 'unreconciled' } : undefined
   );
+  const { data: accountsData } = useAccountingAccounts();
+  const ledgerAccounts = (accountsData?.data ?? []) as Account[];
   const transactions = txnData?.data ?? [];
 
   // Fetch suggestions for selected transaction
@@ -64,6 +68,8 @@ export default function BankReconciliationPage() {
     onSuccess: () => {
       setSelectedTxnId(null);
       qc.invalidateQueries({ queryKey: ['accounting', 'bank-transactions'] });
+      qc.invalidateQueries({ queryKey: ['accounting', 'journal-entries'] });
+      qc.invalidateQueries({ queryKey: ['accounting', 'accounts'] });
     },
   });
 
@@ -180,9 +186,70 @@ export default function BankReconciliationPage() {
                 <p className="text-sm text-muted-foreground">
                   {tbp.clickToSeeSuggestions}
                 </p>
-              ) : suggestions.length === 0 ? (
+              ) : (
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">{tbp.noMatchesFound}</p>
+                  {suggestions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{tbp.noMatchesFound}</p>
+                  ) : (
+                    suggestions.map((s, i: number) => (
+                      <div key={i} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-sm font-medium">{s.entityNumber || s.entityId}</span>
+                            {s.contactName && (
+                              <span className="text-xs text-muted-foreground ml-2">({s.contactName})</span>
+                            )}
+                          </div>
+                          <Badge variant={s.type === 'invoice' ? 'default' : 'secondary'} className="capitalize">
+                            {s.type}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>{tbp.amount.replace('{amount}', fmt(s.amount, displayCurrency))}</span>
+                          <span className="text-muted-foreground">
+                            {tbp.confidence.replace('{percent}', String(Math.round(s.confidence * 100)))}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{s.reason}</p>
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            reconcileMutation.mutate({
+                              txnId: selectedTxnId,
+                              data: {
+                                type: s.type,
+                                entityId: s.entityId,
+                              },
+                            })
+                          }
+                          disabled={reconcileMutation.isPending}
+                        >
+                          <Link2 className="h-4 w-4 mr-1" />
+                          {tbp.reconcile}
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                  <CategorizeBankTransactionPanel
+                    key={selectedTxnId}
+                    accounts={ledgerAccounts}
+                    pending={reconcileMutation.isPending}
+                    errorMessage={(reconcileMutation.error as Error | null)?.message ?? null}
+                    labels={{
+                      title: tbp.categorizeTitle,
+                      hint: tbp.categorizeHint,
+                      accountLabel: tbp.categorizeAccountLabel,
+                      accountPlaceholder: tbp.categorizeAccountPlaceholder,
+                      button: tbp.categorizeButton,
+                      examples: tbp.categorizeExamples,
+                    }}
+                    onCategorize={(categoryAccountId) =>
+                      reconcileMutation.mutate({
+                        txnId: selectedTxnId,
+                        data: { type: 'manual', categoryAccountId },
+                      })
+                    }
+                  />
                   <Button
                     variant="outline"
                     size="sm"
@@ -192,58 +259,6 @@ export default function BankReconciliationPage() {
                     <XCircle className="h-4 w-4 mr-1" />
                     {tbp.excludeTransaction}
                   </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {suggestions.map((s, i: number) => (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-medium">{s.entityNumber || s.entityId}</span>
-                          {s.contactName && (
-                            <span className="text-xs text-muted-foreground ml-2">({s.contactName})</span>
-                          )}
-                        </div>
-                        <Badge variant={s.type === 'invoice' ? 'default' : 'secondary'} className="capitalize">
-                          {s.type}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span>{tbp.amount.replace('{amount}', fmt(s.amount, displayCurrency))}</span>
-                        <span className="text-muted-foreground">
-                          {tbp.confidence.replace('{percent}', String(Math.round(s.confidence * 100)))}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{s.reason}</p>
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          reconcileMutation.mutate({
-                            txnId: selectedTxnId,
-                            data: {
-                              type: s.type,
-                              entityId: s.entityId,
-                            },
-                          })
-                        }
-                        disabled={reconcileMutation.isPending}
-                      >
-                        <Link2 className="h-4 w-4 mr-1" />
-                        {tbp.reconcile}
-                      </Button>
-                    </div>
-                  ))}
-                  <div className="border-t pt-3 mt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => excludeMutation.mutate(selectedTxnId)}
-                      disabled={excludeMutation.isPending}
-                    >
-                      <XCircle className="h-4 w-4 mr-1" />
-                      {tbp.excludeTransaction}
-                    </Button>
-                  </div>
                 </div>
               )}
             </CardContent>
