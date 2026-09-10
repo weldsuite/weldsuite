@@ -1,4 +1,13 @@
-import { sanitizeEmailHtml, buildEmailDocument, trimTrailingEmptyHtml, EMAIL_LAYOUT_PROBE, buildResponsiveEmailCss } from '../email-html';
+import {
+  sanitizeEmailHtml,
+  buildEmailDocument,
+  trimTrailingEmptyHtml,
+  unwrapEmailHtml,
+  EMAIL_LAYOUT_PROBE,
+  EMAIL_CANVAS_BG,
+  EMAIL_CANVAS_TEXT,
+  buildResponsiveEmailCss,
+} from '../email-html';
 
 describe('sanitizeEmailHtml', () => {
   it('removes <script> blocks and their content', () => {
@@ -75,15 +84,40 @@ describe('trimTrailingEmptyHtml', () => {
   });
 });
 
+describe('unwrapEmailHtml', () => {
+  it('keeps head <style> blocks and body markup from a full document', () => {
+    const out = unwrapEmailHtml(
+      '<html><head><style>.x{color:red}</style><meta charset="utf-8"></head>' +
+        '<body bgcolor="#f4f4f4" style="margin:0"><p class="x">Hi</p></body></html>',
+    );
+    expect(out).toContain('<style>.x{color:red}</style>');
+    expect(out).toContain('<p class="x">Hi</p>');
+    expect(out).toContain('bgcolor="#f4f4f4"');
+    expect(out).toContain('style="margin:0"');
+    expect(out).not.toContain('<meta');
+  });
+
+  it('returns fragments unchanged', () => {
+    expect(unwrapEmailHtml('<p>Hi</p>')).toBe('<p>Hi</p>');
+  });
+});
+
 describe('buildEmailDocument', () => {
   it('trims trailing empty nodes from the embedded body', () => {
-    const doc = buildEmailDocument('<p>content</p><br><br>&nbsp;', { textColor: '#000' });
+    const doc = buildEmailDocument('<p>content</p><br><br>&nbsp;');
     expect(doc).toContain('<p>content</p></body>');
   });
 
+  it('defaults to a light reading-pane canvas (never theme-inverted)', () => {
+    const doc = buildEmailDocument('<p>ok</p>');
+    expect(doc).toContain(`background:${EMAIL_CANVAS_BG}`);
+    expect(doc).toContain(`color:${EMAIL_CANVAS_TEXT}`);
+    expect(doc).toContain('color-scheme:light only');
+    expect(doc).toContain('name="color-scheme" content="light only"');
+  });
 
   it('injects a restrictive CSP that blocks scripts by default', () => {
-    const doc = buildEmailDocument('<p>ok</p>', { textColor: '#000' });
+    const doc = buildEmailDocument('<p>ok</p>');
     expect(doc).toContain('Content-Security-Policy');
     expect(doc).toContain("default-src 'none'");
     // No script-src directive ⇒ scripts fall back to default-src 'none'.
@@ -91,7 +125,7 @@ describe('buildEmailDocument', () => {
   });
 
   it('embeds the sanitised (not raw) body', () => {
-    const doc = buildEmailDocument('<script>bad()</script><p>good</p>', { textColor: '#111' });
+    const doc = buildEmailDocument('<script>bad()</script><p>good</p>');
     expect(doc).not.toMatch(/<script>bad/);
     expect(doc).toContain('<p>good</p>');
   });
@@ -104,14 +138,13 @@ describe('buildEmailDocument', () => {
   });
 
   it('hides quoted blocks only when hideQuotes is set', () => {
-    expect(buildEmailDocument('x', { textColor: '#000', hideQuotes: true })).toContain('.gmail_quote');
-    expect(buildEmailDocument('x', { textColor: '#000', hideQuotes: false })).not.toContain('.gmail_quote');
+    expect(buildEmailDocument('x', { hideQuotes: true })).toContain('.gmail_quote');
+    expect(buildEmailDocument('x', { hideQuotes: false })).not.toContain('.gmail_quote');
   });
 
   it('ships responsive rules so fixed-width ESP tables fit the phone viewport', () => {
     const doc = buildEmailDocument(
       '<table width="600" style="width:600px;min-width:600px"><tr><td>Hello</td></tr></table>',
-      { textColor: '#000' },
     );
     expect(doc).toContain('overflow-x:auto');
     expect(doc).toContain('max-width:100%');
@@ -143,6 +176,7 @@ describe('buildResponsiveEmailCss', () => {
   it('caps tables, images and long words to the viewport without collapsing layout', () => {
     const css = buildResponsiveEmailCss({
       textColor: '#111',
+      backgroundColor: '#ffffff',
       fontSize: 15,
       lineHeight: 1.6,
       hideQuotes: false,
@@ -150,6 +184,8 @@ describe('buildResponsiveEmailCss', () => {
     expect(css).toContain('overflow-x:auto');
     expect(css).toContain('min-width:0 !important');
     expect(css).toContain('max-width:100% !important');
+    expect(css).toContain('background:#ffffff');
+    expect(css).toContain('color-scheme:light only');
     expect(css).not.toContain('table-layout:fixed');
     expect(css).not.toMatch(/table\{width:100% !important/);
     expect(css).toContain('img,video{max-width:100% !important;height:auto !important;}');

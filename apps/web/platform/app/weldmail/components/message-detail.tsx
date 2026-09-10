@@ -1638,13 +1638,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         />
       )}
 
-      {/* Scrollable Content Area */}
-      <div
-        className={cn(
-          "flex-1 overflow-y-auto transition-all duration-300",
-          customerPanel.isOpen && "md:mr-[500px]"
-        )}
-      >
+      {/* Scrollable Content Area.
+          Person panels open via ObjectPanelHost (flex sibling of ModuleContent),
+          so no right-margin reservation is needed here. */}
+      <div className="flex-1 overflow-y-auto">
         {/* Reply/Forward compose - above newest message */}
         {(isReplying || isForwarding) && replyToMessageId === newestMessage.id && renderComposeBox()}
 
