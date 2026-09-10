@@ -46,7 +46,9 @@ import { accountsBlockedByMissingMedia } from '../lib/platform-constraints';
 interface SocialPost {
   id: string;
   content?: string | null;
+  /** Legacy alias used by some callers; prefer `targetAccountIds`. */
   accountIds?: string[] | null;
+  targetAccountIds?: string[] | null;
   mediaIds?: string[] | null;
   scheduledAt?: string | null;
   timezone?: string | null;
@@ -117,7 +119,11 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   useEffect(() => {
     if (editPost) {
       setContent(editPost.content || '');
-      setSelectedAccountIds(editPost.accountIds || []);
+      setSelectedAccountIds(
+        editPost.targetAccountIds?.length
+          ? editPost.targetAccountIds
+          : (editPost.accountIds || []),
+      );
       setSelectedMediaIds(editPost.mediaIds || []);
       const postTimezone = editPost.timezone || fallbackTimezoneRef.current;
       if (editPost.scheduledAt) {
