@@ -21,6 +21,7 @@ nextjs:
 | **Notifications** | Email and in-app preferences |
 | **Appearance** | Theme and display options |
 | **API keys** | Programmatic access for developers |
+| **AI assistants** | Connect Claude, ChatGPT, or another assistant over MCP |
 | **Per-app settings** | WeldMail accounts, WeldDesk inboxes, phone numbers, etc. |
 
 Open **Settings** from the app rail or your profile menu.
@@ -40,4 +41,5 @@ See [Team and permissions](/settings/team-and-permissions) for inviting users an
 ## Next steps
 
 - [Team and permissions](/settings/team-and-permissions)
+- [Connect an AI assistant (MCP)](/settings/mcp-server)
 - [Install apps](/getting-started/install-apps)

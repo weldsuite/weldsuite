@@ -109,6 +109,7 @@ export const navigation = [
     links: [
       { title: 'Overview', href: '/settings' },
       { title: 'Team and permissions', href: '/settings/team-and-permissions' },
+      { title: 'Connect an AI assistant (MCP)', href: '/settings/mcp-server' },
     ],
   },
 ]

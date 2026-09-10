@@ -38,6 +38,23 @@
       "port": 5173
     },
     {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "docs",
+        "exec",
+        "next",
+        "dev",
+        "--webpack",
+        "--port",
+        "3011"
+      ],
+      "port": 3011,
+      "autoPort": true
+
+    },
+    {
       "name": "admin",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
