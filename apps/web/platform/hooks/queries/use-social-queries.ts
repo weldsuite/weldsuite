@@ -277,6 +277,54 @@ export function useUpdateSocialApproval() {
       social.approvals.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: socialKeys.approvals() });
+      qc.invalidateQueries({ queryKey: socialKeys.posts() });
+    },
+  });
+}
+
+export function useCreateSocialApproval() {
+  const { social } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => social.approvals.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: socialKeys.approvals() });
+      qc.invalidateQueries({ queryKey: socialKeys.posts() });
+    },
+  });
+}
+
+export function useApproveSocialApproval() {
+  const { social } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, decisionNotes }: { id: string; decisionNotes?: string }) =>
+      social.approvals.approve(id, { decisionNotes }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: socialKeys.approvals() });
+      qc.invalidateQueries({ queryKey: socialKeys.posts() });
+    },
+  });
+}
+
+export function useRejectSocialApproval() {
+  const { social } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      decisionNotes,
+      rejectionReason,
+      revision,
+    }: {
+      id: string;
+      decisionNotes?: string;
+      rejectionReason?: string;
+      revision?: boolean;
+    }) => social.approvals.reject(id, { decisionNotes, rejectionReason, revision }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: socialKeys.approvals() });
+      qc.invalidateQueries({ queryKey: socialKeys.posts() });
     },
   });
 }

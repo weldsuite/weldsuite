@@ -258,11 +258,35 @@ export function createSocialApi(api: ClientApi) {
       get(id: string): Promise<DataResponse<SocialApproval>> {
         return api.get<DataResponse<SocialApproval>>(`/social-approvals/${id}`);
       },
-      create(data: Partial<SocialApproval> & Q): Promise<DataResponse<{ id: string }>> {
-        return api.post<DataResponse<{ id: string }>>('/social-approvals', data);
+      create(data: Partial<SocialApproval> & Q): Promise<DataResponse<{ id: string; postId?: string }>> {
+        return api.post<DataResponse<{ id: string; postId?: string }>>('/social-approvals', data);
       },
       update(id: string, data: Partial<SocialApproval> & Q): Promise<DataResponse<{ id: string }>> {
         return api.patch<DataResponse<{ id: string }>>(`/social-approvals/${id}`, data);
+      },
+      /** Approve + auto-schedule when the post has scheduledAt. */
+      approve(
+        id: string,
+        data: { decisionNotes?: string } = {},
+      ): Promise<
+        DataResponse<{
+          approvalId: string;
+          postId: string;
+          status: string;
+          scheduled: boolean;
+          scheduleError: string | null;
+        }>
+      > {
+        return api.post(`/social-approvals/${id}/approve`, data);
+      },
+      /** Reject or request revision (pass revision: true). Bounces the post to draft. */
+      reject(
+        id: string,
+        data: { decisionNotes?: string; rejectionReason?: string; revision?: boolean } = {},
+      ): Promise<DataResponse<{ approvalId: string; postId: string; status: string }>> {
+        const q = data.revision ? '?revision=1' : '';
+        const { revision: _r, ...body } = data;
+        return api.post(`/social-approvals/${id}/reject${q}`, body);
       },
       remove(id: string): Promise<void> {
         return api.delete<void>(`/social-approvals/${id}`);
