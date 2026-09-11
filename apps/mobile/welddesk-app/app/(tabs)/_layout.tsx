@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FloatingTabBar,
   floatingTabBarBottomInset,
+  floatingTabBarScreenOptions,
   type FloatingTabBarProps,
 } from '@/components/floating-tab-bar';
 import { useI18n } from '@/lib/i18n';
@@ -18,6 +19,7 @@ export default function TabLayout() {
     <Tabs
       tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
       screenOptions={{
+        ...floatingTabBarScreenOptions,
         headerShown: false,
         tabBarShowLabel: false,
         sceneStyle: {
