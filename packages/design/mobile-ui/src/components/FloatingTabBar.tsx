@@ -1,5 +1,5 @@
 /**
- * Floating pill tab bar — icon-only, no labels.
+ * Floating pill tab bar - icon-only, no labels.
  *
  * Translucent bar above the home indicator with a spring-animated active
  * highlight. Indicator layouts are kept in a React ref (not a shared-value
@@ -7,7 +7,7 @@
  * previous route.
  */
 
-import { useEffect, useRef, type ReactNode } from \'react\';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -15,22 +15,22 @@ import {
   StyleSheet,
   Platform,
   type LayoutChangeEvent,
-} from \'react-native\';
-import { useSafeAreaInsets } from \'react-native-safe-area-context\';
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-} from \'react-native-reanimated\';
-import * as Haptics from \'expo-haptics\';
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
-import { useTheme } from \'../contexts/ThemeContext\';
+import { useTheme } from '../contexts/ThemeContext';
 import {
   resolveIndicatorLayout,
   shouldMoveIndicatorForLayout,
   upsertTabLayout,
   type TabLayout,
-} from \'../utils/floatingTabBarState\';
+} from '../utils/floatingTabBarState';
 
 export const FLOATING_TAB_BAR_HEIGHT = 56;
 export const FLOATING_TAB_BAR_MARGIN = 12;
@@ -47,8 +47,8 @@ export function floatingTabBarBottomInset(safeAreaBottom = 0): number {
  */
 export const floatingTabBarScreenOptions = {
   tabBarStyle: {
-    position: \'absolute\' as const,
-    backgroundColor: \'transparent\',
+    position: 'absolute' as const,
+    backgroundColor: 'transparent',
     borderTopWidth: 0,
     elevation: 0,
   },
@@ -81,7 +81,7 @@ export interface FloatingTabBarProps {
       canPreventDefault?: boolean;
     }) => { defaultPrevented: boolean };
     navigate: (name: string, params?: object) => void;
-    /** Prefer jumpTo when available — more reliable for sibling tab switches. */
+    /** Prefer jumpTo when available - more reliable for sibling tab switches. */
     jumpTo?: (name: string, params?: object) => void;
   };
   /** Route name that uses accentColor when focused (e.g. center action tab). */
@@ -108,7 +108,7 @@ export function FloatingTabBar({
   accentColor,
   renderRouteAccessory,
   renderAccentFallbackIcon,
-  badgeColor = \'#EF4444\',
+  badgeColor = '#EF4444',
 }: FloatingTabBarProps) {
   const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -146,11 +146,11 @@ export function FloatingTabBar({
   }));
 
   const shellBackground =
-    theme === \'dark\' ? \'rgba(28, 28, 30, 0.92)\' : \'rgba(255, 255, 255, 0.94)\';
+    theme === 'dark' ? 'rgba(28, 28, 30, 0.92)' : 'rgba(255, 255, 255, 0.94)';
   const shellBorder =
-    theme === \'dark\' ? \'rgba(255, 255, 255, 0.08)\' : \'rgba(0, 0, 0, 0.06)\';
+    theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
   const indicatorBackground =
-    theme === \'dark\' ? \'rgba(255, 255, 255, 0.12)\' : \'rgba(0, 0, 0, 0.06)\';
+    theme === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)';
 
   const onTabLayout = (index: number) => (event: LayoutChangeEvent) => {
     const { x, width } = event.nativeEvent.layout;
@@ -195,7 +195,7 @@ export function FloatingTabBar({
           const onPress = () => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             const event = navigation.emit({
-              type: \'tabPress\',
+              type: 'tabPress',
               target: route.key,
               canPreventDefault: true,
             });
@@ -211,7 +211,7 @@ export function FloatingTabBar({
 
           const onLongPress = () => {
             navigation.emit({
-              type: \'tabLongPress\',
+              type: 'tabLongPress',
               target: route.key,
             });
           };
@@ -252,7 +252,7 @@ export function FloatingTabBar({
               {badge != null && badge !== 0 ? (
                 <View style={[styles.badge, { backgroundColor: badgeColor }]}>
                   <Text style={styles.badgeText}>
-                    {typeof badge === \'number\' && badge > 99 ? \'99+\' : String(badge)}
+                    {typeof badge === 'number' && badge > 99 ? '99+' : String(badge)}
                   </Text>
                 </View>
               ) : null}
@@ -272,26 +272,26 @@ export function FloatingTabBar({
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: \'absolute\',
+    position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    alignItems: \'center\',
+    alignItems: 'center',
     paddingHorizontal: 20,
   },
   shell: {
-    flexDirection: \'row\',
-    alignItems: \'center\',
-    width: \'100%\',
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
     maxWidth: 420,
     height: FLOATING_TAB_BAR_HEIGHT,
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 6,
-    overflow: \'hidden\',
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
-        shadowColor: \'#000\',
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.18,
         shadowRadius: 16,
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     }),
   },
   indicator: {
-    position: \'absolute\',
+    position: 'absolute',
     top: 6,
     bottom: 6,
     left: 0,
@@ -310,28 +310,28 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    alignItems: \'center\',
-    justifyContent: \'center\',
-    height: \'100%\',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
     minWidth: 44,
   },
   badge: {
-    position: \'absolute\',
+    position: 'absolute',
     top: 8,
-    right: \'18%\',
+    right: '18%',
     minWidth: 16,
     height: 16,
     borderRadius: 8,
     paddingHorizontal: 4,
-    alignItems: \'center\',
-    justifyContent: \'center\',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: \'#fff\',
+    borderColor: '#fff',
   },
   badgeText: {
-    color: \'#fff\',
+    color: '#fff',
     fontSize: 9,
-    fontWeight: \'700\',
+    fontWeight: '700',
     lineHeight: 11,
   },
 });

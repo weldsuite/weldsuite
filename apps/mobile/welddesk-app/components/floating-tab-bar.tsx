@@ -1,5 +1,5 @@
 /**
- * WeldDesk floating tab bar — shared chrome.
+ * WeldDesk floating tab bar - shared chrome.
  */
 
 export {

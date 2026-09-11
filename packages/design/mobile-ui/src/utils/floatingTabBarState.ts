@@ -2,7 +2,7 @@
  * Pure helpers for the floating tab indicator.
  *
  * Layouts live in a mutable map (not a Reanimated shared-object spread) so
- * concurrent onLayout callbacks cannot drop sibling measurements — the race
+ * concurrent onLayout callbacks cannot drop sibling measurements - the race
  * that left the pill highlight on the wrong tab after a route change.
  */
 

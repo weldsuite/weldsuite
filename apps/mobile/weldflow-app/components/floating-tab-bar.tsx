@@ -1,5 +1,5 @@
 /**
- * WeldFlow floating tab bar — shared chrome.
+ * WeldFlow floating tab bar - shared chrome.
  */
 
 export {

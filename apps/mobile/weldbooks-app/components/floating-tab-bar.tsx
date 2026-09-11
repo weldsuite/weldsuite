@@ -1,5 +1,5 @@
 /**
- * WeldBooks floating tab bar — shared chrome + scan accent + offline queue dot.
+ * WeldBooks floating tab bar - shared chrome + scan accent + offline queue dot.
  */
 
 import { View, StyleSheet } from 'react-native';

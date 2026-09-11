@@ -1,5 +1,5 @@
 /**
- * WeldAgent floating tab bar — shared chrome + new-chat accent.
+ * WeldAgent floating tab bar - shared chrome + new-chat accent.
  */
 
 import { Sparkles } from 'lucide-react-native';

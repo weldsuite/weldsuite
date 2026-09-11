@@ -1,5 +1,5 @@
 /**
- * WeldChat floating tab bar — shared chrome + brand badge colour.
+ * WeldChat floating tab bar - shared chrome + brand badge colour.
  */
 
 import {
