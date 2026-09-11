@@ -418,7 +418,6 @@ app.route('/public/user-apps', publicUserAppsRoutes);
 // before the user has selected a workspace. The route applies clerkMiddleware()
 // itself; mounting here (BEFORE the global /api/* workspaceDb guard) skips the
 // org requirement. Must stay ABOVE the app.use('/api/*', ...) line below.
-app.route('/api/weldpass', weldpassRoutes);
 app.route('/api/auth-desktop', authDesktopRoutes);
 
 // Account self-service (deletion) — Clerk-authenticated but org-LESS: a user
@@ -760,6 +759,8 @@ app.route('/api/push-tokens', pushTokensRoutes);
 app.route('/api/workspaces', workspacesRoutes);
 app.route('/api/weldagent', weldagentRoutes);
 app.route('/api/welddata', welddataRoutes);
+// Workspace-scoped secret vaults — needs Clerk + tenant DB from the /api/* guard.
+app.route('/api/weldpass', weldpassRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
 app.route('/api/workflow-builder', workflowBuilderRoutes);
 app.route('/api/workflow-dashboard', workflowDashboardRoutes);
