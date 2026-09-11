@@ -33,10 +33,11 @@ export function SchedulingEditorPage() {
 
   useEffect(() => {
     if (isNew || !id) return;
+    const pageId = id;
     let cancelled = false;
     async function load() {
       try {
-        const { data } = await personalApi.bookingPages.get(id);
+        const { data } = await personalApi.bookingPages.get(pageId);
         if (cancelled) return;
         setName(data.name);
         setSlug(data.slug);
