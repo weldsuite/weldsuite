@@ -140,4 +140,10 @@ export interface CreateNotificationParams<Env extends NotificationEnv = Notifica
    * (e.g. `projectId` + `taskId` for WeldFlow).
    */
   data?: Record<string, string>;
+  /**
+   * Clerk organization id for workspace-scoped notifications. WeldCalendar
+   * (and other dual-tenant apps) use this on tap so the event opens in the
+   * org it belongs to rather than whichever workspace happens to be active.
+   */
+  clerkOrgId?: string;
 }

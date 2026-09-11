@@ -15,6 +15,12 @@ import {
   rescheduleBooking,
   type TimeSlot,
 } from './actions';
+import {
+  cancelPersonalBooking,
+  createPersonalBooking,
+  getPersonalAvailableSlots,
+  reschedulePersonalBooking,
+} from '../../p/[slug]/actions';
 import { BookingPageInfo } from './components/booking-page-info';
 import {
   BookingDetailsForm,
@@ -168,14 +174,16 @@ function reducer(state: State, action: Action): State {
 // ── Component ──────────────────────────────────────────────────────────
 
 interface BookingClientProps {
-  workspaceSlug: string;
+  kind?: 'workspace' | 'personal';
+  workspaceSlug?: string;
   workspaceName: string;
   workspaceImage: string | null;
   bookingPage: BookingPageProps;
 }
 
 export function BookingClient({
-  workspaceSlug,
+  kind = 'workspace',
+  workspaceSlug = '',
   workspaceName,
   workspaceImage,
   bookingPage,
@@ -229,7 +237,10 @@ export function BookingClient({
         if (cancelled) return;
         if (hasAvailabilityForDay(date, bookingPage.availability)) {
           const dateStr = format(date, 'yyyy-MM-dd');
-          const result = await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
+          const result =
+            kind === 'personal'
+              ? await getPersonalAvailableSlots(bookingPage.id, dateStr)
+              : await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
           if (cancelled) return;
           if (result.filter((s) => s.available).length > 0) {
             dispatch({ type: 'select-date', date });
@@ -248,13 +259,16 @@ export function BookingClient({
     return () => {
       cancelled = true;
     };
-  }, [bookingPage.availability, bookingPage.id, bookingPage.maxAdvance, workspaceSlug]);
+  }, [bookingPage.availability, bookingPage.id, bookingPage.maxAdvance, kind, workspaceSlug]);
 
   const handleDateSelect = (date: Date) => {
     dispatch({ type: 'select-date', date });
     const dateStr = format(date, 'yyyy-MM-dd');
     startSlotsTransition(async () => {
-      const result = await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
+      const result =
+        kind === 'personal'
+          ? await getPersonalAvailableSlots(bookingPage.id, dateStr)
+          : await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
       dispatch({ type: 'set-slots', date, slots: result });
     });
   };
@@ -262,21 +276,37 @@ export function BookingClient({
   const handleSubmit = (formState: BookingFormState) => {
     if (!state.selectedSlot) return;
     startSubmitTransition(async () => {
-      const result = await createBooking({
-        workspaceSlug,
-        bookingPageId: bookingPage.id,
-        bookerName: formState.name,
-        bookerEmail: formState.email,
-        startTime: state.selectedSlot!.start,
-        endTime: state.selectedSlot!.end,
-        answers:
-          Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
-        notes: formState.notes || undefined,
-        guests:
-          formState.guests.length > 0
-            ? formState.guests.map((email) => ({ email }))
-            : undefined,
-      });
+      const result =
+        kind === 'personal'
+          ? await createPersonalBooking({
+              bookingPageId: bookingPage.id,
+              bookerName: formState.name,
+              bookerEmail: formState.email,
+              startTime: state.selectedSlot!.start,
+              endTime: state.selectedSlot!.end,
+              answers:
+                Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
+              notes: formState.notes || undefined,
+              guests:
+                formState.guests.length > 0
+                  ? formState.guests.map((email) => ({ email }))
+                  : undefined,
+            })
+          : await createBooking({
+              workspaceSlug,
+              bookingPageId: bookingPage.id,
+              bookerName: formState.name,
+              bookerEmail: formState.email,
+              startTime: state.selectedSlot!.start,
+              endTime: state.selectedSlot!.end,
+              answers:
+                Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
+              notes: formState.notes || undefined,
+              guests:
+                formState.guests.length > 0
+                  ? formState.guests.map((email) => ({ email }))
+                  : undefined,
+            });
 
       if (result.success) {
         dispatch({
@@ -300,12 +330,19 @@ export function BookingClient({
   const handleReschedule = (slot: TimeSlot) => {
     if (!state.bookingId) return;
     startRescheduleTransition(async () => {
-      const result = await rescheduleBooking({
-        workspaceSlug,
-        bookingId: state.bookingId!,
-        startTime: slot.start,
-        endTime: slot.end,
-      });
+      const result =
+        kind === 'personal'
+          ? await reschedulePersonalBooking({
+              bookingId: state.bookingId!,
+              startTime: slot.start,
+              endTime: slot.end,
+            })
+          : await rescheduleBooking({
+              workspaceSlug,
+              bookingId: state.bookingId!,
+              startTime: slot.start,
+              endTime: slot.end,
+            });
 
       if (result.success) {
         dispatch({ type: 'reschedule-confirmed', slot, emailDelivery: result.emailDelivery });
@@ -322,7 +359,10 @@ export function BookingClient({
   const handleCancel = () => {
     if (!state.bookingId) return;
     startCancelTransition(async () => {
-      const result = await cancelBooking({ workspaceSlug, bookingId: state.bookingId! });
+      const result =
+        kind === 'personal'
+          ? await cancelPersonalBooking({ bookingId: state.bookingId! })
+          : await cancelBooking({ workspaceSlug, bookingId: state.bookingId! });
       if (result.success) {
         dispatch({ type: 'booking-cancelled' });
       } else {

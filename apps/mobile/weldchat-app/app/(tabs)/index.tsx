@@ -25,7 +25,6 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
-import { getEntityTypeInfo, listEntityTypes, FallbackEntityIcon } from '@/lib/entity-channels/registry';
 import { hideAppSplash } from '@/utils/splash';
 
 interface Channel {
@@ -34,10 +33,6 @@ interface Channel {
   type: string;
   sectionId?: string | null;
   unreadCount?: number;
-  // Set only for type='entity' channels linked to a business object.
-  entityType?: string | null;
-  entityId?: string | null;
-  entityDisplayName?: string | null;
 }
 
 interface Section {
@@ -153,12 +148,16 @@ export default function HomeTab() {
   const loadData = useCallback(async () => {
     try {
       const [chRes, secRes] = await Promise.all([
-        // limit 100 (the endpoint cap) so entity channels aren't paginated out
+        // limit 100 (the endpoint cap) so channels aren't paginated out
         // by the default page size of 25.
         appApi.channels.list({ limit: 100 }),
         appApi.chatSections.list(),
       ]);
-      setChannels((chRes.data || []).filter((c: any) => c.type !== 'dm'));
+      // Match platform WeldChat: DMs have their own tab, and entity/object
+      // channels stay on their object panels — Home lists people channels only.
+      setChannels(
+        (chRes.data || []).filter((c: any) => c.type !== 'dm' && c.type !== 'entity'),
+      );
       setSections((secRes.data || []) as any);
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -186,17 +185,14 @@ export default function HomeTab() {
     setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
   }, []);
 
-  // Group channels: regular channels by section, entity-linked channels by
-  // entityType (mirrors apps/web/platform .../use-weldchat-sidebar-items.tsx).
+  // Group regular channels by section. Entity-linked object conversations
+  // are intentionally omitted — same rule as platform WeldChat's sidebar.
   const groupedSections = useMemo(() => {
     const query = search.trim().toLowerCase();
     const matches = (ch: Channel) =>
-      !query || (ch.entityDisplayName || ch.name || '').toLowerCase().includes(query);
+      !query || (ch.name || '').toLowerCase().includes(query);
 
-    // Regular channels (exclude dm + entity) grouped by section.
-    const regular = channels.filter(
-      (ch) => ch.type !== 'dm' && ch.type !== 'entity' && matches(ch),
-    );
+    const regular = channels.filter(matches);
     const groups: { id: string; name: string; channels: Channel[] }[] = sections.map((s) => ({
       id: s.id,
       name: s.name,
@@ -209,18 +205,6 @@ export default function HomeTab() {
       const hasDefaultSection = sections.some((s) => s.name === 'Channels');
       if (!hasDefaultSection) {
         groups.push({ id: '__unsectioned__', name: 'Channels', channels: unsectioned });
-      }
-    }
-
-    // Entity-linked channels (tasks, companies, people, …) — one group per
-    // entity type that has at least one channel.
-    const entityChannels = channels.filter(
-      (ch) => ch.type === 'entity' && ch.entityType && matches(ch),
-    );
-    for (const info of listEntityTypes()) {
-      const groupChannels = entityChannels.filter((ch) => ch.entityType === info.type);
-      if (groupChannels.length > 0) {
-        groups.push({ id: `entity:${info.type}`, name: info.label, channels: groupChannels });
       }
     }
 
@@ -315,7 +299,7 @@ export default function HomeTab() {
                   style={({ pressed }) => [styles.addChannelRow, pressed && styles.channelItemPressed]}
                   onPress={() =>
                     router.push(
-                      (section.id.startsWith('entity:') || section.id === '__unsectioned__'
+                      (section.id === '__unsectioned__'
                         ? '/new-channel'
                         : `/new-channel?sectionId=${encodeURIComponent(section.id)}`) as any,
                     )
@@ -338,10 +322,6 @@ export default function HomeTab() {
                       if (ch.type === 'private') {
                         return <Lock size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
                       }
-                      if (ch.type === 'entity') {
-                        const EntityIcon = (ch.entityType ? getEntityTypeInfo(ch.entityType)?.Icon : null) ?? FallbackEntityIcon;
-                        return <EntityIcon size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
-                      }
                       return <Hash size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
                     })()}
                     <Text
@@ -351,7 +331,7 @@ export default function HomeTab() {
                       ]}
                       numberOfLines={1}
                     >
-                      {ch.entityDisplayName || ch.name}
+                      {ch.name}
                     </Text>
                     {(ch.unreadCount ?? 0) > 0 && (
                       <View style={styles.badge}>

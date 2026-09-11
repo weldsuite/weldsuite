@@ -29,7 +29,7 @@ FEATURES
 - Enterprise workspace support, switch between workspaces from Settings
 
 REQUIREMENTS
-- An active WeldSuite workspace (sign up at weldsuite.com)
+- An active WeldSuite workspace (sign up at weldsuite.org)
 - Projects and tasks you're a member of
 
 WeldFlow is the mobile-first extension of the WeldSuite platform. All changes you make in the app sync instantly with the web version at app.weldsuite.org.
@@ -47,10 +47,10 @@ Business
 © 2026 WeldCorporation
 
 ## Marketing URL
-https://weldsuite.com/weldflow
+https://weldsuite.org/weldflow
 
 ## Support URL
-https://weldsuite.com/support
+https://weldsuite.org/support
 
 ## Privacy Policy URL
 https://weldsuite.org/privacy

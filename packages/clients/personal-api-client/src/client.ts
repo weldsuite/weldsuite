@@ -1,8 +1,19 @@
 import type {
   ApiError,
+  BookingPage,
+  BookingQuestion,
+  Calendar,
+  CalendarBooking,
+  CalendarEvent,
+  CalendarEventAttendee,
+  CalendarSummary,
+  CreateBookingPageInput,
+  CreateCalendarInput,
   CreateDraftBody,
+  CreateEventInput,
   DataResponse,
   ForwardMessageBody,
+  ListEventsParams,
   ListMessagesParams,
   ListResponse,
   MailAccount,
@@ -11,14 +22,21 @@ import type {
   MailLabel,
   MailMessage,
   MeResponse,
+  PaginationMeta,
   PatchMessageBody,
   PersonalAccount,
+  PersonalEntitlements,
   PushTokenResult,
+  RangeEventsParams,
   RegisterPushTokenBody,
   ReplyMessageBody,
   SendMessageBody,
+  TimeSlot,
   UnreadCount,
+  UpdateBookingPageInput,
   UpdateDraftBody,
+  UpdateEventInput,
+  WeeklyAvailability,
   WeldmailCheckResult,
   WeldmailDomain,
   WeldmailReserveResult,
@@ -200,5 +218,108 @@ export class PersonalApiClient {
 
     delete: (id: string): Promise<void> =>
       this.request('DELETE', `/mail/drafts/${encodeURIComponent(id)}`),
+  };
+
+  readonly calendars = {
+    list: (): Promise<ListResponse<Calendar>> => this.request('GET', '/calendars'),
+
+    get: (id: string): Promise<DataResponse<Calendar>> =>
+      this.request('GET', `/calendars/${encodeURIComponent(id)}`),
+
+    create: (body: CreateCalendarInput): Promise<DataResponse<{ id: string }>> =>
+      this.request('POST', '/calendars', body),
+
+    update: (
+      id: string,
+      body: Partial<CreateCalendarInput>,
+    ): Promise<DataResponse<{ id: string }>> =>
+      this.request('PATCH', `/calendars/${encodeURIComponent(id)}`, body),
+
+    delete: (id: string): Promise<void> =>
+      this.request('DELETE', `/calendars/${encodeURIComponent(id)}`),
+
+    ensureDefault: (): Promise<DataResponse<Calendar>> =>
+      this.request('POST', '/calendars/ensure-default', {}),
+  };
+
+  readonly calendarEvents = {
+    list: (params?: ListEventsParams): Promise<ListResponse<CalendarEvent>> =>
+      this.request('GET', `/calendar-events${buildQuery(params ?? {})}`),
+
+    range: (params: RangeEventsParams): Promise<DataResponse<CalendarEvent[]>> =>
+      this.request('GET', `/calendar-events/range${buildQuery(params)}`),
+
+    get: (id: string): Promise<DataResponse<CalendarEvent>> =>
+      this.request('GET', `/calendar-events/${encodeURIComponent(id)}`),
+
+    create: (body: CreateEventInput): Promise<DataResponse<{ id: string }>> =>
+      this.request('POST', '/calendar-events', body),
+
+    update: (
+      id: string,
+      body: UpdateEventInput,
+    ): Promise<DataResponse<{ id: string } & UpdateEventInput>> =>
+      this.request('PATCH', `/calendar-events/${encodeURIComponent(id)}`, body),
+
+    delete: (id: string): Promise<void> =>
+      this.request('DELETE', `/calendar-events/${encodeURIComponent(id)}`),
+
+    cancel: (id: string): Promise<DataResponse<{ id: string; status: string }>> =>
+      this.request('PATCH', `/calendar-events/${encodeURIComponent(id)}/cancel`, {}),
+  };
+
+  readonly bookingPages = {
+    list: (params?: {
+      search?: string;
+      cursor?: string;
+      limit?: number;
+    }): Promise<ListResponse<BookingPage>> =>
+      this.request('GET', `/booking-pages${buildQuery(params ?? {})}`),
+
+    get: (id: string): Promise<DataResponse<BookingPage>> =>
+      this.request('GET', `/booking-pages/${encodeURIComponent(id)}`),
+
+    create: (body: CreateBookingPageInput): Promise<DataResponse<{ id: string }>> =>
+      this.request('POST', '/booking-pages', body),
+
+    update: (
+      id: string,
+      body: UpdateBookingPageInput,
+    ): Promise<DataResponse<{ id: string }>> =>
+      this.request('PATCH', `/booking-pages/${encodeURIComponent(id)}`, body),
+
+    delete: (id: string): Promise<void> =>
+      this.request('DELETE', `/booking-pages/${encodeURIComponent(id)}`),
+
+    toggle: (id: string): Promise<DataResponse<{ id: string; isActive: boolean }>> =>
+      this.request('PATCH', `/booking-pages/${encodeURIComponent(id)}/toggle`, {}),
+
+    availableSlots: (id: string, date: string): Promise<DataResponse<TimeSlot[]>> =>
+      this.request(
+        'GET',
+        `/booking-pages/${encodeURIComponent(id)}/available-slots${buildQuery({ date })}`,
+      ),
+  };
+
+  readonly bookings = {
+    list: (params?: {
+      bookingPageId?: string;
+      status?: string;
+      cursor?: string;
+      limit?: number;
+    }): Promise<ListResponse<CalendarBooking>> =>
+      this.request('GET', `/bookings${buildQuery(params ?? {})}`),
+
+    get: (id: string): Promise<DataResponse<CalendarBooking>> =>
+      this.request('GET', `/bookings/${encodeURIComponent(id)}`),
+
+    cancel: (
+      id: string,
+      body?: { cancelReason?: string },
+    ): Promise<DataResponse<{ id: string; status: string }>> =>
+      this.request('PATCH', `/bookings/${encodeURIComponent(id)}/cancel`, body ?? {}),
+
+    delete: (id: string): Promise<void> =>
+      this.request('DELETE', `/bookings/${encodeURIComponent(id)}`),
   };
 }

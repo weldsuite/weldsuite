@@ -8,7 +8,7 @@ export interface SendEmailBinding {
 export interface Env {
   /** Neon connection string for master DB (personal_accounts, registry). */
   DATABASE_URL_MASTER: string;
-  /** Neon connection string for shared personal DB (mail tables). */
+  /** Neon connection string for shared personal DB (mail + calendar tables). */
   DATABASE_URL_PERSONAL: string;
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY?: string;

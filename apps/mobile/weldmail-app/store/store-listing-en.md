@@ -30,7 +30,7 @@ FEATURES
 - Enterprise workspace support
 
 REQUIREMENTS
-- An active WeldSuite workspace (sign up at weldsuite.com)
+- An active WeldSuite workspace (sign up at weldsuite.org)
 - At least one mail account connected in WeldMail
 
 WeldMail is the mobile-first extension of the WeldSuite platform. All changes you make in the app sync with the web version at app.weldsuite.org.
@@ -48,10 +48,10 @@ Business
 © 2026 WeldCorporation
 
 ## Marketing URL
-https://weldsuite.com/weldmail
+https://weldsuite.org/weldmail
 
 ## Support URL
-https://weldsuite.com/support
+https://weldsuite.org/support
 
 ## Privacy Policy URL
 https://weldsuite.org/privacy

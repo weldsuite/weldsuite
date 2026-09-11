@@ -103,3 +103,39 @@ export const rescheduleBookingInputSchema = z.object({
 });
 
 export type RescheduleBookingInput = z.infer<typeof rescheduleBookingInputSchema>;
+
+export const createPersonalBookingInputSchema = z.object({
+  bookingPageId: z.string().min(1),
+  bookerName: z.string().min(1).max(255),
+  bookerEmail: z.string().email().max(255),
+  startTime: isoDateTime,
+  endTime: isoDateTime,
+  answers: z.record(z.string(), z.string()).optional(),
+  notes: z.string().max(2000).optional(),
+  guests: z
+    .array(
+      z.object({
+        email: z.string().email(),
+        name: z.string().optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+});
+
+export type CreatePersonalBookingInput = z.infer<typeof createPersonalBookingInputSchema>;
+
+export const cancelPersonalBookingInputSchema = z.object({
+  bookingId: z.string().min(1),
+  reason: z.string().max(2000).optional(),
+});
+
+export type CancelPersonalBookingInput = z.infer<typeof cancelPersonalBookingInputSchema>;
+
+export const reschedulePersonalBookingInputSchema = z.object({
+  bookingId: z.string().min(1),
+  startTime: isoDateTime,
+  endTime: isoDateTime,
+});
+
+export type ReschedulePersonalBookingInput = z.infer<typeof reschedulePersonalBookingInputSchema>;

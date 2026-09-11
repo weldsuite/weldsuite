@@ -16,14 +16,6 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  topHeaderBack: {
-    width: 34,
-    height: 34,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: -4,
-    borderRadius: 7,
-  },
   topHeaderSubject: {
     flex: 1,
     fontSize: 16,

@@ -77,6 +77,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_JWT_KEY",
   ],
 
+  // booking-portal is a Next.js app (not a Worker). Sync does not push secrets
+  // to it. Set DATABASE_URL_PERSONAL (or PERSONAL_DATABASE_URL) on the portal
+  // host so `/p/{slug}` can resolve personal booking pages. Same Neon URL as
+  // personal-api.
+
   "helpdesk-widget-api": [
     // Same value as discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret
     // on /webhook/discord/* ingest routes.

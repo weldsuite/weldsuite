@@ -14,6 +14,7 @@ on:
     paths:
       - 'apps/web/platform/**'
       - 'apps/web/weldmail/**'
+      - 'apps/web/weldcalendar/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
@@ -72,6 +73,7 @@ jobs:
       run_d1_schedule_migrations: ${{ steps.changes.outputs.d1_schedule_migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
+      release_weldcalendar_web: ${{ steps.changes.outputs.weldcalendar-web }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -146,6 +148,9 @@ jobs:
               - 'apps/web/weldmail/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/core/realtime/**'
+            weldcalendar-web:
+              - 'apps/web/weldcalendar/**'
+              - 'packages/clients/personal-api-client/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
@@ -280,6 +285,7 @@ jobs:
           D1_SCHEDULE: ${{ steps.filter.outputs.d1_schedule_migrations }}
           WELDMAIL: ${{ steps.filter.outputs.weldmail }}
           WELDMAIL_WEB: ${{ steps.filter.outputs.weldmail-web }}
+          WELDCALENDAR_WEB: ${{ steps.filter.outputs.weldcalendar-web }}
           WELDCHAT: ${{ steps.filter.outputs.weldchat }}
           WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
@@ -311,6 +317,7 @@ jobs:
               echo "d1_schedule_migrations=true"
               echo "weldmail=true"
               echo "weldmail-web=true"
+              echo "weldcalendar-web=true"
               echo "weldchat=true"
               echo "weldbooks=true"
               echo "weldflow=true"
@@ -341,6 +348,7 @@ jobs:
             echo "d1_schedule_migrations=$D1_SCHEDULE"
             echo "weldmail=$WELDMAIL"
             echo "weldmail-web=$WELDMAIL_WEB"
+            echo "weldcalendar-web=$WELDCALENDAR_WEB"
             echo "weldchat=$WELDCHAT"
             echo "weldbooks=$WELDBOOKS"
             echo "weldflow=$WELDFLOW"
@@ -789,11 +797,43 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_ENV: ${{ needs.prepare.outputs.cf_env }}
         run: |
+          pnpm exec wrangler pages deploy dist \
+            --project-name "$PROJECT" \
+            --branch "$BRANCH" \
+            --commit-dirty=true
+
+  frontend-weldcalendar:
+    name: Deploy WeldCalendar web (${{ needs.prepare.outputs.cf_env }} Pages)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldcalendar_web == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build WeldCalendar web
+        working-directory: apps/web/weldcalendar
+        env:
+          VITE_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
+          VITE_BOOKING_PORTAL_URL: ${{ secrets.VITE_BOOKING_PORTAL_URL }}
+        run: pnpm build
+      - name: Deploy WeldCalendar web to Pages
+        working-directory: apps/web/weldcalendar
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
           if [ "$CF_ENV" = "test" ]; then
-            PROJECT=weldmail-web-test
+            PROJECT=weldcalendar-web-test
             BRANCH=develop
           else
-            PROJECT=weldmail-web
+            PROJECT=weldcalendar-web
             BRANCH=main
           fi
           pnpm exec wrangler pages deploy dist \

@@ -1,13 +1,14 @@
 /**
- * Clerk Billing entitlements for personal WeldMail.
+ * Clerk Billing entitlements for personal Weld accounts.
  *
  * Plans/features are configured in the Clerk Dashboard (User Plans).
  * Session JWT claims carry plan/feature access after subscribe; we also
  * accept explicit plan/feature lists from verifyToken payload.
  *
  * Expected Clerk setup:
- *   - User Plan slug: `weldmail_pro`
- *   - Feature slug on that plan: `weldmail_pro` (optional; plan check is enough)
+ *   - User Plan slug: `weldmail_pro` (mail send caps)
+ *   - User Plan slug: `weldcalendar_pro` (calendar / booking-page caps)
+ * Mail Pro does not grant calendar Pro, and vice versa.
  */
 
 export type PersonalPlan = 'free' | 'pro';
@@ -18,46 +19,52 @@ export interface PersonalEntitlements {
   maxAddresses: number;
   /** Soft daily outbound send cap. */
   dailySendLimit: number;
+  calendarPlan: PersonalPlan;
+  maxCalendars: number;
+  maxBookingPages: number;
 }
 
-const FREE: PersonalEntitlements = {
-  plan: 'free',
-  maxAddresses: 1,
-  dailySendLimit: 50,
-};
+const MAIL_FREE = { plan: 'free' as const, maxAddresses: 1, dailySendLimit: 50 };
+const MAIL_PRO = { plan: 'pro' as const, maxAddresses: 1, dailySendLimit: 500 };
+const CAL_FREE = { calendarPlan: 'free' as const, maxCalendars: 1, maxBookingPages: 1 };
+const CAL_PRO = { calendarPlan: 'pro' as const, maxCalendars: 10, maxBookingPages: 10 };
 
-const PRO: PersonalEntitlements = {
-  plan: 'pro',
-  maxAddresses: 1,
-  dailySendLimit: 500,
-};
+const FREE: PersonalEntitlements = { ...MAIL_FREE, ...CAL_FREE };
+const PRO: PersonalEntitlements = { ...MAIL_PRO, ...CAL_PRO };
 
-/** Plan / feature slugs to treat as Pro. */
-const PRO_PLAN_SLUGS = new Set(['weldmail_pro', 'pro']);
-const PRO_FEATURE_SLUGS = new Set(['weldmail_pro', 'pro']);
+/** Plan / feature slugs to treat as WeldMail Pro. */
+const MAIL_PRO_PLAN_SLUGS = new Set(['weldmail_pro', 'pro']);
+const MAIL_PRO_FEATURE_SLUGS = new Set(['weldmail_pro', 'pro']);
+
+/** Plan / feature slugs to treat as WeldCalendar Pro. */
+const CAL_PRO_PLAN_SLUGS = new Set(['weldcalendar_pro']);
+const CAL_PRO_FEATURE_SLUGS = new Set(['weldcalendar_pro']);
 
 /**
  * Resolve entitlements from a verified Clerk JWT payload.
  * Clerk Billing embeds plans/features in session claims (pla / fea).
  */
 export function entitlementsFromClerkClaims(payload: Record<string, unknown>): PersonalEntitlements {
-  if (hasProAccess(payload)) return PRO;
-  return FREE;
+  const mail = hasSlugAccess(payload, MAIL_PRO_PLAN_SLUGS, MAIL_PRO_FEATURE_SLUGS) ? MAIL_PRO : MAIL_FREE;
+  const calendar = hasSlugAccess(payload, CAL_PRO_PLAN_SLUGS, CAL_PRO_FEATURE_SLUGS) ? CAL_PRO : CAL_FREE;
+  return { ...mail, ...calendar };
 }
 
-function hasProAccess(payload: Record<string, unknown>): boolean {
-  // Feature claim — often `fea` as string like "u:weldmail_pro" or comma-separated.
+function hasSlugAccess(
+  payload: Record<string, unknown>,
+  planSlugs: Set<string>,
+  featureSlugs: Set<string>,
+): boolean {
   const fea = payload.fea;
   if (typeof fea === 'string') {
     const parts = fea.split(/[,\s]+/).map((p) => p.replace(/^[uo]:/, '').toLowerCase());
-    if (parts.some((p) => PRO_FEATURE_SLUGS.has(p))) return true;
+    if (parts.some((p) => featureSlugs.has(p))) return true;
   }
 
-  // Plan claim — shape varies; handle common forms.
   const pla = payload.pla;
   if (typeof pla === 'string') {
     const parts = pla.split(/[,\s]+/).map((p) => p.replace(/^[uo]:/, '').toLowerCase());
-    if (parts.some((p) => PRO_PLAN_SLUGS.has(p))) return true;
+    if (parts.some((p) => planSlugs.has(p))) return true;
   }
   if (pla && typeof pla === 'object') {
     const obj = pla as Record<string, unknown>;
@@ -70,17 +77,20 @@ function hasProAccess(payload: Record<string, unknown>): boolean {
             : item && typeof item === 'object' && 'slug' in item
               ? String((item as { slug: unknown }).slug)
               : '';
-        if (PRO_PLAN_SLUGS.has(slug.replace(/^[uo]:/, '').toLowerCase())) return true;
+        if (planSlugs.has(slug.replace(/^[uo]:/, '').toLowerCase())) return true;
       }
     }
   }
 
-  // Public metadata fallback (useful in tests / before Billing token refresh).
   const meta = payload.public_metadata ?? payload.publicMetadata;
   if (meta && typeof meta === 'object') {
     const m = meta as Record<string, unknown>;
     const plan = typeof m.plan === 'string' ? m.plan.toLowerCase() : '';
-    if (PRO_PLAN_SLUGS.has(plan)) return true;
+    if (planSlugs.has(plan)) return true;
+    const plans = m.plans;
+    if (Array.isArray(plans) && plans.some((p) => typeof p === 'string' && planSlugs.has(p.toLowerCase()))) {
+      return true;
+    }
   }
 
   return false;

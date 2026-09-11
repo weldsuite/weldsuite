@@ -32,17 +32,23 @@ Optional frontend build secrets (on both environments if used):
 
 | GitHub secret | Used by |
 |---|---|
-| `VITE_BOOKING_PORTAL_URL` | Platform Pages build |
+| `VITE_BOOKING_PORTAL_URL` | Platform + WeldCalendar Pages builds |
 | `VITE_MEETING_PORTAL_URL` | Platform Pages build |
 | `VITE_MIXPANEL_TOKEN` | Platform Pages build |
 | `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
+
+The booking portal (`apps/web/booking-portal`) is a Next.js host, not a Worker.
+Give it `DATABASE_URL_PERSONAL` (alias `PERSONAL_DATABASE_URL`) so personal
+booking pages at `/p/{slug}` can read the shared personal Neon DB. Workspace
+bookings still use `MASTER_DATABASE_URL` + tenant resolution. Do not put the
+personal URL on tenant DBs, and do not let `/p/` read a workspace Neon.
 
 Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 
 | Secret | Workers |
 |---|---|
 | `DATABASE_URL_MASTER` | `personal-api`, `mail-inbound-worker`, `app-api`, … |
-| `DATABASE_URL_PERSONAL` | `personal-api`, `mail-inbound-worker` |
+| `DATABASE_URL_PERSONAL` | `personal-api`, `mail-inbound-worker`, booking-portal (`/p/{slug}`) |
 | `CLERK_SECRET_KEY` / `CLERK_JWT_KEY` | `personal-api`, `app-api`, … |
 | `INTERNAL_API_SECRET` | `app-api`, `agent-runtime`, `integration-*`, `helpdesk-workflow-worker`, … |
 

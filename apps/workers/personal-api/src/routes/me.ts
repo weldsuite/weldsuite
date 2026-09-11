@@ -1,5 +1,5 @@
 /**
- * GET /api/me — personal account + mail account emails (or empty if not onboarded).
+ * GET /api/me — personal account + mail accounts + calendars (or empty if not onboarded).
  */
 
 import { Hono } from 'hono';
@@ -17,34 +17,52 @@ app.get('/', async (c) => {
     return success(c, {
       account: null,
       mailAccounts: [],
+      calendars: [],
       entitlements: c.get('entitlements'),
     });
   }
 
   try {
     const personalDb = getPersonalDb(c.env);
-    const mailAccounts = await personalDb
-      .select({
-        id: personalSchema.personalMailAccounts.id,
-        email: personalSchema.personalMailAccounts.email,
-        name: personalSchema.personalMailAccounts.name,
-        displayName: personalSchema.personalMailAccounts.displayName,
-        provider: personalSchema.personalMailAccounts.provider,
-        status: personalSchema.personalMailAccounts.status,
-        isDefault: personalSchema.personalMailAccounts.isDefault,
-        createdAt: personalSchema.personalMailAccounts.createdAt,
-      })
-      .from(personalSchema.personalMailAccounts)
-      .where(
-        and(
-          eq(personalSchema.personalMailAccounts.personalAccountId, account.id),
-          isNull(personalSchema.personalMailAccounts.deletedAt),
+    const [mailAccounts, calendars] = await Promise.all([
+      personalDb
+        .select({
+          id: personalSchema.personalMailAccounts.id,
+          email: personalSchema.personalMailAccounts.email,
+          name: personalSchema.personalMailAccounts.name,
+          displayName: personalSchema.personalMailAccounts.displayName,
+          provider: personalSchema.personalMailAccounts.provider,
+          status: personalSchema.personalMailAccounts.status,
+          isDefault: personalSchema.personalMailAccounts.isDefault,
+          createdAt: personalSchema.personalMailAccounts.createdAt,
+        })
+        .from(personalSchema.personalMailAccounts)
+        .where(
+          and(
+            eq(personalSchema.personalMailAccounts.personalAccountId, account.id),
+            isNull(personalSchema.personalMailAccounts.deletedAt),
+          ),
         ),
-      );
+      personalDb
+        .select({
+          id: personalSchema.personalCalendars.id,
+          name: personalSchema.personalCalendars.name,
+          color: personalSchema.personalCalendars.color,
+          isDefault: personalSchema.personalCalendars.isDefault,
+        })
+        .from(personalSchema.personalCalendars)
+        .where(
+          and(
+            eq(personalSchema.personalCalendars.personalAccountId, account.id),
+            isNull(personalSchema.personalCalendars.deletedAt),
+          ),
+        ),
+    ]);
 
     return success(c, {
       account,
       mailAccounts,
+      calendars,
       entitlements: c.get('entitlements'),
     });
   } catch (err) {

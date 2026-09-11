@@ -55,6 +55,7 @@ const CATEGORY_APP_CODES: Record<string, string[]> = {
   weldmeet: ['weldmeet', 'weldsuite'],
   weldbooks: ['weldbooks', 'weldsuite'],
   weldagent: ['weldagent', 'weldsuite'],
+  weldcalendar: ['weldcalendar', 'weldsuite'],
 };
 
 export function appCodesForCategory(category: string): string[] {
@@ -85,6 +86,9 @@ function androidDelivery(
   if (category === 'weldagent') {
     return { channelId: 'weldagent', priority: 'default' };
   }
+  if (category === 'weldcalendar') {
+    return { channelId: 'weldcalendar', priority: 'default' };
+  }
   return { priority: 'default' };
 }
 
@@ -114,6 +118,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     emailTemplate,
     excludeChannels,
     data: extraData,
+    clerkOrgId,
   } = params;
 
   const channels = await getChannelPreferences(db, userId, category);
@@ -252,6 +257,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
             entityType: entityType ?? '',
             entityId: entityId ?? '',
             notificationType,
+            ...(clerkOrgId ? { clerkOrgId } : {}),
             ...(extraData ?? {}),
           },
         }));
