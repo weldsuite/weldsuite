@@ -143,11 +143,211 @@ export interface ListResponse<T> {
 export interface MeResponse {
   account: PersonalAccount | null;
   mailAccounts: MailAccount[];
-  entitlements?: {
-    plan: 'free' | 'pro';
-    maxAddresses: number;
-    dailySendLimit: number;
-  };
+  calendars?: CalendarSummary[];
+  entitlements?: PersonalEntitlements;
+}
+
+export interface PersonalEntitlements {
+  plan: 'free' | 'pro';
+  maxAddresses: number;
+  dailySendLimit: number;
+  calendarPlan?: 'free' | 'pro';
+  maxCalendars?: number;
+  maxBookingPages?: number;
+}
+
+export interface CalendarSummary {
+  id: string;
+  name: string;
+  color?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface Calendar {
+  id: string;
+  personalAccountId?: string;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  ownerId: string;
+  isDefault?: boolean | null;
+  isActive?: boolean | null;
+  isOwn?: boolean;
+  permission?: 'view' | 'edit' | 'manage';
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+export interface CalendarEventAttendee {
+  email: string;
+  name?: string;
+  status?: string;
+  role?: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  personalAccountId?: string;
+  calendarId: string;
+  title: string;
+  description?: string | null;
+  type: string;
+  startTime: string | Date;
+  endTime?: string | Date | null;
+  allDay?: boolean | null;
+  timezone?: string | null;
+  location?: string | null;
+  isVirtual?: boolean | null;
+  meetingUrl?: string | null;
+  status: string;
+  priority?: string | null;
+  color?: string | null;
+  recurrenceRule?: string | null;
+  recurrenceId?: string | null;
+  organizerId: string;
+  attendees?: CalendarEventAttendee[] | null;
+  reminders?: { type: 'email' | 'notification'; minutes: number }[] | null;
+  notes?: string | null;
+  tags?: string[] | null;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+export interface CreateCalendarInput {
+  name: string;
+  description?: string;
+  color?: string;
+}
+
+export interface CreateEventInput {
+  calendarId: string;
+  title: string;
+  description?: string;
+  type?: 'meeting' | 'call' | 'appointment' | 'event' | 'reminder' | 'other';
+  startTime: string;
+  endTime?: string;
+  allDay?: boolean;
+  timezone?: string;
+  location?: string;
+  isVirtual?: boolean;
+  meetingUrl?: string;
+  status?: 'confirmed' | 'tentative' | 'cancelled';
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  color?: string;
+  recurrenceRule?: string;
+  recurrenceId?: string;
+  attendees?: CalendarEventAttendee[];
+  reminders?: { type: 'email' | 'notification'; minutes: number }[];
+  notes?: string;
+  tags?: string[];
+}
+
+export type UpdateEventInput = Omit<Partial<CreateEventInput>, 'calendarId' | 'recurrenceId'>;
+
+export interface ListEventsParams {
+  limit?: number;
+  cursor?: string;
+  search?: string;
+  type?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  calendarIds?: string;
+}
+
+export interface RangeEventsParams {
+  startDate: string;
+  endDate: string;
+  calendarIds?: string;
+}
+
+export interface WeeklyAvailability {
+  monday: { start: string; end: string }[];
+  tuesday: { start: string; end: string }[];
+  wednesday: { start: string; end: string }[];
+  thursday: { start: string; end: string }[];
+  friday: { start: string; end: string }[];
+  saturday: { start: string; end: string }[];
+  sunday: { start: string; end: string }[];
+}
+
+export interface BookingQuestion {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'select';
+  required: boolean;
+  options?: string[];
+}
+
+export interface BookingPage {
+  id: string;
+  personalAccountId?: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  ownerId: string;
+  duration: number;
+  bufferBefore?: number | null;
+  bufferAfter?: number | null;
+  color?: string | null;
+  isActive?: boolean | null;
+  locationType?: string | null;
+  locationValue?: string | null;
+  availability: WeeklyAvailability;
+  questions?: BookingQuestion[] | null;
+  minNotice?: number | null;
+  maxAdvance?: number | null;
+  confirmationMessage?: string | null;
+  timezone: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+export interface CreateBookingPageInput {
+  name: string;
+  slug: string;
+  description?: string;
+  duration: number;
+  bufferBefore?: number;
+  bufferAfter?: number;
+  color?: string;
+  isActive?: boolean;
+  locationType?: 'in-person' | 'phone' | 'video';
+  locationValue?: string;
+  availability: WeeklyAvailability;
+  questions?: BookingQuestion[];
+  minNotice?: number;
+  maxAdvance?: number;
+  confirmationMessage?: string;
+  timezone?: string;
+}
+
+export type UpdateBookingPageInput = Partial<CreateBookingPageInput>;
+
+export interface TimeSlot {
+  start: string;
+  end: string;
+  available: boolean;
+}
+
+export interface CalendarBooking {
+  id: string;
+  personalAccountId?: string;
+  bookingPageId: string;
+  calendarEventId?: string | null;
+  bookerName: string;
+  bookerEmail: string;
+  startTime: string | Date;
+  endTime: string | Date;
+  status: string;
+  answers?: Record<string, unknown> | null;
+  notes?: string | null;
+  guests?: { email: string; name?: string }[] | null;
+  timezone?: string | null;
+  cancelledAt?: string | Date | null;
+  cancelReason?: string | null;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
 
 export interface WeldmailDomain {

@@ -87,7 +87,7 @@ eas submit --profile production --platform android
 - [ ] Push notification for task-assigned arrives on both OSes
 - [ ] Deep link `weldflow://project/<id>` opens the project detail
 - [ ] First-run flow on a freshly installed app does not crash
-- [ ] Screenshots captured on required device sizes (see `screenshots/`)
+- [ ] Screenshots generated (`node store/screenshots/capture.mjs`) and reviewed
 - [ ] Privacy manifest `ios/PrivacyInfo.xcprivacy` is present and reviewed
 - [ ] Data Safety form completed in Play Console (see `data-safety.md`)
 - [ ] Privacy policy URL live at https://weldsuite.org/privacy and filled in both consoles
@@ -96,21 +96,14 @@ eas submit --profile production --platform android
 - [ ] App name, subtitle, description, keywords copied from `store-listing-en.md`
 - [ ] Build number / version number correct (`autoIncrement: true` handles this for prod)
 
-## Screenshots needed
+## Screenshots
 
-iOS (required):
-- 6.7" iPhone (1290×2796 or 1320×2868), at least 3, max 10
-- 6.5" iPhone (1242×2688 or 1284×2778), optional
-- 12.9" iPad Pro (2048×2732), required because `supportsTablet: true`
+UI-faithful mockups (same pipeline as WeldBooks / WeldChat):
 
-Android:
-- Phone (1080×1920 or higher), 2 to 8 screenshots
-- 7" tablet and 10" tablet, optional but recommended
-- Feature graphic (1024×500)
+```bash
+cd apps/mobile/weldflow-app
+npx --yes playwright install chromium
+node store/screenshots/capture.mjs
+```
 
-Suggested shots:
-1. Projects list with a few filled projects
-2. Project detail with task list
-3. Task detail with status picker open
-4. My Tasks grouped view
-5. Dark mode variant of one of the above
+Outputs: `screenshots/ios-6.7/`, `ios-6.5/`, `android-phone/`, `ios-ipad-13/`, `android-feature-graphic/`. Shot list and upload notes in `screenshots/README.md`.

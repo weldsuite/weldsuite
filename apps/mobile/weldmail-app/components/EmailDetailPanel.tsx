@@ -33,6 +33,7 @@ import {
   FileVideo,
   FileAudio,
 } from 'lucide-react-native';
+import CloseArchiveButtons from '@/components/CloseArchiveButtons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -193,10 +194,12 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
 interface EmailDetailPanelProps {
   emailId: string | null;
   onEmailDeleted?: (id: string) => void;
-  onEmailArchived?: (id: string) => void;
+  onEmailArchived?: (id: string, options?: { openNext?: boolean }) => void;
+  /** Leave this conversation in the inbox and open the next row. */
+  onSkipToNext?: (id: string) => void;
 }
 
-export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchived }: EmailDetailPanelProps) {
+export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchived, onSkipToNext }: EmailDetailPanelProps) {
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();
@@ -307,6 +310,17 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     if (!email) return;
     await outbox.archive(email.id);
     onEmailArchived?.(email.id);
+  };
+
+  const handleArchiveAndNext = async () => {
+    if (!email) return;
+    await outbox.archive(email.id);
+    onEmailArchived?.(email.id, { openNext: true });
+  };
+
+  const handleClose = () => {
+    if (!email) return;
+    onSkipToNext?.(email.id);
   };
 
   const handleMoreMenuAction = useCallback((buttonIndex: number) => {
@@ -431,24 +445,32 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header toolbar */}
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 4, backgroundColor: colors.background }]}>
-        <View style={styles.headerActions}>
-          <TouchableOpacity onPress={handleStarToggle} style={styles.actionButton}>
-            <Star
-              size={22}
-              color={email.isStarred ? '#F59E0B' : colors.muted}
-              fill={email.isStarred ? '#F59E0B' : 'transparent'}
-              strokeWidth={2}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleArchive} style={styles.actionButton}>
-            <Archive size={22} color="#4B5563" strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleDelete} style={styles.actionButton}>
-            <Trash2 size={22} color="#4B5563" strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleMoreMenu} style={styles.actionButton}>
-            <MoreVertical size={22} color="#4B5563" strokeWidth={2} />
-          </TouchableOpacity>
+        <View style={styles.headerBar}>
+          <CloseArchiveButtons
+            onClose={handleClose}
+            onArchiveAndNext={handleArchiveAndNext}
+            borderColor={isDark ? colors.border : '#E5E7EB'}
+            iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+          />
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={handleStarToggle} style={styles.actionButton}>
+              <Star
+                size={22}
+                color={email.isStarred ? '#F59E0B' : colors.muted}
+                fill={email.isStarred ? '#F59E0B' : 'transparent'}
+                strokeWidth={2}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleArchive} style={styles.actionButton}>
+              <Archive size={22} color="#4B5563" strokeWidth={2} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDelete} style={styles.actionButton}>
+              <Trash2 size={22} color="#4B5563" strokeWidth={2} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleMoreMenu} style={styles.actionButton}>
+              <MoreVertical size={22} color="#4B5563" strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -674,6 +696,7 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, fontWeight: '500' },
   errorText: { fontSize: 16 },
   fixedHeader: { paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: '#E5E7EB' },
+  headerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 16 },
   actionButton: { padding: 6 },
   scrollView: { flex: 1 },

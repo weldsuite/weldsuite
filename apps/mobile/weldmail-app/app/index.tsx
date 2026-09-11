@@ -51,6 +51,7 @@ import {
   nextNotificationListRetryMs,
 } from '@/utils/notification-target';
 import { hideAppSplash } from '@/utils/splash';
+import { idsFromSections, setVisibleMessageIds, getNextVisibleMessageId } from '@/utils/next-email';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
 
@@ -715,9 +716,14 @@ export default function MailScreen() {
     setSelectedEmailId(null);
   }, []);
 
-  const handleDetailEmailArchived = useCallback((emailId: string) => {
+  const handleDetailEmailArchived = useCallback((emailId: string, options?: { openNext?: boolean }) => {
+    const nextId = options?.openNext ? getNextVisibleMessageId(emailId) : null;
     setMessages(prev => prev.filter(m => m.id !== emailId));
-    setSelectedEmailId(null);
+    setSelectedEmailId(options?.openNext ? nextId : null);
+  }, []);
+
+  const handleDetailSkipToNext = useCallback((emailId: string) => {
+    setSelectedEmailId(getNextVisibleMessageId(emailId));
   }, []);
 
   const handleToggleRead = useCallback(async (emailId: string, isRead: boolean) => {
@@ -793,6 +799,18 @@ export default function MailScreen() {
     () => groupEmailsByDate(filteredMessages),
     [groupEmailsByDate, filteredMessages],
   );
+
+  const publishVisibleIds = useCallback(() => {
+    setVisibleMessageIds(idsFromSections(emailSections));
+  }, [emailSections]);
+
+  // Keep the triage snapshot in lockstep with the rows on screen (pinned first,
+  // then date sections) so Check on the detail pane advances in visual order.
+  useEffect(() => {
+    publishVisibleIds();
+  }, [publishVisibleIds]);
+
+  useFocusEffect(publishVisibleIds);
 
   const renderSectionHeader = ({ section }: { section: { title: string } }) => (
     <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
@@ -1033,6 +1051,7 @@ export default function MailScreen() {
           emailId={selectedEmailId}
           onEmailDeleted={handleDetailEmailDeleted}
           onEmailArchived={handleDetailEmailArchived}
+          onSkipToNext={handleDetailSkipToNext}
         />
       </View>
     );

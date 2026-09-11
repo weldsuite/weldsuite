@@ -1,26 +1,29 @@
 # Screenshots
 
-Capture real screenshots from a `preview` build on a real device, then drop them into these folders.
+Marketing captures that match the WeldFlow mobile UI (coral `#E84C3D`, floating pill nav, project/task rows, KPI chips). Generated from `scenes.html`.
 
-## Required
+```bash
+npx --yes playwright install chromium
+node store/screenshots/capture.mjs
+```
 
-- `ios-6.7/`, iPhone 15/16 Pro Max class (1290x2796)
-- `ios-ipad-13/`, 13" iPad Pro (2064x2752), **required because `supportsTablet: true`**
-- `android-phone/`, 1080x1920+ portrait
-- `android-feature-graphic/`, 1024x500 JPG/PNG
+These are UI-faithful mockups for listing review. If App Store / Play reject them, recapture the same six screens from a `preview` or `production` build on a real device (or Simulator with a clean status bar).
 
-## Optional but recommended
+## Output
 
-- `ios-6.5/`, 1242x2688
-- `android-7in-tablet/`, 1200x1920+
-- `android-10in-tablet/`, 1800x2560+
+- `ios-6.7/` — 1284×2778 (App Store 6.7" iPhone)
+- `ios-6.5/` — 1242×2688 (App Store 6.5" iPhone)
+- `android-phone/` — 1080×2341 (Play Store phone, 2–8)
+- `ios-ipad-13/` — 2064×2752 (required because `supportsTablet: true`)
+- `android-feature-graphic/` — 1024×500
 
-## Shot list (consistent across devices)
+## Shot list (same order on every size)
 
-1. **Projects list**, 3+ projects with different colors and statuses
-2. **Project detail**, active project with visible task list
-3. **Task detail + status picker open**, shows the one-tap status change feature
-4. **My Tasks dashboard**, mix of in-progress and to-do tasks
-5. **Dark mode**, any of the above in dark theme
+1. Sign in
+2. Home
+3. Projects
+4. Project detail
+5. Task detail
+6. My tasks
 
-Keep device status bar clean (full battery, strong signal, no notifications). Use Simulator's `xcrun simctl status_bar override` or the Android equivalent if needed.
+Upload in that order. Play Console: phone screenshots from `android-phone/`, feature graphic from `android-feature-graphic/feature-graphic.png`. App Store Connect: 6.7" from `ios-6.7/` (1284×2778), 6.5" from `ios-6.5/` if that slot is shown, 13" iPad from `ios-ipad-13/`.

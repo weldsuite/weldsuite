@@ -66,7 +66,10 @@ export function IPadLayout() {
   const loadData = useCallback(async () => {
     try {
       const [chRes, dmRes] = await Promise.all([appApi.channels.list({ limit: 100 }), appApi.chatDm.list()]);
-      const chs = ((chRes.data || []) as any[]).filter((c: any) => c.type !== 'dm');
+      // Match platform: hide DMs (listed separately) and entity/object channels.
+      const chs = ((chRes.data || []) as any[]).filter(
+        (c: any) => c.type !== 'dm' && c.type !== 'entity',
+      );
       setChannels(chs);
       const dmList = (dmRes.data || []) as any[];
       setDms(dmList);

@@ -13,7 +13,6 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  ChevronLeft,
   Star,
   Reply,
   ReplyAll,
@@ -61,6 +60,8 @@ import { openAttachment } from '@/utils/open-attachment';
 import { getAttachmentVisual, type AttachmentKind } from '@/utils/attachment-visual';
 import { hideAppSplash } from '@/utils/splash';
 import { firstParam, stubEmailFromTarget } from '@/utils/notification-target';
+import { getNextVisibleMessageId } from '@/utils/next-email';
+import CloseArchiveButtons from '@/components/CloseArchiveButtons';
 
 // Icon component per attachment kind (see utils/attachment-visual).
 const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
@@ -412,6 +413,30 @@ export default function EmailDetailScreen() {
     goBack();
   };
 
+  const goToNextOrBack = useCallback((fromId: string) => {
+    const nextId = getNextVisibleMessageId(fromId);
+    if (nextId) router.replace(`/${nextId}` as any);
+    else goBack();
+  }, [goBack, router]);
+
+  // Check: archive this conversation and open the next row (web archive-and-next).
+  const handleArchiveAndNext = useCallback(async () => {
+    if (!email) return;
+    const fromId = email.id;
+    await outbox.archive(fromId);
+    refreshMail();
+    goToNextOrBack(fromId);
+  }, [email, goToNextOrBack, outbox, refreshMail]);
+
+  // X: leave this conversation in the inbox and open the next one.
+  const handleContinueToNext = useCallback(() => {
+    if (!email) {
+      goBack();
+      return;
+    }
+    goToNextOrBack(email.id);
+  }, [email, goBack, goToNextOrBack]);
+
   const handleMarkAsUnread = useCallback(async () => {
     if (!email) return;
     await outbox.update(email.id, { isRead: false });
@@ -491,11 +516,29 @@ export default function EmailDetailScreen() {
 
   if (loading && !email) {
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        {/* ActivityIndicator animates on the UI thread, so it stays smooth even
-            while the JS thread is busy with the navigation + fetch that opening
-            an email kicks off (MaterialSpinner's SVG animation janks there). */}
-        <ActivityIndicator size="large" color={colors.text} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View
+          style={[
+            styles.topHeader,
+            { paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: '#E5E7EB' },
+          ]}
+        >
+          <View style={styles.topHeaderRow}>
+            <CloseArchiveButtons
+              onClose={goBack}
+              onArchiveAndNext={() => {}}
+              borderColor={isDark ? colors.border : '#E5E7EB'}
+              iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+              archiveDisabled
+            />
+          </View>
+        </View>
+        <View style={styles.centerContainer}>
+          {/* ActivityIndicator animates on the UI thread, so it stays smooth even
+              while the JS thread is busy with the navigation + fetch that opening
+              an email kicks off (MaterialSpinner's SVG animation janks there). */}
+          <ActivityIndicator size="large" color={colors.text} />
+        </View>
       </View>
     );
   }
@@ -505,19 +548,37 @@ export default function EmailDetailScreen() {
     // is transient and gets a Retry rather than a false "not found".
     const isGone = loadOutcome === 'gone';
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <Text style={[styles.errorText, { color: colors.text }]}>
-          {isGone ? 'Email not found' : "Couldn't load this email"}
-        </Text>
-        {!isGone && (
-          <TouchableOpacity
-            onPress={retryLoad}
-            style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
-            activeOpacity={0.7}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
-          </TouchableOpacity>
-        )}
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View
+          style={[
+            styles.topHeader,
+            { paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: '#E5E7EB' },
+          ]}
+        >
+          <View style={styles.topHeaderRow}>
+            <CloseArchiveButtons
+              onClose={goBack}
+              onArchiveAndNext={() => {}}
+              borderColor={isDark ? colors.border : '#E5E7EB'}
+              iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+              archiveDisabled
+            />
+          </View>
+        </View>
+        <View style={styles.centerContainer}>
+          <Text style={[styles.errorText, { color: colors.text }]}>
+            {isGone ? 'Email not found' : "Couldn't load this email"}
+          </Text>
+          {!isGone && (
+            <TouchableOpacity
+              onPress={retryLoad}
+              style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     );
   }
@@ -552,13 +613,12 @@ export default function EmailDetailScreen() {
         ]}
       >
         <View style={styles.topHeaderRow}>
-          <TouchableOpacity
-            onPress={goBack}
-            style={styles.topHeaderBack}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <ChevronLeft size={24} color="#4B5563" strokeWidth={2} />
-          </TouchableOpacity>
+          <CloseArchiveButtons
+            onClose={handleContinueToNext}
+            onArchiveAndNext={handleArchiveAndNext}
+            borderColor={isDark ? colors.border : '#E5E7EB'}
+            iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+          />
           <View style={{ flex: 1 }} />
           <View style={styles.topHeaderActions}>
             <TouchableOpacity

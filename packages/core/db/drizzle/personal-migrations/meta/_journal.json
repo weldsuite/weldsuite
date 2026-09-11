@@ -15,6 +15,13 @@
       "when": 1788373024066,
       "tag": "0001_hard_sunset_bain",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789152029863,
+      "tag": "0002_wakeful_madrox",
+      "breakpoints": true
     }
   ]
 }

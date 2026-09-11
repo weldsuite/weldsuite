@@ -22,6 +22,7 @@ import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 import { listInboxMessages } from '@/services/mail-tenant';
 import { getAvatarColor } from '@/contexts/MailContext';
 import type { EmailListItem } from '@/types/mail';
+import { setVisibleMessageIds } from '@/utils/next-email';
 
 const FILTERS = ['Label', 'From', 'To', 'Attachment', 'Date', 'Is unread'];
 
@@ -101,6 +102,10 @@ export default function SearchScreen() {
 
     return () => { if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current); };
   }, [searchQuery]);
+
+  useEffect(() => {
+    setVisibleMessageIds(searchResults.map((item) => item.id));
+  }, [searchResults]);
 
   const handleBack = () => { Keyboard.dismiss(); router.back(); };
   const handleClearSearch = () => { setSearchQuery(''); setSearchResults([]); inputRef.current?.focus(); };

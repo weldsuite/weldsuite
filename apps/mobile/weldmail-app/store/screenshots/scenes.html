@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WeldMail store screens</title>
+  <style>
+    :root {
+      --bg: #fff;
+      --text: #000;
+      --muted: #6b7280;
+      --subtle: #8e8e93;
+      --secondary: #f2f2f7;
+      --border: #e5e5ea;
+      --brand: #f06543;
+      --brand-tint: rgba(240, 101, 67, 0.12);
+      --destructive: #ef4444;
+      --star: #f59e0b;
+      --send: #2563eb;
+      --pill: #dbeafe;
+      --pill-text: #1e40af;
+      --tab-muted: #999;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .phone {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .status {
+      height: 54px;
+      padding: 14px 28px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 600;
+      flex-shrink: 0;
+      letter-spacing: -0.2px;
+    }
+    .status-right { display: flex; gap: 7px; align-items: center; font-size: 13px; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 16px 8px;
+      flex-shrink: 0;
+      min-height: 52px;
+      gap: 8px;
+    }
+    .header .title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; flex: 1; }
+    .header .title.center { text-align: center; font-size: 17px; font-weight: 600; }
+    .sq {
+      width: 40px; height: 40px; border-radius: 13px;
+      border: 0.5px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; color: var(--text); flex-shrink: 0;
+    }
+    .sq svg { width: 20px; height: 20px; }
+    .sq.brand { background: var(--brand); border: 0; color: #fff; }
+    .avatar {
+      width: 40px; height: 40px; border-radius: 13px;
+      background: var(--brand); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 15px; flex-shrink: 0;
+    }
+    .search {
+      margin: 4px 16px 0; background: var(--secondary); border-radius: 14px;
+      padding: 10px 16px; color: #9ca3af; font-size: 16px; font-weight: 500;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .search svg { width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
+    .chips { display: flex; gap: 8px; padding: 10px 16px 6px; overflow: hidden; flex-shrink: 0; }
+    .chip {
+      padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: var(--secondary); color: var(--muted); white-space: nowrap;
+    }
+    .chip.on { background: #000; color: #fff; }
+    .scroll { flex: 1; overflow: hidden; }
+    .sec {
+      padding: 12px 16px 4px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+    }
+    .mail {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 0.5px solid var(--border);
+    }
+    .mail.unread .from, .mail.unread .subj { font-weight: 700; }
+    .av {
+      width: 44px; height: 44px; border-radius: 12px;
+      color: #fff; font-weight: 700; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .av.c1 { background: #3b82f6; }
+    .av.c2 { background: #8b5cf6; }
+    .av.c3 { background: #10b981; }
+    .av.c4 { background: #f59e0b; }
+    .av.c5 { background: #ec4899; }
+    .mail-main { flex: 1; min-width: 0; }
+    .mail-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .from { font-size: 16px; font-weight: 500; }
+    .when { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+    .when.un { color: var(--brand); font-weight: 600; }
+    .subj { font-size: 15px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prev { font-size: 14px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mail-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 4px; background: var(--brand); flex-shrink: 0;
+    }
+    .star { color: var(--star); }
+    .paperclip { color: var(--muted); }
+    .home-bar {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; background: #000; border-radius: 3px;
+    }
+    .login {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 24px 28px 48px;
+    }
+    .login-inner { width: 100%; max-width: 440px; }
+    .login-mark {
+      width: 72px; height: 72px; border-radius: 20px;
+      background: var(--brand-tint);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 30px;
+    }
+    .login-mark .mark { width: 40px; height: 28px; }
+    .welcome { text-align: center; margin-bottom: 40px; }
+    .welcome h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .welcome p { font-size: 15px; color: var(--subtle); line-height: 22px; }
+    .field {
+      width: 100%; height: 44px; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 0 16px; color: #9ca3af; font-size: 16px;
+      display: flex; align-items: center; margin-bottom: 14px; background: #fff;
+    }
+    .field.pw { justify-content: space-between; }
+    .forgot { text-align: right; font-size: 13px; color: var(--subtle); margin: -6px 0 28px; }
+    .signin {
+      width: 100%; height: 48px; background: var(--brand); color: #fff; border-radius: 12px;
+      font-weight: 600; font-size: 17px; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(240,101,67,0.25);
+    }
+    .or {
+      display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--subtle); font-size: 14px; font-weight: 500;
+    }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: #e5e7eb; }
+    .oauth {
+      width: 100%; height: 48px; border: 1px solid #e5e7eb; border-radius: 12px;
+      font-weight: 600; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      margin-bottom: 10px; background: #fff;
+    }
+    .oauth.apple { background: #000; color: #fff; border: 0; }
+    .g { width: 20px; height: 20px; }
+    .drawer-scrim {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.35);
+    }
+    .drawer {
+      position: absolute; top: 0; bottom: 0; left: 0; width: 78%; max-width: 340px;
+      background: #fff; display: flex; flex-direction: column;
+      box-shadow: 8px 0 32px rgba(0,0,0,0.18);
+      padding-top: 54px;
+    }
+    .drawer-brand {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px 20px;
+      font-size: 18px; font-weight: 700;
+    }
+    .drawer-brand .logo {
+      width: 36px; height: 36px; border-radius: 10px; background: var(--brand);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .drawer-brand .logo .mark { width: 22px; height: 16px; }
+    .lab {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 20px; font-size: 16px; font-weight: 500; color: var(--text);
+    }
+    .lab.on { background: var(--brand-tint); color: var(--brand); font-weight: 700; }
+    .lab svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .lab .cnt { margin-left: auto; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .lab.on .cnt { color: var(--brand); }
+    .msg-head {
+      padding: 4px 16px 12px;
+      border-bottom: 0.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .msg-subj { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; line-height: 28px; }
+    .msg-from {
+      display: flex; align-items: center; gap: 12px; margin-top: 16px;
+    }
+    .msg-from .name { font-size: 16px; font-weight: 600; }
+    .msg-from .addr { font-size: 13px; color: var(--muted); }
+    .msg-body {
+      flex: 1; overflow: hidden; padding: 20px 16px 100px;
+      font-size: 16px; line-height: 24px; color: #1f2937;
+    }
+    .msg-body p + p { margin-top: 14px; }
+    .attach {
+      margin-top: 20px; border: 0.5px solid var(--border); border-radius: 14px;
+      padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+    }
+    .attach .ico {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--brand-tint); color: var(--brand);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .attach .n { font-size: 14px; font-weight: 600; }
+    .attach .s { font-size: 12px; color: var(--muted); }
+    .action-bar {
+      position: absolute; left: 16px; right: 16px; bottom: 36px;
+      height: 56px; border-radius: 28px;
+      background: rgba(255,255,255,0.96);
+      border: 0.5px solid rgba(0,0,0,0.06);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.16);
+      display: flex; align-items: center;
+    }
+    .action-bar .act {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+      font-size: 11px; font-weight: 600; color: var(--muted);
+    }
+    .action-bar .act svg { width: 22px; height: 22px; color: var(--text); }
+    .compose-scrim {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+    }
+    .compose-sheet {
+      position: absolute; left: 8px; right: 8px; top: 48px; bottom: 12px;
+      background: #fff; border-radius: 18px;
+      display: flex; flex-direction: column;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.28);
+      overflow: hidden;
+    }
+    .compose-top {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border-bottom: 0.5px solid var(--border);
+    }
+    .compose-top .meta { flex: 1; min-width: 0; }
+    .compose-top .meta .t { font-size: 16px; font-weight: 700; }
+    .compose-top .meta .f { font-size: 12px; color: var(--muted); }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 20px; background: var(--send); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .send-btn svg { width: 18px; height: 18px; }
+    .compose-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 0.5px solid var(--border);
+      font-size: 15px;
+    }
+    .compose-row .lbl { color: var(--muted); width: 36px; flex-shrink: 0; }
+    .pill {
+      background: var(--pill); color: var(--pill-text);
+      padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    }
+    .compose-body {
+      flex: 1; padding: 16px; font-size: 16px; line-height: 24px; color: #374151;
+    }
+    .compose-toolbar {
+      position: absolute; left: 20px; bottom: 28px;
+      height: 48px; border-radius: 24px; padding: 0 8px;
+      background: rgba(255,255,255,0.96);
+      border: 0.5px solid rgba(0,0,0,0.08);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.14);
+      display: flex; align-items: center; gap: 4px;
+    }
+    .compose-toolbar .tb {
+      width: 40px; height: 40px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center; color: var(--text);
+    }
+    .compose-toolbar .tb svg { width: 20px; height: 20px; }
+    .mark { width: 40px; height: 28px; }
+    .mark.lg { width: 110px; height: 78px; }
+    .feature {
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg, #fff1ed 0%, #fff 48%, #ffe8e1 100%);
+      display: flex; align-items: center; padding: 40px 48px; gap: 32px;
+    }
+    .feature h1 { font-size: 48px; font-weight: 800; letter-spacing: -1.2px; }
+    .feature p { font-size: 20px; color: var(--muted); margin-top: 8px; max-width: 520px; line-height: 1.35; }
+    .feature-icon {
+      width: 120px; height: 120px; border-radius: 28px;
+      background: var(--brand);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 24px rgba(240,101,67,0.25);
+      flex-shrink: 0;
+    }
+    .feature-icon .mark { width: 64px; height: 46px; }
+    .filter-row {
+      display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="phone" id="app"></div>
+  <script>
+    // Official WeldMail mark (platform public/assets/images/weldmail/icon.svg).
+    const MARK = `<svg class="mark" viewBox="0 0 937.21 669.01" xmlns="http://www.w3.org/2000/svg"><path fill="#F06543" d="M787.08,0H150.13C67.22,0,0,67.21,0,150.12v368.76c0,82.91,67.22,150.13,150.13,150.13h636.95c82.91,0,150.13-67.22,150.13-150.13V150.12C937.21,67.21,869.99,0,787.08,0ZM780.05,230.53l-180.95,138.23c-39.2,29.91-86.23,44.87-133.25,44.87s-93.98-14.96-133.19-44.87c-.11-.06-.17-.11-.28-.17l-175.45-136.42c-15.98-12.41-18.87-35.41-6.46-51.38,12.46-15.98,35.46-18.81,51.38-6.41l175.34,136.26c52.29,39.77,125.26,39.77,177.49-.06l180.95-138.23c16.04-12.3,39.04-9.18,51.27,6.85,12.3,16.09,9.24,39.03-6.85,51.33Z"/></svg>`;
+    const MARK_WHITE = MARK.replaceAll('#F06543', '#fff');
+    const params = new URLSearchParams(location.search);
+    const scene = params.get('scene') || 'inbox';
+    const isIos = params.get('platform') !== 'android';
+    const svg = (d, w = 24) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const I = {
+      menu: svg('<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>'),
+      pen: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+      search: svg('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+      star: svg('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'),
+      paperclip: svg('<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
+      inbox: svg('<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
+      send: svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
+      reply: svg('<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>'),
+      replyAll: svg('<polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 0 0-4-4H7"/>'),
+      forward: svg('<polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/>'),
+      x: svg('<path d="M18 6 6 18M6 6l12 12"/>'),
+      eye: svg('<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>'),
+      file: svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
+      bold: svg('<path d="M6 4h8a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H6z"/>'),
+      clock: svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+      sent: svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
+      draft: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+      tag: svg('<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>'),
+      g: `<svg class="g" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5c-.3 1.5-1.1 2.8-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.2 0-5.8-2.1-6.8-5H1.2v3.1C3.2 21.4 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.2 14.3A7.2 7.2 0 0 1 4.8 12c0-.8.1-1.6.4-2.3V6.6H1.2A12 12 0 0 0 0 12c0 1.9.5 3.8 1.2 5.4l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C18 1.2 15.2 0 12 0 7.3 0 3.2 2.6 1.2 6.6l4 3.1c1-2.9 3.6-4.9 6.8-4.9z"/></svg>`,
+      apple: `<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.3 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-.1 2.9-2.2c1.1-1.5 1.5-2.9 1.5-3 0-.1-2.8-1.1-2.8-4.5zM14.6 5.8c.6-.8 1.1-1.8.9-2.8-.9 0-2 .6-2.6 1.3-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.6-1.3z"/></svg>`,
+    };
+
+    const status = () => `<div class="status"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
+
+    function mail(initial, cls, from, when, whenCls, subj, prev, opts = {}) {
+      return `<div class="mail${opts.unread ? ' unread' : ''}">
+        <div class="av ${cls}">${initial}</div>
+        <div class="mail-main">
+          <div class="mail-top"><span class="from">${from}</span><span class="when ${whenCls||''}">${when}</span></div>
+          <div class="subj">${subj}</div>
+          <div class="prev">${prev}</div>
+          <div class="mail-meta">
+            ${opts.unread ? '<span class="dot"></span>' : ''}
+            ${opts.star ? `<span class="star">${I.star}</span>` : ''}
+            ${opts.attach ? `<span class="paperclip">${I.paperclip}</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    const inboxList = `
+      <div class="sec">Today</div>
+      ${mail('A','c1','Anna Vermeer','9:18','un','Q4 launch checklist','Can you confirm the App Store assets are ready…',{unread:true,star:true})}
+      ${mail('N','c2','Nordhaven BV','8:42','un','Invoice INV-1042','Please find attached our purchase order for…',{unread:true,attach:true})}
+      <div class="sec">Yesterday</div>
+      ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still outstanding…',{star:true})}
+      ${mail('S','c4','Sofia Lind','Yesterday','','Design review','Hero layout looks good — one note on CTA…',{})}
+      ${mail('M','c5','Maya Chen','Yesterday','','Patch shipped','Tokens are live on preview; please smoke-test…',{attach:true})}
+      ${mail('T','c1','Tom Bakker','Mon','','Customer update draft','First pass attached — tone check welcome.',{attach:true})}`;
+
+    const inboxChrome = (title = 'Inbox') => `
+      ${status()}
+      <div class="header">
+        <div class="sq">${I.menu}</div>
+        <div class="title">${title}</div>
+        <div class="sq brand">${I.pen}</div>
+        <div class="avatar">G</div>
+      </div>
+      <div class="search">${I.search} Search mail</div>
+      <div class="chips">
+        <div class="chip on">All</div>
+        <div class="chip">Unread</div>
+        <div class="chip">Starred</div>
+        <div class="chip">Attachments</div>
+      </div>`;
+
+    const scenes = {
+      login: () => `
+        ${status()}
+        <div class="login">
+          <div class="login-inner">
+            <div class="login-mark">${MARK}</div>
+            <div class="welcome">
+              <h1>Sign in to your account</h1>
+              <p>Professional email client</p>
+            </div>
+            <div class="field">Email address</div>
+            <div class="field pw"><span>Password</span>${I.eye}</div>
+            <div class="forgot">Forgot password?</div>
+            <div class="signin">Sign In</div>
+            <div class="or">or</div>
+            <div class="oauth">${I.g} Continue with Google</div>
+            ${isIos ? `<div class="oauth apple">${I.apple} Continue with Apple</div>` : ''}
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      inbox: () => `
+        ${inboxChrome()}
+        <div class="scroll">${inboxList}</div>
+        <div class="home-bar"></div>`,
+      labels: () => `
+        ${inboxChrome()}
+        <div class="scroll">${inboxList}</div>
+        <div class="drawer-scrim"></div>
+        <div class="drawer">
+          <div class="drawer-brand">
+            <div class="logo">${MARK_WHITE}</div>
+            All Inboxes
+          </div>
+          <div class="lab on">${I.inbox} Inbox <span class="cnt">12</span></div>
+          <div class="lab">${I.star} Starred <span class="cnt">4</span></div>
+          <div class="lab">${I.sent} Sent</div>
+          <div class="lab">${I.draft} Drafts <span class="cnt">2</span></div>
+          <div class="lab">${I.clock} Scheduled</div>
+          <div class="lab">${I.tag} Customers</div>
+          <div class="lab">${I.tag} Vendors</div>
+        </div>
+        <div class="home-bar"></div>`,
+      message: () => `
+        ${status()}
+        <div class="header">
+          <div class="sq" style="border:0;font-size:28px;font-weight:300;color:var(--muted)">‹</div>
+          <div class="title center">Message</div>
+          <div class="sq">${I.star}</div>
+          <div class="sq">${I.paperclip}</div>
+        </div>
+        <div class="msg-head">
+          <div class="msg-subj">Q4 launch checklist</div>
+          <div class="msg-from">
+            <div class="av c1" style="width:44px;height:44px">A</div>
+            <div>
+              <div class="name">Anna Vermeer</div>
+              <div class="addr">to you · Today 9:18</div>
+            </div>
+          </div>
+        </div>
+        <div class="msg-body">
+          <p>Hi — can you confirm the App Store assets for WeldFlow and WeldMail are ready before standup?</p>
+          <p>We still need the 6.7" shots and the Android feature graphic. Once those land I will push the listing copy.</p>
+          <p>Thanks,<br/>Anna</p>
+          <div class="attach">
+            <div class="ico">${I.file}</div>
+            <div>
+              <div class="n">q4-launch-checklist.pdf</div>
+              <div class="s">248 KB</div>
+            </div>
+          </div>
+        </div>
+        <div class="action-bar">
+          <div class="act">${I.reply} Reply</div>
+          <div class="act">${I.replyAll} Reply all</div>
+          <div class="act">${I.forward} Forward</div>
+        </div>
+        <div class="home-bar"></div>`,
+      compose: () => `
+        ${inboxChrome()}
+        <div class="scroll" style="opacity:0.35">${inboxList}</div>
+        <div class="compose-scrim"></div>
+        <div class="compose-sheet">
+          <div class="compose-top">
+            <div class="sq" style="border:0">${I.x}</div>
+            <div class="avatar" style="width:36px;height:36px;font-size:14px">G</div>
+            <div class="meta">
+              <div class="t">New message</div>
+              <div class="f">you@acme.studio</div>
+            </div>
+            <div class="send-btn">${I.send}</div>
+          </div>
+          <div class="compose-row"><span class="lbl">To</span><span class="pill">anna@acme.studio</span></div>
+          <div class="compose-row"><span class="lbl">Cc</span><span style="color:#9ca3af">Add</span></div>
+          <div class="compose-row"><span class="lbl">Subj</span><span style="font-weight:600">Re: Q4 launch checklist</span></div>
+          <div class="compose-body">
+            Assets are ready — uploading the 6.7" and feature graphic now. Listing copy matches store-listing-en.md.
+          </div>
+          <div class="compose-toolbar">
+            <div class="tb">${I.bold}</div>
+            <div class="tb">${I.paperclip}</div>
+            <div class="tb">${I.clock}</div>
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      search: () => `
+        ${status()}
+        <div class="header">
+          <div class="sq" style="border:0;font-size:28px;font-weight:300;color:var(--muted)">‹</div>
+          <div class="title center">Search</div>
+          <div style="width:40px"></div>
+        </div>
+        <div class="search">${I.search} Search in mail</div>
+        <div class="filter-row">
+          <div class="chip on">From</div>
+          <div class="chip">To</div>
+          <div class="chip">Subject</div>
+          <div class="chip">Label</div>
+          <div class="chip">Has attachment</div>
+        </div>
+        <div class="scroll">
+          <div class="sec">Recent</div>
+          ${mail('A','c1','Anna Vermeer','9:18','','Q4 launch checklist','Can you confirm the App Store assets…',{unread:true})}
+          ${mail('N','c2','Nordhaven BV','8:42','','Invoice INV-1042','Please find attached our purchase order…',{attach:true})}
+          ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still…',{})}
+        </div>
+        <div class="home-bar"></div>`,
+      feature: () => `
+        <div class="feature">
+          <div class="feature-icon">${MARK_WHITE}</div>
+          <div>
+            <h1>WeldMail</h1>
+            <p>Read, reply, and send mail from your phone.</p>
+          </div>
+        </div>`,
+    };
+
+    document.getElementById('app').innerHTML = (scenes[scene] || scenes.inbox)();
+  </script>
+</body>
+</html>
