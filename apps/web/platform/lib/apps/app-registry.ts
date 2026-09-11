@@ -111,12 +111,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: makeLogo('weldhost'),
     sidebarIconClass: 'h-[27px] w-[27px]',
   },
-  // No `icon`/`logo` yet — WeldPass has no SVG artwork, so the getters fall
-  // back to the lucide icon. Add the asset files and a `makeLogo('weldpass')`
-  // here when it exists; nothing else needs to change.
+  // WeldPass. Icon-only logo like welddata/weldbooks — wordmark variants
+  // need the brand typeface and can be added later.
   weldpass: {
     lucideIcon: KeyRound,
     shortName: 'Secrets',
+    icon: '/assets/images/weldpass/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldpass/logo-light.svg',
+      iconDark: '/assets/images/weldpass/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
   },
   weldchat: {
     lucideIcon: MessageCircle,
