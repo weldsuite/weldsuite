@@ -2,21 +2,17 @@
  * WeldChat mobile call context.
  *
  * Mirrors the platform's `weldchat-call-context.tsx` for the mobile client.
- * Cloudflare RealtimeKit handles the actual WebRTC media (in `call-room.tsx`);
+ * Cloudflare RealtimeKit handles the actual WebRTC media (in `CallHost`);
  * this context owns:
- *   - incoming-call signaling — subscribes to the caller's personal realtime
- *     topic `chat.user.${userId}` for `call_incoming` / `call_ended` events,
- *     exactly like the web platform, so a call placed from ANY surface (web
- *     platform, another mobile app) rings here in real time when foregrounded;
+ *   - incoming-call signaling — realtime `call_incoming` on
+ *     `chat.user.${userId}`, plus Expo push (`chat_incoming_call`) via
+ *     `incoming-call-bridge` when the socket is asleep in background;
+ *   - foreground recovery — on AppState `active`, poll `/chat-calls/active`
+ *     for unanswered DM rings the user may have missed;
  *   - the call lifecycle (start / join / accept / decline / leave) over the
  *     shared app-api `/chat-calls/*` endpoints;
- *   - the joinable `session` (callId + RealtimeKit authToken) that `call-room`
+ *   - the joinable `session` (callId + RealtimeKit authToken) that `CallHost`
  *     consumes to connect to the SFU.
- *
- * Background / locked-screen delivery is handled separately by the push
- * notification (`chat_incoming_call`) the backend already sends — the tap
- * handler in `NotificationContext` routes into `call-room`, which calls
- * `joinCallById` here.
  */
 
 import React, {
@@ -28,12 +24,17 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Vibration } from 'react-native';
+import { AppState, Vibration } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime/types';
 import { appApi } from '@/services/app-api';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
+import {
+  incomingCallPayloadFromNotificationData,
+  setIncomingCallPushHandler,
+  type IncomingCallPushPayload,
+} from '@/lib/incoming-call-bridge';
 
 const RINGTONE = require('@/assets/sounds/ringtone.wav');
 
@@ -172,11 +173,107 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   // the latest value without re-subscribing on every transition.
   const statusRef = useRef(status);
   statusRef.current = status;
+  const incomingCallRef = useRef(incomingCall);
+  incomingCallRef.current = incomingCall;
 
   // Guards a single in-flight start/join so a UI "Join" tap and a push-tap
   // (joinCallById) can't both request a join token for the same call and race
   // each other's setSession. Reset in every start/join path's finally block.
   const joinInFlightRef = useRef(false);
+
+  const presentIncoming = useCallback((payload: IncomingCallPushPayload) => {
+    if (statusRef.current !== 'idle') {
+      // Already ringing for this same call — ignore duplicate push/realtime.
+      if (incomingCallRef.current?.callId === payload.callId) return;
+      return;
+    }
+    if (!payload.callId) return;
+    setIncomingCall({
+      callId: payload.callId,
+      channelId: payload.channelId,
+      callType: payload.callType ?? 'voice',
+      callerName: payload.callerName || 'Incoming call',
+      callerAvatar: payload.callerAvatar,
+    });
+    setStatus('ringing-incoming');
+    // Full-screen modal owns the ring — clear the OS banner so they don't stack.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
+      const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
+        dismissPresentedNotificationsWhere: (
+          match: (data: Record<string, unknown>) => boolean,
+        ) => Promise<void>;
+      };
+      void dismissPresentedNotificationsWhere(
+        (data) => data.notificationType === 'chat_incoming_call' && data.entityId === payload.callId,
+      );
+    } catch {
+      // Expo Go
+    }
+  }, []);
+
+  // Push path (NotificationContext) → Accept/Decline modal when WS is asleep.
+  useEffect(() => {
+    setIncomingCallPushHandler(presentIncoming);
+    return () => setIncomingCallPushHandler(null);
+  }, [presentIncoming]);
+
+  // After background, the personal socket may have missed `call_incoming`.
+  // Reconcile against active DM calls the user has not joined yet.
+  // After background, the personal socket may have missed `call_incoming`.
+  // Reconcile against active DM calls the user has not joined yet.
+  const recoverIncomingFromServer = useCallback(async () => {
+    if (!userId || statusRef.current !== 'idle') return;
+    try {
+      const { data: calls } = await appApi.chatCalls.active();
+      const candidate = (calls ?? []).find((call) => {
+        // Only DM rings (same rule as the backend push). Older API builds omit
+        // channelType — skip those rows rather than risk ringing a channel huddle.
+        if (call.channelType !== 'dm') return false;
+        if (!call.initiatorId || call.initiatorId === userId) return false;
+        // Only the initiator is on the call so far — still ringing for us.
+        if ((call.participantCount ?? 0) > 1) return false;
+        return call.status === 'ringing' || call.status === 'active';
+      });
+      if (!candidate || statusRef.current !== 'idle') return;
+      presentIncoming({
+        callId: candidate.callId,
+        channelId: candidate.channelId,
+        callType: candidate.callType ?? 'voice',
+        callerName: candidate.initiatorName || 'Incoming call',
+      });
+    } catch {
+      // best-effort recovery
+    }
+  }, [userId, presentIncoming]);
+
+  useEffect(() => {
+    void recoverIncomingFromServer();
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      void recoverIncomingFromServer();
+      // Also re-surface from a still-presented OS banner (works even before the
+      // enriched /active response is deployed).
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
+        const Notifications = require('expo-notifications') as typeof import('expo-notifications');
+        void Notifications.getPresentedNotificationsAsync().then((presented) => {
+          if (statusRef.current !== 'idle') return;
+          for (const n of presented) {
+            const data = (n.request.content.data ?? {}) as Record<string, unknown>;
+            const payload = incomingCallPayloadFromNotificationData(data);
+            if (payload) {
+              presentIncoming(payload);
+              return;
+            }
+          }
+        });
+      } catch {
+        // Expo Go
+      }
+    });
+    return () => sub.remove();
+  }, [recoverIncomingFromServer, presentIncoming]);
 
   // Safety net: if we enter 'connecting' but never reach 'connected' — e.g. the
   // user backs out of the call room before the SFU room is joined — don't leave
@@ -207,18 +304,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   // Personal-topic handler: incoming ring + remote cancellation.
   const handlePersonalEvent = useCallback((event: WorkspaceEvent<Record<string, unknown>>) => {
     if (event.event === 'call_incoming') {
-      // Don't surface a second ring while already busy.
-      if (statusRef.current !== 'idle') return;
       const d = event.data as unknown as IncomingCallData;
       if (!d?.callId) return;
-      setIncomingCall({
+      presentIncoming({
         callId: d.callId,
         channelId: d.channelId,
         callType: (d.callType as CallType) ?? 'voice',
         callerName: d.callerName ?? 'Incoming call',
         callerAvatar: d.callerAvatar,
       });
-      setStatus('ringing-incoming');
     } else if (event.event === 'call_started') {
       // A call became active in one of our channels — track it so the channel
       // screen can show a "Join call" banner.
@@ -270,7 +364,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, []);
+  }, [presentIncoming]);
 
   useTopic<Record<string, unknown>>(userId ? `chat.user.${userId}` : '', handlePersonalEvent);
 

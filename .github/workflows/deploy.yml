@@ -797,6 +797,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_ENV: ${{ needs.prepare.outputs.cf_env }}
         run: |
+          if [ "$CF_ENV" = "test" ]; then
+            PROJECT=weldmail-web-test
+            BRANCH=develop
+          else
+            PROJECT=weldmail-web
+            BRANCH=main
+          fi
           pnpm exec wrangler pages deploy dist \
             --project-name "$PROJECT" \
             --branch "$BRANCH" \

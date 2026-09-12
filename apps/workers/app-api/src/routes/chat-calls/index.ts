@@ -243,6 +243,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
                 recipientUserId: member.userId,
                 callerUserId: userId,
                 callerName: initiatorName,
+                callerAvatar: author?.picture ?? undefined,
                 channelId: data.channelId,
                 callId,
                 callType: data.callType,
@@ -508,6 +509,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
                     recipientUserId: m.userId,
                     callerUserId: userId,
                     callerName: initiatorName,
+                    callerAvatar: author?.picture ?? undefined,
                     channelId: data.channelId,
                     callId,
                     callType: data.callType,
@@ -813,7 +815,7 @@ app.get('/active', requirePermission('channels:read'), async (c) => {
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, chatChannelMembers } = schema;
+    const { chatCalls, chatChannelMembers, chatChannels } = schema;
 
     const memberships = await db
       .select({ channelId: chatChannelMembers.channelId })
@@ -830,8 +832,12 @@ app.get('/active', requirePermission('channels:read'), async (c) => {
         callType: chatCalls.callType,
         status: chatCalls.status,
         participants: chatCalls.participants,
+        initiatorId: chatCalls.initiatorId,
+        initiatorName: chatCalls.initiatorName,
+        channelType: chatChannels.type,
       })
       .from(chatCalls)
+      .innerJoin(chatChannels, eq(chatChannels.id, chatCalls.channelId))
       .where(
         and(
           inArray(chatCalls.channelId, channelIds),
@@ -847,6 +853,9 @@ app.get('/active', requirePermission('channels:read'), async (c) => {
         callType: call.callType,
         status: call.status,
         participantCount,
+        initiatorId: call.initiatorId,
+        initiatorName: call.initiatorName,
+        channelType: call.channelType,
       };
     });
 
