@@ -60,6 +60,10 @@ on:
         description: 'WeldAgent'
         type: boolean
         default: false
+      weldcalendar:
+        description: 'WeldCalendar'
+        type: boolean
+        default: false
       auto-submit:
         description: 'Submit to TestFlight / the Play track in eas.json when the build finishes (needs a populated `submit` profile + store credentials on EAS). Releasing to the public stays manual either way.'
         type: boolean
@@ -90,6 +94,7 @@ jobs:
           WELDBOOKS: ${{ inputs.weldbooks }}
           WELDFLOW: ${{ inputs.weldflow }}
           WELDAGENT: ${{ inputs.weldagent }}
+          WELDCALENDAR: ${{ inputs.weldcalendar }}
           CHANNEL: ${{ inputs.channel }}
           PLATFORM: ${{ inputs.platform }}
           BUILDER: ${{ inputs.builder }}
@@ -105,6 +110,7 @@ jobs:
           add "$WELDBOOKS" weldbooks
           add "$WELDFLOW"  weldflow
           add "$WELDAGENT" weldagent
+          add "$WELDCALENDAR" weldcalendar
 
           if [ ${#apps[@]} -eq 0 ]; then
             echo "::error title=No apps selected::Tick at least one app to build."

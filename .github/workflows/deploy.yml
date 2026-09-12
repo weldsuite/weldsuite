@@ -78,6 +78,7 @@ jobs:
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
       release_weldagent: ${{ steps.changes.outputs.weldagent }}
+      release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
       workers: ${{ steps.matrix.outputs.workers }}
     steps:
       - name: Resolve deploy context
@@ -171,6 +172,13 @@ jobs:
             weldagent:
               - 'apps/mobile/weldagent-app/**'
               - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/design/mobile-ui/**'
+              - 'packages/core/notifications/**'
+            weldcalendar:
+              - 'apps/mobile/weldcalendar-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
@@ -290,6 +298,7 @@ jobs:
           WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
           WELDAGENT: ${{ steps.filter.outputs.weldagent }}
+          WELDCALENDAR: ${{ steps.filter.outputs.weldcalendar }}
           ALL_WORKERS: ${{ steps.filter.outputs.all_workers }}
           W_APP_API: ${{ steps.filter.outputs.app-api }}
           W_BILLING: ${{ steps.filter.outputs.billing-worker }}
@@ -322,6 +331,7 @@ jobs:
               echo "weldbooks=true"
               echo "weldflow=true"
               echo "weldagent=true"
+              echo "weldcalendar=true"
               echo "all_workers=true"
               echo "app-api=true"
               echo "billing-worker=true"
@@ -353,6 +363,7 @@ jobs:
             echo "weldbooks=$WELDBOOKS"
             echo "weldflow=$WELDFLOW"
             echo "weldagent=$WELDAGENT"
+            echo "weldcalendar=$WELDCALENDAR"
             echo "all_workers=$ALL_WORKERS"
             echo "app-api=$W_APP_API"
             echo "billing-worker=$W_BILLING"
@@ -725,6 +736,36 @@ jobs:
           EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
         with:
           app-dir: apps/mobile/weldagent-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
+
+  mobile-weldcalendar:
+    name: Release WeldCalendar (mobile)
+    needs: [prepare, workers, mobile-preflight]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldcalendar == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Release
+        uses: ./.github/actions/mobile-release
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://personal-api.weldsuite.org' }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          EXPO_PUBLIC_EAS_PROJECT_ID: 65953f2a-f287-47d0-9ad2-a48dc8206991
+          EAS_PROJECT_ID: 65953f2a-f287-47d0-9ad2-a48dc8206991
+        with:
+          app-dir: apps/mobile/weldcalendar-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 

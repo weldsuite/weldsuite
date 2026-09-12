@@ -58,7 +58,7 @@ const EAS_PROJECT_ID =
 const APP_CODE = 'weldcalendar';
 
 /**
- * The placeholder `eas init` has not replaced yet. Treating it as "absent"
+ * Absent or still-placeholder EAS project ids. Treating those as "absent"
  * keeps a fresh clone from firing doomed token requests at Expo's push service
  * on every cold start.
  */
