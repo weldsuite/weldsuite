@@ -8,7 +8,7 @@
  * Race-safe: UPDATE ... WHERE neon_project_id IS NULL — only one caller wins.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { workspaces, plans, users } from '@weldsuite/db/schema/master';
 import {
   createProvisioningService,
@@ -62,15 +62,18 @@ export async function provisionWorkspaceDatabase(
       return { ok: true, ready: true };
     }
 
-    // 2. Determine plan slug (defaults to the trial plan for new workspaces)
-    let planSlug = 'business';
+    // 2. Determine plan slug. Drives Neon placement — free tenants land on a
+    //    shared project shard rather than a dedicated project — so defaulting
+    //    to a paid slug here would give every unresolved workspace its own
+    //    Neon project at full cost.
+    let planSlug = DEFAULT_PLAN_SLUG;
     if (workspace?.planId) {
       const [plan] = await masterDb
         .select({ slug: plans.slug })
         .from(plans)
         .where(eq(plans.id, workspace.planId))
         .limit(1);
-      planSlug = plan?.slug || 'business';
+      planSlug = plan?.slug || DEFAULT_PLAN_SLUG;
     }
 
     const effectiveRegion = region || env.NEON_DEFAULT_REGION || 'aws-eu-central-1';
@@ -131,11 +134,14 @@ export interface BillingResult {
   warning?: string;
 }
 
-/** Length of the free trial granted to every new workspace, in days. */
-const TRIAL_PERIOD_DAYS = 14;
-
-/** Default plan every new workspace starts a trial on. */
-const DEFAULT_PLAN_SLUG = 'business';
+/**
+ * Plan every new workspace starts on. Free is single-seat and open-ended, and
+ * replaced the 14-day Business trial — there is no trial any more.
+ *
+ * Must stay in step with DEFAULT_PLAN_SLUG in routes/webhooks/clerk.ts and the
+ * plan lookup in routes/onboard.ts.
+ */
+const DEFAULT_PLAN_SLUG = 'free';
 
 /**
  * Resolve the email to put on the workspace's Stripe customer.
@@ -165,18 +171,19 @@ export async function resolveOwnerEmail(
 
 /**
  * Set up Stripe billing for a new workspace.
- * Creates a Stripe customer and a 14-day trialing subscription on the default
- * plan (Business).
  *
- * TODO(pricing): the premium model requires a card up front at trial start,
- * but ONLY for brand-new signups. Existing / grandfathered workspaces are never
- * required to add a card. This function runs in a non-interactive provisioning
- * workflow, so it cannot collect a card here — enforcing card-required for new
- * signups means starting their trial through a Stripe Checkout session during
- * onboarding instead of auto-creating the cardless trial below. Existing
- * accounts changing plans keep going through the in-app flow with no new card
- * requirement. Until that onboarding change lands, the trial is created cardless
- * and cancels at trial end if no card is added (trial_settings below).
+ * Creates the Stripe customer only. New workspaces start on Free, which has no
+ * price and therefore no subscription — one is created later, through the
+ * in-app upgrade flow, if and when the workspace moves to a paid plan. The
+ * customer is still created up front so that upgrade has something to attach
+ * to and so invoices/receipts reach the right address.
+ *
+ * This replaces the auto-created cardless 14-day Business trial. That trial
+ * relied on `trial_settings[end_behavior][missing_payment_method]=cancel` to
+ * cancel itself, and on the `paidPlanRequired` deletion policy to tear down the
+ * workspace afterwards. Neither applies now: Free is open-ended, so there is
+ * nothing to expire and nothing to reclaim.
+ *
  * Returns a result object with IDs and any warnings.
  *
  * `ownerEmail` is the signing-up user's email. Stripe needs it to reach the
@@ -245,74 +252,9 @@ export async function setupWorkspaceBilling(
     console.log(`[Billing] Created Stripe customer ${customerId} for workspace ${workspaceId}`);
   }
 
-  // Step 2: Look up the default plan's Stripe price
-  const [defaultPlan] = await masterDb
-    .select({
-      id: plans.id,
-      stripePriceIdMonthly: plans.stripePriceIdMonthly,
-    })
-    .from(plans)
-    .where(and(eq(plans.slug, DEFAULT_PLAN_SLUG), isNull(plans.deletedAt)));
-
-  if (!defaultPlan) {
-    console.error(`[Billing] No ${DEFAULT_PLAN_SLUG} plan found in database — cannot create trial subscription`);
-    return { customerId, warning: `No ${DEFAULT_PLAN_SLUG} plan found in database` };
-  }
-
-  if (!defaultPlan.stripePriceIdMonthly) {
-    console.error(`[Billing] ${DEFAULT_PLAN_SLUG} plan has no stripePriceIdMonthly — cannot create trial subscription`);
-    return { customerId, warning: `${DEFAULT_PLAN_SLUG} plan has no stripePriceIdMonthly` };
-  }
-
-  // Step 3: Create a 14-day trialing subscription with no payment method.
-  // `trial_settings[end_behavior][missing_payment_method]=cancel` makes the
-  // subscription cancel itself when the trial ends and no card was added,
-  // instead of generating an unpaid invoice.
-  const subRes = await fetch('https://api.stripe.com/v1/subscriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': stripeAuth,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      customer: customerId,
-      'items[0][price]': defaultPlan.stripePriceIdMonthly,
-      trial_period_days: String(TRIAL_PERIOD_DAYS),
-      'trial_settings[end_behavior][missing_payment_method]': 'cancel',
-      'metadata[workspaceId]': workspaceId,
-      'metadata[planId]': defaultPlan.id,
-      'metadata[clerkOrgId]': clerkOrgId,
-    }),
-  });
-
-  if (!subRes.ok) {
-    const err = await subRes.text();
-    throw new Error(`Stripe subscription creation failed: ${err}`);
-  }
-
-  const subscription = await subRes.json() as {
-    id: string;
-    status?: string;
-    current_period_start?: number;
-    current_period_end?: number;
-  };
-
-  await masterDb
-    .update(workspaces)
-    .set({
-      stripeSubscriptionId: subscription.id,
-      subscriptionStatus: subscription.status || 'trialing',
-      subscriptionCycle: 'monthly',
-      subscriptionCurrentPeriodStart: subscription.current_period_start
-        ? new Date(subscription.current_period_start * 1000)
-        : null,
-      subscriptionCurrentPeriodEnd: subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000)
-        : null,
-      updatedAt: new Date(),
-    })
-    .where(eq(workspaces.id, workspaceId));
-
-  console.log(`[Billing] Created ${TRIAL_PERIOD_DAYS}-day trial subscription ${subscription.id} for workspace ${workspaceId}`);
-  return { customerId, subscriptionId: subscription.id };
+  // No subscription: Free has no Stripe price. The workspace gets one when it
+  // upgrades, through the in-app billing flow, which is also where a card is
+  // collected. Leaving subscriptionStatus null here is what marks a workspace
+  // as "on Free" for the billing surfaces.
+  return { customerId };
 }

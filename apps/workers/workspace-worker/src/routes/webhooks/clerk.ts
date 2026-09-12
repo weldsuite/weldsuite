@@ -84,8 +84,12 @@ function mapClerkRoleToDisplay(clerkRole: string): 'OWNER' | 'ADMIN' | 'MEMBER' 
   }
 }
 
-// New workspaces start a 14-day trial on this plan (see setupWorkspaceBilling).
-const DEFAULT_PLAN_SLUG = 'business';
+// New workspaces start on Free (single seat, open-ended). There is no trial —
+// Free is how people try WeldSuite. Must stay in step with the same constant in
+// services/provisioning.ts and the lookup in routes/onboard.ts: all three can
+// create a workspace and they race, so a disagreement means the plan a signup
+// lands on depends on which one wins.
+const DEFAULT_PLAN_SLUG = 'free';
 
 export const clerkWebhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -208,10 +212,12 @@ async function handleOrganizationCreated(
         slug: org.slug,
         imageUrl: org.image_url,
         planId: defaultPlan?.id || null,
-        // New signup → subject to the "add payment or be deleted" policy.
-        // Only set on insert; the conflict-update below intentionally omits it
-        // so a grandfathered existing workspace is never flipped.
-        paidPlanRequired: true,
+        // Free is open-ended, so new signups are NOT subject to the "add
+        // payment or be deleted" policy — that existed to catch expiring
+        // trials, and there is no trial any more. Only set on insert; the
+        // conflict-update below intentionally omits it so a grandfathered
+        // existing workspace is never flipped.
+        paidPlanRequired: false,
         isActive: true,
       })
       .onConflictDoUpdate({

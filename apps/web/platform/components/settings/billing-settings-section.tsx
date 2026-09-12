@@ -787,9 +787,6 @@ export function BillingSettingsSection() {
   const isTrialing = String(subscription?.status ?? '').toLowerCase() === 'trialing';
   const trialEndsAt = subscription?.currentPeriodEnd ?? null;
 
-  // Eligible for a 14-day trial only with no subscription or on the retired
-  // free plan — mirrors the backend /checkout rule.
-  const trialEligible = !subscription || subscription.planSlug === 'free';
 
   const getInvoiceStatusBadge = (status: string) => {
     if (status === 'paid' || status === 'succeeded') {
@@ -830,7 +827,6 @@ export function BillingSettingsSection() {
 
     const getButtonText = (plan: Billing.BillingPlan) => {
       if (currentApiPlan?.id === plan.id) return t('settings.billing.currentPlan');
-      if (trialEligible && plan.slug === 'business') return t('sweep.settings.billing.start14DayTrial');
       if (!currentApiPlan) return t('sweep.settings.billing.getStarted');
       if (plan.monthlyPrice < currentApiPlan.monthlyPrice) return t('sweep.settings.billing.downgrade');
       if (plan.monthlyPrice > currentApiPlan.monthlyPrice) return t('sweep.settings.billing.upgrade');
@@ -1002,12 +998,6 @@ export function BillingSettingsSection() {
                     : (isAnnual ? t('sweep.settings.billing.perUserMonthBilledAnnually') : t('sweep.settings.billing.perUserMonth'))}
                 </p>
 
-                {/* Trial note (Business only) */}
-                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-6 h-4">
-                  {plan.slug === 'business' && trialEligible && !isPlanCurrent(plan)
-                    ? t('sweep.settings.billing.trialNote14Day')
-                    : ''}
-                </p>
 
                 {/* Description */}
                 {plan.description && (

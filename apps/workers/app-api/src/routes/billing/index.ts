@@ -595,14 +595,11 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
     return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
   }
 
-  // Trial eligibility: the 14-day trial applies to the Business plan only, and
-  // only for workspaces still on the legacy free plan converting to their first
-  // paid subscription. New signups already receive their Business trial at
-  // provisioning, and paid → paid switches must not reset the trial, so both
-  // keep the current plan's slug !== 'free'.
-  const currentPlan = await getPlanById(masterDb, workspace.planId);
-  const currentPlanSlug = currentPlan?.slug ?? null;
-  const trialPeriodDays = currentPlanSlug === 'free' && plan.slug === 'business' ? 14 : undefined;
+  // No trial. Free is the way to try WeldSuite, so a paid plan starts billing
+  // immediately — including the Free → Business upgrade, which used to be the
+  // one path that still granted 14 days. Leaving trialPeriodDays undefined
+  // means Stripe Checkout charges at the end of checkout.
+  const trialPeriodDays = undefined;
 
   // Ensure customer exists
   let customerId = workspace.stripeCustomerId;
