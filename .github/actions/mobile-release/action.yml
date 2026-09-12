@@ -1,9 +1,10 @@
 name: Mobile release
 description: >-
-  Publish an OTA update for an Expo app. Runtime compatibility uses
-  `runtimeVersion.policy: appVersion` — bump `expo.version` and ship a native
-  build when native code changes. Native builds are started by hand in the
-  "Mobile native build" workflow.
+  Publish an OTA update for an Expo app. Runtime compatibility uses a string
+  `runtimeVersion` matching `expo.version` (bare-workflow apps reject
+  `policy: appVersion`). Bump `expo.version` and ship a native build when native
+  code changes. Native builds are started by hand in the "Mobile native build"
+  workflow.
 
 inputs:
   app-dir:
