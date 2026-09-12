@@ -114,6 +114,13 @@ const withFullScreenIntent = (config) => {
 };
 
 module.exports = ({ config }) => {
+  // Bare workflow (checked-in android/) rejects runtimeVersion policies like
+  // `{ policy: "appVersion" }` during `eas update`. Keep a plain string in sync
+  // with expo.version so OTA targets the same installs a policy would have.
+  if (config.version) {
+    config.runtimeVersion = config.version;
+  }
+
   config = withFirebaseConfigFiles(config);
   config = withMediaProjectionPermissionRemoved(config);
   config = withSystemAlertWindowRemoved(config);

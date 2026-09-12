@@ -9,9 +9,10 @@
 # into the binary and decides which OTA channel it subscribes to. Set
 # `builder: eas` to fall back to a cloud build.
 #
-# Apps use `runtimeVersion.policy: appVersion` (not fingerprint) so local
-# builds do not hit the managed-vs-prebuild fingerprint mismatch. Bump
-# `expo.version` when native code changes, then ship a new binary.
+# Apps pin `runtimeVersion` to the same string as `expo.version` (not
+# fingerprint, and not a policy — bare-workflow apps like WeldChat reject
+# `{ policy: "appVersion" }` at `eas update` time). Bump `expo.version` when
+# native code changes, then ship a new binary.
 #
 # The job runs in the `test` / `production` GitHub Environment, which is where
 # EXPO_TOKEN lives. Adding required reviewers to that environment turns this

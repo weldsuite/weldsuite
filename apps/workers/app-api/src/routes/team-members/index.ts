@@ -63,6 +63,7 @@ import * as notesService from '../../services/team/notes';
 import * as commonService from '../../services/team/common-concepts';
 import * as activityService from '../../services/team/activity';
 import * as memberAccessService from '../../services/team/member-access';
+import { getWorkspaceSeatLimit } from '../../services/seat-limits';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -409,6 +410,27 @@ app.post('/invite', async (c) => {
     return error.conflict(c, 'An invitation has already been sent to this email address.');
   }
 
+  // Seat check, internal members only — guests are tagged EXTERNAL_GUEST and
+  // excluded from the seat count, so they never consume one. Clerk enforces
+  // the same cap via max_allowed_memberships and would reject this anyway;
+  // checking first turns a generic 500 into an answer the UI can act on,
+  // which matters most on Free, where the cap is a single seat.
+  if (!isGuest) {
+    try {
+      const seats = await getWorkspaceSeatLimit(c.env, orgId);
+      if (seats?.atLimit) {
+        return error.forbidden(
+          c,
+          `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`,
+        );
+      }
+    } catch (err) {
+      // Never block an invite because the limit lookup failed — Clerk is
+      // still the hard gate behind this.
+      console.error('[app-api/team-members] Seat-limit check failed, continuing:', err);
+    }
+  }
+
   // For guests: try to short-circuit the email-invitation by adding the
   // existing Clerk user directly to the org. This is what makes "one
   // identity, many workspaces" work.
@@ -483,6 +505,15 @@ app.post('/invite', async (c) => {
       errors?: Array<{ code?: string; message?: string }>;
     };
     const clerkCode = errBody?.errors?.[0]?.code;
+    // Backstop for the seat cap: the pre-flight check above normally catches
+    // this, but it is skipped when the lookup fails and can race a concurrent
+    // invite. Clerk is the authority either way.
+    if (clerkCode?.includes('quota') || clerkCode?.includes('max_allowed_memberships')) {
+      return error.forbidden(
+        c,
+        'Your plan has no seats left. Upgrade your plan to invite more people.',
+      );
+    }
     if (clerkCode === 'duplicate_record' || clerkResp.status === 422) {
       return error.conflict(c, 'An invitation for this email already exists in Clerk.');
     }

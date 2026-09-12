@@ -37,8 +37,14 @@
           "ios": {
             "deploymentTarget": "17.0",
             "extraPods": [
-              { "name": "GoogleUtilities", "modular_headers": true },
-              { "name": "RecaptchaInterop", "modular_headers": true }
+              {
+                "name": "GoogleUtilities",
+                "modular_headers": true
+              },
+              {
+                "name": "RecaptchaInterop",
+                "modular_headers": true
+              }
             ]
           },
           "android": {
@@ -73,13 +79,15 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "65953f2a-f287-47d0-9ad2-a48dc8206991"
       }
     },
     "owner": "weldsuite",
-    "runtimeVersion": { "policy": "appVersion" },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "updates": {
-      "url": "https://u.expo.dev/00000000-0000-0000-0000-000000000000",
+      "url": "https://u.expo.dev/65953f2a-f287-47d0-9ad2-a48dc8206991",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     }

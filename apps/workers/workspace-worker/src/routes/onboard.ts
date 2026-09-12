@@ -155,11 +155,12 @@ async function upsertAndProvision(
       })
       .where(eq(workspaces.id, existing.id));
   } else {
-    // Get the default plan new workspaces start their 14-day trial on
+    // New workspaces start on Free (single seat, no time limit). There is no
+    // trial any more — Free is how people try WeldSuite.
     const [defaultPlan] = await masterDb
       .select({ id: plans.id, maxUsers: plans.maxUsers })
       .from(plans)
-      .where(and(eq(plans.slug, 'business'), isNull(plans.deletedAt)))
+      .where(and(eq(plans.slug, 'free'), isNull(plans.deletedAt)))
       .limit(1);
 
     workspaceId = generateId('ws');
@@ -174,10 +175,11 @@ async function upsertAndProvision(
       slug,
       planId: defaultPlan?.id || null,
       isActive: true,
-      // New signups are subject to the "add payment or workspace is deleted
-      // in 30 days" policy. Existing workspaces are grandfathered (column
-      // defaults to false) — see packages/core/db/src/schema/master.ts.
-      paidPlanRequired: true,
+      // Free is open-ended, so new signups are NOT subject to the "add payment
+      // or workspace is deleted in 30 days" policy. That policy existed to
+      // catch expiring trials; with no trial there is nothing to expire.
+      // See packages/core/db/src/schema/master.ts.
+      paidPlanRequired: false,
     });
 
     console.log(`[Onboard] Created workspace ${workspaceId} for org ${clerkOrgId}`);
