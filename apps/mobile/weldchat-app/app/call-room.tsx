@@ -1,40 +1,52 @@
 /**
- * Call-room route — now a thin shim.
+ * Call-room route — thin shim for deep links.
  *
- * The call UI itself is a global overlay owned by <CallHost> (mounted in the
- * root layout), so it can survive navigation and be minimized. This route only
- * exists as the entry point for a push-notification tap, which deep-links to
- * `/call-room?callId=…`. We join that call (if we aren't already in one), make
- * sure the overlay is expanded, and immediately get out of the way so the
- * overlay — not a stacked screen — drives the experience.
+ * Incoming-call pushes now present Accept/Decline via CallContext (see
+ * `incoming-call-bridge`). This route remains as a fallback for legacy
+ * `/call-room?callId=…` links: fetch the call and present the ring UI
+ * instead of silently auto-joining.
  */
 
 import { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useCall } from '@/contexts/CallContext';
+import { appApi } from '@/services/app-api';
+import { presentIncomingCallFromPush } from '@/lib/incoming-call-bridge';
 
 export default function CallRoom() {
   const router = useRouter();
   const { callId } = useLocalSearchParams<{ callId?: string }>();
-  const { session, joinCallById, expandCall } = useCall();
+  const { session, status, expandCall } = useCall();
   const handled = useRef(false);
 
   useEffect(() => {
     if (handled.current) return;
     handled.current = true;
 
-    // Cold start (push tap): no session yet but a callId → join it.
-    if (!session && callId) {
-      joinCallById(callId).catch(() => {});
-    }
-    // Make sure the overlay is showing full-screen, not minimized.
-    expandCall();
+    const run = async () => {
+      if (!session && callId && status === 'idle') {
+        try {
+          const { data: call } = await appApi.chatCalls.get(callId);
+          if (call && (call.status === 'ringing' || call.status === 'active')) {
+            presentIncomingCallFromPush({
+              callId: call.id,
+              channelId: call.channelId,
+              callType: call.callType,
+              callerName: call.initiatorName || 'Incoming call',
+            });
+          }
+        } catch {
+          // Call may already have ended.
+        }
+      }
+      expandCall();
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)' as never);
+    };
 
-    // Hand off to the global overlay and leave the stack.
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)' as never);
-  }, [session, callId, joinCallById, expandCall, router]);
+    void run();
+  }, [session, callId, status, expandCall, router]);
 
   return (
     <View style={styles.container}>

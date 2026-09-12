@@ -7,6 +7,10 @@ import Constants from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
+import {
+  incomingCallPayloadFromNotificationData,
+  presentIncomingCallFromPush,
+} from '@/lib/incoming-call-bridge';
 
 /**
  * Extract the chat channel id from a notification `actionUrl`. The backend
@@ -124,11 +128,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const notificationType: string | undefined =
         typeof data.notificationType === 'string' ? data.notificationType : undefined;
 
-      if (notificationType === 'chat_incoming_call' && data.entityId) {
-        const callId = typeof data.entityId === 'string' ? data.entityId : '';
-        if (/^[A-Za-z0-9_-]+$/.test(callId)) {
-          router.push(`/call-room?callId=${encodeURIComponent(callId)}` as never);
-        }
+      // Present Accept/Decline (IncomingCallModal) instead of silently
+      // auto-joining — the user needs to see that someone is calling.
+      const incoming = incomingCallPayloadFromNotificationData(data);
+      if (incoming) {
+        presentIncomingCallFromPush(incoming);
         return;
       }
 
@@ -227,14 +231,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           },
         ]);
 
+        // Request permission on first launch (undetermined) — previously we only
+        // registered when already granted, so most users never got a push token
+        // and DM/call notifications silently never arrived.
         if (EAS_PROJECT_ID) {
           const { status } = await Notifications.getPermissionsAsync();
-          if (status === 'granted') {
+          if (status === 'granted' || status === 'undetermined') {
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
             if (token) {
               setIsPermissionGranted(true);
               await registerPushToken(token);
             }
+          } else {
+            setIsPermissionGranted(false);
           }
         }
 
@@ -245,6 +254,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               setUnreadCount(data.unreadCount);
               void notifUtils!.setBadgeCount(data.unreadCount);
             }
+            // Foreground push: WS may be down after background — still ring.
+            const incoming = incomingCallPayloadFromNotificationData(data);
+            if (incoming) presentIncomingCallFromPush(incoming);
           },
           (response: { notification: { request: { content: { data?: Record<string, unknown> } } } }) => {
             navigateFromNotificationData(response.notification.request.content.data ?? {});

@@ -74,6 +74,11 @@ export interface ActiveCallSummary {
   callType: ChatCallType;
   status: ChatCallStatus;
   participantCount: number;
+  /** Initiator — used by mobile to recover an incoming ring after background. */
+  initiatorId?: string;
+  initiatorName?: string;
+  /** Channel type so only DM rings present Accept/Decline (not channel huddles). */
+  channelType?: string;
 }
 
 export function createChatCallsApi(api: ClientApi) {

@@ -157,6 +157,7 @@ interface IncomingCallParams<Env extends NotificationEnv> {
   recipientUserId: string;
   callerUserId: string;
   callerName: string;
+  callerAvatar?: string;
   channelId: string;
   callId: string;
   callType: string;
@@ -165,7 +166,18 @@ interface IncomingCallParams<Env extends NotificationEnv> {
 export async function sendIncomingCallNotification<Env extends NotificationEnv>(
   params: IncomingCallParams<Env>,
 ): Promise<string | null> {
-  const { db, env, workspaceId, recipientUserId, callerUserId, callerName, channelId, callId, callType } = params;
+  const {
+    db,
+    env,
+    workspaceId,
+    recipientUserId,
+    callerUserId,
+    callerName,
+    callerAvatar,
+    channelId,
+    callId,
+    callType,
+  } = params;
   return createAndDeliverNotification({
     db,
     env,
@@ -185,6 +197,13 @@ export async function sendIncomingCallNotification<Env extends NotificationEnv>(
     // event (in-app banner). Email is pointless for a live ring and is the
     // "you are being called" mail users complained about — never send it.
     excludeChannels: ['email'],
-    data: { channelId },
+    // Structured fields so the mobile client can present Accept/Decline without
+    // an extra round-trip when the WebSocket is asleep.
+    data: {
+      channelId,
+      callType,
+      callerName,
+      ...(callerAvatar ? { callerAvatar } : {}),
+    },
   });
 }
