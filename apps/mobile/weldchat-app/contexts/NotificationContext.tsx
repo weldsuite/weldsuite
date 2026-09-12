@@ -154,6 +154,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
 
       const channelId =
+        (typeof data.chatChannelId === 'string' ? data.chatChannelId : null) ??
         (typeof data.channelId === 'string' ? data.channelId : null) ??
         channelIdFromActionUrl(data.actionUrl);
       if (channelId) {

@@ -174,10 +174,6 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     !excludePlans.includes(p.name.toLowerCase())
   );
 
-  // A workspace is eligible for the 14-day trial only if it has no subscription
-  // yet or is still on the retired free plan — mirrors the backend rule so we
-  // never promise a trial to paid customers switching plans.
-  const trialEligible = !subscription || subscription.planSlug === 'free';
 
   const isDowngrade = (plan: Billing.BillingPlan) => {
     if (!subscription) return false;
@@ -292,7 +288,6 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   const getButtonText = (plan: Billing.BillingPlan) => {
     if (isPlanCurrent(plan)) return 'Current Plan';
     if (isContactPlan(plan)) return 'Contact sales';
-    if (trialEligible && plan.slug === 'business') return 'Start 14-day free trial';
     if (isUpgrade(plan)) return 'Upgrade';
     if (isDowngrade(plan)) return 'Downgrade';
     return 'Select Plan';
@@ -576,16 +571,10 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
                   </div>
                 </div>
 
-                {/* Trial note (Business only) */}
-                {trialEligible && selectedPlanForCheckout.slug === 'business' && (
-                  <p className="text-xs text-muted-foreground mt-4 text-center">
-                    Your 14-day free trial starts today — you won&apos;t be charged until it ends.
-                  </p>
-                )}
 
                 {/* Checkout button */}
                 <Button
-                  className={cn('w-full', trialEligible && selectedPlanForCheckout.slug === 'business' ? 'mt-2' : 'mt-6')}
+                  className="w-full mt-6"
                   size="lg"
                   onClick={handleCheckout}
                   disabled={!!processingPlanId || isPending}
@@ -756,12 +745,6 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
                         : (isAnnual ? 'Per user/month, billed annually' : 'Per user/month')}
                     </p>
 
-                    {/* Trial note (Business only) */}
-                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-6 h-4">
-                      {plan.slug === 'business' && trialEligible && !isCurrent
-                        ? '14-day free trial'
-                        : ''}
-                    </p>
 
                     {/* Description */}
                     {plan.description && (

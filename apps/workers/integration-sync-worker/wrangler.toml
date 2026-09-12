@@ -59,7 +59,8 @@ database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 migrations_dir = "migrations/d1"
 
 [env.test.triggers]
-crons = ["*/15 * * * *"]
+# Hourly on test to keep master Neon quieter; production stays at */15.
+crons = ["0 * * * *"]
 
 [env.test.observability]
 enabled = true

@@ -373,9 +373,10 @@ export function MessageItem({
           <Button
             type="button"
             variant="ghost"
+            size="icon"
             onClick={handleAuthorClick}
             style={{ marginTop: '3px' }}
-            className="h-7 w-7 flex-shrink-0 rounded-[9px] bg-muted flex items-center justify-center text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
+            className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] bg-muted flex items-center justify-center text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
             title={`${message.authorName} ${t.weldchat.messageItem.agentClickDetails}`}
           >
             {message.authorAvatar || <Bot className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -384,9 +385,10 @@ export function MessageItem({
           <Button
             type="button"
             variant="ghost"
+            size="icon"
             onClick={handleAuthorClick}
             style={{ marginTop: '3px' }}
-            className="flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
+            className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
             title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
           >
             <Avatar className="h-7 w-7 !rounded-[9px]">
@@ -409,7 +411,7 @@ export function MessageItem({
               type="button"
               variant="ghost"
               onClick={handleAuthorClick}
-              className="font-semibold text-sm hover:underline focus:outline-none focus-visible:underline"
+              className="h-auto px-0 py-0 font-semibold text-sm hover:underline focus:outline-none focus-visible:underline hover:bg-transparent"
             >
               {message.authorName}
             </Button>

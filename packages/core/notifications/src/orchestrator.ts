@@ -75,10 +75,12 @@ function androidDelivery(
     return { channelId: 'incoming_call', priority: 'high' };
   }
   if (category === 'weldchat') {
-    return { channelId: 'chat', priority: 'default' };
+    // high + sound matches a working manual Expo push; default/normal can be
+    // delayed or deprioritised on Android Doze.
+    return { channelId: 'chat', priority: 'high' };
   }
   if (category === 'weldmail' || category === 'mail') {
-    return { channelId: 'email', priority: 'default' };
+    return { channelId: 'email', priority: 'high' };
   }
   if (category === 'weldflow' || category === 'projects' || category === 'task') {
     return { channelId: 'weldflow', priority: 'default' };
@@ -243,7 +245,11 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
 
       const activeTokens = tokens.filter((t: { token: string | null }) => t.token);
 
-      if (activeTokens.length > 0) {
+      if (activeTokens.length === 0) {
+        console.warn(
+          `[Notifications] No active push tokens for user=${userId} category=${category} appCodes=${appCodes.join(',')}`,
+        );
+      } else {
         const { channelId, priority } = androidDelivery(category, notificationType);
         const messages: ExpoPushMessage[] = activeTokens.map((t: { token: string }) => ({
           to: t.token,
@@ -261,7 +267,14 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
             ...(extraData ?? {}),
           },
         }));
-        const { invalidTokens } = await sendExpoPush(messages);
+        const { invalidTokens, tickets } = await sendExpoPush(messages);
+        const ticketErrors = tickets.filter((t) => t.status === 'error');
+        if (ticketErrors.length > 0) {
+          console.error(
+            '[Notifications] Expo push ticket errors:',
+            ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+          );
+        }
         // Drop DeviceNotRegistered tokens so we stop retrying dead devices.
         const toDeactivate = invalidTokens.filter(Boolean);
         if (toDeactivate.length > 0) {

@@ -161,7 +161,7 @@ export function UpgradeBusinessFeaturesDialog({
           <div className="flex items-center justify-between border-t px-6 py-4 bg-background">
             <div className="flex items-center gap-2 text-sm text-foreground">
               <CreditCard className="h-4 w-4" />
-              <span className="font-medium">No cost for 14 days</span>
+              <span className="font-medium">Cancel anytime</span>
             </div>
             <Button onClick={handleContinue}>Continue</Button>
           </div>
