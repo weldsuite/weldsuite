@@ -9,6 +9,9 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // Required for Expo push on Android (FCM). Bare workflow does not run
+    // prebuild, so app.json googleServicesFile alone never applies this.
+    classpath('com.google.gms:google-services:4.4.2')
   }
 }
 

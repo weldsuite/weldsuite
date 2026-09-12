@@ -33,24 +33,35 @@ async function getDeviceId(): Promise<string> {
 }
 
 /** Register the Expo push token with app-api's push-tokens endpoint. */
-async function registerPushToken(token: string): Promise<void> {
+async function registerPushToken(token: string): Promise<boolean> {
   const deviceId = await getDeviceId();
   const isExpoToken = token.startsWith('ExponentPushToken[');
   const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
-  try {
-    await appApi.pushTokens.register({
-      token,
-      platform: Platform.OS as 'ios' | 'android',
-      deviceId,
-      appCode: APP_CODE,
-      tokenType: tokenType as 'expo' | 'fcm' | 'apns',
-      deviceModel: Device.modelName || undefined,
-      osVersion: Device.osVersion || undefined,
-      appVersion: Application.nativeApplicationVersion || undefined,
-    });
-  } catch (err) {
-    console.error('[Notifications] Failed to register push token:', err);
+  const body = {
+    token,
+    platform: Platform.OS as 'ios' | 'android',
+    deviceId,
+    appCode: APP_CODE,
+    tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+    deviceModel: Device.modelName || undefined,
+    osVersion: Device.osVersion || undefined,
+    appVersion: Application.nativeApplicationVersion || undefined,
+  };
+
+  // Org JWT can lag briefly after sign-in / workspace switch — retry a few times
+  // so a transient ORG_REQUIRED does not leave the device permanently unregistered.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await appApi.pushTokens.register(body);
+      return true;
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
   }
+  console.error('[Notifications] Failed to register push token:', lastError);
+  return false;
 }
 
 const EAS_PROJECT_ID = Constants.expoConfig?.extra?.eas?.projectId || '';
@@ -161,9 +172,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
-        setIsPermissionGranted(true);
-        await registerPushToken(token);
-        return true;
+        const registered = await registerPushToken(token);
+        setIsPermissionGranted(registered);
+        return registered;
       }
       return false;
     } catch (error) {
@@ -239,8 +250,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           if (status === 'granted' || status === 'undetermined') {
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
             if (token) {
-              setIsPermissionGranted(true);
-              await registerPushToken(token);
+              const registered = await registerPushToken(token);
+              setIsPermissionGranted(registered);
+            } else {
+              // Common on Android when the native binary was built without
+              // google-services.json / the Google Services Gradle plugin.
+              console.warn(
+                '[Notifications] No Expo push token — on Android this usually means the build lacks FCM (google-services.json).',
+              );
+              setIsPermissionGranted(status === 'granted');
             }
           } else {
             setIsPermissionGranted(false);
@@ -269,8 +287,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           if (!EAS_PROJECT_ID) return;
           void notifUtils!
             .registerForPushNotificationsAsync(EAS_PROJECT_ID)
-            .then((refreshed) => {
-              if (refreshed) return registerPushToken(refreshed);
+            .then(async (refreshed) => {
+              if (!refreshed) return;
+              const ok = await registerPushToken(refreshed);
+              if (ok) setIsPermissionGranted(true);
             })
             .catch(() => {});
         });

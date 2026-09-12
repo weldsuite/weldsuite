@@ -16,6 +16,9 @@ const withFirebaseConfigFiles = (config) => {
   const androidFile = path.join(PROJECT_ROOT, 'google-services.json');
   const iosFile = path.join(PROJECT_ROOT, 'GoogleService-Info.plist');
 
+  // Always pin the paths when the files exist. For the bare Android project the
+  // real FCM wiring lives in android/app/google-services.json + the Google
+  // Services Gradle plugin; this still matters for iOS prebuild / CNG.
   if (fs.existsSync(androidFile)) {
     config.android = {
       ...config.android,
@@ -24,8 +27,9 @@ const withFirebaseConfigFiles = (config) => {
   } else {
     console.warn(
       '[weldchat-app] Missing google-services.json — Android Expo push tokens ' +
-        'will fail until you add a Firebase Android app for com.weldsuite.weldchat ' +
-        'and upload the FCM V1 key via `eas credentials`. See store/README.md.',
+        'will fail until the file is present (and for bare Android, until ' +
+        'android/app/google-services.json + the Google Services plugin are in the binary). ' +
+        'See store/README.md.',
     );
   }
 

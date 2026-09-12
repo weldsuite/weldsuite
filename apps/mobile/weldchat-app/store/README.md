@@ -15,24 +15,23 @@
 
 ## Credentials status (EAS `@weldsuite/weldchat-app`)
 
-- [x] Firebase client files in app dir (`google-services.json`, `GoogleService-Info.plist` for `com.weldsuite.weldchat`)
+- [x] Firebase client files committed (`google-services.json`, `GoogleService-Info.plist`, plus `android/app/google-services.json` for the bare Android project)
+- [x] Android Gradle Google Services plugin applied (bare workflow — `app.json` `googleServicesFile` alone is not enough)
 - [x] Android **FCM V1** — Google service account `firebase-adminsdk-fbsvc@weldsuite.iam.gserviceaccount.com` assigned on EAS
 - [x] iOS **APNs** push key `L3MNADNB6H` (team WeldReach B.V.) assigned on EAS
 
-`app.config.js` attaches the Firebase client files on prebuild / EAS build.
+### Android push needs a new native build
 
-### First device build (required for push)
-
-Expo Go cannot register push tokens on SDK 53+. Use a dev client or preview build:
+OTA JS updates cannot add FCM. After this wiring, ship a new Android binary:
 
 ```bash
-eas build --profile preview --platform ios
-eas build --profile preview --platform android
+# or GitHub → Mobile native build → weldchat
+eas build --profile production --platform android
 ```
 
-On device: sign in → Settings → enable notifications → **kill the app** → place a DM
-voice/video call from the web platform → expect a high-priority Expo push → tap opens
-`/call-room?callId=…` and joins the RealtimeKit room.
+Then on device: Settings → enable notifications → send a DM from another account.
+
+Expo Go cannot register push tokens on SDK 53+. Use a store / preview / dev-client build.
 
 ## Build / submit
 

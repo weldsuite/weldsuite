@@ -187,3 +187,7 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Process android/app/google-services.json into BuildConfig / resources so
+// expo-notifications can mint an Expo push token via FCM.
+apply plugin: 'com.google.gms.google-services'
