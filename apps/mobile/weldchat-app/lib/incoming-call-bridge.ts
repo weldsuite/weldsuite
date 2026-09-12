@@ -48,8 +48,10 @@ export function incomingCallPayloadFromNotificationData(
   if (!/^[A-Za-z0-9_-]+$/.test(callId)) return null;
 
   const channelId =
-    typeof data.channelId === 'string'
-      ? data.channelId
+    typeof data.chatChannelId === 'string'
+      ? data.chatChannelId
+      : typeof data.channelId === 'string'
+        ? data.channelId
       : typeof data.actionUrl === 'string'
         ? (data.actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/)?.[1] ?? '')
         : '';

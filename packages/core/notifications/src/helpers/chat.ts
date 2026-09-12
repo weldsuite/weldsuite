@@ -2,6 +2,14 @@
  * WeldChat + missed-call notification helpers. Plain-text email for now —
  * each can opt into a Resend template later by passing `emailTemplate` to
  * `createAndDeliverNotification`.
+ *
+ * IMPORTANT: never put the chat channel UUID in Expo push `data.channelId`.
+ * On Android, expo-notifications / FCM treat `data.channelId` as the Android
+ * notification-channel id. A UUID is not a created channel, so the OS silently
+ * drops the notification — while a manual Expo push with `channelId: "chat"`
+ * still works. Use `chatChannelId` for the WeldChat conversation id instead.
+ * The Android channel (`chat` / `incoming_call`) is set separately by the
+ * orchestrator's top-level Expo `channelId` field.
  */
 
 import { createAndDeliverNotification } from '../orchestrator';
@@ -38,7 +46,7 @@ export async function sendChatMentionNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
-    data: { channelId },
+    data: { chatChannelId: channelId },
   });
 }
 
@@ -74,7 +82,7 @@ export async function sendChatThreadReplyNotification<Env extends NotificationEn
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
-    data: { channelId },
+    data: { chatChannelId: channelId },
   });
 }
 
@@ -108,7 +116,7 @@ export async function sendChatDmNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: senderUserId,
-    data: { channelId },
+    data: { chatChannelId: channelId },
   });
 }
 
@@ -146,7 +154,7 @@ export async function sendMissedCallNotification<Env extends NotificationEnv>(
     // A call is a real-time event — deliver only in-app + push (the mobile
     // ring/banner), never email. An emailed "missed call" is pure noise.
     excludeChannels: ['email'],
-    data: { channelId },
+    data: { chatChannelId: channelId },
   });
 }
 
@@ -199,8 +207,9 @@ export async function sendIncomingCallNotification<Env extends NotificationEnv>(
     excludeChannels: ['email'],
     // Structured fields so the mobile client can present Accept/Decline without
     // an extra round-trip when the WebSocket is asleep.
+    // chatChannelId — never `channelId` (see file header).
     data: {
-      channelId,
+      chatChannelId: channelId,
       callType,
       callerName,
       ...(callerAvatar ? { callerAvatar } : {}),
