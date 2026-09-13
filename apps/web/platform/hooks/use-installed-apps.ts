@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
+import { useCan, useCanAny } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
 import { useCustomObjects } from '@/hooks/queries/use-custom-objects-queries';
@@ -87,15 +88,24 @@ export function useInstalledApps() {
     // load, then a background refetch revalidates and updates the apps list.
   });
 
+  // WeldApps / WeldObjects need weldapps:read and weldobjects:read|manage.
+  // Guests and restricted roles fail those with 403 — skip the request when
+  // the user cannot read them so PlatformShell/AppAccessGuard stay fast.
+  const canReadUserApps = useCan('weldapps:read');
+  const canReadObjects = useCanAny(['weldobjects:read', 'weldobjects:manage']);
+
   // WeldApps — workspace-created apps installed alongside the first-party
   // system apps. Merged in here (rather than in every consumer) so the
   // sidenav, mobile sidebar, and app-access guard all see one combined list.
-  const userAppsQuery = useInstalledUserApps();
+  const userAppsQuery = useInstalledUserApps(canReadUserApps);
 
   // WeldObjects — user-defined custom objects surface as their OWN sidebar
   // entries ("Machines"), not nested under a WeldObjects module. Only `active`
   // objects appear; drafts are visible in Settings until they're ready.
-  const customObjectsQuery = useCustomObjects({ status: 'active' });
+  const customObjectsQuery = useCustomObjects({
+    status: 'active',
+    enabled: canReadObjects,
+  });
 
   const data = useMemo<InstalledApp[] | undefined>(() => {
     // Mirror the "wait for the real fetch" semantics AppAccessGuard depends

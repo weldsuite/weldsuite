@@ -44,6 +44,35 @@ export function filterHiddenThreads(
   return threads.filter((t) => !hiddenIds.has(t.threadId));
 }
 
+/**
+ * After optimistic archive hides rows, the current page snapshot is short.
+ * Pull enough threads from the next page (already loaded or in flight) so
+ * the visible list stays at `pageSize` until the originating query refetches.
+ * `hiddenIds` skips threads already archived from a prior top-up.
+ */
+export function topUpThreadList(
+  visible: ThreadSummary[],
+  nextPage: ThreadSummary[],
+  pageSize: number,
+  hiddenIds?: { has(id: string): boolean },
+): ThreadSummary[] {
+  if (visible.length >= pageSize) {
+    return visible.length === pageSize ? visible : visible.slice(0, pageSize);
+  }
+  if (nextPage.length === 0) return visible;
+
+  const seen = new Set(visible.map((t) => t.threadId));
+  const result = visible.slice();
+  for (const thread of nextPage) {
+    if (seen.has(thread.threadId)) continue;
+    if (hiddenIds?.has(thread.threadId)) continue;
+    seen.add(thread.threadId);
+    result.push(thread);
+    if (result.length >= pageSize) break;
+  }
+  return result;
+}
+
 export function countHiddenOnServer(
   serverThreads: ThreadSummary[],
   hiddenIds: { has(id: string): boolean },
@@ -51,6 +80,18 @@ export function countHiddenOnServer(
   let n = 0;
   for (const t of serverThreads) {
     if (hiddenIds.has(t.threadId)) n++;
+  }
+  return n;
+}
+
+/** Every overlay entry scoped to this list query, including topped-up rows. */
+export function countHiddenForList(
+  hidden: ReadonlyMap<string, string>,
+  listKey: string,
+): number {
+  let n = 0;
+  for (const originKey of hidden.values()) {
+    if (originKey === listKey) n++;
   }
   return n;
 }
@@ -68,13 +109,15 @@ function sameHiddenMap(
 
 /**
  * Drop an overlay entry only when its originating list query is on screen
- * and that snapshot no longer contains the row. A different page/folder
- * must not clear it — the archived thread simply is not in this page.
+ * and that snapshot (plus any topped-up next-page rows) no longer contains
+ * the row. A different page/folder must not clear it — the archived thread
+ * simply is not in this page.
  */
 export function retainHiddenIdsStillOnServer(
   serverThreads: ThreadSummary[],
   hidden: ReadonlyMap<string, string>,
   listKey: string,
+  extraKnownIds?: ReadonlySet<string>,
 ): HiddenThreadMap {
   if (hidden.size === 0) return hidden instanceof Map ? hidden : new Map(hidden);
   const next: HiddenThreadMap = new Map();
@@ -85,7 +128,10 @@ export function retainHiddenIdsStillOnServer(
       next.set(threadId, originKey);
       continue;
     }
-    if (serverThreads.some((t) => t.threadId === threadId)) {
+    if (
+      serverThreads.some((t) => t.threadId === threadId) ||
+      extraKnownIds?.has(threadId)
+    ) {
       next.set(threadId, originKey);
     }
   }

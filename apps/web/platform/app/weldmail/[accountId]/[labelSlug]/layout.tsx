@@ -10,6 +10,10 @@ import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import {
+  useMailNextPageThreads,
+  useToppedUpThreadList,
+} from '../../hooks/use-mail-thread-list-top-up';
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useQueryClient } from '@tanstack/react-query';
@@ -91,20 +95,42 @@ export default function LabelLayout({
     );
   }, [isDraftsView, draftsQuery.data, threadsQuery.data]);
 
+  const serverTotalCount = isDraftsView
+    ? 0
+    : (threadsQuery.data?.data?.totalCount ?? 0);
+
+  const { nextPageThreads, nextPageThreadIds } = useMailNextPageThreads({
+    accountId,
+    labelSlug,
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+    serverTotalCount,
+    enabled: !isDraftsView,
+  });
+
   const {
     threads: visibleThreads,
+    hidden,
     hiddenCount,
     hideThread,
     unhideThread,
   } = useOptimisticThreadList(
     threads,
     mailThreadListKey({ accountId, folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
+    nextPageThreadIds,
+  );
+
+  const listThreads = useToppedUpThreadList(
+    visibleThreads,
+    nextPageThreads,
+    PAGE_SIZE,
+    hidden,
   );
 
   const totalCount = useMemo<number>(() => {
     if (isDraftsView) return draftsQuery.data?.data?.length ?? 0;
-    return Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
-  }, [isDraftsView, draftsQuery.data, threadsQuery.data, hiddenCount]);
+    return Math.max(0, serverTotalCount - hiddenCount);
+  }, [isDraftsView, draftsQuery.data, serverTotalCount, hiddenCount]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
 
@@ -130,7 +156,7 @@ export default function LabelLayout({
 
   const listContent = (
     <LabelRealtimeWrapper
-      initialThreads={visibleThreads}
+      initialThreads={listThreads}
       accountId={accountId}
       labelSlug={labelSlug}
       displayName={displayName}
@@ -147,7 +173,7 @@ export default function LabelLayout({
 
   return (
     <MailThreadListProvider
-      threads={visibleThreads}
+      threads={listThreads}
       isUnified={false}
       folder={labelSlug}
       accountId={accountId}

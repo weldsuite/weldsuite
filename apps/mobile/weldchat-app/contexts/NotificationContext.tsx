@@ -104,22 +104,43 @@ if (!isExpoGo) {
   }
 }
 
+export interface PushRegistrationStatus {
+  /** OS notification permission is granted. */
+  permissionGranted: boolean;
+  /** At least one active token exists for this account in the current workspace. */
+  serverRegistered: boolean;
+  /** Masked token suffixes from GET /api/push-tokens (for diagnostics). */
+  tokenSuffixes: string[];
+}
+
 interface NotificationContextType {
   unreadCount: number;
   isConnected: boolean;
   isPermissionGranted: boolean;
+  registrationStatus: PushRegistrationStatus;
   requestPermissions: () => Promise<boolean>;
   openNotificationSettings: () => Promise<void>;
+  refreshRegistrationStatus: () => Promise<PushRegistrationStatus>;
+  sendTestPush: () => Promise<{ ok: boolean; message: string }>;
   unregisterDevice: () => Promise<void>;
   prepareWorkspaceSwitch: () => Promise<void>;
 }
+
+const emptyRegistrationStatus: PushRegistrationStatus = {
+  permissionGranted: false,
+  serverRegistered: false,
+  tokenSuffixes: [],
+};
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
   isConnected: false,
   isPermissionGranted: false,
+  registrationStatus: emptyRegistrationStatus,
   requestPermissions: async () => false,
   openNotificationSettings: async () => {},
+  refreshRegistrationStatus: async () => emptyRegistrationStatus,
+  sendTestPush: async () => ({ ok: false, message: 'Unavailable' }),
   unregisterDevice: async () => {},
   prepareWorkspaceSwitch: async () => {},
 });
@@ -132,6 +153,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
+  const [registrationStatus, setRegistrationStatus] =
+    useState<PushRegistrationStatus>(emptyRegistrationStatus);
   const cleanupRef = useRef<(() => void) | null>(null);
 
   const navigateFromNotificationData = useCallback(
@@ -153,6 +176,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         return;
       }
 
+      // Ignore Settings diagnostic pushes — no chat to open.
+      if (notificationType === 'push_test') return;
+
       const channelId =
         (typeof data.chatChannelId === 'string' ? data.chatChannelId : null) ??
         (typeof data.channelId === 'string' ? data.channelId : null) ??
@@ -168,15 +194,45 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     [router],
   );
 
+  const refreshRegistrationStatus = useCallback(async (): Promise<PushRegistrationStatus> => {
+    let permissionGranted = false;
+    if (Notifications) {
+      try {
+        const { status } = await Notifications.getPermissionsAsync();
+        permissionGranted = status === 'granted';
+      } catch {
+        permissionGranted = false;
+      }
+    }
+
+    let tokenSuffixes: string[] = [];
+    let serverRegistered = false;
+    try {
+      const res = await appApi.pushTokens.list();
+      const weldchat = (res.data ?? []).filter((t) => t.appCode === APP_CODE || t.appCode === 'weldsuite');
+      tokenSuffixes = weldchat.map((t) => t.tokenSuffix).filter((s): s is string => Boolean(s));
+      serverRegistered = weldchat.length > 0;
+    } catch (err) {
+      console.warn('[Notifications] Failed to list push tokens:', err);
+    }
+
+    const next: PushRegistrationStatus = { permissionGranted, serverRegistered, tokenSuffixes };
+    setRegistrationStatus(next);
+    // "Enabled" in Settings means the device can actually receive app pushes.
+    setIsPermissionGranted(permissionGranted && serverRegistered);
+    return next;
+  }, []);
+
   const requestPermissions = async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
         const registered = await registerPushToken(token);
-        setIsPermissionGranted(registered);
+        await refreshRegistrationStatus();
         return registered;
       }
+      await refreshRegistrationStatus();
       return false;
     } catch (error) {
       console.error('[Notifications] Error:', error);
@@ -189,6 +245,33 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     else await Linking.openSettings();
   };
 
+  const sendTestPush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    try {
+      // Re-register first so a stale/missing DB row is not mistaken for FCM failure.
+      if (notifUtils && EAS_PROJECT_ID) {
+        const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
+        if (token) await registerPushToken(token);
+      }
+      const res = await appApi.pushTokens.test();
+      await refreshRegistrationStatus();
+      const sent = res.data?.sent ?? 0;
+      return {
+        ok: sent > 0,
+        message:
+          sent > 0
+            ? `Test push accepted by Expo (${sent} device${sent === 1 ? '' : 's'}).`
+            : 'Expo did not accept the test push.',
+      };
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Failed to send test push';
+      await refreshRegistrationStatus();
+      return { ok: false, message };
+    }
+  }, [refreshRegistrationStatus]);
+
   const unregisterDevice = useCallback(async () => {
     try {
       const deviceId = await getDeviceId();
@@ -200,6 +283,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     await notifUtils?.setBadgeCount(0);
     setUnreadCount(0);
     setIsPermissionGranted(false);
+    setRegistrationStatus(emptyRegistrationStatus);
     setIsConnected(false);
   }, []);
 
@@ -215,6 +299,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     await notifUtils?.dismissAllPresentedNotifications();
     await notifUtils?.setBadgeCount(0);
     setUnreadCount(0);
+    setRegistrationStatus(emptyRegistrationStatus);
   }, []);
 
   useEffect(() => {
@@ -251,19 +336,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           if (status === 'granted' || status === 'undetermined') {
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
             if (token) {
-              const registered = await registerPushToken(token);
-              setIsPermissionGranted(registered);
+              await registerPushToken(token);
             } else {
               // Common on Android when the native binary was built without
               // google-services.json / the Google Services Gradle plugin.
               console.warn(
                 '[Notifications] No Expo push token — on Android this usually means the build lacks FCM (google-services.json).',
               );
-              setIsPermissionGranted(status === 'granted');
             }
-          } else {
-            setIsPermissionGranted(false);
           }
+          await refreshRegistrationStatus();
         }
 
         const cleanupListeners = notifUtils.setupNotificationListeners(
@@ -290,8 +372,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             .registerForPushNotificationsAsync(EAS_PROJECT_ID)
             .then(async (refreshed) => {
               if (!refreshed) return;
-              const ok = await registerPushToken(refreshed);
-              if (ok) setIsPermissionGranted(true);
+              await registerPushToken(refreshed);
+              await refreshRegistrationStatus();
             })
             .catch(() => {});
         });
@@ -321,7 +403,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         cleanupRef.current = null;
       }
     };
-  }, [user, organizationId, navigateFromNotificationData]);
+  }, [user, organizationId, navigateFromNotificationData, refreshRegistrationStatus]);
 
   return (
     <NotificationContext.Provider
@@ -329,8 +411,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         unreadCount,
         isConnected,
         isPermissionGranted,
+        registrationStatus,
         requestPermissions,
         openNotificationSettings,
+        refreshRegistrationStatus,
+        sendTestPush,
         unregisterDevice,
         prepareWorkspaceSwitch,
       }}

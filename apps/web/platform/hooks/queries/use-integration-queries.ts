@@ -84,7 +84,7 @@ export interface SyncLog {
 // Queries
 // =============================================================================
 
-export function useIntegrationConnections() {
+export function useIntegrationConnections(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: integrationKeys.connections(),
@@ -92,6 +92,7 @@ export function useIntegrationConnections() {
       const client = await getClient();
       return client.get<{ data: IntegrationConnection[] }>('/integrations/connections');
     },
+    enabled,
   });
 }
 

@@ -11,6 +11,10 @@ import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import {
+  useMailNextPageThreads,
+  useToppedUpThreadList,
+} from '../../hooks/use-mail-thread-list-top-up';
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
@@ -80,19 +84,37 @@ export default function UnifiedLabelLayout({
     setThreads(mappedThreads);
   }, [mappedThreads]);
 
+  const serverTotalCount = threadsQuery.data?.data?.totalCount ?? 0;
+
+  const { nextPageThreads, nextPageThreadIds } = useMailNextPageThreads({
+    labelSlug,
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+    serverTotalCount,
+  });
+
   // Archive-and-next hides the row immediately so the left list doesn't
-  // wait on the background refetch.
+  // wait on the background refetch. Prefetched next-page rows refill the gap.
   const {
     threads: visibleThreads,
+    hidden,
     hiddenCount,
     hideThread,
     unhideThread,
   } = useOptimisticThreadList(
     threads,
     mailThreadListKey({ accountId: 'unified', folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
+    nextPageThreadIds,
   );
 
-  const totalCount = Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
+  const listThreads = useToppedUpThreadList(
+    visibleThreads,
+    nextPageThreads,
+    PAGE_SIZE,
+    hidden,
+  );
+
+  const totalCount = Math.max(0, serverTotalCount - hiddenCount);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
   const error = threadsQuery.isError ? t.mail.unifiedLayout.failedToLoadConversations : null;
 
@@ -163,7 +185,7 @@ export default function UnifiedLabelLayout({
         </div>
       )}
       <MessageList
-        threads={visibleThreads}
+        threads={listThreads}
         accountId="unified"
         folder={labelSlug}
         error={error}
@@ -181,7 +203,7 @@ export default function UnifiedLabelLayout({
 
   return (
     <MailThreadListProvider
-      threads={visibleThreads}
+      threads={listThreads}
       isUnified
       folder={labelSlug}
       accountId="unified"

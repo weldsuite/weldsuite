@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, CalendarDays } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAtomValue } from 'jotai';
+import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { usePathname } from '@/lib/router';
 import { draftBookingPageTitleAtom } from '../lib/draft-booking-page';
@@ -23,10 +24,15 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
   const t = getTranslations('weldcalendar');
   const navigate = useNavigate();
   const pathname = usePathname();
-  const { data, isLoading } = useUserCalendars();
+  const canReadIntegrations = useCan('integrations:read');
+  // Gate network calls on `enabled` — UnifiedModuleSidebar mounts this hook
+  // on every page; integrations/connections requires integrations:read.
+  const { data, isLoading } = useUserCalendars(enabled);
   const ensureDefault = useEnsureDefaultCalendar();
-  const { data: bookingPagesData } = useBookingPages();
-  const { data: integrationConnectionsResult } = useIntegrationConnections();
+  const { data: bookingPagesData } = useBookingPages(enabled);
+  const { data: integrationConnectionsResult } = useIntegrationConnections(
+    enabled && canReadIntegrations,
+  );
   const [ensured, setEnsured] = useState(false);
   const [createCalendarOpen, setCreateCalendarOpen] = useState(false);
 

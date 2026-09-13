@@ -140,9 +140,11 @@ export const customObjectKeys = {
  * rather than two — the sidebar renders on every page, and a second endpoint
  * would double that cost for the same rows.
  */
-export function useCustomObjects(options: { status?: CustomObjectStatus } = {}) {
+export function useCustomObjects(
+  options: { status?: CustomObjectStatus; enabled?: boolean } = {},
+) {
   const { getClient } = useAppApiClient();
-  const { status } = options;
+  const { status, enabled = true } = options;
 
   return useQuery({
     queryKey: [...customObjectKeys.list(), status ?? 'all'],
@@ -154,6 +156,7 @@ export function useCustomObjects(options: { status?: CustomObjectStatus } = {}) 
       const res = await client.get<{ data: CustomObject[] }>(`/custom-objects${query}`);
       return res.data ?? [];
     },
+    enabled,
   });
 }
 
