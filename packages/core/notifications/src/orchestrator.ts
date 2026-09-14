@@ -182,7 +182,24 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
         realtime: env.REALTIME,
         workspaceId,
         userId,
-        notification: { id, title, body, category, actionUrl, entityType, entityId },
+        notification: {
+          id,
+          title,
+          body,
+          category,
+          notificationType,
+          actionUrl,
+          entityType,
+          entityId,
+          // Platform realtime handler crashes without a parseable createdAt
+          // (`new Date(undefined).toISOString()` → RangeError), which silently
+          // dropped every live WeldChat (and other) in-app notification.
+          createdAt: now.toISOString(),
+          isRead: false,
+          severity,
+          actorType: actorType ?? null,
+          actorId: actorId ?? null,
+        },
       });
     } catch (err) {
       console.error('[Notifications] In-app publish failed:', err);
@@ -285,6 +302,10 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
           title,
           body,
           sound: 'default',
+          // Ensure the app icon badge updates on arrival (orchestrator never
+          // sent a count before; clients reconcile the real unread total via
+          // realtime / API).
+          badge: 1,
           ...(channelId ? { channelId } : {}),
           priority,
           data: pushData,

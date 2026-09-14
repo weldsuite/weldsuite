@@ -102,19 +102,23 @@ export default function ActivityTab() {
   const loadNotifications = useCallback(async () => {
     try {
       const res = await appApi.notifications.list({ limit: 50 });
-      const mapped: ActivityNotification[] = (res.data ?? []).map((n) => ({
-        id: n.id,
-        title: n.title ?? '',
-        body: n.body,
-        notificationType: n.category ?? 'default',
-        entityType: n.entityType,
-        entityId: n.entityId,
-        actionUrl: n.actionUrl,
-        isRead: n.isRead ?? false,
-        createdAt: n.createdAt,
-        actorName: n.actorName ?? null,
-        actorAvatar: n.actorAvatar ?? null,
-      }));
+      // Activity is WeldChat-only: keep chat_* rows and map notificationType
+      // (chat_dm / chat_mention / …), not category (always "weldchat").
+      const mapped: ActivityNotification[] = (res.data ?? [])
+        .filter((n) => n.category === 'weldchat' || (n.notificationType ?? '').startsWith('chat_'))
+        .map((n) => ({
+          id: n.id,
+          title: n.title ?? '',
+          body: n.body,
+          notificationType: n.notificationType ?? n.category ?? 'default',
+          entityType: n.entityType,
+          entityId: n.entityId,
+          actionUrl: n.actionUrl,
+          isRead: n.isRead ?? false,
+          createdAt: n.createdAt,
+          actorName: n.actorName ?? null,
+          actorAvatar: n.actorAvatar ?? null,
+        }));
       setNotifications(mapped);
     } catch (err) {
       console.error('Failed to load notifications:', err);

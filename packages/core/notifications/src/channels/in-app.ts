@@ -23,9 +23,17 @@ interface InAppParams {
     title: string;
     body: string;
     category: string;
+    /** Required by platform `UnifiedNotification` consumers (bell + OS toast). */
+    notificationType: string;
     actionUrl: string;
     entityType: string;
     entityId: string;
+    /** ISO timestamp — without this the platform handler throws on `new Date(undefined)`. */
+    createdAt: string;
+    isRead?: boolean;
+    severity?: string;
+    actorType?: string | null;
+    actorId?: string | null;
   };
 }
 
