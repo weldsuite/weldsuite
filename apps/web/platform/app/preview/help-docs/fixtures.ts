@@ -310,6 +310,7 @@ export const previewDomainsList: HostDomain[] = [
 ];
 
 export type HelpDocsPreviewScene =
+  | 'onboarding'
   | 'domains'
   | 'dns-list'
   | 'dns-add'

@@ -18,6 +18,7 @@ import {
 } from './fixtures';
 import { PreviewHelpDocsProvider } from './preview-help-docs-context';
 import { useSeedPreviewHostData } from './use-seed-preview-host-data';
+import { OnboardingSetup } from '@/app/onboarding/components/onboarding-setup';
 
 const PREVIEW_PERMISSIONS = [
   '*',
@@ -86,6 +87,21 @@ export function HelpDocsPreviewClient() {
     }),
     [scene],
   );
+
+  if (scene === 'onboarding') {
+    return (
+      <div data-screenshot-frame data-screenshot-ready={ready ? 'true' : 'false'}>
+        <OnboardingSetup
+          initialUserInfo={{ firstName: 'Alex', lastName: 'Morgan', email: 'alex@example.com' }}
+          initialOrgInfo={{ id: 'preview-workspace', name: 'Acme Studio' }}
+          availableApps={[]}
+          detectedCountry="NL"
+          defaultRegion="aws-eu-central-1"
+          onSubmit={() => {}}
+        />
+      </div>
+    );
+  }
 
   return (
     <PreviewInstalledAppsProvider apps={previewInstalledApps}>
