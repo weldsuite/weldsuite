@@ -6,6 +6,12 @@
  */
 export const screenshotManifest = [
   {
+    file: 'onboarding-workspace.png',
+    url: (env) => `${env.platformBase}/preview/help-docs?scene=onboarding`,
+    selector: '[data-screenshot-frame]',
+    readySelector: '[data-screenshot-ready="true"]',
+  },
+  {
     file: 'weldhost-domains.png',
     url: (env) => `${env.platformBase}/preview/help-docs?scene=domains`,
     selector: '[data-screenshot-frame]',

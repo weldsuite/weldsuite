@@ -46,7 +46,7 @@ export function OnboardingPageClient({ detectedCountry }: { detectedCountry: str
   const { data: dbStatus } = useDatabaseStatus(!!orgId);
   const { data: onboardingStatus, isLoading: isLoadingStatus } = useOnboardingStatus();
   const { data: userInfo } = useUserAndOrgInfo(!orgId);
-  const { data: availableApps, isLoading: isLoadingApps } = useAvailableApps();
+  const { data: availableApps } = useAvailableApps();
 
   if (!isLoaded || isLoadingStatus || isActivatingOrg) {
     return <PageLoader />;
@@ -82,10 +82,6 @@ export function OnboardingPageClient({ detectedCountry }: { detectedCountry: str
     },
     organization: userInfo?.organization || null,
   };
-
-  if (isLoadingApps) {
-    return <PageLoader />;
-  }
 
   return (
     <OnboardingWizard
