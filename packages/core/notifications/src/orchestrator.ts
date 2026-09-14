@@ -142,7 +142,16 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
   const willEmail = channels.email && emailPresence === 'absent';
 
   if (!channels.inApp && !willEmail && !channels.push) {
+    console.warn(
+      `[Notifications] Skipped all channels for user=${userId} category=${category} type=${notificationType} (DND or prefs off)`,
+    );
     return null;
+  }
+
+  if (!channels.push) {
+    console.warn(
+      `[Notifications] Push disabled by prefs for user=${userId} category=${category} type=${notificationType}`,
+    );
   }
 
   const id = generateNotificationId();
@@ -251,6 +260,26 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
         );
       } else {
         const { channelId, priority } = androidDelivery(category, notificationType);
+        // Expo `data` must be string→string. Never put a conversation UUID in
+        // `data.channelId` — on Android that key is the notification-channel id
+        // and a UUID silently drops the banner (manual push with channelId
+        // "chat" still works). Strip/rename defensively so helpers can't regress.
+        const pushData: Record<string, string> = {
+          actionUrl: actionUrl ?? '',
+          entityType: entityType ?? '',
+          entityId: entityId ?? '',
+          notificationType,
+          ...(clerkOrgId ? { clerkOrgId } : {}),
+        };
+        for (const [key, value] of Object.entries(extraData ?? {})) {
+          if (value == null) continue;
+          const str = typeof value === 'string' ? value : String(value);
+          if (key === 'channelId') {
+            if (!pushData.chatChannelId) pushData.chatChannelId = str;
+            continue;
+          }
+          pushData[key] = str;
+        }
         const messages: ExpoPushMessage[] = activeTokens.map((t: { token: string }) => ({
           to: t.token,
           title,
@@ -258,15 +287,11 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
           sound: 'default',
           ...(channelId ? { channelId } : {}),
           priority,
-          data: {
-            actionUrl: actionUrl ?? '',
-            entityType: entityType ?? '',
-            entityId: entityId ?? '',
-            notificationType,
-            ...(clerkOrgId ? { clerkOrgId } : {}),
-            ...(extraData ?? {}),
-          },
+          data: pushData,
         }));
+        console.log(
+          `[Notifications] Expo push attempt user=${userId} type=${notificationType} tokens=${activeTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
+        );
         const { invalidTokens, tickets } = await sendExpoPush(messages);
         const ticketErrors = tickets.filter((t) => t.status === 'error');
         if (ticketErrors.length > 0) {

@@ -4,6 +4,7 @@ import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-lay
 import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { getTranslations } from '@/lib/i18n';
+import { useCan } from '@weldsuite/permissions/react';
 
 const AGENT_ICON_PALETTES = [
   'text-sky-600 dark:text-sky-300',
@@ -56,7 +57,11 @@ export function useAgentsSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
 } {
   const t = getTranslations('common');
-  const { data: agents = [] } = useAgents();
+  const canReadAgents = useCan('weldagent:read');
+  // Only fetch when the agents module sidebar is active and the user can
+  // read agents — UnifiedModuleSidebar mounts every module hook on every
+  // page, and /weldagent/agents requires weldagent:read.
+  const { data: agents = [] } = useAgents(undefined, isActive && canReadAgents);
 
   if (!isActive) {
     return { menuGroups: [] };

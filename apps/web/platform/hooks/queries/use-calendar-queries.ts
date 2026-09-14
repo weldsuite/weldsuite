@@ -378,7 +378,7 @@ export function useUnpinCalendarEvent() {
 }
 // ── Booking Page Hooks (app-api /api/booking-pages) ─────────────────────
 
-export function useBookingPages() {
+export function useBookingPages(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: bookingPageKeys.list(),
@@ -387,6 +387,7 @@ export function useBookingPages() {
       // Callers read `.data`; the extra `pagination` key is harmless.
       return client.get<{ data: BookingPage[] }>('/booking-pages?limit=100');
     },
+    enabled,
   });
 }
 
@@ -476,7 +477,7 @@ export function useAvailableSlots(bookingPageId: string, date: string) {
 // plus any shared with them, each annotated with `isOwn` + `permission`. The
 // sidebar, event dialog and calendar view all gate on those two fields.
 
-export function useUserCalendars() {
+export function useUserCalendars(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: userCalendarKeys.list(),
@@ -484,6 +485,7 @@ export function useUserCalendars() {
       const client = await getClient();
       return client.get<{ data: UserCalendar[] }>('/calendars');
     },
+    enabled,
   });
 }
 

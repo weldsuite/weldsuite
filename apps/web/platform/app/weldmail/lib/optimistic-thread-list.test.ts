@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ThreadSummary } from './thread-utils';
 import {
   addHiddenId,
+  countHiddenForList,
   countHiddenOnServer,
   filterHiddenThreads,
   findThreadIdToHide,
@@ -9,6 +10,7 @@ import {
   mailThreadListKey,
   removeHiddenId,
   retainHiddenIdsStillOnServer,
+  topUpThreadList,
 } from './optimistic-thread-list';
 
 function thread(
@@ -76,11 +78,63 @@ describe('filterHiddenThreads', () => {
   });
 });
 
+describe('topUpThreadList', () => {
+  const d = thread({ threadId: 't4', latestMessageId: 'm4' });
+  const e = thread({ threadId: 't5', latestMessageId: 'm5' });
+
+  it('returns the visible list unchanged when it already fills the page', () => {
+    const visible = [a, b, c];
+    expect(topUpThreadList(visible, [d, e], 3)).toBe(visible);
+  });
+
+  it('appends next-page rows until the page is full', () => {
+    expect(topUpThreadList([b, c], [d, e], 3).map((t) => t.threadId)).toEqual([
+      't2',
+      't3',
+      't4',
+    ]);
+  });
+
+  it('skips duplicates already on the current page', () => {
+    expect(topUpThreadList([b, c], [c, d], 3).map((t) => t.threadId)).toEqual([
+      't2',
+      't3',
+      't4',
+    ]);
+  });
+
+  it('skips threads already hidden from a prior top-up', () => {
+    const hidden = new Map([['t4', page1]]);
+    expect(topUpThreadList([b, c], [d, e], 3, hidden).map((t) => t.threadId)).toEqual([
+      't2',
+      't3',
+      't5',
+    ]);
+  });
+
+  it('leaves the list short when the next page cannot fill it', () => {
+    expect(topUpThreadList([c], [d], 3).map((t) => t.threadId)).toEqual(['t3', 't4']);
+    expect(topUpThreadList([c], [], 3).map((t) => t.threadId)).toEqual(['t3']);
+  });
+});
+
 describe('countHiddenOnServer', () => {
   it('counts only rows present in the current snapshot', () => {
     const hidden = new Map([['t1', page1], ['t9', page1]]);
     expect(countHiddenOnServer([a, b, c], hidden)).toBe(1);
     expect(countHiddenOnServer([b, c], hidden)).toBe(0);
+  });
+});
+
+describe('countHiddenForList', () => {
+  it('counts every overlay entry scoped to the list key', () => {
+    const hidden = new Map([
+      ['t1', page1],
+      ['t4', page1],
+      ['t9', page2],
+    ]);
+    expect(countHiddenForList(hidden, page1)).toBe(2);
+    expect(countHiddenForList(hidden, page2)).toBe(1);
   });
 });
 
@@ -106,6 +160,24 @@ describe('retainHiddenIdsStillOnServer', () => {
     const hidden = new Map([['t1', page1]]);
     expect(retainHiddenIdsStillOnServer([], hidden, page1)).toBe(hidden);
     expect(retainHiddenIdsStillOnServer([], hidden, page2)).toBe(hidden);
+  });
+
+  it('keeps topped-up ids that are only present on the next page', () => {
+    const hidden = new Map([['t4', page1]]);
+    const retained = retainHiddenIdsStillOnServer(
+      [a, b],
+      hidden,
+      page1,
+      new Set(['t4']),
+    );
+    expect(retained).toBe(hidden);
+  });
+
+  it('drops topped-up ids once neither page still has them', () => {
+    const hidden = new Map([['t4', page1]]);
+    expect([
+      ...retainHiddenIdsStillOnServer([a, b], hidden, page1, new Set(['t5'])).keys(),
+    ]).toEqual([]);
   });
 
   it('returns the original empty map without allocating', () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ThreadSummary } from '../lib/thread-utils';
 import {
   addHiddenId,
-  countHiddenOnServer,
+  countHiddenForList,
   filterHiddenThreads,
   findThreadIdToHide,
   removeHiddenId,
@@ -17,13 +17,23 @@ import {
  * from (`listKey`), so paging away does not clear it. The overlay drops
  * once that originating page refreshes without the row, or when the
  * caller unhides after a failed mutation.
+ *
+ * `extraKnownIds` are thread ids from the prefetched next page used to
+ * top up after archive — without them, hiding a topped-up row would be
+ * cleared on the next render because it was never on this page snapshot.
  */
-export function useOptimisticThreadList(serverThreads: ThreadSummary[], listKey: string) {
+export function useOptimisticThreadList(
+  serverThreads: ThreadSummary[],
+  listKey: string,
+  extraKnownIds?: ReadonlySet<string>,
+) {
   const [hidden, setHidden] = useState<HiddenThreadMap>(() => new Map());
 
   useEffect(() => {
-    setHidden((prev) => retainHiddenIdsStillOnServer(serverThreads, prev, listKey));
-  }, [serverThreads, listKey]);
+    setHidden((prev) =>
+      retainHiddenIdsStillOnServer(serverThreads, prev, listKey, extraKnownIds),
+    );
+  }, [serverThreads, listKey, extraKnownIds]);
 
   const threads = useMemo(
     () => filterHiddenThreads(serverThreads, hidden),
@@ -50,7 +60,8 @@ export function useOptimisticThreadList(serverThreads: ThreadSummary[], listKey:
 
   return {
     threads,
-    hiddenCount: countHiddenOnServer(serverThreads, hidden),
+    hidden,
+    hiddenCount: countHiddenForList(hidden, listKey),
     hideThread,
     unhideThread,
   };

@@ -38,7 +38,7 @@ export interface AgentWithRuns extends WorkspaceAgent {
   }>;
 }
 
-export function useAgents(filters?: { status?: string }) {
+export function useAgents(filters?: { status?: string }, enabled = true) {
   const api = useAppApi();
   return useQuery({
     queryKey: agentKeys.list(filters),
@@ -46,6 +46,7 @@ export function useAgents(filters?: { status?: string }) {
       const res = await api.workspaceAgents.list(filters?.status);
       return res.data ?? [];
     },
+    enabled,
   });
 }
 

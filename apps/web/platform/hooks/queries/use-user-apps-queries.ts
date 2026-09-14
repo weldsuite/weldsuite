@@ -170,12 +170,12 @@ export function useUserAppStoreDetail(code: string, enabled = true) {
 }
 
 /** Installed user apps for the sidenav + iframe host. */
-export function useInstalledUserApps() {
+export function useInstalledUserApps(enabled = true) {
   const { getClient } = useAppApiClient();
   const { orgId } = useAuth();
   return useQuery({
     queryKey: userAppsKeys.installedByOrg(orgId),
-    enabled: !!orgId,
+    enabled: !!orgId && enabled,
     queryFn: async () => {
       const client = await getClient();
       const result = await client.get<{ data: InstalledUserApp[] }>('/user-apps/installed');
