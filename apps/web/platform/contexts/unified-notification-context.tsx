@@ -212,9 +212,21 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
     const incoming = event.data;
     if (!incoming || typeof incoming !== 'object' || !('id' in incoming)) return;
 
+    // createdAt used to be omitted from the in-app realtime payload; parsing
+    // `new Date(undefined)` throws and dropped the whole notification. Fall
+    // back to "now" so a partial payload still reaches the bell / OS toast.
+    let createdAt: string;
+    if (typeof incoming.createdAt === 'string' && incoming.createdAt.length > 0) {
+      createdAt = incoming.createdAt;
+    } else if (typeof incoming.createdAt === 'number' && Number.isFinite(incoming.createdAt)) {
+      createdAt = new Date(incoming.createdAt).toISOString();
+    } else {
+      createdAt = new Date().toISOString();
+    }
+
     const notification: UnifiedNotification = {
       id: incoming.id,
-      notificationType: incoming.notificationType,
+      notificationType: incoming.notificationType ?? 'custom',
       category: incoming.category,
       title: incoming.title,
       body: incoming.body ?? '',
@@ -222,10 +234,7 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
       entityId: incoming.entityId ?? undefined,
       actionUrl: incoming.actionUrl ?? undefined,
       data: incoming.data ?? undefined,
-      createdAt:
-        typeof incoming.createdAt === 'string'
-          ? incoming.createdAt
-          : new Date(incoming.createdAt as unknown as number).toISOString(),
+      createdAt,
       isRead: incoming.isRead ?? false,
       actor: incoming.actor ?? null,
     };

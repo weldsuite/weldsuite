@@ -1,7 +1,9 @@
 /**
- * WeldChat + missed-call notification helpers. Plain-text email for now —
- * each can opt into a Resend template later by passing `emailTemplate` to
- * `createAndDeliverNotification`.
+ * WeldChat + missed-call notification helpers.
+ *
+ * Email for chat mentions / thread replies / DMs is temporarily off
+ * (`excludeChannels: ['email']`). Re-enable later when the deferred unread
+ * catch-up mail is ready; calls already never email.
  *
  * IMPORTANT: never put the chat channel UUID in Expo push `data.channelId`.
  * On Android, expo-notifications / FCM treat `data.channelId` as the Android
@@ -46,6 +48,8 @@ export async function sendChatMentionNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
+    // Temporary: chat email catch-up disabled until reimplemented.
+    excludeChannels: ['email'],
     data: { chatChannelId: channelId },
   });
 }
@@ -82,6 +86,8 @@ export async function sendChatThreadReplyNotification<Env extends NotificationEn
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
+    // Temporary: chat email catch-up disabled until reimplemented.
+    excludeChannels: ['email'],
     data: { chatChannelId: channelId },
   });
 }
@@ -116,6 +122,8 @@ export async function sendChatDmNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: senderUserId,
+    // Temporary: chat email catch-up disabled until reimplemented.
+    excludeChannels: ['email'],
     data: { chatChannelId: channelId },
   });
 }
