@@ -25,6 +25,7 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
+import { useChatCache } from '@/hooks/useChatCache';
 import { hideAppSplash } from '@/utils/splash';
 
 interface Channel {
@@ -125,6 +126,9 @@ export default function HomeTab() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top), [colors, insets.top]);
+  const cache = useChatCache();
+  // Set when a network fetch lands so a late cache read can't overwrite it.
+  const networkLoadedRef = useRef(false);
   const { setActive, userMemberships } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -145,6 +149,27 @@ export default function HomeTab() {
     }
   }, [setActive, organization?.id]);
 
+  // Cache-first paint so Home isn't blank while the network round-trip runs.
+  // Re-runs when the latched org changes so a workspace switch can't leave
+  // another org's channels on screen.
+  useEffect(() => {
+    let cancelled = false;
+    networkLoadedRef.current = false;
+    (async () => {
+      const [cachedChannels, cachedSections] = await Promise.all([
+        cache.getChannels(),
+        cache.getSections(),
+      ]);
+      if (cancelled || networkLoadedRef.current) return;
+      setChannels((cachedChannels as Channel[] | null) ?? []);
+      setSections((cachedSections as Section[] | null) ?? []);
+      if (cachedChannels?.length) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cache]);
+
   const loadData = useCallback(async () => {
     try {
       const [chRes, secRes] = await Promise.all([
@@ -155,16 +180,22 @@ export default function HomeTab() {
       ]);
       // Match platform WeldChat: DMs have their own tab, and entity/object
       // channels stay on their object panels — Home lists people channels only.
-      setChannels(
-        (chRes.data || []).filter((c: any) => c.type !== 'dm' && c.type !== 'entity'),
-      );
-      setSections((secRes.data || []) as any);
+      const nextChannels = (chRes.data || []).filter(
+        (c: any) => c.type !== 'dm' && c.type !== 'entity',
+      ) as Channel[];
+      const nextSections = (secRes.data || []) as Section[];
+      networkLoadedRef.current = true;
+      setChannels(nextChannels);
+      setSections(nextSections);
+      cache.setChannels(nextChannels);
+      cache.setSections(nextSections);
     } catch (err) {
+      // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     if (!loading) {

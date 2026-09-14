@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
 import { Plus, Archive, Trash2, BellOff, Bell, Pin, PinOff } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
@@ -13,6 +13,7 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
+import { useChatCache } from '@/hooks/useChatCache';
 import { SearchField } from '@/components/chat/SearchField';
 import { Spinner } from '@/components/ui/Spinner';
 
@@ -101,15 +102,38 @@ export default function DmsTab() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top), [colors, insets.top]);
+  const cache = useChatCache();
+  // Set when a network fetch lands so a late cache read can't overwrite it.
+  const networkLoadedRef = useRef(false);
+
+  // Cache-first paint so Chats isn't blank while the network round-trip runs.
+  // Cached rows are already mapped (display name / unread / pin) from the last
+  // successful fetch, so they can be shown as-is.
+  useEffect(() => {
+    let cancelled = false;
+    networkLoadedRef.current = false;
+    (async () => {
+      const cached = await cache.getDms();
+      if (cancelled || networkLoadedRef.current) return;
+      setDms((cached as DmChannel[] | null) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cache]);
 
   const loadDms = useCallback(async () => {
     try {
       const res = await appApi.chatDm.list();
-      setDms((res.data || []).map((dm: any) => mapDm(dm, user?.id)));
+      const next = (res.data || []).map((dm: any) => mapDm(dm, user?.id));
+      networkLoadedRef.current = true;
+      setDms(next);
+      cache.setDms(next);
     } catch (err) {
+      // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load DMs:', err);
     }
-  }, [user?.id]);
+  }, [user?.id, cache]);
 
   const onRefresh = useCallback(async () => {
     if (refreshing) return;

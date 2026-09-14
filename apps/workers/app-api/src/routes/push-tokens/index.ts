@@ -117,30 +117,46 @@ app.post('/test', async (c) => {
         ),
       );
 
-    const tokens = rows.map((r) => r.token).filter(Boolean);
-    if (tokens.length === 0) {
+    // One Expo request per appCode — mixing EAS projects in a single batch
+    // returns HTTP 400 for the entire request (and used to surface as a bare
+    // "HTTP 400" with the Expo error body discarded).
+    const byAppCode = new Map<string, string[]>();
+    for (const row of rows) {
+      if (!row.token) continue;
+      const list = byAppCode.get(row.appCode) ?? [];
+      list.push(row.token);
+      byAppCode.set(row.appCode, list);
+    }
+
+    if (byAppCode.size === 0) {
       return error.badRequest(
         c,
         'No active WeldChat push token registered for this account. Open WeldChat, grant notification permission, then try again.',
       );
     }
 
-    const { tickets, invalidTokens } = await sendExpoPush(
-      tokens.map((to) => ({
-        to,
-        title: 'WeldChat test',
-        body: 'If you see this, push delivery works.',
-        sound: 'default' as const,
-        priority: 'high' as const,
-        channelId: 'chat',
-        data: {
-          notificationType: 'push_test',
-          actionUrl: '',
-          entityType: '',
-          entityId: '',
-        },
-      })),
-    );
+    const tickets: Awaited<ReturnType<typeof sendExpoPush>>['tickets'] = [];
+    const invalidTokens: string[] = [];
+    for (const [, appTokens] of byAppCode) {
+      const result = await sendExpoPush(
+        appTokens.map((to) => ({
+          to,
+          title: 'WeldChat test',
+          body: 'If you see this, push delivery works.',
+          sound: 'default' as const,
+          priority: 'high' as const,
+          channelId: 'chat',
+          data: {
+            notificationType: 'push_test',
+            actionUrl: '',
+            entityType: '',
+            entityId: '',
+          },
+        })),
+      );
+      tickets.push(...result.tickets);
+      invalidTokens.push(...result.invalidTokens);
+    }
 
     const toDeactivate = invalidTokens.filter(Boolean);
     if (toDeactivate.length > 0) {

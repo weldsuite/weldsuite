@@ -259,7 +259,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
       // installed (wrong EAS project + cross-app spam) or to deactivated tokens.
       const appCodes = appCodesForCategory(category);
       const tokens = await db
-        .select({ token: schema.deviceTokens.token })
+        .select({ token: schema.deviceTokens.token, appCode: schema.deviceTokens.appCode })
         .from(schema.deviceTokens)
         .where(
           and(
@@ -269,9 +269,18 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
           ),
         );
 
-      const activeTokens = tokens.filter((t: { token: string | null }) => t.token);
+      // Group by appCode before calling Expo. Tokens from different EAS
+      // projects (weldchat vs weldsuite vs weldmail …) in one request get the
+      // whole batch rejected with HTTP 400.
+      const byAppCode = new Map<string, string[]>();
+      for (const row of tokens) {
+        if (!row.token) continue;
+        const list = byAppCode.get(row.appCode) ?? [];
+        list.push(row.token);
+        byAppCode.set(row.appCode, list);
+      }
 
-      if (activeTokens.length === 0) {
+      if (byAppCode.size === 0) {
         console.warn(
           `[Notifications] No active push tokens for user=${userId} category=${category} appCodes=${appCodes.join(',')}`,
         );
@@ -297,37 +306,42 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
           }
           pushData[key] = str;
         }
-        const messages: ExpoPushMessage[] = activeTokens.map((t: { token: string }) => ({
-          to: t.token,
-          title,
-          body,
-          sound: 'default',
-          // Ensure the app icon badge updates on arrival (orchestrator never
-          // sent a count before; clients reconcile the real unread total via
-          // realtime / API).
-          badge: 1,
-          ...(channelId ? { channelId } : {}),
-          priority,
-          data: pushData,
-        }));
-        console.log(
-          `[Notifications] Expo push attempt user=${userId} type=${notificationType} tokens=${activeTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
-        );
-        const { invalidTokens, tickets } = await sendExpoPush(messages);
-        const ticketErrors = tickets.filter((t) => t.status === 'error');
-        if (ticketErrors.length > 0) {
-          console.error(
-            '[Notifications] Expo push ticket errors:',
-            ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+
+        const allInvalid: string[] = [];
+        for (const [appCode, appTokens] of byAppCode) {
+          const messages: ExpoPushMessage[] = appTokens.map((token) => ({
+            to: token,
+            title,
+            body,
+            sound: 'default',
+            // Ensure the app icon badge updates on arrival (orchestrator never
+            // sent a count before; clients reconcile the real unread total via
+            // realtime / API).
+            badge: 1,
+            ...(channelId ? { channelId } : {}),
+            priority,
+            data: pushData,
+          }));
+          console.log(
+            `[Notifications] Expo push attempt user=${userId} type=${notificationType} appCode=${appCode} tokens=${appTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
           );
+          const { invalidTokens, tickets } = await sendExpoPush(messages);
+          const ticketErrors = tickets.filter((t) => t.status === 'error');
+          if (ticketErrors.length > 0) {
+            console.error(
+              '[Notifications] Expo push ticket errors:',
+              ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+            );
+          }
+          allInvalid.push(...invalidTokens.filter(Boolean));
         }
-        // Drop DeviceNotRegistered tokens so we stop retrying dead devices.
-        const toDeactivate = invalidTokens.filter(Boolean);
-        if (toDeactivate.length > 0) {
+
+        // Drop DeviceNotRegistered / non-Expo tokens so we stop retrying them.
+        if (allInvalid.length > 0) {
           await db
             .update(schema.deviceTokens)
             .set({ isActive: new Date(), updatedAt: new Date() })
-            .where(inArray(schema.deviceTokens.token, toDeactivate));
+            .where(inArray(schema.deviceTokens.token, allInvalid));
         }
       }
     } catch (err) {

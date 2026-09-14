@@ -18,7 +18,13 @@ export { resolveEmailPresence, presenceFromStatus, type EmailPresence } from './
 // Exported for the deferred-email workflow, which sends the same mail on the
 // same `from` address minutes later — it must not grow its own copy.
 export { sendNotificationEmail } from './channels/email';
-export { sendExpoPush, type ExpoPushMessage, type SendExpoPushResult } from './channels/push';
+export {
+  sendExpoPush,
+  isExpoPushToken,
+  formatExpoHttpError,
+  type ExpoPushMessage,
+  type SendExpoPushResult,
+} from './channels/push';
 export { sendTaskAssignmentNotification } from './helpers/task-assignment';
 export {
   sendChatMentionNotification,
