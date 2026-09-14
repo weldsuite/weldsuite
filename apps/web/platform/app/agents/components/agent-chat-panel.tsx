@@ -142,6 +142,20 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     }
   }, [messages, awaitingReplyAfterId, needsSetup, qc]);
 
+  // Never leave the typing indicator stuck if the cloud finish never lands.
+  useEffect(() => {
+    if (!awaitingReplyAfterId) return;
+    const timer = window.setTimeout(() => {
+      setAwaitingReplyAfterId(null);
+      setPendingUser(null);
+      setSendError(t.replyTimedOut);
+      void qc.invalidateQueries({
+        queryKey: weldagentKeys.conversationMessages(activeId || ''),
+      });
+    }, 90_000);
+    return () => window.clearTimeout(timer);
+  }, [awaitingReplyAfterId, activeId, qc, t.replyTimedOut]);
+
   const hasUserMessage = messages.some((m) => m.role === 'user') || !!pendingUser;
   const isWaiting = awaitingReply || completeTurn.isPending;
   const showSetupPicker =
@@ -280,20 +294,26 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
       setSendError(null);
 
       try {
-        // Default async: Worker accepts the user message and generates in the cloud.
+        // Setup interview waits for the reply so gateway/config errors surface
+        // immediately instead of leaving an endless typing indicator.
+        // Active agents stay async (cloud waitUntil) so long tool runs don't block.
         const result = await completeTurn.mutateAsync({
           conversationId,
           content: trimmed,
           agentId,
+          wait: needsSetup,
         });
 
-        if (result?.userMessage?.id) {
+        if (result?.userMessage?.id && result.pending) {
           setAwaitingReplyAfterId(result.userMessage.id);
         }
 
         if (result?.assistantMessage && !result.pending) {
           setPendingUser(null);
           setAwaitingReplyAfterId(null);
+          await qc.invalidateQueries({
+            queryKey: weldagentKeys.conversationMessages(conversationId),
+          });
           if (needsSetup) {
             await qc.invalidateQueries({ queryKey: ['workspace-agents'] });
           }

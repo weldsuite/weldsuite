@@ -686,6 +686,7 @@ export const common = {
           inputPlaceholder: 'Mensaje para {name}…',
           thinking: 'Pensando…',
           sendFailed: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+          replyTimedOut: 'El agente tardó demasiado en responder. Intenta enviarlo de nuevo.',
         },
         setup: {
           badge: 'Configuración',

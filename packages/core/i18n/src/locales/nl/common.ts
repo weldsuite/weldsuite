@@ -698,6 +698,7 @@ export const common = {
           inputPlaceholder: 'Bericht aan {name}…',
           thinking: 'Aan het denken…',
           sendFailed: 'Bericht versturen mislukt. Probeer opnieuw.',
+          replyTimedOut: 'De agent deed er te lang over om te antwoorden. Probeer opnieuw te versturen.',
         },
         setup: {
           badge: 'Setup',
