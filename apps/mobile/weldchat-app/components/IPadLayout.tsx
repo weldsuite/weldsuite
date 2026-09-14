@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
+import { useChatCache } from '@/hooks/useChatCache';
 import { ChannelView } from './chat/ChannelView';
 
 interface Channel {
@@ -62,6 +63,29 @@ export function IPadLayout() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
+  const cache = useChatCache();
+  // Set when a network fetch lands so a late cache read can't overwrite it.
+  const networkLoadedRef = useRef(false);
+
+  // Cache-first paint so the sidebar isn't blank on cold start.
+  // Only hydrate channels here — the phone DMs tab caches a mapped shape that
+  // doesn't match this sidebar's raw DM rows.
+  useEffect(() => {
+    let cancelled = false;
+    networkLoadedRef.current = false;
+    (async () => {
+      const cachedChannels = await cache.getChannels();
+      if (cancelled || networkLoadedRef.current) return;
+      const chs = (cachedChannels as Channel[] | null) ?? [];
+      setChannels(chs);
+      if (chs.length) {
+        setSelectedChannelId((prev) => prev ?? chs[0].id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cache]);
 
   const loadData = useCallback(async () => {
     try {
@@ -69,10 +93,12 @@ export function IPadLayout() {
       // Match platform: hide DMs (listed separately) and entity/object channels.
       const chs = ((chRes.data || []) as any[]).filter(
         (c: any) => c.type !== 'dm' && c.type !== 'entity',
-      );
+      ) as Channel[];
+      const dmList = (dmRes.data || []) as DmChannel[];
+      networkLoadedRef.current = true;
       setChannels(chs);
-      const dmList = (dmRes.data || []) as any[];
       setDms(dmList);
+      cache.setChannels(chs);
       // Auto-select first channel if none selected
       setSelectedChannelId((prev) => {
         if (prev) return prev;
@@ -81,9 +107,10 @@ export function IPadLayout() {
         return null;
       });
     } catch (err) {
+      // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
     }
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     loadData();

@@ -263,10 +263,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             : 'Expo did not accept the test push.',
       };
     } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
-          ? err.message
-          : 'Failed to send test push';
+      // Prefer the server's error.message (e.g. Expo's real rejection reason)
+      // over a bare "HTTP 400 Bad Request" status line.
+      let message = 'Failed to send test push';
+      if (err && typeof err === 'object') {
+        const apiBody = 'body' in err ? (err as { body?: unknown }).body : undefined;
+        const nested =
+          apiBody &&
+          typeof apiBody === 'object' &&
+          apiBody !== null &&
+          'error' in apiBody &&
+          typeof (apiBody as { error?: unknown }).error === 'object' &&
+          (apiBody as { error?: { message?: unknown } }).error !== null
+            ? (apiBody as { error: { message?: unknown } }).error.message
+            : undefined;
+        if (typeof nested === 'string' && nested.trim()) {
+          message = nested;
+        } else if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
+          message = err.message;
+        }
+      }
       await refreshRegistrationStatus();
       return { ok: false, message };
     }
