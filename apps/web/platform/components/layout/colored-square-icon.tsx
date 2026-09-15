@@ -1,5 +1,11 @@
+import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+/** Matches `MenuItemProps.icon` — Lucide or any className-only icon component. */
+export type ColoredSquareIconComponent =
+  | LucideIcon
+  | ComponentType<{ className?: string }>;
 
 /**
  * Colored squircle used for project / list icons in sidebars.
@@ -14,7 +20,7 @@ export function ColoredSquareIcon({
   color,
   className,
 }: {
-  icon: LucideIcon;
+  icon: ColoredSquareIconComponent;
   color?: string | null;
   className?: string;
 }) {
@@ -26,7 +32,8 @@ export function ColoredSquareIcon({
         className,
       )}
     >
-      <Icon className="size-3.5 text-white" strokeWidth={2.25} aria-hidden />
+      {/* Only `className` is safe across LucideIcon | className-only components */}
+      <Icon className="size-3.5 text-white" />
     </div>
   );
 }
