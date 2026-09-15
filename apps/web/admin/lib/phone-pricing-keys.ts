@@ -17,6 +17,11 @@ export function parseCountryCode(
 export const PHONE_NUMBER_TYPES = ['local', 'toll-free', 'mobile'] as const;
 export type PhoneNumberType = (typeof PHONE_NUMBER_TYPES)[number];
 
+/** Countries the purchase UI actually offers — seed fills these from Telnyx. */
+export const PHONE_PRICING_SEED_COUNTRIES = [
+  'US', 'CA', 'GB', 'NL', 'DE', 'FR', 'BE', 'AT', 'CH', 'AU', 'ES', 'IT', 'SE', 'NO', 'DK', 'PL',
+] as const;
+
 export function parseNumberType(
   raw: string,
 ): { ok: true; numberType: PhoneNumberType } | { ok: false } {

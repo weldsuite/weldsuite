@@ -164,7 +164,7 @@ export const host = {
       filterPlaceholder: 'Filter land of type…',
       filterLabel: 'Filter catalogus',
       emptyCatalog:
-        'Nog geen landencatalogus. Stel een standaardmarge in om live Telnyx-prijzen op te hogen, of voeg een landrij toe.',
+        'Nog geen landencatalogus. Seed inkooprijen vanuit Telnyx, stel een standaardmarge in om live prijzen op te hogen, of voeg een landrij toe.',
       emptyFilter: 'Geen rijen komen overeen met dat filter.',
       columnCountry: 'Land',
       columnType: 'Type',
@@ -176,6 +176,19 @@ export const host = {
       statusInactive: 'inactief',
       setMarginButton: 'Marge instellen',
       addRowButton: 'Land toevoegen',
+      seedButton: 'Seeden vanuit Telnyx',
+      confirmTitle: 'Telefoonprijzen seeden?',
+      confirmDescription:
+        'Dit haalt Telnyx-inkoopprijzen per maand op voor de landen in de aankoopflow (local, toll-free en mobile waar Telnyx dekking heeft) en schrijft ze naar de hoofdcatalogus. Bestaande marge wordt niet overschreven. Nieuwe rijen kopiëren de standaardmarge.',
+      confirmCancel: 'Annuleren',
+      confirmFetch: 'Catalogus seeden',
+      seedSuccess:
+        '{updated} bestaande bijgewerkt en {inserted} nieuwe rij(en) ingevoegd vanuit Telnyx ({fetched} bemonsterd)',
+      seedAlreadyComplete: 'Catalogus komt al overeen met Telnyx-samples — {fetched} combinaties gecontroleerd',
+      seedNoSamples:
+        'Telnyx gaf geen inkoopprijzen terug voor de aankoop-landen. Controleer TELNYX_API_KEY en voorraadtoegang, en probeer opnieuw.',
+      notConfigured: 'Telnyx is niet geconfigureerd. Zet TELNYX_API_KEY op de admin-app.',
+      seedFailed: 'Telnyx-dekkingsverzoek mislukt',
       markupEditAria: 'Marge bewerken voor {row}',
       markupDialogTitle: 'Marge instellen',
       markupDialogTitleRow: 'Marge instellen voor {row}',

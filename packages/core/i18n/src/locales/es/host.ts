@@ -163,7 +163,7 @@ export const host = {
       filterPlaceholder: 'Filtrar país o tipo…',
       filterLabel: 'Filtrar catálogo',
       emptyCatalog:
-        'Aún no hay catálogo por país. Define un margen predeterminado para marcar precios de Telnyx, o añade una fila de país.',
+        'Aún no hay catálogo por país. Rellena filas mayoristas desde Telnyx, define un margen predeterminado para marcar precios en vivo, o añade una fila de país.',
       emptyFilter: 'Ninguna fila coincide con ese filtro.',
       columnCountry: 'País',
       columnType: 'Tipo',
@@ -175,6 +175,19 @@ export const host = {
       statusInactive: 'inactivo',
       setMarginButton: 'Establecer margen',
       addRowButton: 'Añadir país',
+      seedButton: 'Rellenar desde Telnyx',
+      confirmTitle: '¿Rellenar precios de teléfono?',
+      confirmDescription:
+        'Muestrea costes mayoristas mensuales de Telnyx para los países de la compra (local, toll-free y mobile donde Telnyx tiene cobertura) y los escribe en el catálogo maestro. El margen existente no se sobrescribe. Las filas nuevas copian el margen predeterminado.',
+      confirmCancel: 'Cancelar',
+      confirmFetch: 'Rellenar catálogo',
+      seedSuccess:
+        'Se actualizaron {updated} existentes y se insertaron {inserted} fila(s) nuevas desde Telnyx ({fetched} muestreadas)',
+      seedAlreadyComplete: 'El catálogo ya coincide con las muestras de Telnyx — {fetched} combinaciones comprobadas',
+      seedNoSamples:
+        'Telnyx no devolvió muestras mayoristas para los países de compra. Comprueba TELNYX_API_KEY y el acceso al inventario, e inténtalo de nuevo.',
+      notConfigured: 'Telnyx no está configurado. Define TELNYX_API_KEY en la app de admin.',
+      seedFailed: 'La petición de cobertura de Telnyx falló',
       markupEditAria: 'Editar margen de {row}',
       markupDialogTitle: 'Establecer margen',
       markupDialogTitleRow: 'Establecer margen de {row}',

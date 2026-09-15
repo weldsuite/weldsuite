@@ -61,3 +61,24 @@ export async function listPhonePricing(): Promise<{
       : null,
   };
 }
+
+export async function listExistingPhonePricingKeys(): Promise<
+  Array<{
+    id: string;
+    countryCode: string;
+    numberType: string;
+    markupAmount: number | null;
+    markupPercent: string | null;
+  }>
+> {
+  const db = getMasterDb();
+  return db
+    .select({
+      id: telephonyNumberPricing.id,
+      countryCode: telephonyNumberPricing.countryCode,
+      numberType: telephonyNumberPricing.numberType,
+      markupAmount: telephonyNumberPricing.markupAmount,
+      markupPercent: telephonyNumberPricing.markupPercent,
+    })
+    .from(telephonyNumberPricing);
+}

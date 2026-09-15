@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Percent, Phone, Plus, Search } from 'lucide-react';
+import { Loader2, Percent, Phone, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -31,6 +31,7 @@ import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-she
 import {
   applyPhonePricingMarkup,
   createPhonePricing,
+  seedPhonePricing,
   updatePhonePricingMarkup,
   updatePhonePricingWholesale,
 } from '@/actions/phone-pricing';
@@ -70,6 +71,7 @@ export function PhonePricingList({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [confirm, setConfirm] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editRow, setEditRow] = useState<PhonePricingRow | null>(null);
   const [wholesaleRow, setWholesaleRow] = useState<PhonePricingRow | null>(null);
@@ -84,6 +86,28 @@ export function PhonePricingList({
       (r) => r.countryCode.toLowerCase().includes(q) || r.numberType.toLowerCase().includes(q),
     );
   }, [rows, search]);
+
+  function runSeed() {
+    startMutation(async () => {
+      const result = await seedPhonePricing();
+      if (result.ok) {
+        const { inserted, updated, fetched } = result.data;
+        if (!fetched) {
+          toast.error(copy.seedNoSamples);
+          return;
+        }
+        toast.success(
+          inserted || updated
+            ? fill(copy.seedSuccess, { inserted, updated, fetched })
+            : fill(copy.seedAlreadyComplete, { fetched }),
+        );
+        setConfirm(false);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
 
   function saveMarkup(kind: MarkupKind, value: string, onlyEmpty: boolean) {
     startMutation(async () => {
@@ -156,6 +180,14 @@ export function PhonePricingList({
               <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)} disabled={isMutating}>
                 <Percent className="h-4 w-4" />
                 {copy.setMarginButton}
+              </Button>
+              <Button size="sm" onClick={() => setConfirm(true)} disabled={isMutating}>
+                {isMutating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {copy.seedButton}
               </Button>
             </>
           }
@@ -260,6 +292,24 @@ export function PhonePricingList({
           </Table>
         </div>
       </PageBody>
+
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{copy.confirmTitle}</DialogTitle>
+            <DialogDescription>{copy.confirmDescription}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(false)} disabled={isMutating}>
+              {copy.confirmCancel}
+            </Button>
+            <Button onClick={runSeed} disabled={isMutating}>
+              {isMutating && <Loader2 className="h-4 w-4 animate-spin" />}
+              {copy.confirmFetch}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <MarkupDialog
         open={bulkOpen || editRow !== null}
