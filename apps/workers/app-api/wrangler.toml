@@ -208,9 +208,6 @@ bucket_name = "weldsuite-storage"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
-[[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
 
 [[queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -392,9 +389,6 @@ bucket_name = "weldsuite-storage-test"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-test"
 
-[[env.test.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-test"
 
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -546,9 +540,6 @@ bucket_name = "weldsuite-storage"
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
 
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"
