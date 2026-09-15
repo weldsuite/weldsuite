@@ -798,6 +798,7 @@ export const sweep = {
     "selectAppToSeeMenu": "Selecteer een app om het menu te zien",
     "workspace": "Werkruimte",
     "settings": "Instellingen",
+    "close": "Sluiten",
     "signOut": "Uitloggen",
     "loadingPage": "Pagina laden",
     "unknown": "Onbekend",

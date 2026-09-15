@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   LogOut,
   Check,
+  X,
 } from 'lucide-react';
 import {
   Sheet,
@@ -16,6 +17,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
+  SheetClose,
 } from '@weldsuite/ui/components/sheet';
 import {
   Collapsible,
@@ -249,7 +251,7 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
       <SheetContent
         side="left"
         hideClose
-        className="w-[336px] max-w-[92vw] p-0 gap-0 flex flex-row z-[100] overflow-hidden"
+        className="h-dvh w-dvw max-w-none sm:max-w-none p-0 gap-0 flex flex-row z-[100] overflow-hidden"
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{st('sweep.shared.navigation')}</SheetTitle>
@@ -332,32 +334,46 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Active app header (logo + name) — mirrors desktop top-of-sidebar */}
           <div className="h-14 px-4 border-b flex items-center gap-2">
-            {moduleInfo?.logo && (isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight) ? (
-              <img
-                src={isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight}
-                alt={moduleInfo.name}
-                width={320}
-                height={80}
-                className={moduleInfo.logo.textClassName || 'h-auto w-[140px]'}
-              />
-            ) : moduleInfo ? (
-              <>
-                {moduleInfo.logo ? (
-                  <img
-                    src={isDark ? moduleInfo.logo.iconDark : moduleInfo.logo.iconLight}
-                    alt={moduleInfo.name}
-                    width={48}
-                    height={48}
-                    className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0'}
-                  />
-                ) : (
-                  <moduleInfo.icon className="h-5 w-5 shrink-0" />
-                )}
-                <span className="text-base font-semibold truncate">{moduleInfo.name}</span>
-              </>
-            ) : (
-              <span className="text-base font-semibold">WeldSuite</span>
-            )}
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {moduleInfo?.logo && (isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight) ? (
+                <img
+                  src={isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight}
+                  alt={moduleInfo.name}
+                  width={320}
+                  height={80}
+                  className={moduleInfo.logo.textClassName || 'h-auto w-[140px]'}
+                />
+              ) : moduleInfo ? (
+                <>
+                  {moduleInfo.logo ? (
+                    <img
+                      src={isDark ? moduleInfo.logo.iconDark : moduleInfo.logo.iconLight}
+                      alt={moduleInfo.name}
+                      width={48}
+                      height={48}
+                      className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0'}
+                    />
+                  ) : (
+                    <moduleInfo.icon className="h-5 w-5 shrink-0" />
+                  )}
+                  <span className="text-base font-semibold truncate">{moduleInfo.name}</span>
+                </>
+              ) : (
+                <span className="text-base font-semibold">WeldSuite</span>
+              )}
+            </div>
+            {/* Full-screen drawer covers the overlay — explicit close control required */}
+            <SheetClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                aria-label={st('sweep.shared.close')}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </SheetClose>
           </div>
 
           {/* Module Menu Items */}

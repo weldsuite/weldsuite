@@ -798,6 +798,7 @@ export const sweep = {
     "selectAppToSeeMenu": "Select an app to see its menu",
     "workspace": "Workspace",
     "settings": "Settings",
+    "close": "Close",
     "signOut": "Sign out",
     "loadingPage": "Loading page",
     "unknown": "Unknown",
