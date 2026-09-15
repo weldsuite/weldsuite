@@ -164,7 +164,7 @@ app.post('/routines/:id/test', requirePermission('weldagent:update', 'weldagent:
       error: result.error,
       agentRunId: result.runId,
     });
-    return success(c, { runId, ...result });
+    return success(c, { ...result, runId, agentRunId: result.runId });
   } catch (err) {
     await completeRoutineRun(db, runId, {
       status: 'failed',
