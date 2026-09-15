@@ -7,13 +7,11 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Env } from '../index';
+import { orgIdFromClerkPayload, orgRoleFromClerkPayload, type ClerkJwtOrgClaims } from '../lib/clerk-org';
 
-interface JwtPayload {
+interface JwtPayload extends ClerkJwtOrgClaims {
   sub: string;
-  org_id?: string;
   org_slug?: string;
-  /** Clerk org role, e.g. "org:admin" or "org:member". Absent outside an org. */
-  org_role?: string;
   iat?: number;
   exp?: number;
 }
@@ -52,8 +50,8 @@ export const clerkJwtAuth = () => {
       }
 
       c.set('userId', payload.sub);
-      c.set('orgId', payload.org_id || null);
-      c.set('orgRole', payload.org_role || null);
+      c.set('orgId', orgIdFromClerkPayload(payload));
+      c.set('orgRole', orgRoleFromClerkPayload(payload));
 
       await next();
     } catch (err: any) {
