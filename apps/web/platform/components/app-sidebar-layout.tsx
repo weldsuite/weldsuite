@@ -43,8 +43,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@weldsuite/ui/components/collapsible"
-import { LucideIcon, Plus, MoreVertical, ChevronDown, ChevronLeft, ChevronRight, Trash2, Copy, Download, Upload, Palette, ImageIcon, SquarePen, Building, User, Users, Briefcase, Target, Layers, Star, Heart, Zap, Globe, Mail, Phone, Calendar, FileText, FolderOpen, ShoppingBag, CreditCard, Truck, Package, Tag, Flag, ArrowUp, ArrowDown, Video } from "lucide-react"
+import { LucideIcon, Plus, MoreVertical, ChevronDown, ChevronLeft, ChevronRight, Trash2, Copy, Download, Upload, Palette, ImageIcon, SquarePen, Building, User, Users, Briefcase, Target, Layers, Star, Heart, Zap, Globe, Mail, Phone, Calendar, FileText, FolderOpen, ShoppingBag, CreditCard, Truck, Package, Tag, Flag, ArrowUp, ArrowDown, Video, Settings, Smartphone, MessageSquare, Calculator, Lightbulb, Code2, Hash, Rocket } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ColoredSquareIcon } from "@/components/layout/colored-square-icon"
 import { SidebarUserMenu, type UserInfo, type Workspace } from "@weldsuite/ui/components/sidebar-user-menu"
 import { usePresenceMaybe } from "@/contexts/presence-context"
 import {
@@ -223,7 +224,22 @@ export const coloredSquareIcons: { value: LucideIcon; label: string }[] = [
   { value: Package, label: 'Package' },
   { value: Tag, label: 'Tag' },
   { value: Flag, label: 'Flag' },
+  { value: Settings, label: 'Settings' },
+  { value: Smartphone, label: 'Mobile' },
+  { value: MessageSquare, label: 'Chat' },
+  { value: Calculator, label: 'Calculator' },
+  { value: Lightbulb, label: 'Idea' },
+  { value: Code2, label: 'Code' },
+  { value: Hash, label: 'Hash' },
+  { value: Rocket, label: 'Rocket' },
 ];
+
+/** Resolve a stored icon label to a Lucide component (case-insensitive). */
+export function findColoredSquareIconByLabel(label: string): LucideIcon | undefined {
+  const normalized = label.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return coloredSquareIcons.find((i) => i.label.toLowerCase() === normalized)?.value;
+}
 
 export interface AppSidebarLayoutProps extends React.ComponentProps<typeof Sidebar> {
   appName: string;
@@ -839,12 +855,7 @@ export function AppSidebarLayout({
                             }
                           }}>
                             {item.iconStyle === 'colored-square' ? (
-                              <div className={cn(
-                                "flex items-center justify-center w-[18px] h-[18px] rounded-[6px]",
-                                item.iconColor || "bg-gray-500"
-                              )}>
-                                <Icon className="h-2.5 w-2.5 text-white" />
-                              </div>
+                              <ColoredSquareIcon icon={Icon} color={item.iconColor} />
                             ) : (
                               <Icon className="h-4 w-4" />
                             )}
