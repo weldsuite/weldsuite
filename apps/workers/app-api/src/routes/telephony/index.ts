@@ -35,6 +35,7 @@ import {
   upsertPhoneNumberRegistry,
   deactivatePhoneNumberRegistry,
 } from '../../lib/phone-registry';
+import { mapTelnyxAvailableNumber, normalizeNumberType } from '../../lib/telnyx-available-numbers';
 
 const READ_TELEPHONY = 'telephony:read';
 const MANAGE_TELEPHONY = 'telephony:manage';
@@ -295,7 +296,11 @@ app.post('/phone-numbers/search', requirePermission(MANAGE_TELEPHONY), zValidato
       `/available_phone_numbers?${params.toString()}`,
     );
 
-    return success(c, { numbers: resp.data || [] });
+    const numbers = (resp.data || [])
+      .map((row) => mapTelnyxAvailableNumber(row, country))
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    return success(c, { numbers });
   } catch (err) {
     console.error('[Telephony] Failed to search phone numbers:', err);
     return error.internal(c, 'Failed to search phone numbers');
@@ -624,8 +629,8 @@ app.get('/pricing', requirePermission(READ_TELEPHONY), async (c) => {
       .orderBy(asc(masterSchema.telephonyNumberPricing.countryCode), asc(masterSchema.telephonyNumberPricing.numberType));
 
     const pricing = rows.map((r) => ({
-      countryCode: r.countryCode,
-      numberType: r.numberType,
+      countryCode: r.countryCode.toUpperCase(),
+      numberType: normalizeNumberType(r.numberType),
       monthlyPrice: Number(r.monthlyPrice),
       currency: r.currency,
       stripePriceId: r.stripePriceId ?? undefined,

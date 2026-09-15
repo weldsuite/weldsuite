@@ -448,6 +448,9 @@ export interface IngestDeskPhoneInput {
   callId: string;
   callControlId?: string | null;
   body?: string;
+  name?: string | null;
+  contactId?: string | null;
+  title?: string | null;
 }
 
 export async function ingestDeskPhone(
@@ -455,17 +458,18 @@ export async function ingestDeskPhone(
   input: IngestDeskPhoneInput,
 ): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
   const fromNumber = input.fromNumber.trim();
-  const title = `Call from ${fromNumber}`;
+  const displayName = input.name?.trim() || fromNumber;
+  const title = input.title?.trim() || `Call from ${displayName}`;
   const body =
     input.body ??
-    `Inbound call from ${fromNumber} to ${input.toNumber}`;
+    `Inbound call from ${displayName} to ${input.toNumber}`;
 
   let conversation = await findOpenPhoneConversationByPhone(db, fromNumber);
 
   let visitor = await findDeskVisitorByPhone(db, fromNumber);
   visitor = await upsertDeskVisitor(db, {
     id: visitor?.id ?? input.generateId('dvis'),
-    name: visitor?.name ?? fromNumber,
+    name: input.name?.trim() || visitor?.name || fromNumber,
     phone: fromNumber,
   });
 
@@ -494,7 +498,8 @@ export async function ingestDeskPhone(
     generateId: input.generateId,
     channel: 'phone',
     visitorId: visitor.id,
-    name: fromNumber,
+    name: displayName,
+    contactId: input.contactId ?? null,
     title,
     body,
     authorType: 'visitor',

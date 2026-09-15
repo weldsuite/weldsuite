@@ -43,7 +43,7 @@ export interface DeskVoiceAgent {
 const emptyForm = {
   name: '',
   systemPrompt:
-    'You are a helpful phone support agent. Be concise and professional. If the caller needs a human, transfer them.',
+    'You are a helpful phone support agent. Be concise and professional. Look up the caller in CRM when they are not already identified. If they need a human, transfer them.',
   greeting: 'Hi, thanks for calling. How can I help you today?',
   enabled: true,
   forwardToE164: '',

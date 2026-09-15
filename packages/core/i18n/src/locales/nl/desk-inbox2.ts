@@ -89,6 +89,7 @@ export const deskInbox2 = {
     reopenTooltip: 'Heropenen (Shift+C)',
     closeSuccess: 'Gesprek gesloten',
     reopenSuccess: 'Gesprek heropend',
+    liveCall: 'Live gesprek',
     manageError: 'Gesprek bijwerken mislukt',
     priorityOn: 'Markeren als prioriteit',
     priorityOff: 'Prioriteit verwijderen',

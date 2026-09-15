@@ -96,6 +96,7 @@ export const deskInbox2 = {
     reopenTooltip: 'Reopen (Shift+C)',
     closeSuccess: 'Conversation closed',
     reopenSuccess: 'Conversation reopened',
+    liveCall: 'Live call',
     manageError: 'Failed to update conversation',
     priorityOn: 'Mark as priority',
     priorityOff: 'Remove priority',

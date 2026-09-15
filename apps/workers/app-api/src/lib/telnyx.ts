@@ -141,10 +141,24 @@ export async function telnyxAiAssistantStart(
   env: TelnyxEnv,
   callControlId: string,
   assistantId: string,
-  opts?: { clientState?: string },
+  opts?: {
+    clientState?: string;
+    sendMessageHistoryUpdates?: boolean;
+    instructions?: string;
+    greeting?: string | null;
+    tools?: unknown[];
+    dynamicVariables?: Record<string, string | number | boolean>;
+  },
 ): Promise<unknown> {
+  const assistant: Record<string, unknown> = { id: assistantId };
+  if (opts?.instructions) assistant.instructions = opts.instructions;
+  if (opts?.greeting) assistant.greeting = opts.greeting;
+  if (opts?.tools) assistant.tools = opts.tools;
+  if (opts?.dynamicVariables) assistant.dynamic_variables = opts.dynamicVariables;
+
   return callControlAction(env, callControlId, 'ai_assistant_start', {
-    assistant: { id: assistantId },
+    assistant,
+    ...(opts?.sendMessageHistoryUpdates ? { send_message_history_updates: true } : {}),
     ...(opts?.clientState ? { client_state: opts.clientState } : {}),
   });
 }
@@ -168,10 +182,15 @@ export interface TelnyxAssistantInput {
   voice?: string | null;
   /** E.164 cold-transfer target exposed as the Transfer tool. */
   transferToE164?: string | null;
+  /** Extra Telnyx tools (webhook CRM lookup, …) merged with hangup/transfer. */
+  extraTools?: unknown[];
 }
 
-function buildAssistantTools(transferToE164?: string | null): unknown[] {
-  const tools: unknown[] = [{ type: 'hangup' }];
+function buildAssistantTools(
+  transferToE164?: string | null,
+  extraTools: unknown[] = [],
+): unknown[] {
+  const tools: unknown[] = [{ type: 'hangup' }, ...extraTools];
   if (transferToE164) {
     tools.push({
       type: 'transfer',
@@ -190,7 +209,8 @@ function assistantPayload(input: TelnyxAssistantInput): Record<string, unknown> 
     instructions: input.instructions,
     model: input.model || 'meta-llama/Meta-Llama-3.1-70B-Instruct',
     enabled_features: ['telephony'],
-    tools: buildAssistantTools(input.transferToE164),
+    tools: buildAssistantTools(input.transferToE164, input.extraTools),
+    telephony_settings: { send_message_history_updates: true },
   };
   if (input.greeting) {
     payload.greeting = input.greeting;
