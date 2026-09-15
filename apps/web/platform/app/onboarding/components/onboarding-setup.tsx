@@ -11,6 +11,7 @@ import {
   getAppIcon,
   getAppShortName,
   isHiddenFromOnboarding,
+  resolveAppCode,
 } from "@/lib/apps/app-registry";
 import { COUNTRIES, NEON_REGIONS, getDefaultRegionForCountry } from "../types";
 
@@ -22,10 +23,41 @@ const workspaceSetupSchema = z.object({
   region: z
     .string()
     .refine((value) => NEON_REGIONS.some((region) => region.id === value)),
+  // A workspace always starts with at least one app, so the dashboard is never
+  // empty on first login. `DEFAULT_APP_PREFERENCE` preselects one for the user.
+  selectedApps: z.array(z.string()).min(1),
+});
+
+/** Relaxed variant for the rare case where the app catalog failed to load. */
+const workspaceSetupWithoutAppsSchema = workspaceSetupSchema.extend({
   selectedApps: z.array(z.string()),
 });
 
 export type WorkspaceSetupData = z.infer<typeof workspaceSetupSchema>;
+
+/**
+ * Canonical app codes, best first, used to preselect one app for a brand-new
+ * workspace. WeldCRM leads: contacts, customers and leads are the records every
+ * other module hangs off, so it is the most useful single app to start with.
+ * The catalog may serve legacy codes (`crm`, `projects`, ...), so entries are
+ * matched through `resolveAppCode`.
+ */
+const DEFAULT_APP_PREFERENCE = [
+  "weldcrm",
+  "weldflow",
+  "welddesk",
+  "weldmail",
+  "weldcommerce",
+];
+
+/** Pick the best available app to start with, or none if the catalog is empty. */
+function pickDefaultApps(apps: AppDefinition[]): string[] {
+  for (const preferred of DEFAULT_APP_PREFERENCE) {
+    const match = apps.find((app) => resolveAppCode(app.code) === preferred);
+    if (match) return [match.code];
+  }
+  return apps.length > 0 ? [apps[0].code] : [];
+}
 
 export interface OnboardingSetupProps {
   initialUserInfo: {
@@ -73,12 +105,21 @@ export function OnboardingSetup({
       : getDefaultRegionForCountry(country),
   );
   const [hasCustomRegion, setHasCustomRegion] = useState(false);
-  const [selectedApps, setSelectedApps] = useState<string[]>([]);
   const visibleApps = availableApps.filter(
     (app) => !isHiddenFromOnboarding(app.code),
   );
+  // `null` until the user touches the picker: the catalog arrives from a query,
+  // so freezing the default in state would preselect nothing on first render.
+  const [appSelection, setAppSelection] = useState<string[] | null>(null);
+  const selectedApps = appSelection ?? pickDefaultApps(visibleApps);
   const selectedRegion = NEON_REGIONS.find((item) => item.id === region);
-  const validation = workspaceSetupSchema.safeParse({
+  // An empty catalog is a load failure, not a choice — don't trap the user
+  // behind a requirement they have no way to satisfy.
+  const validation = (
+    visibleApps.length === 0
+      ? workspaceSetupWithoutAppsSchema
+      : workspaceSetupSchema
+  ).safeParse({
     organizationName,
     country,
     region,
@@ -211,12 +252,14 @@ export function OnboardingSetup({
                   <span>
                     {copy.chooseApps}
                     <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                      {selectedApps.length === 0
-                        ? copy.appsLater
-                        : (selectedApps.length === 1
+                      {selectedApps.length > 0
+                        ? (selectedApps.length === 1
                             ? t.onboarding.appsStep.appsSelected
                             : t.onboarding.appsStep.appsSelectedPlural
-                          ).replace("{count}", String(selectedApps.length))}
+                          ).replace("{count}", String(selectedApps.length))
+                        : visibleApps.length === 0
+                          ? copy.appsLater
+                          : copy.appsRequired}
                     </span>
                   </span>
                   <ChevronDown
@@ -242,10 +285,12 @@ export function OnboardingSetup({
                           selected && "border-primary bg-primary/5",
                         )}
                         onClick={() =>
-                          setSelectedApps((previous) =>
-                            previous.includes(app.code)
-                              ? previous.filter((code) => code !== app.code)
-                              : [...previous, app.code],
+                          setAppSelection(
+                            selected
+                              ? selectedApps.filter(
+                                  (code) => code !== app.code,
+                                )
+                              : [...selectedApps, app.code],
                           )
                         }
                       >

@@ -293,7 +293,7 @@ const LEGACY_CODE_ALIASES: Record<string, string> = {
 };
 
 /** Resolve a possibly-legacy app code to its canonical registry key. */
-function resolveAppCode(code: string): string {
+export function resolveAppCode(code: string): string {
   if (!code) return code;
   if (APP_REGISTRY[code]) return code;
   const lower = code.toLowerCase();
