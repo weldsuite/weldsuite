@@ -251,7 +251,7 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
       <SheetContent
         side="left"
         hideClose
-        className="h-dvh w-dvw max-w-none sm:max-w-none p-0 gap-0 flex flex-row z-[100] overflow-hidden"
+        className="!h-full !w-full !max-w-none p-0 gap-0 flex flex-row z-[100] overflow-hidden"
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{st('sweep.shared.navigation')}</SheetTitle>
