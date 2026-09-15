@@ -68,6 +68,7 @@ export interface AgentExecutorInput {
     maxIterations: number;
     permissions: string[];
     enabledTools: string[];
+    autoReviewEnabled?: boolean;
   };
   toolContext: ToolContext;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -105,8 +106,9 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   'After a successful save, briefly confirm your name and what you will do.';
 
 /**
- * During onboarding, withhold save_agent_setup until the user has answered
- * at least one follow-up (2+ user turns). A lone preset click is not enough.
+ * During onboarding, only expose save_agent_setup (and only after the user has
+ * answered at least one follow-up). Platform/computer tools stay off so the
+ * interview cannot hang on a cloud sandbox or invent workspace mutations.
  */
 export function toolsForAgentTurn(input: {
   permissions: string[];
@@ -114,11 +116,11 @@ export function toolsForAgentTurn(input: {
   systemPrompt: string;
   userMessageCount: number;
 }): PlatformToolDefinition[] {
-  const defs = resolveAgentTools(input.permissions, input.enabledTools);
-  if (agentNeedsSetup(input.systemPrompt) && input.userMessageCount < 2) {
-    return defs.filter((tool) => tool.id !== 'agent.save_setup');
+  if (agentNeedsSetup(input.systemPrompt)) {
+    if (input.userMessageCount < 2) return [];
+    return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup');
   }
-  return defs;
+  return resolveAgentTools(input.permissions, input.enabledTools);
 }
 
 function buildSystemPrompt(agent: AgentExecutorInput['agent'], extra?: string): string {
@@ -142,10 +144,10 @@ function toSdkTools(
   defs: PlatformToolDefinition[],
   ctx: ToolContext,
   invocations: StoredToolInvocation[],
+  opts?: { autoReviewEnabled?: boolean },
 ): Record<string, unknown> {
   const tools: Record<string, unknown> = {};
   for (const def of defs) {
-    // Cast through unknown: heterogeneous Zod schemas blow up AI SDK tool generics (TS2589).
     tools[def.name] = tool({
       description: def.description,
       inputSchema: def.parameters as never,
@@ -153,6 +155,32 @@ function toSdkTools(
         const input = args as unknown;
         invocations.push({ toolName: def.name, state: 'call', args: input });
         try {
+          const { toolRiskLevel, createApproval, findPriorApproval } = await import('./parity');
+          const risk = toolRiskLevel(def.name);
+          if (risk === 'high') {
+            const autoOk =
+              opts?.autoReviewEnabled &&
+              (await findPriorApproval(ctx.db, ctx.agentId, def.name));
+            if (!autoOk) {
+              const approval = await createApproval(ctx.db, {
+                agentId: ctx.agentId,
+                conversationId: ctx.channelId ?? null,
+                toolName: def.name,
+                args: (input && typeof input === 'object'
+                  ? (input as Record<string, unknown>)
+                  : { value: input }) as Record<string, unknown>,
+                riskLevel: 'high',
+                createdBy: ctx.actorUserId,
+              });
+              const blocked = {
+                pendingApproval: true,
+                approvalId: approval.id,
+                message: `Action "${def.name}" requires human approval before it runs.`,
+              };
+              invocations.push({ toolName: def.name, state: 'result', args: input, result: blocked });
+              return blocked;
+            }
+          }
           const result = await def.execute(ctx, input);
           invocations.push({ toolName: def.name, state: 'result', args: input, result });
           return result;
@@ -190,10 +218,25 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
   });
   const invocations: StoredToolInvocation[] = [];
-  const sdkTools = toSdkTools(defs, input.toolContext, invocations);
+  const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
+    autoReviewEnabled: input.agent.autoReviewEnabled,
+  });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
-  const system = buildSystemPrompt(input.agent, input.extraSystem);
+  let system = buildSystemPrompt(input.agent, input.extraSystem);
+  if (input.toolContext.db && input.agent.id && !agentNeedsSetup(input.agent.systemPrompt)) {
+    try {
+      const { skillsPromptBlock, memoryPromptBlock } = await import('./parity');
+      const [skills, memory] = await Promise.all([
+        skillsPromptBlock(input.toolContext.db, input.agent.id),
+        memoryPromptBlock(input.toolContext.db, input.agent.id),
+      ]);
+      if (skills) system = `${system}\n\n${skills}`;
+      if (memory) system = `${system}\n\n${memory}`;
+    } catch (err) {
+      console.warn('[weldagent] failed to load skills/memory prompt blocks:', err);
+    }
+  }
 
   const credits = input.env.WORKSPACE_CACHE
     ? toCreditStates(await readGatewayCreditSnapshot(input.env.WORKSPACE_CACHE))
@@ -224,6 +267,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
         tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
         stopWhen: stepCountIs(Math.max(1, input.agent.maxIterations)),
         maxRetries: 1,
+        abortSignal: AbortSignal.timeout(75_000),
       }),
   );
 
@@ -264,7 +308,9 @@ export async function streamAgentChat(input: StreamAgentParams) {
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
   });
   const invocations: StoredToolInvocation[] = [];
-  const sdkTools = toSdkTools(defs, input.toolContext, invocations);
+  const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
+    autoReviewEnabled: input.agent.autoReviewEnabled,
+  });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
   const system = buildSystemPrompt(input.agent, input.extraSystem);

@@ -209,6 +209,125 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     },
   },
   {
+    id: 'agent.save_skill',
+    name: 'save_skill',
+    description:
+      'Save the current process as a reusable skill (steps, rules, safety boundaries). Enable it for this agent.',
+    requiredPermissions: [],
+    parameters: z.object({
+      name: z.string().min(2).max(255),
+      instructions: z.string().min(20).max(20000),
+      description: z.string().max(2000).optional(),
+      activate: z.boolean().optional(),
+    }),
+    async execute(ctx, raw) {
+      const args = z
+        .object({
+          name: z.string().min(2).max(255),
+          instructions: z.string().min(20).max(20000),
+          description: z.string().max(2000).optional(),
+          activate: z.boolean().optional(),
+        })
+        .parse(raw);
+      const { createSkill, enableSkillForAgent } = await import('./parity');
+      const skill = await createSkill(ctx.db, {
+        name: args.name,
+        instructions: args.instructions,
+        description: args.description,
+        status: args.activate === false ? 'draft' : 'active',
+        createdBy: ctx.actorUserId,
+        sourceAgentId: ctx.agentId,
+      });
+      await enableSkillForAgent(ctx.db, ctx.agentId, skill.id);
+      return { ok: true, skillId: skill.id, name: skill.name, status: skill.status };
+    },
+  },
+  {
+    id: 'agent.remember',
+    name: 'remember',
+    description: 'Store a lasting preference, fact, or correction about how this agent should work.',
+    requiredPermissions: [],
+    parameters: z.object({
+      kind: z.enum(['preference', 'fact', 'summary', 'correction']).default('preference'),
+      content: z.string().min(1).max(5000),
+    }),
+    async execute(ctx, raw) {
+      const args = z
+        .object({
+          kind: z.enum(['preference', 'fact', 'summary', 'correction']).default('preference'),
+          content: z.string().min(1).max(5000),
+        })
+        .parse(raw);
+      const { createMemory } = await import('./parity');
+      const memory = await createMemory(ctx.db, {
+        agentId: ctx.agentId,
+        kind: args.kind,
+        content: args.content,
+        source: 'chat',
+        createdBy: ctx.actorUserId,
+      });
+      return { ok: true, memoryId: memory.id };
+    },
+  },
+  {
+    id: 'agent.create_routine',
+    name: 'create_routine',
+    description:
+      'Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work.',
+    requiredPermissions: [],
+    parameters: z.object({
+      name: z.string().min(2).max(255),
+      instructions: z.string().min(10).max(20000),
+      scheduleKind: z.enum(['cron', 'event', 'connector']).default('cron'),
+      cronExpr: z.string().max(100).optional(),
+      timezone: z.string().max(64).optional(),
+      eventKey: z.string().max(100).optional(),
+      requireApproval: z.boolean().optional(),
+      connectorProvider: z.enum(['slack', 'github']).optional(),
+      connectorMatch: z.string().max(500).optional(),
+      connectorChannel: z.string().max(200).optional(),
+      connectorRepo: z.string().max(200).optional(),
+    }),
+    async execute(ctx, raw) {
+      const args = z
+        .object({
+          name: z.string().min(2).max(255),
+          instructions: z.string().min(10).max(20000),
+          scheduleKind: z.enum(['cron', 'event', 'connector']).default('cron'),
+          cronExpr: z.string().max(100).optional(),
+          timezone: z.string().max(64).optional(),
+          eventKey: z.string().max(100).optional(),
+          requireApproval: z.boolean().optional(),
+          connectorProvider: z.enum(['slack', 'github']).optional(),
+          connectorMatch: z.string().max(500).optional(),
+          connectorChannel: z.string().max(200).optional(),
+          connectorRepo: z.string().max(200).optional(),
+        })
+        .parse(raw);
+      const { createRoutine } = await import('./parity');
+      const routine = await createRoutine(ctx.db, {
+        agentId: ctx.agentId,
+        name: args.name,
+        instructions: args.instructions,
+        scheduleKind: args.scheduleKind,
+        cronExpr: args.cronExpr,
+        timezone: args.timezone,
+        eventKey: args.eventKey,
+        requireApproval: args.requireApproval ?? true,
+        connectorConfig: args.connectorProvider
+          ? {
+              provider: args.connectorProvider,
+              match: args.connectorMatch,
+              channel: args.connectorChannel,
+              repo: args.connectorRepo,
+            }
+          : null,
+        createdBy: ctx.actorUserId,
+      });
+      return { ok: true, routineId: routine.id, name: routine.name, nextRunAt: routine.nextRunAt };
+    },
+  },
+  {
     id: 'people.list',
     name: 'list_people',
     description: 'Search or list people (CRM contacts) in the workspace.',
@@ -718,8 +837,14 @@ export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
 ): PlatformToolDefinition[] {
+  const alwaysOn = new Set([
+    'agent.save_setup',
+    'agent.save_skill',
+    'agent.remember',
+    'agent.create_routine',
+  ]);
   return PLATFORM_TOOLS.filter((tool) => {
-    if (tool.id === 'agent.save_setup') return true;
+    if (alwaysOn.has(tool.id)) return true;
     if (enabledTools.length > 0 && !enabledTools.includes(tool.id)) return false;
     return agentHasGrants(agentPermissions, tool.requiredPermissions);
   });

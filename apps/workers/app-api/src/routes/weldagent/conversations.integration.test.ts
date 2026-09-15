@@ -120,6 +120,41 @@ describe('weldagent conversations', () => {
     expect(conv.messageCount).toBe(2);
   });
 
+  it('completeConversationTurn persists a failure reply when generation throws', async () => {
+    const id = `conv_fail_${Date.now().toString(36)}`;
+    await db.insert(schema.weldagentConversations).values({
+      id,
+      userId: 'user_test_default',
+      name: 'Fail turn test',
+      messageCount: 0,
+    });
+
+    const result = await completeConversationTurn({
+      db,
+      env: {} as Env,
+      workspaceId: 'org_test_default',
+      userId: 'user_test_default',
+      conversationId: id,
+      content: 'Work & projects',
+      notify: false,
+      generate: async () => {
+        throw new Error('AI gateway is not configured');
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.pending).toBe(false);
+    expect(result.assistantMessage?.content).toContain('could not finish');
+    expect(result.assistantMessage?.content).toContain('AI gateway is not configured');
+
+    const rows = await db
+      .select()
+      .from(schema.weldagentMessages)
+      .where(eq(schema.weldagentMessages.conversationId, id));
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r) => r.role === 'assistant')).toBe(true);
+  });
+
   it('throws ConversationNotFoundError for a missing thread', async () => {
     await expect(
       completeConversationTurn({

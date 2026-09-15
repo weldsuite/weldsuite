@@ -47,6 +47,7 @@ import { error, success, noContent } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import { weldagentAgentsRoutes } from './agents';
+import { weldagentParityRoutes } from './parity';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -317,8 +318,21 @@ app.post(
       });
 
       c.executionCtx.waitUntil(
-        finishAcceptedTurn({ db, env, accepted }).catch((err) => {
+        finishAcceptedTurn({ db, env, accepted }).catch(async (err) => {
+          // finishAcceptedTurn already persists failures internally; this is a
+          // last-resort write if something escapes that try/catch.
           console.error('[app-api/weldagent] complete-turn background finish failed:', err);
+          try {
+            const { persistFailedAssistantTurn } = await import(
+              '../../services/weldagent/complete-turn'
+            );
+            await persistFailedAssistantTurn({ db, accepted, error: err });
+          } catch (persistErr) {
+            console.error(
+              '[app-api/weldagent] complete-turn failed to persist error reply:',
+              persistErr,
+            );
+          }
         }),
       );
 
@@ -562,6 +576,7 @@ app.put('/settings', zValidator('json', weldAgentSettingsSchema), (c) => {
 /** GET /mentions/search — returns no results (mention search is disabled). */
 app.get('/mentions/search', (c) => success(c, []));
 
+app.route('/', weldagentParityRoutes);
 app.route('/agents', weldagentAgentsRoutes);
 
 export const weldagentRoutes = app;

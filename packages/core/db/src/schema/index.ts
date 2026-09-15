@@ -250,6 +250,7 @@ export * from './weldagent-conversations';
 export * from './weldagent-messages';
 export * from './weldagent-agents';
 export * from './weldagent-agent-runs';
+export * from './weldagent-parity';
 
 // Mobile/Notifications
 export * from './device-tokens';
