@@ -146,14 +146,15 @@ test.describe('Onboarding — new-user signup + workspace creation', () => {
     await page.locator('#organizationName').fill(orgName);
     await expect(getStartedBtn).toBeEnabled();
 
-    // No role, referral, team size, or app selection is needed.
+    // No role, referral, or team size is needed. A workspace needs at least one
+    // app, so the picker comes preselected and requires no interaction either.
     // Verify the payload before allowing real provisioning.
     const completeRequest = page.waitForRequest((request) =>
       request.url().includes('/onboarding/complete') && request.method() === 'POST');
     await getStartedBtn.click();
     const payload = (await completeRequest).postDataJSON();
     expect(payload.organizationName).toBe(orgName);
-    expect(payload.selectedApps).toEqual([]);
+    expect(payload.selectedApps.length).toBeGreaterThan(0);
     expect(payload).not.toHaveProperty('role');
     expect(payload).not.toHaveProperty('referralSource');
     expect(payload).not.toHaveProperty('productUpdates');
