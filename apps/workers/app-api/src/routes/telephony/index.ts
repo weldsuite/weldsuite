@@ -45,6 +45,11 @@ import {
 } from '../../lib/telnyx-available-numbers';
 import { resolveCustomerPhonePrice } from '../../services/phone-number-pricing';
 import { fulfillPaidPhoneNumber } from '../../services/phone-number-order';
+import {
+  billingErrorMessage,
+  readJsonObject,
+  shouldStartPhoneCheckout,
+} from '../../lib/phone-billing-result';
 
 const READ_TELEPHONY = 'telephony:read';
 const MANAGE_TELEPHONY = 'telephony:manage';
@@ -371,6 +376,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 
     const unitAmountCents = Math.round(Number.parseFloat(priced.monthlyPrice) * 100);
     const clerkOrgId = c.get('workspaceId');
+    const origin = c.req.header('origin') ?? 'https://app.weldsuite.org';
 
     const authHeader = c.req.header('Authorization');
     const billingUrl = billingWorkerUrl(c.env);
@@ -385,6 +391,8 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       displayName: data.displayName,
       addressId: data.addressId,
       clerkOrgId,
+      successUrl: `${origin}/settings/apps/phone-numbers?billing=success`,
+      cancelUrl: `${origin}/settings/apps/phone-numbers?billing=canceled`,
     };
 
     const billingResp = await fetch(`${billingUrl}/api/billing/phone/add-number`, {
@@ -396,9 +404,9 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       body: JSON.stringify(billingPayload),
     });
 
-    const billingResult = await billingResp.json() as Record<string, any>;
+    const billingResult = await readJsonObject(billingResp);
 
-    if (billingResult.requiresCheckout) {
+    if (shouldStartPhoneCheckout(billingResult)) {
       const checkoutResp = await fetch(`${billingUrl}/api/billing/phone/checkout`, {
         method: 'POST',
         headers: {
@@ -407,12 +415,24 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
         },
         body: JSON.stringify(billingPayload),
       });
-      const checkoutResult = await checkoutResp.json() as Record<string, any>;
-      return success(c, { requiresCheckout: true, checkoutUrl: checkoutResult.url });
-    }
-
-    if (!billingResult.success) {
-      return error.badRequest(c, 'Payment was not confirmed. Please try again.');
+      const checkoutResult = await readJsonObject(checkoutResp);
+      const checkoutUrl = typeof checkoutResult.url === 'string' ? checkoutResult.url : '';
+      if (checkoutUrl) {
+        return success(c, { requiresCheckout: true, checkoutUrl });
+      }
+      console.error('[Telephony] Phone billing did not confirm payment', {
+        addNumberStatus: billingResp.status,
+        addNumber: billingResult,
+        checkoutStatus: checkoutResp.status,
+        checkout: checkoutResult,
+      });
+      return error.badRequest(
+        c,
+        billingErrorMessage(
+          checkoutResult,
+          billingErrorMessage(billingResult, 'Payment was not confirmed. Please try again.'),
+        ),
+      );
     }
 
     // Card-on-file: Stripe already charged. Order Telnyx only now (same

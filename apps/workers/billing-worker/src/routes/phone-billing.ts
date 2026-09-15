@@ -26,6 +26,8 @@ import {
   listPaymentMethods,
   createStripeProduct,
   createStripePrice,
+  retrieveCustomer,
+  setCustomerDefaultPaymentMethod,
 } from '../lib/stripe';
 
 type PhoneBillBody = {
@@ -50,6 +52,7 @@ async function resolvePhoneStripePriceId(
   if (body.stripePriceId) return body.stripePriceId;
   const cents = body.unitAmountCents;
   if (!cents || cents < 1) return null;
+  const currency = stripeCurrency(body.currency);
   const product = await createStripeProduct(stripeKey, {
     name: `Phone Number - ${body.countryCode} ${body.numberType}`,
     metadata: {
@@ -61,10 +64,64 @@ async function resolvePhoneStripePriceId(
   const price = await createStripePrice(stripeKey, {
     productId: product.id,
     unitAmount: cents,
-    currency: body.currency || 'USD',
+    currency,
     interval: 'month',
   });
   return price.id as string;
+}
+
+function stripeCurrency(raw: string | undefined): string {
+  const code = (raw ?? 'usd').trim().toLowerCase();
+  return /^[a-z]{3}$/.test(code) ? code : 'usd';
+}
+
+function isPaidPhoneSubscriptionStatus(status: unknown): boolean {
+  return status === 'active' || status === 'trialing';
+}
+
+function stripeErrorNeedsCheckout(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /no attached payment source|default payment method|requires a payment method|incomplete|authentication_required|card_declined/i.test(
+    message,
+  );
+}
+
+async function resolveOffSessionPaymentMethod(
+  stripeKey: string,
+  customerId: string,
+): Promise<string | null> {
+  const customer = await retrieveCustomer(stripeKey, customerId);
+  const existing = customer.invoice_settings?.default_payment_method;
+  const existingId = typeof existing === 'string' ? existing : existing?.id ?? null;
+  if (existingId) return existingId;
+
+  const listed = await listPaymentMethods(stripeKey, customerId);
+  const firstId = listed.data?.[0]?.id as string | undefined;
+  if (!firstId) return null;
+
+  await setCustomerDefaultPaymentMethod(stripeKey, customerId, firstId);
+  return firstId;
+}
+
+function phoneSubscriptionMetadata(
+  workspaceId: string,
+  orgId: string,
+  body: PhoneBillBody,
+): Record<string, string> {
+  return {
+    type: 'phone',
+    workspaceId,
+    clerkOrgId: orgId,
+    phone_number: body.phoneNumber,
+    phone_country_code: body.countryCode,
+    phone_number_type: body.numberType,
+    ...(body.friendlyName ? { phone_friendly_name: body.friendlyName } : {}),
+    ...(body.displayName ? { phone_display_name: body.displayName } : {}),
+    ...((body.addressId || body.addressSid)
+      ? { phone_address_id: body.addressId || body.addressSid || '' }
+      : {}),
+    ...(body.bundleSid ? { phone_bundle_sid: body.bundleSid } : {}),
+  };
 }
 
 const { workspaces } = masterSchema;
@@ -151,115 +208,126 @@ phoneBillingRoutes.post('/add-number', async (c) => {
     return c.json({ error: 'Missing phoneNumber' }, 400);
   }
 
-  const stripePriceId = await resolvePhoneStripePriceId(c.env.STRIPE_SECRET_KEY, body);
-  if (!stripePriceId) {
-    return c.json({ error: 'Missing stripePriceId or unitAmountCents' }, 400);
-  }
+  try {
+    const stripePriceId = await resolvePhoneStripePriceId(c.env.STRIPE_SECRET_KEY, body);
+    if (!stripePriceId) {
+      return c.json({ error: 'Missing stripePriceId or unitAmountCents' }, 400);
+    }
 
-  const masterDb = getMasterDb(c.env);
+    const masterDb = getMasterDb(c.env);
 
-  const [workspace] = await masterDb
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, orgId));
+    const [workspace] = await masterDb
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.clerkOrgId, orgId));
 
-  if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
+    if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
 
-  // Ensure Stripe customer exists
-  let customerId: string = workspace.stripeCustomerId || '';
-  if (!customerId) {
-    const customer = await createStripeCustomer(c.env.STRIPE_SECRET_KEY, {
-      name: workspace.name,
-      metadata: {
-        workspaceId: workspace.id,
-        clerkOrgId: orgId,
-      },
-    });
-    customerId = customer.id;
+    let customerId: string = workspace.stripeCustomerId || '';
+    if (!customerId) {
+      const customer = await createStripeCustomer(c.env.STRIPE_SECRET_KEY, {
+        name: workspace.name,
+        metadata: {
+          workspaceId: workspace.id,
+          clerkOrgId: orgId,
+        },
+      });
+      customerId = customer.id;
 
-    await masterDb
-      .update(workspaces)
-      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-      .where(eq(workspaces.id, workspace.id));
-  }
+      await masterDb
+        .update(workspaces)
+        .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+        .where(eq(workspaces.id, workspace.id));
+    }
 
-  // If no phone subscription exists, create one
-  if (!workspace.stripePhoneSubscriptionId) {
-    // Check if customer has a payment method
-    const paymentMethods = await listPaymentMethods(c.env.STRIPE_SECRET_KEY, customerId);
-    const hasPaymentMethod = paymentMethods.data && paymentMethods.data.length > 0;
-
-    if (!hasPaymentMethod) {
+    const paymentMethodId = await resolveOffSessionPaymentMethod(
+      c.env.STRIPE_SECRET_KEY,
+      customerId,
+    );
+    if (!paymentMethodId) {
       return c.json({ requiresCheckout: true });
     }
 
-    // Create new phone subscription with phone details in metadata
-    const subscription = await createStripeSubscription(c.env.STRIPE_SECRET_KEY, {
-      customerId,
-      priceId: stripePriceId,
-      quantity: 1,
-      metadata: {
-        type: 'phone',
-        workspaceId: workspace.id,
-        clerkOrgId: orgId,
-        phone_number: body.phoneNumber,
-        phone_country_code: body.countryCode,
-        phone_number_type: body.numberType,
-        ...(body.friendlyName ? { phone_friendly_name: body.friendlyName } : {}),
-        ...(body.displayName ? { phone_display_name: body.displayName } : {}),
-        ...((body.addressId || body.addressSid) ? { phone_address_id: body.addressId || body.addressSid || '' } : {}),
-        ...(body.bundleSid ? { phone_bundle_sid: body.bundleSid } : {}),
-      },
-    });
+    const metadata = phoneSubscriptionMetadata(workspace.id, orgId, body);
 
-    // Save subscription ID
-    await masterDb
-      .update(workspaces)
-      .set({
-        stripePhoneSubscriptionId: subscription.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(workspaces.id, workspace.id));
+    let subscriptionId = workspace.stripePhoneSubscriptionId || '';
+    let subscription: { id: string; status?: string; items?: { data?: Array<{ id: string; price: { id: string }; quantity: number }> } } | null = null;
+
+    if (subscriptionId) {
+      try {
+        subscription = await retrieveSubscription(c.env.STRIPE_SECRET_KEY, subscriptionId);
+        if (!isPaidPhoneSubscriptionStatus(subscription?.status)) {
+          subscription = null;
+          subscriptionId = '';
+        }
+      } catch (err) {
+        console.warn('[Phone Billing] Existing phone subscription is unusable:', err);
+        subscription = null;
+        subscriptionId = '';
+      }
+    }
+
+    if (!subscriptionId) {
+      subscription = await createStripeSubscription(c.env.STRIPE_SECRET_KEY, {
+        customerId,
+        priceId: stripePriceId,
+        quantity: 1,
+        metadata,
+        defaultPaymentMethod: paymentMethodId,
+        paymentBehavior: 'error_if_incomplete',
+      });
+
+      if (!isPaidPhoneSubscriptionStatus(subscription.status)) {
+        return c.json({ requiresCheckout: true });
+      }
+
+      await masterDb
+        .update(workspaces)
+        .set({
+          stripePhoneSubscriptionId: subscription.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(workspaces.id, workspace.id));
+
+      return c.json({
+        success: true,
+        subscriptionId: subscription.id,
+        provisioningStatus: 'unavailable',
+      });
+    }
+
+    const existingItem = subscription?.items?.data?.find(
+      (item) => item.price.id === stripePriceId,
+    );
+
+    if (existingItem) {
+      await updateSubscriptionItemQuantity(
+        c.env.STRIPE_SECRET_KEY,
+        existingItem.id,
+        (existingItem.quantity ?? 0) + 1,
+      );
+    } else {
+      await addSubscriptionItem(
+        c.env.STRIPE_SECRET_KEY,
+        subscriptionId,
+        stripePriceId,
+        1,
+      );
+    }
 
     return c.json({
       success: true,
-      subscriptionId: subscription.id,
+      subscriptionId,
       provisioningStatus: 'unavailable',
     });
+  } catch (err) {
+    console.error('[Phone Billing] add-number failed:', err);
+    if (stripeErrorNeedsCheckout(err)) {
+      return c.json({ requiresCheckout: true });
+    }
+    const message = err instanceof Error ? err.message : 'Billing failed';
+    return c.json({ error: message }, 400);
   }
-
-  // Phone subscription exists — check if an item with this price already exists
-  const subscription = await retrieveSubscription(
-    c.env.STRIPE_SECRET_KEY,
-    workspace.stripePhoneSubscriptionId
-  );
-
-  const existingItem = subscription.items?.data?.find(
-    (item: any) => item.price.id === stripePriceId
-  );
-
-  if (existingItem) {
-    // Increment quantity
-    await updateSubscriptionItemQuantity(
-      c.env.STRIPE_SECRET_KEY,
-      existingItem.id,
-      existingItem.quantity + 1
-    );
-  } else {
-    // Add new subscription item
-    await addSubscriptionItem(
-      c.env.STRIPE_SECRET_KEY,
-      workspace.stripePhoneSubscriptionId,
-      stripePriceId,
-      1
-    );
-  }
-
-  return c.json({
-    success: true,
-    subscriptionId: subscription.id,
-    provisioningStatus: 'unavailable',
-  });
 });
 
 // ============================================================================
@@ -347,59 +415,68 @@ phoneBillingRoutes.post('/checkout', async (c) => {
     return c.json({ error: 'Missing phoneNumber' }, 400);
   }
 
-  const stripePriceId = await resolvePhoneStripePriceId(c.env.STRIPE_SECRET_KEY, body);
-  if (!stripePriceId) {
-    return c.json({ error: 'Missing stripePriceId or unitAmountCents' }, 400);
-  }
+  try {
+    const stripePriceId = await resolvePhoneStripePriceId(c.env.STRIPE_SECRET_KEY, body);
+    if (!stripePriceId) {
+      return c.json({ error: 'Missing stripePriceId or unitAmountCents' }, 400);
+    }
 
-  const masterDb = getMasterDb(c.env);
+    const masterDb = getMasterDb(c.env);
 
-  const [workspace] = await masterDb
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, orgId));
+    const [workspace] = await masterDb
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.clerkOrgId, orgId));
 
-  if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
+    if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
 
-  // Ensure Stripe customer exists
-  let checkoutCustomerId: string = workspace.stripeCustomerId || '';
-  if (!checkoutCustomerId) {
-    const customer = await createStripeCustomer(c.env.STRIPE_SECRET_KEY, {
-      name: workspace.name,
+    let checkoutCustomerId: string = workspace.stripeCustomerId || '';
+    if (!checkoutCustomerId) {
+      const customer = await createStripeCustomer(c.env.STRIPE_SECRET_KEY, {
+        name: workspace.name,
+        metadata: {
+          workspaceId: workspace.id,
+          clerkOrgId: orgId,
+        },
+      });
+      checkoutCustomerId = customer.id;
+
+      await masterDb
+        .update(workspaces)
+        .set({ stripeCustomerId: checkoutCustomerId, updatedAt: new Date() })
+        .where(eq(workspaces.id, workspace.id));
+    }
+
+    // Store phone details in session metadata so the webhook can order Telnyx
+    // after payment_status=paid — same order as WeldHost domain registration.
+    const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY, {
+      customerId: checkoutCustomerId,
+      priceId: stripePriceId,
+      quantity: 1,
+      successUrl: body.successUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=success',
+      cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=canceled',
       metadata: {
+        type: 'phone_checkout',
         workspaceId: workspace.id,
         clerkOrgId: orgId,
+        phone_number: body.phoneNumber,
+        phone_country_code: body.countryCode,
+        phone_number_type: body.numberType,
+        ...(body.friendlyName ? { phone_friendly_name: body.friendlyName } : {}),
+        ...(body.displayName ? { phone_display_name: body.displayName } : {}),
+        ...((body.addressId || body.addressSid) ? { phone_address_id: body.addressId || body.addressSid || '' } : {}),
+        ...(body.bundleSid ? { phone_bundle_sid: body.bundleSid } : {}),
       },
     });
-    checkoutCustomerId = customer.id;
 
-    await masterDb
-      .update(workspaces)
-      .set({ stripeCustomerId: checkoutCustomerId, updatedAt: new Date() })
-      .where(eq(workspaces.id, workspace.id));
+    if (!session.url) {
+      return c.json({ error: 'Stripe Checkout did not return a URL' }, 502);
+    }
+
+    return c.json({ url: session.url });
+  } catch (err) {
+    console.error('[Phone Billing] checkout failed:', err);
+    const message = err instanceof Error ? err.message : 'Checkout failed';
+    return c.json({ error: message }, 400);
   }
-
-  // Store phone details in session metadata so the webhook can order Telnyx
-  // after payment_status=paid — same order as WeldHost domain registration.
-  const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY, {
-    customerId: checkoutCustomerId,
-    priceId: stripePriceId,
-    quantity: 1,
-    successUrl: body.successUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=success',
-    cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=canceled',
-    metadata: {
-      type: 'phone_checkout',
-      workspaceId: workspace.id,
-      clerkOrgId: orgId,
-      phone_number: body.phoneNumber,
-      phone_country_code: body.countryCode,
-      phone_number_type: body.numberType,
-      ...(body.friendlyName ? { phone_friendly_name: body.friendlyName } : {}),
-      ...(body.displayName ? { phone_display_name: body.displayName } : {}),
-      ...((body.addressId || body.addressSid) ? { phone_address_id: body.addressId || body.addressSid || '' } : {}),
-      ...(body.bundleSid ? { phone_bundle_sid: body.bundleSid } : {}),
-    },
-  });
-
-  return c.json({ url: session.url });
 });

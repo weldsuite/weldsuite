@@ -162,6 +162,8 @@ export async function createStripeSubscription(
     quantity?: number;
     metadata?: Record<string, string>;
     automaticTax?: boolean;
+    defaultPaymentMethod?: string;
+    paymentBehavior?: 'error_if_incomplete' | 'allow_incomplete' | 'default_incomplete';
   }
 ): Promise<any> {
   const body: Record<string, string> = {
@@ -175,6 +177,14 @@ export async function createStripeSubscription(
 
   if (params.automaticTax) {
     body['automatic_tax[enabled]'] = 'true';
+  }
+
+  if (params.defaultPaymentMethod) {
+    body.default_payment_method = params.defaultPaymentMethod;
+  }
+
+  if (params.paymentBehavior) {
+    body.payment_behavior = params.paymentBehavior;
   }
 
   if (params.metadata) {
