@@ -8,6 +8,7 @@ import {
   ListTree,
   Package,
   PackagePlus,
+  Phone,
   Receipt,
   Users,
   type LucideIcon,
@@ -48,6 +49,7 @@ export interface NavArea {
 
 export function getNavAreas(): NavArea[] {
   const pricing = getTranslations('host').adminPricing;
+  const phonePricing = getTranslations('host').adminPhonePricing;
   return [
   {
     key: 'overview',
@@ -67,6 +69,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
+          { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone },
         ],
       },
     ],
@@ -131,6 +134,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: pricing.navGroup,
         items: [{ title: pricing.navCatalog, href: '/domain-pricing', icon: Globe }],
+      },
+    ],
+  },
+  {
+    key: 'phone-pricing',
+    name: phonePricing.navArea,
+    icon: Phone,
+    href: '/phone-pricing',
+    groups: [
+      {
+        group: phonePricing.navGroup,
+        items: [{ title: phonePricing.navCatalog, href: '/phone-pricing', icon: Phone }],
       },
     ],
   },

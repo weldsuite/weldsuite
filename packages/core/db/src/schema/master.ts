@@ -524,6 +524,12 @@ export const telephonyNumberPricing = pgTable('telephony_number_pricing', {
   stripePriceId: varchar('stripe_price_id', { length: 255 }),
   stripeProductId: varchar('stripe_product_id', { length: 255 }),
 
+  // Markup applied on top of wholesale (`monthly_price`). One of these is
+  // used; the other is null. A sentinel row (`country_code` + `number_type`
+  // both `*`) holds the default margin for Telnyx results without a catalog row.
+  markupAmount: integer('markup_amount'), // flat markup in cents per month
+  markupPercent: numeric('markup_percent', { precision: 5, scale: 2 }), // e.g. "20.00" = 20%
+
   // Status
   isActive: boolean('is_active').notNull().default(true),
 

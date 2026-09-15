@@ -137,3 +137,32 @@ internalRoutes.post(
     }
   },
 );
+
+const fulfillPhoneNumberSchema = z.object({
+  clerkOrgId: z.string().min(1),
+  phoneNumber: z.string().min(1),
+  countryCode: z.string().min(2).max(5),
+  numberType: z.string().min(1),
+  addressId: z.string().optional(),
+  displayName: z.string().optional(),
+  friendlyName: z.string().optional(),
+  voipPhoneNumberId: z.string().optional(),
+});
+
+internalRoutes.post(
+  '/telephony/fulfill-number',
+  zValidator('json', fulfillPhoneNumberSchema),
+  async (c) => {
+    try {
+      const { fulfillPaidPhoneNumber } = await import('../../services/phone-number-order');
+      const result = await fulfillPaidPhoneNumber(c.env, c.req.valid('json'));
+      return c.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Internal] Phone fulfill failed:', err);
+      return c.json(
+        { success: false, error: err instanceof Error ? err.message : 'Unknown error' },
+        500,
+      );
+    }
+  },
+);

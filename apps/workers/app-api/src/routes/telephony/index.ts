@@ -35,7 +35,16 @@ import {
   upsertPhoneNumberRegistry,
   deactivatePhoneNumberRegistry,
 } from '../../lib/phone-registry';
-import { mapTelnyxAvailableNumber, normalizeNumberType } from '../../lib/telnyx-available-numbers';
+import {
+  applyTelephonyMarkupMajor,
+  applyTelephonyMarkupToCost,
+  isDefaultTelephonyPricing,
+  mapTelnyxAvailableNumber,
+  normalizeNumberType,
+  resolveTelephonyMarkup,
+} from '../../lib/telnyx-available-numbers';
+import { resolveCustomerPhonePrice } from '../../services/phone-number-pricing';
+import { fulfillPaidPhoneNumber } from '../../services/phone-number-order';
 
 const READ_TELEPHONY = 'telephony:read';
 const MANAGE_TELEPHONY = 'telephony:manage';
@@ -296,9 +305,23 @@ app.post('/phone-numbers/search', requirePermission(MANAGE_TELEPHONY), zValidato
       `/available_phone_numbers?${params.toString()}`,
     );
 
-    const numbers = (resp.data || [])
+    const mapped = (resp.data || [])
       .map((row) => mapTelnyxAvailableNumber(row, country))
       .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    const masterDb = getMasterDb(c.env);
+    const pricingRows = await masterDb
+      .select()
+      .from(masterSchema.telephonyNumberPricing)
+      .where(eq(masterSchema.telephonyNumberPricing.isActive, true));
+
+    const numbers = mapped.map((num) => {
+      const markup = resolveTelephonyMarkup(pricingRows, num.iso_country, type);
+      return {
+        ...num,
+        cost_information: applyTelephonyMarkupToCost(num.cost_information, markup),
+      };
+    });
 
     return success(c, { numbers });
   } catch (err) {
@@ -324,7 +347,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 
   try {
     // Check address requirement
-    if (COUNTRIES_REQUIRING_ADDRESS.includes(data.countryCode) && !data.addressId) {
+    if (COUNTRIES_REQUIRING_ADDRESS.includes(data.countryCode.toUpperCase()) && !data.addressId) {
       return c.json({
         error: {
           code: 'ADDRESS_REQUIRED',
@@ -334,26 +357,35 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       }, 400);
     }
 
-    // Look up Stripe pricing from master DB
-    const masterDb = getMasterDb(c.env);
-    const [pricing] = await masterDb
-      .select()
-      .from(masterSchema.telephonyNumberPricing)
-      .where(
-        and(
-          eq(masterSchema.telephonyNumberPricing.countryCode, data.countryCode.toUpperCase()),
-          eq(masterSchema.telephonyNumberPricing.numberType, data.numberType.toLowerCase()),
-          eq(masterSchema.telephonyNumberPricing.isActive, true),
-        ),
-      );
-
-    if (!pricing?.stripePriceId) {
+    // Customer price = Telnyx/catalog wholesale + admin markup. Stripe catalog
+    // rows are optional — missing NL/US prices used to 400 here before we
+    // charged or ordered anything.
+    const priced = await resolveCustomerPhonePrice(c.env, {
+      countryCode: data.countryCode,
+      numberType: data.numberType,
+      phoneNumber: data.phoneNumber,
+    });
+    if (!priced) {
       return error.badRequest(c, 'No pricing configured for this phone number type');
     }
 
-    // Forward to billing worker
+    const unitAmountCents = Math.round(Number.parseFloat(priced.monthlyPrice) * 100);
+    const clerkOrgId = c.get('workspaceId');
+
     const authHeader = c.req.header('Authorization');
     const billingUrl = billingWorkerUrl(c.env);
+    const billingPayload = {
+      stripePriceId: priced.stripePriceId,
+      unitAmountCents,
+      currency: priced.currency,
+      countryCode: data.countryCode,
+      numberType: data.numberType,
+      phoneNumber: data.phoneNumber,
+      friendlyName: data.friendlyName,
+      displayName: data.displayName,
+      addressId: data.addressId,
+      clerkOrgId,
+    };
 
     const billingResp = await fetch(`${billingUrl}/api/billing/phone/add-number`, {
       method: 'POST',
@@ -361,15 +393,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
         'Content-Type': 'application/json',
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
-      body: JSON.stringify({
-        stripePriceId: pricing.stripePriceId,
-        countryCode: data.countryCode,
-        numberType: data.numberType,
-        phoneNumber: data.phoneNumber,
-        friendlyName: data.friendlyName,
-        displayName: data.displayName,
-        addressId: data.addressId,
-      }),
+      body: JSON.stringify(billingPayload),
     });
 
     const billingResult = await billingResp.json() as Record<string, any>;
@@ -381,15 +405,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
           'Content-Type': 'application/json',
           ...(authHeader ? { Authorization: authHeader } : {}),
         },
-        body: JSON.stringify({
-          stripePriceId: pricing.stripePriceId,
-          phoneNumber: data.phoneNumber,
-          countryCode: data.countryCode,
-          numberType: data.numberType,
-          friendlyName: data.friendlyName,
-          displayName: data.displayName,
-          addressId: data.addressId,
-        }),
+        body: JSON.stringify(billingPayload),
       });
       const checkoutResult = await checkoutResp.json() as Record<string, any>;
       return success(c, { requiresCheckout: true, checkoutUrl: checkoutResult.url });
@@ -397,6 +413,27 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 
     if (!billingResult.success) {
       return error.badRequest(c, 'Payment was not confirmed. Please try again.');
+    }
+
+    // Card-on-file: Stripe already charged. Order Telnyx only now (same
+    // "pay first, register after" rule as WeldHost domains).
+    const fulfilled = await fulfillPaidPhoneNumber(c.env, {
+      clerkOrgId,
+      phoneNumber: data.phoneNumber,
+      countryCode: data.countryCode,
+      numberType: data.numberType,
+      addressId: data.addressId,
+      displayName: data.displayName,
+      friendlyName: data.friendlyName,
+    });
+    if (!fulfilled.alreadyFulfilled) {
+      publishEntityEvent({
+        c,
+        entityType: 'voip_phone_number',
+        action: 'created',
+        entityId: fulfilled.id,
+        data: { id: fulfilled.id, phoneNumber: data.phoneNumber, status: 'active' },
+      });
     }
 
     return success(c, { success: true, provisioningStatus: 'pending' as const });
@@ -628,13 +665,20 @@ app.get('/pricing', requirePermission(READ_TELEPHONY), async (c) => {
       .where(eq(masterSchema.telephonyNumberPricing.isActive, true))
       .orderBy(asc(masterSchema.telephonyNumberPricing.countryCode), asc(masterSchema.telephonyNumberPricing.numberType));
 
-    const pricing = rows.map((r) => ({
-      countryCode: r.countryCode.toUpperCase(),
-      numberType: normalizeNumberType(r.numberType),
-      monthlyPrice: Number(r.monthlyPrice),
-      currency: r.currency,
-      stripePriceId: r.stripePriceId ?? undefined,
-    }));
+    const catalog = rows.filter((r) => !isDefaultTelephonyPricing(r.countryCode, r.numberType));
+    const pricing = catalog.map((r) => {
+      const customer = applyTelephonyMarkupMajor(String(r.monthlyPrice), {
+        markupAmount: r.markupAmount,
+        markupPercent: r.markupPercent != null ? String(r.markupPercent) : null,
+      });
+      return {
+        countryCode: r.countryCode.toUpperCase(),
+        numberType: normalizeNumberType(r.numberType),
+        monthlyPrice: Number(customer ?? r.monthlyPrice),
+        currency: r.currency,
+        stripePriceId: r.stripePriceId ?? undefined,
+      };
+    });
 
     return success(c, { pricing });
   } catch (err) {

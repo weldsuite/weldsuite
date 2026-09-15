@@ -8,7 +8,7 @@
  * Race-safe: UPDATE ... WHERE neon_project_id IS NULL — only one caller wins.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { workspaces, plans, users } from '@weldsuite/db/schema/master';
 import {
   createProvisioningService,
@@ -172,11 +172,10 @@ export async function resolveOwnerEmail(
 /**
  * Set up Stripe billing for a new workspace.
  *
- * Creates the Stripe customer only. New workspaces start on Free, which has no
- * price and therefore no subscription — one is created later, through the
- * in-app upgrade flow, if and when the workspace moves to a paid plan. The
- * customer is still created up front so that upgrade has something to attach
- * to and so invoices/receipts reach the right address.
+ * Creates the Stripe customer and a $0 Free-plan subscription. Free is
+ * open-ended (no trial, no card), but the subscription still has to exist in
+ * Stripe so invoices, the customer dashboard, and later upgrades all attach
+ * to a real sub rather than a bare customer.
  *
  * This replaces the auto-created cardless 14-day Business trial. That trial
  * relied on `trial_settings[end_behavior][missing_payment_method]=cancel` to
@@ -187,8 +186,8 @@ export async function resolveOwnerEmail(
  * Returns a result object with IDs and any warnings.
  *
  * `ownerEmail` is the signing-up user's email. Stripe needs it to reach the
- * customer at all — trial-ending and failed-payment emails go nowhere without
- * it, and the Stripe dashboard shows the customer as nameless-by-email.
+ * customer at all — failed-payment emails go nowhere without it, and the
+ * Stripe dashboard shows the customer as nameless-by-email.
  */
 export async function setupWorkspaceBilling(
   env: Env,
@@ -232,6 +231,7 @@ export async function setupWorkspaceBilling(
       headers: {
         'Authorization': stripeAuth,
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Idempotency-Key': `ws-signup-customer:${workspaceId}`,
       },
       body: customerParams,
     });
@@ -252,9 +252,68 @@ export async function setupWorkspaceBilling(
     console.log(`[Billing] Created Stripe customer ${customerId} for workspace ${workspaceId}`);
   }
 
-  // No subscription: Free has no Stripe price. The workspace gets one when it
-  // upgrades, through the in-app billing flow, which is also where a card is
-  // collected. Leaving subscriptionStatus null here is what marks a workspace
-  // as "on Free" for the billing surfaces.
-  return { customerId };
+  if (workspace?.stripeSubscriptionId) {
+    return { customerId, subscriptionId: workspace.stripeSubscriptionId };
+  }
+
+  // Step 2: Subscribe the customer to the $0 Free plan. The price lives on
+  // the plans row (`stripePriceIdMonthly`); without it we still keep the
+  // customer so signup isn't blocked, and ops can backfill later.
+  const [freePlan] = await masterDb
+    .select({
+      id: plans.id,
+      stripePriceIdMonthly: plans.stripePriceIdMonthly,
+    })
+    .from(plans)
+    .where(and(eq(plans.slug, DEFAULT_PLAN_SLUG), isNull(plans.deletedAt)))
+    .limit(1);
+
+  if (!freePlan?.stripePriceIdMonthly) {
+    const warning = 'Free plan has no stripePriceIdMonthly; customer created without a subscription';
+    console.warn(`[Billing] ${warning}`);
+    return { customerId, warning };
+  }
+
+  const subscriptionParams = new URLSearchParams({
+    customer: customerId,
+    'items[0][price]': freePlan.stripePriceIdMonthly,
+    // $0 — no card on file. allow_incomplete still activates because nothing
+    // is due; error_if_incomplete would also work, but this is the safer
+    // default if Stripe ever treats a $0 invoice as incomplete.
+    payment_behavior: 'allow_incomplete',
+    'metadata[workspaceId]': workspaceId,
+    'metadata[planId]': freePlan.id,
+    'metadata[clerkOrgId]': clerkOrgId,
+  });
+
+  const subscriptionRes = await fetch('https://api.stripe.com/v1/subscriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': stripeAuth,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': `ws-signup-sub:${workspaceId}`,
+    },
+    body: subscriptionParams,
+  });
+
+  if (!subscriptionRes.ok) {
+    const err = await subscriptionRes.text();
+    throw new Error(`Stripe subscription creation failed: ${err}`);
+  }
+
+  const subscription = await subscriptionRes.json() as { id: string; status?: string };
+
+  await masterDb
+    .update(workspaces)
+    .set({
+      stripeSubscriptionId: subscription.id,
+      subscriptionStatus: subscription.status || 'active',
+      subscriptionCycle: 'monthly',
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspaceId));
+
+  console.log(`[Billing] Created Stripe subscription ${subscription.id} for workspace ${workspaceId}`);
+
+  return { customerId, subscriptionId: subscription.id };
 }

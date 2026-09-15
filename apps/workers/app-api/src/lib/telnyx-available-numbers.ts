@@ -102,3 +102,65 @@ export function normalizeNumberType(type: string): string {
 export function pricingLookupKey(countryCode: string, numberType: string): string {
   return `${countryCode.trim().toUpperCase()}:${normalizeNumberType(numberType)}`;
 }
+
+/** Sentinel catalog row: default margin for Telnyx results with no country row. */
+export const DEFAULT_TELEPHONY_PRICING_COUNTRY = '*';
+export const DEFAULT_TELEPHONY_PRICING_TYPE = '*';
+
+export type TelephonyMarkup = {
+  markupAmount: number | null;
+  markupPercent: string | null;
+};
+
+export function isDefaultTelephonyPricing(countryCode: string, numberType: string): boolean {
+  return (
+    countryCode.trim() === DEFAULT_TELEPHONY_PRICING_COUNTRY &&
+    normalizeNumberType(numberType) === DEFAULT_TELEPHONY_PRICING_TYPE
+  );
+}
+
+/**
+ * Apply catalog markup onto a wholesale major-unit amount.
+ * Mirrors WeldHost `customerPriceMajor` (percent or flat cents).
+ */
+export function applyTelephonyMarkupMajor(
+  wholesaleMajor: string,
+  markup: TelephonyMarkup | null | undefined,
+): string | null {
+  const major = Number.parseFloat(wholesaleMajor);
+  if (!Number.isFinite(major)) return null;
+  let sell = major;
+  if (markup?.markupAmount != null) {
+    sell = major + markup.markupAmount / 100;
+  } else if (markup?.markupPercent != null) {
+    const pct = Number.parseFloat(String(markup.markupPercent));
+    if (Number.isFinite(pct)) sell = major * (1 + pct / 100);
+  }
+  return sell.toFixed(2);
+}
+
+export function applyTelephonyMarkupToCost(
+  cost: { currency: string; monthly_cost: string; upfront_cost: string } | undefined,
+  markup: TelephonyMarkup | null | undefined,
+): { currency: string; monthly_cost: string; upfront_cost: string } | undefined {
+  if (!cost) return cost;
+  const monthly = applyTelephonyMarkupMajor(cost.monthly_cost, markup);
+  const upfront = applyTelephonyMarkupMajor(cost.upfront_cost, markup);
+  return {
+    currency: cost.currency,
+    monthly_cost: monthly ?? cost.monthly_cost,
+    upfront_cost: upfront ?? cost.upfront_cost,
+  };
+}
+
+export function resolveTelephonyMarkup(
+  rows: Array<{ countryCode: string; numberType: string } & TelephonyMarkup>,
+  countryCode: string,
+  numberType: string,
+): TelephonyMarkup | undefined {
+  const exact = rows.find(
+    (r) => pricingLookupKey(r.countryCode, r.numberType) === pricingLookupKey(countryCode, numberType),
+  );
+  if (exact) return exact;
+  return rows.find((r) => isDefaultTelephonyPricing(r.countryCode, r.numberType));
+}
