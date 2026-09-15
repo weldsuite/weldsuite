@@ -150,6 +150,11 @@ export interface Env {
    *  iframe bridge knows where to send wsat_-authenticated requests.
    *  Defaults to https://api.weldsuite.org when unset. */
   EXTERNAL_API_URL?: string;
+  /**
+   * Comma-separated master workspace ids whose WeldApps are first-party.
+   * Those apps skip public review and show an Official badge in the store.
+   */
+  WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string;
 
   // --- Entity-event publishing -------------------------------------------
   /** Audit-log queue consumer — fed by publishEntityEvent. */

@@ -74,6 +74,10 @@ export const userAppManifestSchema = z.object({
       currency: z.string().length(3).optional(),
     })
     .optional(),
+  websiteUrl: z.string().url().max(2000).optional(),
+  privacyUrl: z.string().url().max(2000).optional(),
+  screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
+  webhookUrl: z.string().url().max(2000).optional(),
   /** Reserved — v1 renders on the web platform only. */
   mobile: z.boolean().optional(),
 });
@@ -90,6 +94,10 @@ export const createUserAppSchema = z.object({
   description: z.string().max(2000).optional(),
   icon: z.string().max(50).optional(),
   category: z.string().max(50).optional(),
+  websiteUrl: z.string().url().max(2000).optional(),
+  privacyUrl: z.string().url().max(2000).optional(),
+  screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
+  webhookUrl: z.string().url().max(2000).optional(),
 });
 
 export const updateUserAppSchema = z.object({
@@ -98,6 +106,20 @@ export const updateUserAppSchema = z.object({
   icon: z.string().max(50).optional(),
   category: z.string().max(50).optional(),
   isActive: z.boolean().optional(),
+  websiteUrl: z.string().url().max(2000).nullable().optional(),
+  privacyUrl: z.string().url().max(2000).nullable().optional(),
+  screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
+  webhookUrl: z.string().url().max(2000).nullable().optional(),
+});
+
+/** Register or heartbeat a per-developer preview URL (`weld app dev`). */
+export const upsertUserAppDevSessionSchema = z.object({
+  url: z.string().url().max(2000),
+  /**
+   * Clerk user id that should see the preview in the platform iframe.
+   * Required when the caller is a workspace API key (no user on the session).
+   */
+  userId: z.string().min(1).max(255).optional(),
 });
 
 /** Submit an app for public-store review. */
@@ -150,3 +172,43 @@ export const appRecordListQuerySchema = z.object({
 export const appKvSetSchema = z.object({
   value: z.unknown(),
 });
+
+// ---------------------------------------------------------------------------
+// Preview URL allowlist (`weld app dev`)
+// ---------------------------------------------------------------------------
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function hostnameAllowed(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (LOOPBACK_HOSTS.has(host)) return true;
+  return (
+    host.endsWith('.trycloudflare.com') ||
+    host.endsWith('.ngrok-free.app') ||
+    host.endsWith('.ngrok.app') ||
+    host.endsWith('.ngrok.io') ||
+    host.endsWith('.pages.dev')
+  );
+}
+
+/**
+ * True when `raw` is a URL the iframe host may load instead of the R2 bundle.
+ * Loopback (http or https) and a short list of HTTPS tunnel / preview hosts.
+ */
+export function isAllowedDevSessionUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password) return false;
+  const host = parsed.hostname.toLowerCase();
+  const loopback = LOOPBACK_HOSTS.has(host);
+  if (parsed.protocol === 'http:') return loopback;
+  if (parsed.protocol !== 'https:') return false;
+  return hostnameAllowed(host);
+}
+
+/** How long a preview session stays valid without a CLI heartbeat. */
+export const DEV_SESSION_TTL_MS = 5 * 60 * 1000;

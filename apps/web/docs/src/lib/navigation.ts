@@ -8,6 +8,7 @@ export const navigation = [
     links: [
       { title: 'Workspace overview', href: '/getting-started' },
       { title: 'Install apps', href: '/getting-started/install-apps' },
+      { title: 'Build a WeldSuite app', href: '/getting-started/build-a-weld-app' },
     ],
   },
   {

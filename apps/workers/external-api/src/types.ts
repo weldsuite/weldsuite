@@ -45,6 +45,11 @@ export interface Env {
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
+  /**
+   * Comma-separated master workspace ids whose WeldApps are first-party.
+   * Those apps skip public review and show an Official badge in the store.
+   */
+  WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string;
 
   // --- WeldSocial (PostPeer publishing) ----------------------------------
   // Read by the social publish/schedule routes via `@weldsuite/social-publishing`.

@@ -5,6 +5,7 @@ import { parseArgs, type ParsedArgs } from './args.js';
 import { bold, cyan, error as logError, info } from './log.js';
 import * as appCreate from './commands/create.js';
 import * as appDeploy from './commands/deploy.js';
+import * as appDev from './commands/dev.js';
 import * as appInit from './commands/init.js';
 import * as appList from './commands/list.js';
 import * as appPublish from './commands/publish.js';
@@ -18,6 +19,7 @@ interface Command {
 const COMMANDS: Record<string, Command> = {
   'app init': appInit,
   'app create': appCreate,
+  'app dev': appDev,
   'app deploy': appDeploy,
   'app publish': appPublish,
   'app list': appList,
@@ -31,7 +33,8 @@ Usage:
 
 App commands:
   app init [dir]        Scaffold a new WeldSuite app (Vite + React + app-sdk)
-  app create            Register the app from weldapp.json in your workspace
+  app create [dir]      Scaffold if needed, then register the app in your workspace
+  app dev               Run locally inside the WeldSuite iframe (optional --tunnel)
   app deploy            Build the app and upload a new version
   app publish           Submit the app for public-store review
   app list              List your workspace's apps
@@ -46,6 +49,7 @@ Global options:
 Environment:
   WELD_API_KEY          Workspace API key (wsk_…) — required for API commands
   WELD_API_URL          API base URL (default: https://api.weldsuite.org)
+  WELD_DEV_USER_ID      Clerk user id for weld app dev (required with workspace keys)
 `;
 
 function readVersion(): string {

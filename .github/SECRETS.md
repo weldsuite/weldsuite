@@ -37,6 +37,18 @@ Optional frontend build secrets (on both environments if used):
 | `VITE_MIXPANEL_TOKEN` | Platform Pages build |
 | `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
 
+First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.yml`):
+
+| GitHub secret | Used by |
+|---|---|
+| `HOSTED_APPS_WELD_API_KEY` | Publisher workspace `wsk_` key (`user-apps:manage`). Test env targets `https://api-test.weldsuite.org`; production targets `https://api.weldsuite.org`. Leave unset to skip the job. |
+
+Worker runtime **vars** (not GitHub secrets) — set in `wrangler.toml` per env:
+
+| Var | Workers |
+|---|---|
+| `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | `app-api`, `external-api`. Comma-separated workspace ids whose new WeldApps are `publisherType=weldsuite` (Official store badge, skip public review). |
+
 The booking portal (`apps/web/booking-portal`) is a Next.js host, not a Worker.
 Give it `DATABASE_URL_PERSONAL` (alias `PERSONAL_DATABASE_URL`) so personal
 booking pages at `/p/{slug}` can read the shared personal Neon DB. Workspace

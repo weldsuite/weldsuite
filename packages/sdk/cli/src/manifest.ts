@@ -78,6 +78,10 @@ export const manifestSchema = z.object({
       currency: z.string().length(3).optional(),
     })
     .optional(),
+  websiteUrl: z.string().url().max(2000).optional(),
+  privacyUrl: z.string().url().max(2000).optional(),
+  screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
+  webhookUrl: z.string().url().max(2000).optional(),
   /** Reserved — v1 renders on the web platform only. */
   mobile: z.boolean().optional(),
 });

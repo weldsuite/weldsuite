@@ -142,3 +142,34 @@ export interface KvClient {
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
 }
+
+/** Subset of a `/v1/people` row the scaffolded apps typically display. */
+export interface PersonSummary {
+  id: string;
+  displayName?: string | null;
+  fullName?: string | null;
+  email?: string | null;
+}
+
+/** Subset of a `/v1/tickets` row. */
+export interface TicketSummary {
+  id: string;
+  subject?: string | null;
+  status?: string | null;
+}
+
+export interface ResourceListOptions {
+  limit?: number;
+  cursor?: string;
+  search?: string;
+}
+
+export interface PeopleClient {
+  list(options?: ResourceListOptions): Promise<ListResponse<PersonSummary>>;
+  get(id: string): Promise<SingleResponse<PersonSummary>>;
+}
+
+export interface TicketsClient {
+  list(options?: ResourceListOptions): Promise<ListResponse<TicketSummary>>;
+  get(id: string): Promise<SingleResponse<TicketSummary>>;
+}

@@ -150,3 +150,30 @@ export async function resolveAppId(config: CliConfig, code: string): Promise<str
   }
   return match.id;
 }
+
+export interface DevSession {
+  url: string;
+  expiresAt: string;
+}
+
+/** Register or heartbeat a per-developer preview URL. */
+export async function putDevSession(
+  config: CliConfig,
+  appId: string,
+  url: string,
+  userId?: string,
+): Promise<DevSession> {
+  return apiRequest<DevSession>(config, 'PUT', `/v1/user-apps/${encodeURIComponent(appId)}/dev-session`, {
+    body: { url, ...(userId ? { userId } : {}) },
+  });
+}
+
+/** Clear the preview session when `weld app dev` exits. */
+export async function deleteDevSession(config: CliConfig, appId: string, userId?: string): Promise<void> {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+  await apiRequest<void>(
+    config,
+    'DELETE',
+    `/v1/user-apps/${encodeURIComponent(appId)}/dev-session${query}`,
+  );
+}
