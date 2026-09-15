@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 
 describe("quick workspace setup", () => {
-  it("requires only a trimmed workspace name, with no profile or app catalog", async () => {
+  it("requires only a trimmed workspace name when the catalog is unavailable", async () => {
     const user = userEvent.setup();
     render(<OnboardingSetup {...props} availableApps={[]} />);
     const submit = screen.getByRole("button", { name: "Create workspace" });
@@ -67,6 +67,23 @@ describe("quick workspace setup", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("preselects WeldCRM over the other apps in the catalog", async () => {
+    const user = userEvent.setup();
+    render(
+      <OnboardingSetup
+        {...props}
+        availableApps={[
+          { ...props.availableApps[0], code: "mail", name: "Mail" },
+          { ...props.availableApps[0], code: "crm", name: "CRM" },
+        ]}
+      />,
+    );
+    await user.click(screen.getByText("Choose apps"));
+    const [mail, crm] = screen.getAllByTestId("onboarding-app-btn");
+    expect(crm).toHaveAttribute("aria-pressed", "true");
+    expect(mail).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("updates suggested regions but preserves an explicit storage choice", async () => {
     const user = userEvent.setup();
     render(<OnboardingSetup {...props} />);
@@ -85,24 +102,28 @@ describe("quick workspace setup", () => {
     );
   });
 
-  it("allows keyboard app selection and deselection without requiring any apps", async () => {
+  it("submits the preselected app and blocks submission once it is deselected", async () => {
     const user = userEvent.setup();
     render(<OnboardingSetup {...props} />);
     await user.type(screen.getByLabelText("Workspace name"), "Acme");
-    await user.click(screen.getByText("Choose apps (optional)"));
+    await user.click(screen.getByText("Choose apps"));
     const app = screen.getByTestId("onboarding-app-btn");
-    app.focus();
-    await user.keyboard(" ");
     expect(app).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Create workspace" }));
     expect(props.onSubmit).toHaveBeenLastCalledWith(
       expect.objectContaining({ selectedApps: ["crm"] }),
     );
-    await user.click(app);
+    app.focus();
+    await user.keyboard(" ");
     expect(app).toHaveAttribute("aria-pressed", "false");
     expect(
       screen.getByRole("button", { name: "Create workspace" }),
-    ).toBeEnabled();
+    ).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Pick at least one app to start with. You can add more later from the App Store.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables all inputs and blocks form submission while saving", () => {
@@ -142,7 +163,7 @@ describe("workspace creation handoff", () => {
       organizationName: "Acme",
       country: "NL",
       region: "aws-eu-central-1",
-      selectedApps: [],
+      selectedApps: ["crm"],
       firstName: "Alex",
       lastName: "Morgan",
     });

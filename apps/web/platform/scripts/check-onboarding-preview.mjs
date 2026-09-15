@@ -26,7 +26,7 @@ try {
     await page.getByLabel('Data storage region').selectOption('aws-eu-west-2');
     await page.getByLabel('Country', { exact: true }).selectOption('AU');
     assert.equal(await page.getByLabel('Data storage region').inputValue(), 'aws-eu-west-2');
-    await page.locator('summary').filter({ hasText: 'Choose apps (optional)' }).click();
+    await page.locator('summary').filter({ hasText: 'Choose apps' }).click();
     await page.getByText('The app list is not available yet.', { exact: false }).waitFor();
     await page.getByLabel('Workspace name').fill('   ');
     assert.equal(await page.getByRole('button', { name: 'Create workspace' }).isDisabled(), true);

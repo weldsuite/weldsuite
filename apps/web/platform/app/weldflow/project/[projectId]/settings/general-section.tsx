@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import { DatePicker } from '@weldsuite/ui/components/date-picker';
 import { FolderKanban } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { coloredSquareColors, coloredSquareIcons } from '@/components/app-sidebar-layout';
+import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
@@ -76,8 +76,7 @@ export function GeneralSection({ projectId, isAdmin }: GeneralSectionProps) {
   }, [projectId]);
 
   const SelectedIcon = useMemo(() => {
-    const found = coloredSquareIcons.find((i) => i.label === iconLabel);
-    return found?.value || FolderKanban;
+    return (iconLabel && findColoredSquareIconByLabel(iconLabel)) || FolderKanban;
   }, [iconLabel]);
 
   // Track when the initial project data has been loaded so the first render
