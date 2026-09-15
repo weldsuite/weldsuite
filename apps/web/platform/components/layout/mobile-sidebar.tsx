@@ -37,6 +37,7 @@ import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { Box, Puzzle } from 'lucide-react';
+import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
 
 const iconMap: Record<string, React.ReactNode> = {
   wms: <Warehouse className="h-5 w-5" />,
@@ -405,12 +406,7 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
                                   <div className="flex items-center gap-3 min-w-0 flex-1">
                                     {Icon ? (
                                       item.iconStyle === 'colored-square' ? (
-                                        <div className={cn(
-                                          "flex items-center justify-center w-[18px] h-[18px] rounded-[6px] shrink-0",
-                                          item.iconColor || "bg-gray-500"
-                                        )}>
-                                          <Icon className="h-2.5 w-2.5 text-white" />
-                                        </div>
+                                        <ColoredSquareIcon icon={Icon} color={item.iconColor} />
                                       ) : (
                                         <Icon className="h-4 w-4 shrink-0" />
                                       )
@@ -459,12 +455,7 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
                         >
                           {Icon ? (
                             item.iconStyle === 'colored-square' ? (
-                              <div className={cn(
-                                "flex items-center justify-center w-[18px] h-[18px] rounded-[6px] shrink-0",
-                                item.iconColor || "bg-gray-500"
-                              )}>
-                                <Icon className="h-2.5 w-2.5 text-white" />
-                              </div>
+                              <ColoredSquareIcon icon={Icon} color={item.iconColor} />
                             ) : (
                               <Icon className="h-4 w-4 shrink-0" />
                             )
