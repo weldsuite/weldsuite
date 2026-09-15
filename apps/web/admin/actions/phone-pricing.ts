@@ -7,16 +7,81 @@ import { getMasterDb, masterSchema } from '@/lib/db';
 import { generateId } from '@/lib/id';
 import { parseMarkupInput, parsePriceMajor, type MarkupPatch } from '@/lib/domain-pricing-markup';
 import { adminPhonePricingCopy } from '@/lib/i18n';
+import { listExistingPhonePricingKeys } from '@/lib/phone-pricing-data';
 import {
   DEFAULT_PHONE_PRICING_COUNTRY,
   DEFAULT_PHONE_PRICING_TYPE,
+  isDefaultTelephonyPricing,
   parseCountryCode,
   parseNumberType,
 } from '@/lib/phone-pricing-keys';
+import {
+  medianMonthlyCost,
+  monthlyCostsFromAvailable,
+  parseCoverageMap,
+  seedCombosFromCoverage,
+  type SeedCombo,
+} from '@/lib/phone-pricing-seed';
+import { getAdminTelnyxApiKey, telnyxAdminRequest } from '@/lib/telnyx';
 
 const { telephonyNumberPricing } = masterSchema;
 
+const INSERT_CHUNK = 80;
+const SEED_SAMPLE_LIMIT = 10;
+const SEED_CONCURRENCY = 4;
+
 export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+export interface SeedPhonePricingResult {
+  fetched: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+}
+
+function rowKey(countryCode: string, numberType: string): string {
+  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replace(/_/g, '-')}`;
+}
+
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!);
+    }
+  }
+  const n = Math.min(Math.max(limit, 1), Math.max(items.length, 1));
+  await Promise.all(Array.from({ length: items.length === 0 ? 0 : n }, () => worker()));
+  return out;
+}
+
+async function sampleWholesale(
+  apiKey: string,
+  combo: SeedCombo,
+): Promise<{ monthlyPrice: string; currency: string } | null> {
+  const params = new URLSearchParams();
+  params.set('filter[country_code]', combo.countryCode);
+  params.set('filter[phone_number_type]', combo.telnyxType);
+  params.set('filter[features][]', 'voice');
+  params.set('filter[limit]', String(SEED_SAMPLE_LIMIT));
+  try {
+    const resp = await telnyxAdminRequest<{ data?: unknown[] }>(
+      apiKey,
+      `/available_phone_numbers?${params.toString()}`,
+    );
+    const { costs, currency } = monthlyCostsFromAvailable(resp.data ?? []);
+    const monthlyPrice = medianMonthlyCost(costs);
+    if (!monthlyPrice) return null;
+    const parsed = parsePriceMajor(monthlyPrice);
+    if (!parsed.ok) return null;
+    return { monthlyPrice: parsed.value, currency };
+  } catch {
+    return null;
+  }
+}
 
 function refresh(): void {
   revalidatePath('/phone-pricing');
@@ -203,4 +268,102 @@ export async function createPhonePricing(input: {
 
   refresh();
   return { ok: true, data: created[0] };
+}
+
+export async function seedPhonePricing(): Promise<ActionResult<SeedPhonePricingResult>> {
+  const guard = await guardWrite();
+  if (!guard.ok) return { ok: false, error: guard.error };
+
+  const copy = adminPhonePricingCopy();
+  const apiKey = getAdminTelnyxApiKey();
+  if (!apiKey) return { ok: false, error: copy.notConfigured };
+
+  let coverageRaw: { data?: unknown };
+  try {
+    coverageRaw = await telnyxAdminRequest<{ data?: unknown }>(apiKey, '/country_coverage');
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : copy.seedFailed,
+    };
+  }
+
+  const combos = seedCombosFromCoverage(parseCoverageMap(coverageRaw.data));
+  const samples = await mapPool(combos, SEED_CONCURRENCY, async (combo) => ({
+    combo,
+    sample: await sampleWholesale(apiKey, combo),
+  }));
+
+  const priced = samples.filter(
+    (row): row is { combo: SeedCombo; sample: { monthlyPrice: string; currency: string } } =>
+      row.sample !== null,
+  );
+
+  const existing = await listExistingPhonePricingKeys();
+  const existingByKey = new Map(existing.map((r) => [rowKey(r.countryCode, r.numberType), r]));
+  const defaultRow = existing.find((r) => isDefaultTelephonyPricing(r.countryCode, r.numberType));
+  const defaultMarkupAmount = defaultRow?.markupAmount ?? null;
+  const defaultMarkupPercent = defaultRow?.markupPercent != null ? String(defaultRow.markupPercent) : null;
+
+  const missing = priced.filter(({ combo }) => !existingByKey.has(rowKey(combo.countryCode, combo.numberType)));
+  const toUpdate = priced.filter(({ combo }) => existingByKey.has(rowKey(combo.countryCode, combo.numberType)));
+
+  const db = getMasterDb();
+  let inserted = 0;
+  let updated = 0;
+
+  for (let i = 0; i < missing.length; i += INSERT_CHUNK) {
+    const chunk = missing.slice(i, i + INSERT_CHUNK).map(({ combo, sample }) => ({
+      id: generateId('tnp'),
+      countryCode: combo.countryCode,
+      numberType: combo.numberType,
+      monthlyPrice: sample.monthlyPrice,
+      setupFee: '0',
+      currency: sample.currency,
+      provider: 'telnyx',
+      isActive: true,
+      markupAmount: defaultMarkupAmount,
+      markupPercent: defaultMarkupPercent,
+    }));
+    const created = await db
+      .insert(telephonyNumberPricing)
+      .values(chunk)
+      .onConflictDoNothing({
+        target: [telephonyNumberPricing.countryCode, telephonyNumberPricing.numberType],
+      })
+      .returning({ id: telephonyNumberPricing.id });
+    inserted += created.length;
+  }
+
+  for (let i = 0; i < toUpdate.length; i += INSERT_CHUNK) {
+    const chunk = toUpdate.slice(i, i + INSERT_CHUNK);
+    const results = await Promise.all(
+      chunk.map(({ combo, sample }) => {
+        const row = existingByKey.get(rowKey(combo.countryCode, combo.numberType));
+        if (!row) return Promise.resolve([] as Array<{ id: string }>);
+        return db
+          .update(telephonyNumberPricing)
+          .set({
+            monthlyPrice: sample.monthlyPrice,
+            currency: sample.currency,
+            provider: 'telnyx',
+            updatedAt: new Date(),
+          })
+          .where(eq(telephonyNumberPricing.id, row.id))
+          .returning({ id: telephonyNumberPricing.id });
+      }),
+    );
+    updated += results.reduce((sum, rows) => sum + rows.length, 0);
+  }
+
+  refresh();
+  return {
+    ok: true,
+    data: {
+      fetched: priced.length,
+      inserted,
+      updated,
+      skipped: combos.length - inserted - updated,
+    },
+  };
 }

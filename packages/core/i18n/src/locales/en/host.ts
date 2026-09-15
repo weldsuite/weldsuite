@@ -164,7 +164,7 @@ export const host = {
       filterPlaceholder: 'Filter country or type…',
       filterLabel: 'Filter catalog',
       emptyCatalog:
-        'No country catalog yet. Set a default margin to mark up live Telnyx prices, or add a country row.',
+        'No country catalog yet. Seed wholesale rows from Telnyx, set a default margin to mark up live prices, or add a country row.',
       emptyFilter: 'No rows match that filter.',
       columnCountry: 'Country',
       columnType: 'Type',
@@ -176,6 +176,19 @@ export const host = {
       statusInactive: 'inactive',
       setMarginButton: 'Set margin',
       addRowButton: 'Add country',
+      seedButton: 'Seed from Telnyx',
+      confirmTitle: 'Seed phone pricing?',
+      confirmDescription:
+        'This samples Telnyx wholesale monthly costs for the countries offered at purchase (local, toll-free, and mobile where Telnyx has coverage) and writes them onto the master catalog. Existing markup is not overwritten. New rows copy the default margin.',
+      confirmCancel: 'Cancel',
+      confirmFetch: 'Seed catalog',
+      seedSuccess:
+        'Updated {updated} existing and inserted {inserted} new row(s) from Telnyx ({fetched} sampled)',
+      seedAlreadyComplete: 'Catalog already matches Telnyx samples — {fetched} combinations checked',
+      seedNoSamples:
+        'Telnyx returned no wholesale samples for the purchase countries. Check TELNYX_API_KEY inventory access and try again.',
+      notConfigured: 'Telnyx is not configured. Set TELNYX_API_KEY on the admin app.',
+      seedFailed: 'Telnyx coverage request failed',
       markupEditAria: 'Edit margin for {row}',
       markupDialogTitle: 'Set margin',
       markupDialogTitleRow: 'Set margin for {row}',
