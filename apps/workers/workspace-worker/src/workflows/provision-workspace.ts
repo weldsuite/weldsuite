@@ -557,7 +557,7 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         .limit(1);
 
       // The Stripe customer needs the signing-up user's email so Stripe can
-      // actually reach them (trial-ending, failed-payment, receipts).
+      // actually reach them (failed-payment, receipts).
       const ownerEmail = await resolveOwnerEmail(masterDb, initialMember);
 
       const result = await setupWorkspaceBilling(

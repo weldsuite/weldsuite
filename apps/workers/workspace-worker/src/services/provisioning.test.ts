@@ -90,12 +90,13 @@ describe('setupWorkspaceBilling — Stripe customer email', () => {
         posted.push({ url, body: init.body });
         const payload = url.includes('/customers')
           ? { id: 'cus_test' }
-          : { id: 'sub_test', status: 'trialing' };
+          : { id: 'sub_test', status: 'active' };
         return { ok: true, json: async () => payload, text: async () => '' };
       }),
     );
     // The function logs progress; keep the test output readable.
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -103,16 +104,22 @@ describe('setupWorkspaceBilling — Stripe customer email', () => {
     vi.restoreAllMocks();
   });
 
-  /** A workspace with no billing yet, plus the Business plan to trial on. */
+  /** A workspace with no billing yet, plus the Free plan to subscribe to. */
   const freshWorkspaceDb = () =>
     createFakeMasterDb({
       workspaces: [{ stripeCustomerId: null, stripeSubscriptionId: null }],
-      plans: [{ id: 'plan_business', stripePriceIdMonthly: 'price_123' }],
+      plans: [{ id: 'plan_free', stripePriceIdMonthly: 'price_free' }],
     });
 
   const customerBody = () => {
     const call = posted.find((p) => p.url.includes('/v1/customers'));
     expect(call, 'expected a Stripe customer creation call').toBeDefined();
+    return call!.body;
+  };
+
+  const subscriptionBody = () => {
+    const call = posted.find((p) => p.url.includes('/v1/subscriptions'));
+    expect(call, 'expected a Stripe subscription creation call').toBeDefined();
     return call!.body;
   };
 
@@ -153,7 +160,68 @@ describe('setupWorkspaceBilling — Stripe customer email', () => {
     expect(body.get('metadata[clerkOrgId]')).toBe('org_1');
   });
 
-  it('does not create a customer at all when one already exists', async () => {
+  it('subscribes the new customer to the $0 Free plan', async () => {
+    const result = await setupWorkspaceBilling(
+      env,
+      freshWorkspaceDb(),
+      'ws_1',
+      'Acme',
+      'org_1',
+      'owner@example.com',
+    );
+
+    const body = subscriptionBody();
+    expect(body.get('customer')).toBe('cus_test');
+    expect(body.get('items[0][price]')).toBe('price_free');
+    expect(body.get('metadata[workspaceId]')).toBe('ws_1');
+    expect(body.get('metadata[planId]')).toBe('plan_free');
+    expect(body.get('metadata[clerkOrgId]')).toBe('org_1');
+    expect(result.subscriptionId).toBe('sub_test');
+  });
+
+  it('creates a Free subscription for an existing customer that is missing one', async () => {
+    const masterDb = createFakeMasterDb({
+      workspaces: [{ stripeCustomerId: 'cus_existing', stripeSubscriptionId: null }],
+      plans: [{ id: 'plan_free', stripePriceIdMonthly: 'price_free' }],
+    });
+
+    const result = await setupWorkspaceBilling(
+      env,
+      masterDb,
+      'ws_1',
+      'Acme',
+      'org_1',
+      'owner@example.com',
+    );
+
+    expect(posted.filter((p) => p.url.includes('/v1/customers'))).toHaveLength(0);
+    expect(subscriptionBody().get('customer')).toBe('cus_existing');
+    expect(result.customerId).toBe('cus_existing');
+    expect(result.subscriptionId).toBe('sub_test');
+  });
+
+  it('skips the subscription and warns when the Free plan has no Stripe price', async () => {
+    const masterDb = createFakeMasterDb({
+      workspaces: [{ stripeCustomerId: null, stripeSubscriptionId: null }],
+      plans: [{ id: 'plan_free', stripePriceIdMonthly: null }],
+    });
+
+    const result = await setupWorkspaceBilling(
+      env,
+      masterDb,
+      'ws_1',
+      'Acme',
+      'org_1',
+      'owner@example.com',
+    );
+
+    expect(posted.filter((p) => p.url.includes('/v1/subscriptions'))).toHaveLength(0);
+    expect(result.customerId).toBe('cus_test');
+    expect(result.subscriptionId).toBeUndefined();
+    expect(result.warning).toMatch(/stripePriceIdMonthly/);
+  });
+
+  it('does not create a customer or subscription when billing is already set up', async () => {
     const masterDb = createFakeMasterDb({
       workspaces: [{ stripeCustomerId: 'cus_existing', stripeSubscriptionId: 'sub_existing' }],
     });
@@ -169,6 +237,7 @@ describe('setupWorkspaceBilling — Stripe customer email', () => {
 
     expect(posted).toHaveLength(0);
     expect(result.customerId).toBe('cus_existing');
+    expect(result.subscriptionId).toBe('sub_existing');
   });
 });
 
@@ -207,7 +276,7 @@ describe('resolveOwnerEmail → setupWorkspaceBilling', () => {
         return {
           ok: true,
           json: async () =>
-            url.includes('/customers') ? { id: 'cus_test' } : { id: 'sub_test', status: 'trialing' },
+            url.includes('/customers') ? { id: 'cus_test' } : { id: 'sub_test', status: 'active' },
           text: async () => '',
         };
       }),
@@ -216,7 +285,7 @@ describe('resolveOwnerEmail → setupWorkspaceBilling', () => {
 
     const masterDb = createFakeMasterDb({
       workspaces: [{ stripeCustomerId: null, stripeSubscriptionId: null }],
-      plans: [{ id: 'plan_business', stripePriceIdMonthly: 'price_123' }],
+      plans: [{ id: 'plan_free', stripePriceIdMonthly: 'price_free' }],
       users: userRows,
     });
 

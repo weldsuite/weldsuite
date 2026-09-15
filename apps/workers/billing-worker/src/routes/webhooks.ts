@@ -16,6 +16,7 @@ import {
   isOurOwnSync,
   retrieveSubscription,
   createStripeSubscription,
+  cancelSubscriptionImmediately,
   stripeApiRequest,
   retrievePaymentIntent,
   retrieveCustomer,
@@ -340,6 +341,7 @@ async function handleCheckoutCompleted(
     .select({
       planId: workspaces.planId,
       clerkOrgId: workspaces.clerkOrgId,
+      stripeSubscriptionId: workspaces.stripeSubscriptionId,
     })
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId));
@@ -348,6 +350,8 @@ async function handleCheckoutCompleted(
     console.error(`[Stripe Webhook] Workspace not found: ${workspaceId}`);
     return;
   }
+
+  const previousSubscriptionId = workspace.stripeSubscriptionId;
 
   // Get seat count and subscription details from Stripe
   let purchasedSeats = seatsStr ? parseInt(seatsStr, 10) : 0;
@@ -393,6 +397,30 @@ async function handleCheckoutCompleted(
   }
 
   console.log(`[Stripe Webhook] Updated workspace ${workspaceId} to plan ${planId} with ${purchasedSeats} seats`);
+
+  // Checkout always creates a new subscription. Cancel the previous one
+  // (typically the $0 Free sub from signup) so the customer is not left
+  // with two live subscriptions. The workspace row already points at the
+  // new id, so the deleted-subscription webhook will not find it and will
+  // not downgrade the workspace.
+  if (
+    subscriptionId &&
+    previousSubscriptionId &&
+    previousSubscriptionId !== subscriptionId &&
+    env.STRIPE_SECRET_KEY
+  ) {
+    try {
+      await cancelSubscriptionImmediately(env.STRIPE_SECRET_KEY, previousSubscriptionId);
+      console.log(
+        `[Stripe Webhook] Canceled previous subscription ${previousSubscriptionId} after checkout to ${subscriptionId}`,
+      );
+    } catch (err) {
+      console.error(
+        `[Stripe Webhook] Failed to cancel previous subscription ${previousSubscriptionId}:`,
+        err,
+      );
+    }
+  }
 
   // Reverse-sync customer details from checkout to workspace billing details
   if (session.customer_details?.address) {
