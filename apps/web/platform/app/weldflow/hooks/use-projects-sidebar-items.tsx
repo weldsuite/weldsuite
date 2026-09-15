@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { coloredSquareColors, coloredSquareIcons } from '@/components/app-sidebar-layout';
+import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
@@ -31,10 +31,7 @@ import { toast } from 'sonner';
 import { useDataEvent } from '@/lib/events/data-events';
 import { useTopic } from '@weldsuite/realtime/react';
 
-// Helper to find LucideIcon by label name
-function findIconByLabel(label: string): LucideIcon | undefined {
-  return coloredSquareIcons.find((i) => i.label === label)?.value;
-}
+const findIconByLabel = findColoredSquareIconByLabel;
 
 export function useProjectsSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];

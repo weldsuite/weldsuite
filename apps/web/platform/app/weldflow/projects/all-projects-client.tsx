@@ -44,7 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
-import { coloredSquareColors, coloredSquareIcons } from "@/components/app-sidebar-layout";
+import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from "@/components/app-sidebar-layout";
 import type { LucideIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { projectsApi, membersApi, type ApiProject } from "@/app/weldflow/lib/api-client";
@@ -482,7 +482,9 @@ export function AllProjectsClient({
         <div className="min-w-[200px] flex-1 flex items-center gap-2.5">
           <div className={cn("w-6 h-6 rounded-[8px] flex items-center justify-center flex-shrink-0", project.color || 'bg-muted')}>
             {(() => {
-              const IconComp = project.icon ? (coloredSquareIcons.find(i => i.label === project.icon)?.value || FolderKanban) : FolderKanban;
+              const IconComp = project.icon
+                ? (findColoredSquareIconByLabel(project.icon) || FolderKanban)
+                : FolderKanban;
               return <IconComp className={cn("h-3.5 w-3.5", project.color ? "text-white" : "text-muted-foreground")} />;
             })()}
           </div>
