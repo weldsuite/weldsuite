@@ -96,6 +96,7 @@ export const deskInbox2 = {
     reopenTooltip: 'Reabrir (Shift+C)',
     closeSuccess: 'Conversación cerrada',
     reopenSuccess: 'Conversación reabierta',
+    liveCall: 'Llamada en curso',
     manageError: 'Error al actualizar la conversación',
     priorityOn: 'Marcar como prioritaria',
     priorityOff: 'Quitar prioridad',

@@ -11,6 +11,8 @@ export const chatAttachmentSchema = z.object({
   mimeType: z.string(),
   url: z.string(),
   thumbnailUrl: z.string().optional(),
+  clipType: z.enum(['audio', 'video', 'screen']).optional(),
+  durationSeconds: z.number().optional(),
 });
 
 export type ChatAttachmentInput = z.infer<typeof chatAttachmentSchema>;

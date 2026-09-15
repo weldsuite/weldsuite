@@ -163,12 +163,14 @@ export async function defaultTurnGenerator(params: {
         maxIterations: agent.maxIterations,
         permissions: agent.permissions,
         enabledTools: agent.enabledTools,
+        autoReviewEnabled: Boolean((agent as { autoReviewEnabled?: boolean }).autoReviewEnabled),
       },
       toolContext: {
         db: params.db,
         agentId: agent.id,
         actorUserId: params.userId,
         workspaceId: params.workspaceId,
+        env: params.env,
       },
       messages: params.messages,
     });
@@ -289,6 +291,74 @@ export async function acceptConversationTurn(params: {
 /**
  * Generate the assistant reply for an already-accepted user turn and persist it.
  */
+async function persistAssistantMessage(params: {
+  db: AgentDb;
+  conversationId: string;
+  content: string;
+  toolInvocations?: unknown;
+}): Promise<WeldAgentMessageRow> {
+  const { weldagentConversations, weldagentMessages } = schema;
+  const assistantMessageId = generateId('msg');
+  const content = params.content.trim() || 'I could not complete that reply. Please try again.';
+
+  await params.db.insert(weldagentMessages).values({
+    id: assistantMessageId,
+    conversationId: params.conversationId,
+    role: 'assistant',
+    content,
+    toolInvocations:
+      (params.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
+  });
+
+  await params.db
+    .update(weldagentConversations)
+    .set({
+      lastMessageAt: new Date(),
+      messageCount: sql`${weldagentConversations.messageCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(weldagentConversations.id, params.conversationId));
+
+  const [assistantRow] = await params.db
+    .select()
+    .from(weldagentMessages)
+    .where(eq(weldagentMessages.id, assistantMessageId))
+    .limit(1);
+
+  return serializeMessage(assistantRow);
+}
+
+/**
+ * Persist a user-visible failure so async clients stop polling forever when
+ * background generation throws (gateway, credits, runtime, etc.).
+ */
+export async function persistFailedAssistantTurn(params: {
+  db: AgentDb;
+  accepted: AcceptedTurn;
+  error: unknown;
+}): Promise<CompleteTurnResult> {
+  const message =
+    params.error instanceof Error && params.error.message.trim()
+      ? `Sorry — I could not finish that reply (${params.error.message}). Try again in a moment.`
+      : 'Sorry — I could not finish that reply. Try again in a moment.';
+
+  const assistantMessage = await persistAssistantMessage({
+    db: params.db,
+    conversationId: params.accepted.conversationId,
+    content: message,
+  });
+
+  return {
+    status: 'completed',
+    pending: false,
+    userMessage: params.accepted.userMessage,
+    assistantMessage,
+    creditsUsed: 0,
+    success: false,
+    error: params.error instanceof Error ? params.error.message : 'Turn failed',
+  };
+}
+
 export async function finishAcceptedTurn(params: {
   db: AgentDb;
   env: Env;
@@ -296,84 +366,71 @@ export async function finishAcceptedTurn(params: {
   generate?: TurnGenerator;
   notify?: boolean;
 }): Promise<CompleteTurnResult> {
-  const { weldagentConversations, weldagentMessages } = schema;
   const { accepted, db } = params;
 
-  const generate =
-    params.generate ??
-    ((input) =>
-      defaultTurnGenerator({
-        db,
-        env: params.env,
-        workspaceId: accepted.workspaceId,
-        userId: accepted.userId,
-        messages: input.messages,
-        agentId: input.agentId,
-      }));
+  try {
+    const generate =
+      params.generate ??
+      ((input) =>
+        defaultTurnGenerator({
+          db,
+          env: params.env,
+          workspaceId: accepted.workspaceId,
+          userId: accepted.userId,
+          messages: input.messages,
+          agentId: input.agentId,
+        }));
 
-  const generated = await generate({
-    messages: accepted.chatMessages,
-    agentId: accepted.boundAgentId,
-  });
+    const generated = await generate({
+      messages: accepted.chatMessages,
+      agentId: accepted.boundAgentId,
+    });
 
-  const assistantText = generated.success
-    ? generated.text
-    : generated.error || 'The assistant could not complete this turn.';
+    const assistantText = generated.success
+      ? generated.text
+      : generated.error || 'The assistant could not complete this turn.';
 
-  const assistantMessageId = generateId('msg');
-  await db.insert(weldagentMessages).values({
-    id: assistantMessageId,
-    conversationId: accepted.conversationId,
-    role: 'assistant',
-    content: assistantText,
-    toolInvocations: (generated.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
-  });
+    const assistantMessage = await persistAssistantMessage({
+      db,
+      conversationId: accepted.conversationId,
+      content: assistantText,
+      toolInvocations: generated.toolInvocations,
+    });
 
-  await db
-    .update(weldagentConversations)
-    .set({
-      lastMessageAt: new Date(),
-      messageCount: sql`${weldagentConversations.messageCount} + 1`,
-      updatedAt: new Date(),
-    })
-    .where(eq(weldagentConversations.id, accepted.conversationId));
-
-  const [assistantRow] = await db
-    .select()
-    .from(weldagentMessages)
-    .where(eq(weldagentMessages.id, assistantMessageId))
-    .limit(1);
-
-  if (params.notify !== false && generated.success) {
-    let agentName: string | null = null;
-    if (accepted.boundAgentId) {
-      const agent = await getAgent(db, accepted.boundAgentId);
-      agentName = agent?.name ?? null;
+    if (params.notify !== false && generated.success) {
+      let agentName: string | null = null;
+      if (accepted.boundAgentId) {
+        const agent = await getAgent(db, accepted.boundAgentId);
+        agentName = agent?.name ?? null;
+      }
+      try {
+        await sendWeldAgentReplyNotification({
+          db: db as unknown as NotificationDatabase,
+          env: params.env as unknown as NotificationEnv,
+          workspaceId: accepted.workspaceId,
+          userId: accepted.userId,
+          conversationId: accepted.conversationId,
+          agentName,
+          previewText: assistantMessage.content,
+        });
+      } catch (err) {
+        console.error('[weldagent/complete-turn] notify failed:', err);
+      }
     }
-    try {
-      await sendWeldAgentReplyNotification({
-        db: db as unknown as NotificationDatabase,
-        env: params.env as unknown as NotificationEnv,
-        workspaceId: accepted.workspaceId,
-        userId: accepted.userId,
-        conversationId: accepted.conversationId,
-        agentName,
-        previewText: assistantText,
-      });
-    } catch (err) {
-      console.error('[weldagent/complete-turn] notify failed:', err);
-    }
+
+    return {
+      status: 'completed',
+      pending: false,
+      userMessage: accepted.userMessage,
+      assistantMessage,
+      creditsUsed: generated.creditsUsed,
+      success: generated.success,
+      error: generated.error,
+    };
+  } catch (err) {
+    console.error('[weldagent/complete-turn] finishAcceptedTurn failed:', err);
+    return persistFailedAssistantTurn({ db, accepted, error: err });
   }
-
-  return {
-    status: 'completed',
-    pending: false,
-    userMessage: accepted.userMessage,
-    assistantMessage: serializeMessage(assistantRow),
-    creditsUsed: generated.creditsUsed,
-    success: generated.success,
-    error: generated.error,
-  };
 }
 
 /** Full synchronous turn (tests / wait:true). */

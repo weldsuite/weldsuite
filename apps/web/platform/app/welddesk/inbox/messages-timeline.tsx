@@ -46,9 +46,11 @@ export function MessagesTimeline({ messages, members }: MessagesTimelineProps) {
   const t = getTranslations('deskInbox2');
   const endRef = useRef<HTMLDivElement>(null);
 
+  const lastBody = messages[messages.length - 1]?.body;
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, lastBody]);
 
   if (messages.length === 0) {
     return <p className="text-sm text-muted-foreground text-center py-16">{t.pane.partsEmpty}</p>;

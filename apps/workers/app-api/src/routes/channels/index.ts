@@ -336,6 +336,22 @@ app.delete('/:id', requirePermission('channels:delete'), async (c) => {
 // rest of the app-api chat surface.
 // ===========================================================================
 
+const clipTranscriptSchema = z.object({
+  status: z.enum(['pending', 'processing', 'completed', 'failed']),
+  fullText: z.string().optional(),
+  segments: z
+    .array(
+      z.object({
+        text: z.string(),
+        startTime: z.number(),
+        endTime: z.number(),
+        timestamp: z.string(),
+      }),
+    )
+    .optional(),
+  errorMessage: z.string().optional(),
+});
+
 const messageAttachmentSchema = z.object({
   id: z.string(),
   fileName: z.string(),
@@ -343,6 +359,11 @@ const messageAttachmentSchema = z.object({
   mimeType: z.string(),
   url: z.string(),
   thumbnailUrl: z.string().optional(),
+  // Clip fields — Zod strips unknown keys by default; without these,
+  // recorded voice/video arrives as a generic file attachment.
+  clipType: z.enum(['audio', 'video', 'screen']).optional(),
+  durationSeconds: z.number().optional(),
+  transcript: clipTranscriptSchema.optional(),
 });
 
 const sendMessageSchema = z

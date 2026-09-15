@@ -50,6 +50,7 @@ import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
+import { createWeldAgentParityApi } from '@weldsuite/app-api-client/domains/weldagent-parity';
 import { createWorkspaceAgentsApi } from '@weldsuite/app-api-client/domains/workspace-agents';
 import { createSocialApi } from '@weldsuite/app-api-client/domains/social';
 import { createAccountApi } from '@weldsuite/app-api-client/domains/account';
@@ -154,6 +155,7 @@ export function useAppApi() {
       wmsSuppliers: createWmsSuppliersApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),
       weldAgent: createWeldAgentApi(lazyClient),
+      weldAgentParity: createWeldAgentParityApi(lazyClient),
       workspaceAgents: createWorkspaceAgentsApi(lazyClient),
 
       // WeldAgent chat + one-shot generation via the Cloudflare AI Gateway.

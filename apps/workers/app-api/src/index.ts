@@ -803,6 +803,7 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 import { runDigestSweep } from './cron/digest-sweep';
 import { runCalendarReplanSweep } from './cron/calendar-replan';
 import { runDomainAutoRenewSweep } from './cron/domain-auto-renew';
+import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
@@ -827,6 +828,11 @@ export default {
       ctx.waitUntil(
         runDigestSweep(env).catch((err) => {
           console.error('[DigestSweep] Failed:', err);
+        }),
+      );
+      ctx.waitUntil(
+        runWeldAgentRoutineSweep(env).catch((err) => {
+          console.error('[WeldAgentRoutineSweep] Failed:', err);
         }),
       );
     }

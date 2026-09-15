@@ -19,9 +19,10 @@ import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-memb
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
+  liveCall?: boolean;
 }
 
-export function ConversationHeader({ conversation }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation, liveCall = false }: ConversationHeaderProps) {
   const t = getTranslations('deskInbox2');
   const router = useRouter();
   const { user } = useUser();
@@ -96,6 +97,15 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
         <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">
           {displayTitle}
         </h1>
+        {liveCall && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 flex-shrink-0">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </span>
+            {t.header.liveCall}
+          </span>
+        )}
         {conversation.email && (
           <span className="hidden md:inline text-sm text-gray-500 dark:text-muted-foreground truncate">
             {conversation.email}

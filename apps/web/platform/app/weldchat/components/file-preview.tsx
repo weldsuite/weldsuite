@@ -30,13 +30,43 @@ function formatFileSize(bytes: number): string {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
+function inferClipType(
+  attachment: FilePreviewProps['attachment'],
+): ChatClipAttachment['clipType'] | null {
+  if (
+    'clipType' in attachment &&
+    (attachment.clipType === 'audio' ||
+      attachment.clipType === 'video' ||
+      attachment.clipType === 'screen')
+  ) {
+    return attachment.clipType;
+  }
+  // Fallback for attachments that lost clipType (e.g. older messages) or
+  // mobile uploads that only set an audio/* MIME type.
+  if (attachment.mimeType.startsWith('audio/')) return 'audio';
+  if (attachment.mimeType.startsWith('video/')) return 'video';
+  return null;
+}
+
 export function FilePreview({ attachment, channelId, messageId }: FilePreviewProps) {
   const t = useTranslations();
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
-  // Clip attachment
-  if ('clipType' in attachment && attachment.clipType) {
-    return <ClipPlayer attachment={attachment as unknown as ChatClipAttachment} channelId={channelId} messageId={messageId} />;
+  const clipType = inferClipType(attachment);
+  if (clipType) {
+    const clipAttachment: ChatClipAttachment = {
+      id: attachment.id,
+      fileName: attachment.fileName,
+      fileSize: attachment.fileSize,
+      mimeType: attachment.mimeType,
+      url: attachment.url,
+      thumbnailUrl: attachment.thumbnailUrl,
+      clipType,
+      durationSeconds:
+        typeof attachment.durationSeconds === 'number' ? attachment.durationSeconds : 0,
+      transcript: attachment.transcript as ChatClipAttachment['transcript'],
+    };
+    return <ClipPlayer attachment={clipAttachment} channelId={channelId} messageId={messageId} />;
   }
 
   const isImage = attachment.mimeType.startsWith('image/');

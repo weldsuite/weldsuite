@@ -25,8 +25,25 @@ import {
   encodeClientState,
   type TelnyxEnv,
 } from '../../lib/telnyx';
+import { getHelpdeskWorkerUrl } from '../../services/helpdesk-integrations';
+import { signDeskPhoneToolToken } from '../../lib/desk-phone-tool-auth';
+import { lookupCrmWebhookTool } from '../../lib/desk-phone-tools';
 
 const app = new Hono<{ Bindings: Env & TelnyxEnv; Variables: Variables }>();
+
+async function crmLookupExtraTools(
+  env: Env & TelnyxEnv,
+  claims: { org: string; aid: string },
+): Promise<unknown[]> {
+  if (!env.TELNYX_API_KEY) return [];
+  const token = await signDeskPhoneToolToken(env.TELNYX_API_KEY, claims);
+  return [
+    lookupCrmWebhookTool({
+      lookupCrmUrl: `${getHelpdeskWorkerUrl(env)}/public/webhooks/telnyx/tools/lookup_crm`,
+      toolAuthHeader: `Bearer ${token}`,
+    }),
+  ];
+}
 
 function toAgentJson(row: typeof schema.deskVoiceAgents.$inferSelect) {
   return {
@@ -94,6 +111,10 @@ app.post(
     let telnyxAssistantId: string | null = null;
     if (isTelnyxConfigured(c.env)) {
       try {
+        const extraTools = await crmLookupExtraTools(c.env, {
+          org: c.get('workspaceId'),
+          aid: id,
+        });
         const created = await telnyxCreateAssistant(c.env, {
           name: data.name,
           instructions: data.systemPrompt,
@@ -101,6 +122,7 @@ app.post(
           model: data.model,
           voice: data.voice,
           transferToE164: data.forwardToE164,
+          extraTools,
         });
         telnyxAssistantId = created.id;
       } catch (err) {
@@ -160,6 +182,10 @@ app.patch(
     let telnyxAssistantId = existing.telnyxAssistantId;
     if (isTelnyxConfigured(c.env)) {
       try {
+        const extraTools = await crmLookupExtraTools(c.env, {
+          org: c.get('workspaceId'),
+          aid: id,
+        });
         const payload = {
           name: next.name,
           instructions: next.systemPrompt,
@@ -167,6 +193,7 @@ app.patch(
           model: next.model,
           voice: next.voice,
           transferToE164: next.forwardToE164,
+          extraTools,
         };
         if (telnyxAssistantId) {
           await telnyxUpdateAssistant(c.env, telnyxAssistantId, payload);

@@ -14,8 +14,9 @@ import {
   resolveInternalWorkspaceId,
   SERVICE_CREDIT_RATES,
 } from '@weldsuite/credits';
-import { appendDeskMessage, ingestDeskPhone } from '@weldsuite/db/lib/desk';
+import { appendDeskMessage, ingestDeskPhone, getDeskConversation } from '@weldsuite/db/lib/desk';
 import { getTenantDbForWorkspace, getMasterDb, schema, masterSchema } from '../../db';
+import type { Database } from '../../db';
 import {
   verifyTelnyxSignature,
   encodeClientState,
@@ -33,6 +34,16 @@ import {
   handlePortingException,
   handlePortingCancelled,
 } from '../../services/porting-completion';
+import { matchCallerByPhone, lookupCrm, formatCrmLookupForAssistant } from '../../services/desk-phone-crm';
+import { parseMessageHistory, syncAiTalkTranscript } from '../../services/desk-phone-transcript';
+import { fanoutDeskPhoneMessage } from '../../lib/desk-phone-fanout';
+import {
+  bearerTokenFromHeader,
+  verifyDeskPhoneToolToken,
+  signDeskPhoneToolToken,
+} from '../../lib/desk-phone-tool-auth';
+import { buildDeskPhoneAssistantTools, callerContextInstructions } from '../../lib/desk-phone-tools';
+import { getHelpdeskWorkerUrl } from '../../services/helpdesk-integrations';
 
 // ============================================================================
 // Types
@@ -149,6 +160,55 @@ function isInboundDirection(payload: Record<string, any>): boolean {
   return dir === 'incoming' || dir === 'inbound';
 }
 
+async function syncLiveTranscript(args: {
+  env: TelnyxEnv;
+  db: Database;
+  workspaceId: string;
+  conversationId: string;
+  callId: string;
+  voiceAgentId?: string | null;
+  visitorId?: string | null;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const history = parseMessageHistory(args.payload);
+  if (history.length === 0) return;
+
+  const existing = await getDeskConversation(args.db, args.conversationId, {
+    includeMessages: true,
+  });
+  if (!existing) return;
+
+  const result = await syncAiTalkTranscript(args.db, {
+    conversationId: args.conversationId,
+    callId: args.callId,
+    voiceAgentId: args.voiceAgentId,
+    visitorId: args.visitorId ?? existing.conversation.visitorId,
+    history,
+    existingMessages: existing.messages,
+  });
+
+  for (const message of result.appended) {
+    await fanoutDeskPhoneMessage({
+      env: args.env,
+      db: args.db,
+      workspaceId: args.workspaceId,
+      conversation: existing.conversation,
+      message,
+      action: 'created',
+    });
+  }
+  for (const message of result.updated) {
+    await fanoutDeskPhoneMessage({
+      env: args.env,
+      db: args.db,
+      workspaceId: args.workspaceId,
+      conversation: existing.conversation,
+      message,
+      action: 'updated',
+    });
+  }
+}
+
 /**
  * Resolve dialed number → workspace route and execute Call Control action.
  */
@@ -210,13 +270,44 @@ async function handleInboundInitiated(
   const callId = generateId('vcall');
   const now = new Date();
 
+  let caller = {
+    contactId: null as string | null,
+    customerId: null as string | null,
+    callerName: null as string | null,
+    customerName: null as string | null,
+    email: null as string | null,
+    hits: [] as Awaited<ReturnType<typeof matchCallerByPhone>>['hits'],
+  };
+  try {
+    caller = await matchCallerByPhone(db, fromNumber);
+  } catch (err) {
+    console.error('[Telnyx Webhook] CRM caller match failed:', err);
+  }
+
   const desk = await ingestDeskPhone(db, {
     generateId,
     fromNumber,
     toNumber,
     callId,
     callControlId,
+    name: caller.callerName,
+    contactId: caller.contactId,
   });
+
+  if (
+    caller.contactId &&
+    (!desk.conversation.contactId || desk.conversation.name !== caller.callerName)
+  ) {
+    await db
+      .update(schema.deskConversations)
+      .set({
+        contactId: caller.contactId,
+        name: caller.callerName ?? desk.conversation.name,
+        email: caller.email ?? desk.conversation.email,
+        updatedAt: now,
+      })
+      .where(eq(schema.deskConversations.id, desk.conversation.id));
+  }
 
   await db.insert(voipCalls).values({
     id: callId,
@@ -236,6 +327,8 @@ async function handleInboundInitiated(
     initiatedAt: now,
     deskConversationId: desk.conversation.id,
     isRecorded: phoneRow.enableRecording ?? true,
+    customerId: caller.customerId,
+    contactId: caller.contactId,
   });
 
   const clientState = encodeClientState({
@@ -243,6 +336,7 @@ async function handleInboundInitiated(
     workspaceId,
     deskConversationId: desk.conversation.id,
     record: phoneRow.enableRecording !== false ? 'true' : 'false',
+    ...(route?.voiceAgentId ? { voiceAgentId: route.voiceAgentId } : {}),
   });
 
   const action = route?.action ?? 'hangup';
@@ -282,8 +376,42 @@ async function handleInboundInitiated(
         return;
       }
 
+      let tools: unknown[] | undefined;
+      if (env.TELNYX_API_KEY) {
+        const token = await signDeskPhoneToolToken(env.TELNYX_API_KEY, {
+          org: workspaceId,
+          aid: agent.id,
+          call: callId,
+          conv: desk.conversation.id,
+        });
+        tools = buildDeskPhoneAssistantTools({
+          transferToE164: agent.forwardToE164,
+          lookupCrmUrl: `${getHelpdeskWorkerUrl(env)}/public/webhooks/telnyx/tools/lookup_crm`,
+          toolAuthHeader: `Bearer ${token}`,
+        });
+      }
+
+      const dynamicVariables: Record<string, string> = {
+        caller_phone: fromNumber,
+        ...(caller.callerName ? { caller_name: caller.callerName } : {}),
+        ...(caller.customerName ? { customer_name: caller.customerName } : {}),
+      };
+
       await telnyxAnswer(env, callControlId, { clientState });
-      await telnyxAiAssistantStart(env, callControlId, agent.telnyxAssistantId, { clientState });
+      await telnyxAiAssistantStart(env, callControlId, agent.telnyxAssistantId, {
+        clientState,
+        sendMessageHistoryUpdates: true,
+        instructions: callerContextInstructions({
+          systemPrompt: agent.systemPrompt,
+          callerPhone: fromNumber,
+          callerName: caller.callerName,
+          customerName: caller.customerName,
+          contactId: caller.contactId,
+          customerId: caller.customerId,
+        }),
+        tools,
+        dynamicVariables,
+      });
 
       if (phoneRow.enableRecording !== false) {
         try {
@@ -293,14 +421,30 @@ async function handleInboundInitiated(
         }
       }
 
-      await appendDeskMessage(db, {
+      const answered = await appendDeskMessage(db, {
         generateId,
         conversationId: desk.conversation.id,
         kind: 'message',
         authorType: 'bot',
         authorId: agent.id,
-        body: `AI agent “${agent.name}” answered the call`,
-        metadata: { event: 'ai_answered', voiceAgentId: agent.id, callId },
+        body: caller.callerName
+          ? `AI agent “${agent.name}” answered the call (matched ${caller.callerName})`
+          : `AI agent “${agent.name}” answered the call`,
+        metadata: {
+          event: 'ai_answered',
+          voiceAgentId: agent.id,
+          callId,
+          contactId: caller.contactId,
+          customerId: caller.customerId,
+        },
+      });
+      await fanoutDeskPhoneMessage({
+        env,
+        db,
+        workspaceId,
+        conversation: answered.conversation,
+        message: answered.message,
+        action: 'created',
       });
       return;
     }
@@ -352,6 +496,95 @@ async function appendDeskCallEvent(
 // ============================================================================
 
 const app = new Hono<{ Bindings: TelnyxEnv }>();
+
+/**
+ * Telnyx AI Assistant webhook tool — not a Call Control event, so it uses
+ * our HMAC Bearer token instead of Telnyx Ed25519 signatures.
+ */
+app.post('/tools/:toolName', async (c) => {
+  const toolName = c.req.param('toolName');
+  const secret = c.env.TELNYX_API_KEY;
+  if (!secret) {
+    return c.json({ error: { code: 'NOT_CONFIGURED', message: 'Phone service is not activated' } }, 503);
+  }
+
+  const token = bearerTokenFromHeader(c.req.header('authorization'));
+  if (!token) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Missing tool token' } }, 401);
+  }
+  const claims = await verifyDeskPhoneToolToken(secret, token);
+  if (!claims) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid tool token' } }, 401);
+  }
+
+  if (toolName !== 'lookup_crm') {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Unknown tool ${toolName}` } }, 404);
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed = await c.req.json();
+    if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>;
+  } catch {
+    body = {};
+  }
+
+  const queryRaw =
+    (typeof body.query === 'string' && body.query) ||
+    (typeof body.phone === 'string' && body.phone) ||
+    (typeof body.email === 'string' && body.email) ||
+    (typeof body.name === 'string' && body.name) ||
+    '';
+
+  try {
+    const db = await getTenantDbForWorkspace(c.env, claims.org);
+    let query = queryRaw.trim();
+    if (!query && claims.call) {
+      const [callRow] = await db
+        .select({ fromNumber: schema.voipCalls.fromNumber })
+        .from(schema.voipCalls)
+        .where(eq(schema.voipCalls.id, claims.call))
+        .limit(1);
+      query = callRow?.fromNumber ?? '';
+    }
+
+    const hits = query ? await lookupCrm(db, query, 5) : [];
+    const result = formatCrmLookupForAssistant(hits);
+
+    if (claims.conv) {
+      const summary =
+        hits.length === 0
+          ? `CRM lookup for “${query || 'unknown'}” returned no records`
+          : `CRM lookup for “${query}”: ${hits.map((h) => `${h.name} (${h.type})`).join(', ')}`;
+      try {
+        const note = await appendDeskMessage(db, {
+          generateId,
+          conversationId: claims.conv,
+          kind: 'note',
+          authorType: 'bot',
+          authorId: claims.aid,
+          body: summary,
+          metadata: { event: 'crm_lookup', query, callId: claims.call, hits: hits.map((h) => h.id) },
+        });
+        await fanoutDeskPhoneMessage({
+          env: c.env,
+          db,
+          workspaceId: claims.org,
+          conversation: note.conversation,
+          message: note.message,
+          action: 'created',
+        });
+      } catch (err) {
+        console.error('[Telnyx tool] Failed to append CRM lookup note:', err);
+      }
+    }
+
+    return c.json(result);
+  } catch (err) {
+    console.error('[Telnyx tool] lookup_crm failed:', err);
+    return c.json({ matched: 0, results: [], message: 'Lookup failed' }, 200);
+  }
+});
 
 app.post('/', async (c) => {
   try {
@@ -569,6 +802,26 @@ app.post('/', async (c) => {
           );
 
           console.log(`[Telnyx Webhook] Recording saved for call ${callId}`);
+        }
+        break;
+      }
+
+      case 'call.ai_gather.message_history_updated':
+      case 'call.conversation.ended': {
+        if (deskConversationId) {
+          try {
+            await syncLiveTranscript({
+              env: c.env,
+              db,
+              workspaceId,
+              conversationId: deskConversationId,
+              callId,
+              voiceAgentId: clientState.voiceAgentId ?? null,
+              payload: payload as Record<string, unknown>,
+            });
+          } catch (err) {
+            console.error('[Telnyx Webhook] Live transcript sync failed:', err);
+          }
         }
         break;
       }

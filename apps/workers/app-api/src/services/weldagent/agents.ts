@@ -41,6 +41,8 @@ export interface UpdateAgentInput {
   maxIterations?: number;
   maxTotalTokens?: number;
   status?: 'draft' | 'active' | 'paused';
+  /** When true, stores `agent.auto_review` in enabledTools. */
+  autoReviewEnabled?: boolean;
 }
 
 function serializeAgent(row: typeof schema.weldagentAgents.$inferSelect) {
@@ -59,6 +61,8 @@ function serializeAgent(row: typeof schema.weldagentAgents.$inferSelect) {
     eventSubscriptions: (row.eventSubscriptions ?? []) as string[],
     maxIterations: row.maxIterations,
     maxTotalTokens: row.maxTotalTokens,
+    /** Opt-in via enabledTools including `agent.auto_review` until column migration. */
+    autoReviewEnabled: ((row.enabledTools ?? []) as string[]).includes('agent.auto_review'),
     createdBy: row.createdBy,
     totalRuns: row.totalRuns,
     successfulRuns: row.successfulRuns,
@@ -96,6 +100,11 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
   const { weldagentAgents: a } = schema;
   const id = generateId('agt');
   const now = new Date();
+  // Default cloud computer + browser like Grok Bot — still gated by Configure grants
+  // the user can revoke. Explicit permissions in the create payload win.
+  const permissions =
+    input.permissions ??
+    (['computer:use', 'browser:use'] as string[]);
   await db.insert(a).values({
     id,
     name: input.name,
@@ -106,7 +115,7 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
     modelId: input.modelId ?? recommended.copilot.free,
     temperature: input.temperature ?? '0.70',
     maxTokens: input.maxTokens ?? 2048,
-    permissions: input.permissions ?? [],
+    permissions,
     enabledTools: input.enabledTools ?? [],
     eventSubscriptions: input.eventSubscriptions ?? [],
     maxIterations: input.maxIterations ?? 10,
@@ -136,6 +145,12 @@ export async function updateAgent(db: AgentDb, id: string, input: UpdateAgentInp
   if (input.eventSubscriptions !== undefined) patch.eventSubscriptions = input.eventSubscriptions;
   if (input.maxIterations !== undefined) patch.maxIterations = input.maxIterations;
   if (input.maxTotalTokens !== undefined) patch.maxTotalTokens = input.maxTotalTokens;
+  if (input.autoReviewEnabled !== undefined) {
+    const current = new Set(existing.enabledTools ?? []);
+    if (input.autoReviewEnabled) current.add('agent.auto_review');
+    else current.delete('agent.auto_review');
+    patch.enabledTools = [...current];
+  }
   if (input.status !== undefined) patch.status = input.status;
 
   await db.update(a).set(patch).where(eq(a.id, id));

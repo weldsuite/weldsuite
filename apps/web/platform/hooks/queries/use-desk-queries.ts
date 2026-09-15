@@ -48,7 +48,15 @@ export interface DeskMessage {
   authorType: DeskAuthorType;
   authorId: string | null;
   attachments: DeskMessageAttachment[] | null;
-  metadata: { eventType?: DeskEventType; assigneeId?: string | null } | null;
+  metadata: {
+    eventType?: DeskEventType;
+    assigneeId?: string | null;
+    event?: string;
+    callId?: string;
+    turnIndex?: number;
+    role?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface DeskWidgetBranding {

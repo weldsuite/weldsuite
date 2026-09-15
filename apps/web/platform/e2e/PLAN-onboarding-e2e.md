@@ -1,5 +1,10 @@
 # Plan, E2E test: new signup + workspace creation (onboarding)
 
+> Historical design below. The implemented signup spec now uses the single-screen
+> setup described in [the onboarding simplification plan](../../../../docs/plans/onboarding-simplification.md).
+> Only the workspace name is required; profile, role, team size, referral, and app
+> selection are no longer separate required wizard steps.
+
 **Status:** proposed (not yet implemented)
 **Decision:** Full end-to-end, including real Neon tenant-DB provisioning, with a new
 guarded `/test-fixtures` teardown endpoint for cleanup.

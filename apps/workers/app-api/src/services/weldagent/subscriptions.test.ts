@@ -36,16 +36,23 @@ describe('resolveAgentTools', () => {
     expect(ids).not.toContain('tasks.create');
   });
 
-  it('respects enabledTools allow-list but always includes save_agent_setup', () => {
+  it('respects enabledTools allow-list but always includes setup/skill/memory/routine tools', () => {
     const tools = resolveAgentTools(['people:read', 'people:create', 'tickets:read'], [
       'people.list',
     ]);
-    expect(tools.map((t) => t.id)).toEqual(['agent.save_setup', 'people.list']);
+    expect(tools.map((t) => t.id)).toEqual([
+      'agent.save_setup',
+      'agent.save_skill',
+      'agent.remember',
+      'agent.create_routine',
+      'people.list',
+    ]);
   });
 
   it('always exposes save_agent_setup even with no grants', () => {
     const tools = resolveAgentTools([]);
     expect(tools.map((t) => t.id)).toContain('agent.save_setup');
+    expect(tools.map((t) => t.id)).toContain('agent.save_skill');
   });
 
   it('agentHasGrants requires every required permission', () => {
@@ -62,31 +69,33 @@ describe('setup interview gating', () => {
     expect(agentNeedsSetup('Help with tickets daily')).toBe(false);
   });
 
-  it('withholds save_agent_setup until the user has answered a follow-up', () => {
+  it('withholds all tools until the user has answered a follow-up', () => {
     const early = toolsForAgentTurn({
-      permissions: [],
+      permissions: ['people:read', 'computer:use'],
       enabledTools: [],
       systemPrompt: '',
       userMessageCount: 1,
     });
-    expect(early.map((t) => t.id)).not.toContain('agent.save_setup');
+    expect(early).toEqual([]);
 
     const ready = toolsForAgentTurn({
-      permissions: [],
+      permissions: ['people:read', 'computer:use'],
       enabledTools: [],
       systemPrompt: '',
       userMessageCount: 2,
     });
-    expect(ready.map((t) => t.id)).toContain('agent.save_setup');
+    expect(ready.map((t) => t.id)).toEqual(['agent.save_setup']);
   });
 
-  it('keeps save_agent_setup available once the agent already has instructions', () => {
+  it('keeps platform tools once the agent already has instructions', () => {
     const tools = toolsForAgentTurn({
-      permissions: [],
+      permissions: ['people:read'],
       enabledTools: [],
       systemPrompt: 'When a new ticket arrives, triage it.',
       userMessageCount: 1,
     });
     expect(tools.map((t) => t.id)).toContain('agent.save_setup');
+    expect(tools.map((t) => t.id)).toContain('agent.save_skill');
+    expect(tools.map((t) => t.id)).toContain('people.list');
   });
 });

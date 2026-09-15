@@ -131,6 +131,10 @@ const NUMBER_TYPES = [
   { value: 'mobile', label: 'Mobile' },
 ];
 
+function pricingKey(countryCode: string, numberType: string): string {
+  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replace(/_/g, '-')}`;
+}
+
 export function NewNumberClient({
   addresses: initialAddresses,
   bundles: initialBundles,
@@ -149,28 +153,6 @@ export function NewNumberClient({
   const provisionMutation = useProvisionPhoneNumber();
   const createAddressMutation = useCreateAddress();
 
-  // Build a lookup map from pricing data
-  const pricingMap = useMemo(() => {
-    const map: Record<string, { monthlyPrice: number; currency: string; stripePriceId?: string }> = {};
-    for (const p of pricingData) {
-      map[`${p.countryCode}:${p.numberType}`] = { monthlyPrice: p.monthlyPrice, currency: p.currency, stripePriceId: p.stripePriceId };
-    }
-    return map;
-  }, [pricingData]);
-
-  // `countryCode` is optional on AvailableNumber; a missing one simply can't
-  // match a pricing key, so both helpers report "no price" rather than forcing
-  // every call site to guard.
-  const getPrice = (countryCode: string | undefined, numberType: string) =>
-    countryCode ? pricingMap[`${countryCode}:${numberType}`] ?? null : null;
-
-  const formatPrice = (countryCode: string | undefined, numberType: string) => {
-    const price = getPrice(countryCode, numberType);
-    if (!price) return tn.notAvailable;
-    return `${price.currency} ${price.monthlyPrice.toFixed(2)}/mo`;
-  };
-
-  // Search state
   const [countryOpen, setCountryOpen] = useState(false);
   const [searchCountry, setSearchCountry] = useState('US');
   const [searchAreaCode, setSearchAreaCode] = useState('');
@@ -182,6 +164,32 @@ export function NewNumberClient({
   const [cartNumbers, setCartNumbers] = useState<AvailableNumber[]>([]);
   const [expandedCartNumbers, setExpandedCartNumbers] = useState<Set<string>>(new Set());
   const [isProvisioning, setIsProvisioning] = useState(false);
+
+  // Build a lookup map from pricing data
+  const pricingMap = useMemo(() => {
+    const map: Record<string, { monthlyPrice: number; currency: string; stripePriceId?: string }> = {};
+    for (const p of pricingData) {
+      map[pricingKey(p.countryCode, p.numberType)] = {
+        monthlyPrice: p.monthlyPrice,
+        currency: p.currency,
+        stripePriceId: p.stripePriceId,
+      };
+    }
+    return map;
+  }, [pricingData]);
+
+  const getPrice = (countryCode: string | undefined, numberType: string) =>
+    pricingMap[pricingKey(countryCode || searchCountry, numberType)] ?? null;
+
+  const formatPrice = (num: AvailableNumber, numberType: string) => {
+    const price = getPrice(num.iso_country, numberType);
+    if (price) return `${price.currency} ${price.monthlyPrice.toFixed(2)}/mo`;
+    const monthly = Number(num.cost_information?.monthly_cost);
+    if (Number.isFinite(monthly) && monthly > 0) {
+      return `${num.cost_information?.currency || 'USD'} ${monthly.toFixed(2)}/mo`;
+    }
+    return tn.notAvailable;
+  };
 
   // Address selection state
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
@@ -359,10 +367,21 @@ export function NewNumberClient({
 
   const isSubmitDisabled = (!isPreviewingNumber && cartNumbers.length === 0) || isProvisioning || (!isPreviewingNumber && cartNumbers.length > 0 && selectedCountryRequiresAddress && !selectedAddressId && !selectedBundleId);
 
-  const allCartPriced = cartNumbers.length > 0 && cartNumbers.every(num => getPrice(num.iso_country, searchType) !== null);
-  const totalPrice = cartNumbers.reduce((sum, num) => sum + (getPrice(num.iso_country, searchType)?.monthlyPrice ?? 0), 0);
+  const lineAmount = (num: AvailableNumber) => {
+    const stripe = getPrice(num.iso_country, searchType)?.monthlyPrice;
+    if (typeof stripe === 'number' && Number.isFinite(stripe)) return stripe;
+    const telnyx = Number(num.cost_information?.monthly_cost);
+    return Number.isFinite(telnyx) ? telnyx : 0;
+  };
+  const allCartPriced = cartNumbers.length > 0 && cartNumbers.every((num) => lineAmount(num) > 0);
+  const totalPrice = cartNumbers.reduce((sum, num) => sum + (Number.isFinite(lineAmount(num)) ? lineAmount(num) : 0), 0);
   const totalFormatted = totalPrice.toFixed(2);
-  const cartCurrency = cartNumbers.length > 0 ? (getPrice(cartNumbers[0].iso_country, searchType)?.currency ?? 'USD') : 'USD';
+  const cartCurrency =
+    cartNumbers.length > 0
+      ? (getPrice(cartNumbers[0]!.iso_country, searchType)?.currency
+        ?? cartNumbers[0]!.cost_information?.currency
+        ?? 'USD')
+      : 'USD';
 
   const submitText = isProvisioning
     ? tn.processing
@@ -417,7 +436,7 @@ export function NewNumberClient({
                   <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
               </div>
-              <span className="text-sm font-medium">{formatPrice(num.iso_country, searchType)}</span>
+              <span className="text-sm font-medium">{formatPrice(num, searchType)}</span>
             </div>
 
             {isExpanded && (
@@ -457,7 +476,7 @@ export function NewNumberClient({
               >
                 {tn.remove}
               </Button>
-              <span className="text-xs text-muted-foreground">{getPrice(num.iso_country, searchType) ? tn.renewsAt.replace('{price}', formatPrice(num.iso_country, searchType)) : tn.priceNotAvailable}</span>
+              <span className="text-xs text-muted-foreground">{getPrice(num.iso_country, searchType) || num.cost_information?.monthly_cost ? tn.renewsAt.replace('{price}', formatPrice(num, searchType)) : tn.priceNotAvailable}</span>
             </div>
           </div>
         );
@@ -655,7 +674,7 @@ export function NewNumberClient({
                           <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
                             <div className="text-right min-w-[70px] md:min-w-[100px]">
                               <p className="text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
-                                {formatPrice(num.iso_country, searchType)}
+                                {formatPrice(num, searchType)}
                               </p>
                             </div>
                             <Button

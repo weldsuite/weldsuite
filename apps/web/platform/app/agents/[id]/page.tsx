@@ -35,6 +35,7 @@ import {
 } from '@/hooks/queries/use-agent-queries';
 import { AgentChatPanel } from '../components/agent-chat-panel';
 import { AgentComputerPanel } from '../components/agent-computer-panel';
+import { AgentParityPanels } from '../components/agent-parity-panels';
 
 type DetailTab = 'chat' | 'configure';
 
@@ -278,6 +279,8 @@ export default function AgentDetailPage() {
             </section>
 
             <AgentComputerPanel agentId={id} />
+
+            <AgentParityPanels agentId={id} />
 
             <section className="space-y-3">
               <h2 className="text-sm font-medium">{t.agents.detail.sections.permissions.label}</h2>

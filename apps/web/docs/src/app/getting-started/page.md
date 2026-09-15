@@ -20,6 +20,17 @@ A **workspace** is your organization's home in WeldSuite. Everyone on your team 
 
 You switch workspaces from the account menu if you belong to more than one.
 
+## Create your first workspace
+
+After signing up, enter a **Workspace name** and select **Create workspace**. Your signed-in profile is reused, so you do not need to enter your name again or upload a photo.
+
+{% figure src="/images/help/onboarding-workspace.png" alt="Workspace setup with a name field and optional location and app settings" caption="Start with a workspace name. Open the optional settings if you want to customize your setup." /%}
+
+- **Country and data storage** shows a suggested storage region based on your browser language. Open it to check or change your country and storage region before creating the workspace.
+- **Choose apps (optional)** lets you select apps now. You can also leave this empty and [add apps from the App Store](/getting-started/install-apps) later.
+
+WeldSuite prepares your workspace and opens it when ready. If setup fails, use **Try again**. You can personalize your profile and manage your team in Settings after setup.
+
 ---
 
 ## How navigation works

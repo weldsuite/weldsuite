@@ -182,6 +182,24 @@ export const common = {
       searchPlaceholder: 'Search articles...',
     },
     onboarding: {
+      quickStart: {
+        title: 'Create your workspace',
+        description: 'Give your workspace a name and you’re ready to start. Everything else can wait.',
+        signedInAs: 'Signed in as {email}',
+        nameLabel: 'Workspace name',
+        namePlaceholder: 'Your company or team',
+        nameHint: 'You can change this later in workspace settings.',
+        locationSettings: 'Country and data storage',
+        locationHint: 'We suggested a location using your browser language. Check it here if you need your data stored in a specific region.',
+        chooseApps: 'Choose apps (optional)',
+        appsLater: 'You can add apps later from the App Store.',
+        appsUnavailable: 'The app list is not available yet. You can still create your workspace and choose apps later.',
+        createWorkspace: 'Create workspace',
+        nextTitle: 'Settle in at your own pace',
+        nextApps: 'Add the apps you need from the App Store.',
+        nextProfile: 'Personalize your profile whenever you’re ready.',
+        nextTeam: 'Manage your team and workspace from Settings.',
+      },
       profileStep: {
         title: 'Set up your profile',
         profilePictureLabel: 'Profile picture',
@@ -698,6 +716,7 @@ export const common = {
           inputPlaceholder: 'Message {name}…',
           thinking: 'Thinking…',
           sendFailed: 'Could not send message. Try again.',
+          replyTimedOut: 'The agent took too long to reply. Try sending again.',
         },
         setup: {
           badge: 'Setup',
