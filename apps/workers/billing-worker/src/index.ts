@@ -46,6 +46,10 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   // KV namespace for workspace caching
   WORKSPACE_CACHE: KVNamespace;
+  /** app-api base URL — used to order Telnyx numbers after phone checkout is paid. */
+  APP_API_URL?: string;
+  /** Shared with app-api; bearer for POST /api/internal/telephony/fulfill-number. */
+  INTERNAL_API_SECRET?: string;
   // Cloudflare Zones — create DNS zone before RTR register (NS hand-off)
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;

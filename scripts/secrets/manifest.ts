@@ -37,6 +37,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_CONTACT_ADMIN",
     "REALTIME_REGISTER_CONTACT_TECH",
     "REALTIME_REGISTER_CONTACT_BILLING",
+    // Orders Telnyx numbers after phone checkout is paid (app-api /api/internal).
+    "INTERNAL_API_SECRET",
     ["BETTERSTACK_TOKEN_BILLING_WORKER", "BETTERSTACK_TOKEN"],
   ],
 

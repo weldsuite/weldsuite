@@ -304,14 +304,23 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  // Handle phone number checkout separately
+  // Handle phone number checkout separately — register with Telnyx only
+  // after Stripe reports the session paid (same as domain_registration).
   if (session.metadata?.type === 'phone_checkout') {
     const workspaceId = session.metadata.workspaceId;
     const clerkOrgId = session.metadata.clerkOrgId;
     const subscriptionId = session.subscription as string;
+    const phoneNumber = session.metadata.phone_number;
 
     if (!workspaceId || !subscriptionId) {
       console.error('[Stripe Webhook] Phone checkout missing workspaceId or subscription');
+      return;
+    }
+
+    if (session.payment_status !== 'paid') {
+      console.log(
+        `[Stripe Webhook] Phone checkout ${session.id} not paid (${session.payment_status ?? 'no status'}), skipping Telnyx order`,
+      );
       return;
     }
 
@@ -324,6 +333,22 @@ async function handleCheckoutCompleted(
       .where(eq(workspaces.id, workspaceId));
 
     console.log(`[Stripe Webhook] Linked phone subscription ${subscriptionId} to workspace ${workspaceId}`);
+
+    if (!phoneNumber || !clerkOrgId) {
+      console.error('[Stripe Webhook] Phone checkout paid but missing phone_number or clerkOrgId');
+      return;
+    }
+
+    const { fulfillPaidPhoneNumberFromBilling } = await import('../lib/phone-fulfill');
+    await fulfillPaidPhoneNumberFromBilling(env, {
+      clerkOrgId,
+      phoneNumber,
+      countryCode: session.metadata.phone_country_code || 'US',
+      numberType: session.metadata.phone_number_type || 'local',
+      addressId: session.metadata.phone_address_id || session.metadata.phone_address_sid,
+      displayName: session.metadata.phone_display_name,
+      friendlyName: session.metadata.phone_friendly_name,
+    });
     return;
   }
 

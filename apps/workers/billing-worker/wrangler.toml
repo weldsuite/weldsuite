@@ -19,10 +19,13 @@ head_sampling_rate = 1
 # - CLERK_MACHINE_SECRET_KEY: Clerk M2M machine secret key (ak_...)
 # - NEON_API_KEY: Neon database API key
 # - DATABASE_ENCRYPTION_KEY: 64-char hex key for AES-256-GCM encryption
+# - INTERNAL_API_SECRET: same value as app-api; orders Telnyx numbers after
+#   phone checkout is paid (POST /api/internal/telephony/fulfill-number)
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
 
 [vars]
 ENVIRONMENT = "development"
+APP_API_URL = "http://localhost:8789"
 
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -43,6 +46,7 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+APP_API_URL = "https://app-api-test.weldsuite.org"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -62,6 +66,7 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+APP_API_URL = "https://app-api.weldsuite.org"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
