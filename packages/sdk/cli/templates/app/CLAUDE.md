@@ -13,7 +13,7 @@ This project is a **WeldSuite app**: a small Vite + React SPA that runs inside t
 
 - `weldapp.json`, the manifest. `code` is the permanent identity; bump `version` (semver) before every deploy; declare storage `collections` and API `scopes` here.
 - `src/main.tsx`, mounts `WeldAppProvider` + `WeldAppGate`; don't remove them, the app cannot talk to WeldSuite without the provider.
-- `src/App.tsx`, app UI. Uses `useWeldApp()` (theme/locale/user/bridge) and `useCollection('items')` (typed storage CRUD).
+- `src/App.tsx`, app UI. Uses `useWeldApp()` (theme/locale/user/bridge), `useCollection('items')` (typed storage CRUD), and `api.people.list()` as a `/v1` example.
 - `src/styles.css`, themes via `:root[data-theme='dark']`; keep new styles working in both themes.
 
 ## Storage API (via the SDK, don't hand-roll fetches)
@@ -39,5 +39,5 @@ Every collection used in code must be declared in `weldapp.json` → `collection
 ## Rules
 
 - Keep TypeScript strict; no `any`, no `@ts-ignore`.
-- The bridge only connects inside WeldSuite, a plain `vite dev` tab will show the connect-timeout error; that is expected.
+- The bridge only connects inside WeldSuite. Use `weld app dev` (optional `--tunnel`) so `/apps/{code}` iframes your Vite server. A plain `vite dev` tab will show the connect-timeout error; that is expected.
 - New user-visible behaviour should respect `theme` and degrade gracefully while `status !== 'ready'`.

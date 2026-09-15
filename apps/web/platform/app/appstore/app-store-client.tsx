@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import { getTranslations } from '@/lib/i18n';
-import { CustomAppsSection } from './custom-apps-section';
+import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
 
 interface AppStoreClientProps {
   initialApps: AvailableApp[];
@@ -191,6 +191,8 @@ export function AppStoreClient({ initialApps, canManage = false }: AppStoreClien
 
           {/* Apps Content */}
           <div className="flex-1 p-4 md:p-6 md:pl-8">
+            <OfficialHostedAppsSection />
+
             {consolidatedCategories.map((category, index) => (
               <div
                 key={category}

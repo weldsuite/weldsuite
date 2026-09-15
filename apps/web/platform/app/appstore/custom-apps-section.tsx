@@ -25,20 +25,32 @@ function CustomAppIcon({ icon, className = 'h-5 w-5' }: { icon?: string | null; 
   return <LucideDynamicIcon name={icon} className={className} fallback={() => <Puzzle className={className} />} />;
 }
 
-/**
- * "Custom apps" section of the App Store — WeldApps created or installed by
- * this workspace (as opposed to the first-party system apps listed above).
- * Fed by `GET /user-apps/store`, which already scopes results to public
- * approved apps + this workspace's own apps and annotates each with
- * `installed` / `pendingScopes`.
- */
-export function CustomAppsSection() {
+function isInstalled(app: StoreUserApp): boolean {
+  return Boolean(app.isInstalled ?? app.installed);
+}
+
+function isOfficial(app: StoreUserApp): boolean {
+  return app.publisherType === 'weldsuite';
+}
+
+function UserAppStoreGrid({
+  apps,
+  heading,
+  emptyTitle,
+  emptyDescription,
+  isLoading,
+}: {
+  apps: StoreUserApp[];
+  heading: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  isLoading: boolean;
+}) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const { can, isOwner } = usePermissions();
   const canManageWeldApps = isOwner || can('weldapps:manage');
 
-  const { data: apps, isLoading } = useUserAppStore();
   const installMutation = useInstallUserApp();
   const uninstallMutation = useUninstallUserApp();
   const consentMutation = useConsentUserAppScopes();
@@ -70,7 +82,11 @@ export function CustomAppsSection() {
     if (!updateTarget) return;
     setLoadingCode(updateTarget.code);
     try {
-      await consentMutation.mutateAsync({ id: updateTarget.id, approvedScopes: updateTarget.pendingScopes ?? [] });
+      await consentMutation.mutateAsync({
+        id: updateTarget.id,
+        approvedScopes: updateTarget.pendingScopes ?? [],
+      });
+      toast.success(format(wa.store.installSuccess, { name: updateTarget.name }));
       setUpdateTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : wa.store.installError);
@@ -95,9 +111,8 @@ export function CustomAppsSection() {
 
   return (
     <div className="scroll-mt-6">
-      <div className="border-t border-dashed border-border my-8" />
       <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
-        {wa.store.sectionTitle}
+        {heading}
       </h2>
 
       {isLoading ? (
@@ -114,16 +129,21 @@ export function CustomAppsSection() {
             </div>
           ))}
         </div>
-      ) : !apps || apps.length === 0 ? (
-        <div className="bg-card border border-dashed border-border rounded-xl p-6 text-center">
-          <p className="text-sm font-medium text-foreground mb-1">{wa.store.empty}</p>
-          <p className="text-xs text-muted-foreground">{wa.store.emptyDescription}</p>
-        </div>
+      ) : apps.length === 0 ? (
+        emptyTitle ? (
+          <div className="bg-card border border-dashed border-border rounded-xl p-6 text-center">
+            <p className="text-sm font-medium text-foreground mb-1">{emptyTitle}</p>
+            {emptyDescription ? <p className="text-xs text-muted-foreground">{emptyDescription}</p> : null}
+          </div>
+        ) : null
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {apps.map((app) => {
             const isBusy = loadingCode === app.code;
-            const needsApproval = app.installed && (app.pendingScopes?.length ?? 0) > 0;
+            const installed = isInstalled(app);
+            const needsApproval = installed && (app.pendingScopes?.length ?? 0) > 0;
+            const official = isOfficial(app);
+            const screenshots = app.screenshots?.filter(Boolean) ?? [];
             return (
               <div
                 key={app.code}
@@ -136,9 +156,15 @@ export function CustomAppsSection() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 mb-px flex-wrap">
                       <h3 className="text-[0.9375rem] font-semibold text-foreground m-0 truncate">{app.name}</h3>
-                      <Badge variant="outline" className="shrink-0">
-                        {app.visibility === 'public' ? wa.store.badgeCommunity : wa.store.badgePrivate}
-                      </Badge>
+                      {official ? (
+                        <Badge className="shrink-0 bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
+                          {wa.store.badgeOfficial}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="shrink-0">
+                          {app.visibility === 'public' ? wa.store.badgeCommunity : wa.store.badgePrivate}
+                        </Badge>
+                      )}
                       {app.pricingType === 'subscription' && app.priceMonthly ? (
                         <Badge variant="secondary" className="shrink-0">
                           {format(wa.store.priceMonthly, { price: `${app.currency ?? 'USD'} ${app.priceMonthly}` })}
@@ -149,6 +175,32 @@ export function CustomAppsSection() {
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground m-0 leading-[1.4] line-clamp-2">{app.description}</p>
+                {(app.websiteUrl || app.privacyUrl) && (
+                  <p className="text-xs text-muted-foreground flex gap-3">
+                    {app.websiteUrl ? (
+                      <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                        {wa.store.website}
+                      </a>
+                    ) : null}
+                    {app.privacyUrl ? (
+                      <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                        {wa.store.privacy}
+                      </a>
+                    ) : null}
+                  </p>
+                )}
+                {screenshots.length > 0 ? (
+                  <div className="flex gap-2 overflow-x-auto">
+                    {screenshots.slice(0, 3).map((src) => (
+                      <img
+                        key={src}
+                        src={src}
+                        alt=""
+                        className="h-16 w-24 object-cover rounded-md border border-border shrink-0"
+                      />
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className="flex items-center gap-2 mt-auto pt-1">
                   {needsApproval && (
@@ -157,7 +209,7 @@ export function CustomAppsSection() {
                     </Badge>
                   )}
                   <div className="flex-1" />
-                  {app.installed ? (
+                  {installed ? (
                     <>
                       <Button asChild variant="outline" size="sm" className="h-7 text-xs px-2.5">
                         <Link href={`/apps/${app.code}`}>{wa.store.open}</Link>
@@ -233,6 +285,42 @@ export function CustomAppsSection() {
         confirmLabel={wa.store.uninstall}
         variant="destructive"
         onConfirm={handleUninstall}
+      />
+    </div>
+  );
+}
+
+/** First-party hosted apps — shown in the main App Store grid with an Official badge. */
+export function OfficialHostedAppsSection() {
+  const { t } = useI18n();
+  const { data: apps, isLoading } = useUserAppStore();
+  const official = (apps ?? []).filter(isOfficial);
+  if (!isLoading && official.length === 0) return null;
+  return (
+    <div className="mb-8">
+      <UserAppStoreGrid apps={official} heading={t.weldapps.store.sectionOfficial} isLoading={isLoading} />
+    </div>
+  );
+}
+
+/**
+ * Community / workspace-authored WeldApps (excludes official first-party hosted apps).
+ */
+export function CustomAppsSection() {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  const { data: apps, isLoading } = useUserAppStore();
+  const community = (apps ?? []).filter((app) => !isOfficial(app));
+
+  return (
+    <div className="scroll-mt-6">
+      <div className="border-t border-dashed border-border my-8" />
+      <UserAppStoreGrid
+        apps={community}
+        heading={wa.store.sectionTitle}
+        emptyTitle={wa.store.empty}
+        emptyDescription={wa.store.emptyDescription}
+        isLoading={isLoading}
       />
     </div>
   );

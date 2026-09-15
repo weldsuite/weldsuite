@@ -105,7 +105,7 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 [env.test]
 name = "weldsuite-external-api-test"
 routes = [{ pattern = "api-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "test" }
+vars = { ENVIRONMENT = "test", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "" }
 
 [[env.test.kv_namespaces]]
 binding = "API_CACHE"
@@ -173,7 +173,7 @@ head_sampling_rate = 1
 [env.production]
 name = "weldsuite-external-api"
 routes = [{ pattern = "api.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "production" }
+vars = { ENVIRONMENT = "production", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "" }
 
 [[env.production.migrations]]
 tag = "v1"

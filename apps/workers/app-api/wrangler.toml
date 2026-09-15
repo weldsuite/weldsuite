@@ -141,6 +141,9 @@ HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
 # INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
 AGENT_RUNTIME_URL = "http://localhost:8795"
 AGENT_COMPUTER_ENABLED = "true"
+# Comma-separated workspace ids that publish first-party hosted WeldApps
+# (Official store badge, skip public review). Leave empty until ops fills it.
+WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
 
 # WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
 # but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
@@ -364,6 +367,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
 HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-test.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
+# Comma-separated workspace ids that publish first-party hosted WeldApps
+# (Official store badge, skip public review). Leave empty until ops fills it.
+WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
 
 
 [[env.test.flagship]]
@@ -518,6 +524,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
+# Comma-separated workspace ids that publish first-party hosted WeldApps
+# (Official store badge, skip public review). Leave empty until ops fills it.
+WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
 [[env.production.flagship]]

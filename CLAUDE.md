@@ -65,6 +65,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).
 
+**`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
+
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 
 ### Packages (`packages/`), grouped by role

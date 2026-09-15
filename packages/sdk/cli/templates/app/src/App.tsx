@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useCollection, useWeldApp } from '@weldsuite/app-sdk/react';
-import type { AppRecord } from '@weldsuite/app-sdk';
+import { WeldApiError, type AppRecord, type PersonSummary } from '@weldsuite/app-sdk';
 
 interface Item extends Record<string, unknown> {
   title: string;
   done: boolean;
 }
 
+type Tab = 'items' | 'people';
+
 export default function App() {
-  const { theme, locale, user, bridge } = useWeldApp();
+  const { theme, locale, user, bridge, api } = useWeldApp();
   const items = useCollection<Item>('items');
 
+  const [tab, setTab] = useState<Tab>('items');
   const [records, setRecords] = useState<AppRecord<Item>[]>([]);
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(true);
+  const [people, setPeople] = useState<PersonSummary[]>([]);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [peopleLoading, setPeopleLoading] = useState(false);
 
-  // Follow the platform theme (styles.css switches on data-theme).
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -30,12 +35,36 @@ export default function App() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (tab !== 'people') return;
+    let cancelled = false;
+    setPeopleLoading(true);
+    setPeopleError(null);
+    void api.people
+      .list({ limit: 10 })
+      .then((page) => {
+        if (!cancelled) setPeople(page.data);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        if (cause instanceof WeldApiError && cause.status === 403) {
+          setPeopleError('This workspace has not granted people:read. Reinstall the app to consent.');
+        } else {
+          setPeopleError(cause instanceof Error ? cause.message : 'Failed to load people');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPeopleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, tab]);
+
   const addItem = async (event: FormEvent) => {
     event.preventDefault();
     const trimmed = title.trim();
-    if (!trimmed) {
-      return;
-    }
+    if (!trimmed) return;
     await items.create({ title: trimmed, done: false });
     setTitle('');
     await bridge.toast('Item added', 'success');
@@ -43,7 +72,6 @@ export default function App() {
   };
 
   const toggleItem = async (record: AppRecord<Item>) => {
-    // update() replaces the whole document — send every field.
     await items.update(record.id, { ...record.data, done: !record.data.done });
     await refresh();
   };
@@ -61,40 +89,73 @@ export default function App() {
         <p className="meta">
           Hi {user?.name ?? 'there'} — theme: {theme}, locale: {locale}
         </p>
+        <nav className="tabs" aria-label="App sections">
+          <button type="button" className={tab === 'items' ? 'active' : ''} onClick={() => setTab('items')}>
+            Items
+          </button>
+          <button type="button" className={tab === 'people' ? 'active' : ''} onClick={() => setTab('people')}>
+            People
+          </button>
+        </nav>
       </header>
 
-      <form onSubmit={(event) => void addItem(event)} className="add-form">
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="Add an item…"
-          aria-label="New item title"
-        />
-        <button type="submit">Add</button>
-      </form>
+      {tab === 'items' ? (
+        <>
+          <form onSubmit={(event) => void addItem(event)} className="add-form">
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Add an item…"
+              aria-label="New item title"
+            />
+            <button type="submit">Add</button>
+          </form>
 
-      {loading ? (
-        <p className="status">Loading items…</p>
-      ) : records.length === 0 ? (
-        <p className="status">No items yet — add your first one above.</p>
+          {loading ? (
+            <p className="status">Loading items…</p>
+          ) : records.length === 0 ? (
+            <p className="status">No items yet — add your first one above.</p>
+          ) : (
+            <ul className="items">
+              {records.map((record) => (
+                <li key={record.id} className={record.data.done ? 'done' : ''}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={record.data.done}
+                      onChange={() => void toggleItem(record)}
+                    />
+                    <span>{record.data.title}</span>
+                  </label>
+                  <button type="button" onClick={() => void removeItem(record)} aria-label="Remove item">
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : (
-        <ul className="items">
-          {records.map((record) => (
-            <li key={record.id} className={record.data.done ? 'done' : ''}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={record.data.done}
-                  onChange={() => void toggleItem(record)}
-                />
-                <span>{record.data.title}</span>
-              </label>
-              <button type="button" onClick={() => void removeItem(record)} aria-label="Remove item">
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
+        <section>
+          <p className="meta">
+            Example WeldSuite App API call: <code>api.people.list()</code> against <code>/v1/people</code>.
+          </p>
+          {peopleLoading ? (
+            <p className="status">Loading people…</p>
+          ) : peopleError ? (
+            <p className="status">{peopleError}</p>
+          ) : people.length === 0 ? (
+            <p className="status">No people in this workspace yet.</p>
+          ) : (
+            <ul className="items">
+              {people.map((person) => (
+                <li key={person.id}>
+                  <span>{person.displayName || person.fullName || person.email || person.id}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </main>
   );
