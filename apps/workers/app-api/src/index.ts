@@ -810,10 +810,10 @@ import type { EntityEventMessage } from '@weldsuite/entity-events';
 export default {
   fetch: app.fetch,
   /**
-   * SEARCH_EVENTS consumer — keeps the semantic search index in step with
-   * tenant mutations. This worker both produces and consumes the queue: the
-   * indexer needs a tenant DB handle and the AI gateway, which app-api already
-   * has, so a separate worker would only duplicate that wiring.
+   * search-index consumer — keeps the semantic search index in step with
+   * tenant mutations. Phase 2: the hub (`entity-events-worker`) produces onto
+   * this queue; app-api only consumes. The indexer needs a tenant DB handle
+   * and the AI gateway, which this worker already has.
    */
   queue: async (batch: MessageBatch<EntityEventMessage>, env: Env) => {
     if (batch.queue.startsWith('search-index')) {

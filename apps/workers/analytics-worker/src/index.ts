@@ -15,6 +15,17 @@ app.get('/health', (c) => {
   });
 });
 
+/**
+ * Drop duplicate event ids within a single queue batch (hub retries can
+ * re-deliver the same evt_ id). Cross-batch duplicates are best-effort only
+ * without a durable store — Iceberg ingest may still see rare duplicates.
+ */
+export function shouldProcessEventId(seen: Set<string>, eventId: string): boolean {
+  if (seen.has(eventId)) return false;
+  seen.add(eventId);
+  return true;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return app.fetch(request, env, ctx);
@@ -23,10 +34,18 @@ export default {
   async queue(batch: MessageBatch<EntityEventMessage>, env: Env): Promise<void> {
     console.log(`[Analytics] Processing batch of ${batch.messages.length} events`);
 
+    const seen = new Set<string>();
     let written = 0;
     let failed = 0;
+    let duplicates = 0;
 
     for (const message of batch.messages) {
+      if (!shouldProcessEventId(seen, message.body.id)) {
+        duplicates++;
+        message.ack();
+        continue;
+      }
+
       try {
         const record = transformEvent(message.body);
         await writeAnalyticsRecord(env, record);
@@ -39,6 +58,8 @@ export default {
       }
     }
 
-    console.log(`[Analytics] Batch complete: ${written} written, ${failed} failed`);
+    console.log(
+      `[Analytics] Batch complete: ${written} written, ${failed} failed, ${duplicates} duplicates`,
+    );
   },
 };

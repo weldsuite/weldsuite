@@ -89,10 +89,10 @@ export interface Env {
   ATTIO_CLIENT_SECRET?: string;
   HUBSPOT_CLIENT_ID?: string;
   HUBSPOT_CLIENT_SECRET?: string;
-  // Entity-event sinks (publishEntityEventRaw). Optional — the publisher
-  // no-ops + warns when a binding is absent.
-  AUDIT_EVENTS?: Queue;
-  ANALYTICS_EVENTS?: Queue;
+  // Entity-event hub (publishEntityEventRaw). Optional — the publisher
+  // no-ops + warns when the binding is absent. Hub fans out to audit /
+  // analytics / search (Phase 2).
+  ENTITY_EVENTS?: Queue;
   REALTIME?: Fetcher;
 }
 
