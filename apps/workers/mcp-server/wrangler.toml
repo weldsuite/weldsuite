@@ -48,6 +48,12 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
+# Local / default: hub producer (same as test/prod)
+#   wrangler queues create entity-events-dev
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"

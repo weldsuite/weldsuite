@@ -93,3 +93,7 @@ Registry row `{ id: 'realtime', queueBinding: 'SUB_REALTIME' }` → `entity-real
 3. Deploy `entity-events-worker` (with `SUB_REALTIME` producer).
 
 If the hub gains `SUB_REALTIME` before the consumer is live, messages backlog on `entity-realtime*` until the consumer deploys (safe). Prefer deploying the consumer first so UI updates do not pause during cutover.
+
+## Phase 7 (publisher collapse)
+
+Producers only bind `ENTITY_EVENTS`. `EntityEventPublisherEnv` is hub-queue-only. Adding a subscriber = registry + hub `SUB_*` + consumer (see `packages/core/entity-events/README.md`). Orphan CF queue deletes (`workflow-events*`) are ops-only — documented in hub-queues-setup.md.

@@ -1,23 +1,12 @@
 /**
- * publishEntityEvent — the orchestrator.
+ * publishEntityEvent — hub-only publisher (Phase 7).
  *
- * Fans out a single entity mutation to:
- *   1. ENTITY_EVENTS hub queue (entity-events-worker) — audit / analytics /
- *      search-index / webhooks / WeldConnect / WeldAgent / realtime fan-out
- *      happens in the hub
+ * Builds one `EntityEventMessage` and enqueues it on `ENTITY_EVENTS`.
+ * All fan-out (audit, analytics, search-index, webhooks, WeldConnect,
+ * WeldAgent, realtime) happens in `entity-events-worker` via the subscriber
+ * registry — producers never N-way send.
  *
- * Phase 0: stopped producing to the unused WORKFLOW_EVENTS queue.
- * Phase 1: hub registry + dual-write-ready ENTITY_EVENTS path.
- * Phase 2: producers bind ENTITY_EVENTS only for queue sinks; hub fans out to
- * audit-events / analytics-events / search-index.
- * Phase 3: outbound webhooks → entity-webhooks* → integration-webhook-worker.
- * Phase 4: WeldConnect → entity-workflows* → workflow-worker.
- * Phase 5: WeldAgent → entity-agents* → app-api.
- * Phase 6: realtime → entity-realtime* → realtime-worker (WorkspaceHub).
- *
- * Each sink is independently optional — a missing binding logs a warning
- * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
- * HTTP response is never blocked.
+ * Wrapped in `executionCtx.waitUntil(...)` so the HTTP response is never blocked.
  */
 
 import type { Context } from 'hono';
@@ -28,7 +17,6 @@ import type {
 } from './types';
 import type { EntityType } from './events';
 import type { DataFor } from './events/data';
-import type { WorkflowDispatchEnv } from './workflow-dispatch';
 import type { TenantDb } from './internal-types';
 
 // ---------------------------------------------------------------------------
@@ -36,7 +24,12 @@ import type { TenantDb } from './internal-types';
 // extend this naturally)
 // ---------------------------------------------------------------------------
 
-export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
+/**
+ * After Phase 7, producers only need the hub queue for entity-event fan-out.
+ * Unrelated bindings (`REALTIME` for chat, `EXECUTE_WORKFLOW` for manual runs,
+ * etc.) stay on worker `Env` types — they are not part of this interface.
+ */
+export interface EntityEventPublisherEnv {
   /**
    * Hub queue consumed by `entity-events-worker`, which fans out to
    * audit / analytics / search-index / webhooks / WeldConnect / WeldAgent /
@@ -98,13 +91,12 @@ export interface PublishEntityEventParams<
 }
 
 // ---------------------------------------------------------------------------
-// Shared fan-out — used by both the Hono-context and context-free publishers
+// Shared hub enqueue — used by both the Hono-context and context-free publishers
 // so the two can never drift.
 // ---------------------------------------------------------------------------
 
-interface FanOutParams {
+interface HubEnqueueParams {
   env: EntityEventPublisherEnv;
-  db: TenantDb;
   workspaceId: string;
   userId: string;
   entityType: EntityType;
@@ -117,11 +109,11 @@ interface FanOutParams {
 }
 
 /**
- * Build the wire message and return a promise per active sink. Callers decide
- * whether to `waitUntil` them (request context) or `await` them (workflow /
- * raw context). Never throws — each sink swallows its own errors.
+ * Build the wire message and enqueue to the hub. Returns a promise so callers
+ * can `waitUntil` (request context) or `await` (workflow / raw context).
+ * Never throws — swallows send errors after logging.
  */
-function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<unknown>[] {
+function enqueueHubEntityEvent(params: HubEnqueueParams, source: EventSource): Promise<unknown>[] {
   const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
     params;
 
@@ -142,27 +134,23 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     },
   };
 
-  const tasks: Promise<unknown>[] = [];
-
-  // Hub queue — fans out to all registry subscribers (incl. realtime Phase 6)
-  if (env.ENTITY_EVENTS) {
-    tasks.push(
-      env.ENTITY_EVENTS.send(message)
-        .then(() =>
-          console.log(`[EntityEvents] Published hub event ${message.eventType} for ${entityId}`),
-        )
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish hub event:', err)),
-    );
-  } else {
+  if (!env.ENTITY_EVENTS) {
     console.warn('[EntityEvents] No ENTITY_EVENTS binding available — skipping publish');
+    return [];
   }
 
-  return tasks;
+  return [
+    env.ENTITY_EVENTS.send(message)
+      .then(() =>
+        console.log(`[EntityEvents] Published hub event ${message.eventType} for ${entityId}`),
+      )
+      .catch((err: unknown) => console.error('[EntityEvents] Failed to publish hub event:', err)),
+  ];
 }
 
 /**
- * Fire-and-forget entity event publisher. Returns immediately; all
- * downstream work runs inside `executionCtx.waitUntil(...)`.
+ * Fire-and-forget entity event publisher. Returns immediately; hub enqueue
+ * runs inside `executionCtx.waitUntil(...)`.
  */
 export function publishEntityEvent<
   E extends EntityType,
@@ -171,10 +159,9 @@ export function publishEntityEvent<
 >(params: PublishEntityEventParams<E, B, V>): void {
   const { c, entityType, entityId, action, data, changes, accessUserIds, source = 'api' } = params;
 
-  const tasks = fanOutEntityEvent(
+  const tasks = enqueueHubEntityEvent(
     {
       env: c.env,
-      db: c.get('tenantDb'),
       workspaceId: c.get('workspaceId') ?? '',
       userId: c.get('userId'),
       entityType,
@@ -196,12 +183,16 @@ export function publishEntityEvent<
 
 // ---------------------------------------------------------------------------
 // Context-free publisher — for workers without a Hono Context (Workflows,
-// queue consumers, the integration webhook worker). Awaits all sinks.
+// queue consumers, the integration webhook worker). Awaits the hub send.
 // ---------------------------------------------------------------------------
 
 export interface PublishEntityEventRawParams {
   env: EntityEventPublisherEnv;
-  db: TenantDb;
+  /**
+   * Unused after Phase 7 (hub collapse). Kept for call-site compatibility —
+   * tenant DB is resolved in subscriber consumers, not on the publish path.
+   */
+  db?: TenantDb;
   workspaceId: string;
   userId: string;
   entityType: EntityType;
@@ -215,12 +206,16 @@ export interface PublishEntityEventRawParams {
 }
 
 /**
- * Context-free entity event publisher. Same fan-out as `publishEntityEvent`
- * but takes plain `{ env, db }` instead of a Hono `Context`, and awaits every
- * sink (safe to call inside a Workflow `step.do` or a webhook handler).
+ * Context-free entity event publisher. Same hub enqueue as `publishEntityEvent`
+ * but takes plain `{ env, … }` instead of a Hono `Context`, and awaits the send
+ * (safe to call inside a Workflow `step.do` or a webhook handler).
  */
 export async function publishEntityEventRaw(params: PublishEntityEventRawParams): Promise<void> {
-  const { source = 'system', ...rest } = params;
-  const tasks = fanOutEntityEvent(rest, source);
+  const { source = 'system', env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
+    params;
+  const tasks = enqueueHubEntityEvent(
+    { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds },
+    source,
+  );
   await Promise.allSettled(tasks);
 }

@@ -2,8 +2,9 @@
  * Static guard: every core-CRUD mutation handler must publish an entity
  * event via `publishEntityEvent`.
  *
- * The realtime WebSocket fan-out, audit log, workflow engine, analytics,
- * and AI-agent dispatch all hang off `publishEntityEvent` (see
+ * After the hub pub/sub cutover (Phases 0–7), `publishEntityEvent` enqueues
+ * once to `ENTITY_EVENTS`. Realtime, audit, workflows, analytics, and
+ * WeldAgent all receive via hub subscriber queues (see
  * packages/core/entity-events/src/publisher.ts). A create/update/delete that
  * forgets to call it is invisible to all of those systems — this test
  * stops that regressing.
