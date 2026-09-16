@@ -64,6 +64,17 @@ new_classes = ["SupportRoom"]
 tag = "v4"
 new_classes = ["DocumentRoom"]
 
+# Phase 6: entity-events hub SUB_REALTIME → WorkspaceHub bridge
+#   wrangler queues create entity-realtime-dev
+#   wrangler queues create entity-realtime-dlq-dev
+[[queues.consumers]]
+queue = "entity-realtime-dev"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-realtime-dlq-dev"
+
 [env.test]
 name = "weldsuite-realtime-test"
 routes = [
@@ -86,6 +97,17 @@ bindings = [
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
+
+# Phase 6
+#   wrangler queues create entity-realtime-test
+#   wrangler queues create entity-realtime-dlq-test
+[[env.test.queues.consumers]]
+queue = "entity-realtime-test"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-realtime-dlq-test"
 
 [env.test.observability]
 enabled = true
@@ -113,6 +135,17 @@ bindings = [
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+# Phase 6
+#   wrangler queues create entity-realtime
+#   wrangler queues create entity-realtime-dlq
+[[env.production.queues.consumers]]
+queue = "entity-realtime"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-realtime-dlq"
 
 [env.production.observability]
 enabled = true

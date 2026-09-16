@@ -61,6 +61,13 @@ queue = "entity-workflows-dev"
 binding = "SUB_WELDAGENT"
 queue = "entity-agents-dev"
 
+# Phase 6: realtime WorkspaceHub bridge → realtime-worker
+#   wrangler queues create entity-realtime-dev
+#   wrangler queues create entity-realtime-dlq-dev
+[[queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -99,6 +106,10 @@ queue = "entity-workflows-test"
 [[env.test.queues.producers]]
 binding = "SUB_WELDAGENT"
 queue = "entity-agents-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime-test"
 
 [env.test.observability]
 enabled = true
@@ -142,6 +153,10 @@ queue = "entity-workflows"
 [[env.production.queues.producers]]
 binding = "SUB_WELDAGENT"
 queue = "entity-agents"
+
+[[env.production.queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime"
 
 [env.production.observability]
 enabled = true
