@@ -63,14 +63,25 @@ describe('defineEntityEventSubscribers', () => {
 });
 
 describe('ENTITY_EVENT_SUBSCRIBERS registry', () => {
-  it('includes Phase 1 audit/analytics/search subscribers', () => {
+  it('includes Phase 1–3 audit/analytics/search/webhooks subscribers', () => {
     const ids = ENTITY_EVENT_SUBSCRIBERS.map((s) => s.id).sort();
-    expect(ids).toEqual(['analytics', 'audit', 'search-index']);
+    expect(ids).toEqual(['analytics', 'audit', 'search-index', 'webhooks']);
   });
 
-  it('matches all Phase 1 subscribers for a typical event', () => {
+  it('matches all Phase 1–3 subscribers for a typical event', () => {
     const matched = matchEntityEventSubscribers('customer:created');
-    expect(matched.map((s) => s.id).sort()).toEqual(['analytics', 'audit', 'search-index']);
+    expect(matched.map((s) => s.id).sort()).toEqual([
+      'analytics',
+      'audit',
+      'search-index',
+      'webhooks',
+    ]);
+  });
+
+  it('webhooks subscriber binds SUB_WEBHOOKS', () => {
+    const webhooks = ENTITY_EVENT_SUBSCRIBERS.find((s) => s.id === 'webhooks');
+    expect(webhooks?.queueBinding).toBe('SUB_WEBHOOKS');
+    expect(webhooks?.topics).toEqual(['*']);
   });
 
   it('respects per-subscriber topic filters', () => {

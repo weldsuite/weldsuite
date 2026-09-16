@@ -41,10 +41,21 @@ service = "weldsuite-app-api"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
-# Entity-event queues (publishEntityEventRaw sinks)
+# Entity-event hub producer (mutations from inbound CRM sync → hub)
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
+
+# Phase 3: outbound customer webhooks (hub SUB_WEBHOOKS → this worker)
+#   wrangler queues create entity-webhooks-dev
+#   wrangler queues create entity-webhooks-dlq-dev
+[[queues.consumers]]
+queue = "entity-webhooks-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-webhooks-dlq-dev"
 
 # CRM sync engine — Cloudflare Workflow owned by this worker.
 # Distinct name from api-worker's "crm-sync-dev" during the transition.
@@ -99,6 +110,14 @@ service = "weldsuite-realtime-test"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
 
+[[env.test.queues.consumers]]
+queue = "entity-webhooks-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-webhooks-dlq-test"
+
 [env.test.triggers]
 crons = ["*/10 * * * *"]
 
@@ -142,6 +161,14 @@ service = "weldsuite-realtime-production"
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
+
+[[env.production.queues.consumers]]
+queue = "entity-webhooks"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-webhooks-dlq"
 
 [[env.production.workflows]]
 name = "crm-sync-int"

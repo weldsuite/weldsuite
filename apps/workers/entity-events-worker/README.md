@@ -9,33 +9,37 @@ Hub orchestrator for WeldSuite entity events (multi-subscriber pub/sub).
 Cloudflare does **not** auto-create these. Run before deploying this worker or any producer with an `ENTITY_EVENTS` binding:
 
 ```bash
-# Dev
+# Hub (Phase 1+)
 wrangler queues create entity-events-dev
 wrangler queues create entity-events-dlq-dev
-
-# Test
 wrangler queues create entity-events-test
 wrangler queues create entity-events-dlq-test
-
-# Production
 wrangler queues create entity-events
 wrangler queues create entity-events-dlq
+
+# Phase 3 outbound webhooks (new)
+wrangler queues create entity-webhooks-dev
+wrangler queues create entity-webhooks-dlq-dev
+wrangler queues create entity-webhooks-test
+wrangler queues create entity-webhooks-dlq-test
+wrangler queues create entity-webhooks
+wrangler queues create entity-webhooks-dlq
 ```
 
-Subscriber destinations (existing — do not recreate): `audit-events*`, `analytics-events*`, `search-index*`.
+Existing subscriber destinations (do not recreate): `audit-events*`, `analytics-events*`, `search-index*`.
 
 ## Ack policy
 
 Ack only when every matching `Queue.send` succeeds. On failure, `message.retry()` → after `max_retries`, DLQ `entity-events-dlq*`. Hub retries re-fan out to all matches; consumers must be idempotent on `message.id` / `evt_*`.
 
-## Phase 2 cutover (audit / analytics / search)
+## Phase 3 (webhooks)
 
-Producers (`app-api`, `external-api`, `mcp-server`, `integration-webhook-worker`) bind **only** `ENTITY_EVENTS`. Legacy `AUDIT_EVENTS` / `ANALYTICS_EVENTS` / `SEARCH_EVENTS` producer bindings are removed. This worker’s `SUB_*` producers are the sole writers into those queues.
+Registry row `{ id: 'webhooks', queueBinding: 'SUB_WEBHOOKS' }` → `entity-webhooks*` → `integration-webhook-worker` queue consumer → `dispatchWebhookDeliveries`. Publisher no longer runs outbound webhooks inline.
 
-**Deploy order (required):**
+**Deploy order:**
 
-1. Create hub queues + DLQs (above).
-2. Deploy `entity-events-worker` (test, then production).
-3. Deploy producer workers with `ENTITY_EVENTS` bindings.
+1. Create `entity-webhooks*` + DLQs (above).
+2. Deploy `entity-events-worker` (with `SUB_WEBHOOKS` producer).
+3. Deploy `integration-webhook-worker` (with `entity-webhooks*` consumer).
 
-If producers deploy before the hub consumer is live, hub messages backlog until the worker is up (safe). If hub queues are missing, producer `Queue.send` fails and audit/analytics/search go dark until queues exist.
+If the hub gains `SUB_WEBHOOKS` before the consumer is live, messages backlog on `entity-webhooks*` until the consumer deploys (safe). If queues are missing, hub fan-out fails and the hub message retries/DLQs.
