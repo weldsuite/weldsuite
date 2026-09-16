@@ -4,7 +4,8 @@
  * Phase 1–2: audit / analytics / search-index.
  * Phase 3: webhooks.
  * Phase 4: WeldConnect.
- * Later: WeldAgent, realtime.
+ * Phase 5: WeldAgent.
+ * Phase 6: realtime.
  *
  * Topic patterns (v1):
  *   - `*`                  — all events
@@ -90,8 +91,10 @@ export const ENTITY_EVENT_SUBSCRIBERS = defineEntityEventSubscribers([
   { id: 'webhooks', topics: ['*'], queueBinding: 'SUB_WEBHOOKS' },
   // Phase 4: WeldConnect entity_event triggers
   { id: 'weldconnect', topics: ['*'], queueBinding: 'SUB_WELDCONNECT' },
-  // Phase 5+: weldagent / realtime — registry rows land with their queues later
-  // so the hub never sends to missing bindings in production.
+  // Phase 5: WeldAgent eventSubscriptions dispatch
+  { id: 'weldagent', topics: ['*'], queueBinding: 'SUB_WELDAGENT' },
+  // Phase 6: WorkspaceHub live UI via entity-realtime*
+  { id: 'realtime', topics: ['*'], queueBinding: 'SUB_REALTIME' },
 ] as const);
 
 /**

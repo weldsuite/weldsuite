@@ -8,13 +8,15 @@ function mockQueue() {
 }
 
 describe('publishEntityEventRaw Phase 2 cutover', () => {
-  it('EntityEventPublisherEnv only declares ENTITY_EVENTS (+ realtime/workflow)', () => {
+  it('EntityEventPublisherEnv only declares ENTITY_EVENTS', () => {
     const env: import('./publisher').EntityEventPublisherEnv = {
       ENTITY_EVENTS: mockQueue() as unknown as Queue,
     };
     expect('AUDIT_EVENTS' in env).toBe(false);
     expect('ANALYTICS_EVENTS' in env).toBe(false);
     expect('SEARCH_EVENTS' in env).toBe(false);
+    expect('REALTIME' in env).toBe(false);
+    expect('EXECUTE_WORKFLOW' in env).toBe(false);
     expect('ENTITY_EVENTS' in env).toBe(true);
   });
 

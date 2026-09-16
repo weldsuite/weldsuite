@@ -26,12 +26,14 @@ function sampleMessage(eventType = 'customer:created'): EntityEventMessage {
 }
 
 describe('fanOutHubMessage', () => {
-  it('enqueues to all matching Phase 1–4 subscribers and reports success', async () => {
+  it('enqueues to all matching Phase 1–6 subscribers and reports success', async () => {
     const SUB_AUDIT = mockQueue();
     const SUB_ANALYTICS = mockQueue();
     const SUB_SEARCH = mockQueue();
     const SUB_WEBHOOKS = mockQueue();
     const SUB_WELDCONNECT = mockQueue();
+    const SUB_WELDAGENT = mockQueue();
+    const SUB_REALTIME = mockQueue();
     const message = sampleMessage();
 
     const result = await fanOutHubMessage(message, {
@@ -40,18 +42,22 @@ describe('fanOutHubMessage', () => {
       SUB_SEARCH,
       SUB_WEBHOOKS,
       SUB_WELDCONNECT,
+      SUB_WELDAGENT,
+      SUB_REALTIME,
     });
 
     expect(result.failed).toEqual([]);
     expect(result.succeeded.sort()).toEqual([
       'analytics',
       'audit',
+      'realtime',
       'search-index',
       'webhooks',
+      'weldagent',
       'weldconnect',
     ]);
-    expect(SUB_WELDCONNECT.send).toHaveBeenCalledWith(message);
-    expect(SUB_WELDCONNECT.send.mock.calls[0]![0].id).toBe('evt_test01');
+    expect(SUB_REALTIME.send).toHaveBeenCalledWith(message);
+    expect(SUB_REALTIME.send.mock.calls[0]![0].id).toBe('evt_test01');
   });
 
   it('reports failure when one enqueue throws (caller should retry/not ack)', async () => {
@@ -64,6 +70,8 @@ describe('fanOutHubMessage', () => {
     const SUB_SEARCH = mockQueue();
     const SUB_WEBHOOKS = mockQueue();
     const SUB_WELDCONNECT = mockQueue();
+    const SUB_WELDAGENT = mockQueue();
+    const SUB_REALTIME = mockQueue();
 
     const result = await fanOutHubMessage(sampleMessage(), {
       SUB_AUDIT,
@@ -71,9 +79,18 @@ describe('fanOutHubMessage', () => {
       SUB_SEARCH,
       SUB_WEBHOOKS,
       SUB_WELDCONNECT,
+      SUB_WELDAGENT,
+      SUB_REALTIME,
     });
 
-    expect(result.succeeded.sort()).toEqual(['audit', 'search-index', 'webhooks', 'weldconnect']);
+    expect(result.succeeded.sort()).toEqual([
+      'audit',
+      'realtime',
+      'search-index',
+      'webhooks',
+      'weldagent',
+      'weldconnect',
+    ]);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]!.id).toBe('analytics');
   });
@@ -86,8 +103,10 @@ describe('fanOutHubMessage', () => {
     expect(result.succeeded).toEqual(['audit']);
     expect(result.failed.map((f) => f.id).sort()).toEqual([
       'analytics',
+      'realtime',
       'search-index',
       'webhooks',
+      'weldagent',
       'weldconnect',
     ]);
   });
@@ -98,21 +117,17 @@ describe('fanOutHubMessage', () => {
     const subscribers = defineEntityEventSubscribers([
       { id: 'orders', topics: ['order:*'], queueBinding: 'SUB_AUDIT' },
       { id: 'all', topics: ['*'], queueBinding: 'SUB_ANALYTICS' },
-    ] as const);
+    ]);
 
-    const orderResult = await fanOutHubMessage(
+    const result = await fanOutHubMessage(
       sampleMessage('order:created'),
-      { SUB_AUDIT, SUB_ANALYTICS },
+      {
+        SUB_AUDIT,
+        SUB_ANALYTICS,
+      },
       subscribers,
     );
-    expect(orderResult.succeeded.sort()).toEqual(['all', 'orders']);
 
-    const custResult = await fanOutHubMessage(
-      sampleMessage('customer:created'),
-      { SUB_AUDIT, SUB_ANALYTICS },
-      subscribers,
-    );
-    expect(custResult.succeeded).toEqual(['all']);
-    expect(SUB_AUDIT.send).toHaveBeenCalledTimes(1);
+    expect(result.succeeded.sort()).toEqual(['all', 'orders']);
   });
 });

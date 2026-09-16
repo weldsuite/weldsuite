@@ -1,8 +1,9 @@
 /**
  * Optional WeldAgent runner hook.
  *
- * app-api registers an implementation on boot so `publishEntityEvent` can
- * dispatch matching workspace agents without a dedicated queue binding.
+ * Phase 5: app-api registers an implementation on boot; the entity-agents*
+ * queue consumer calls {@link runRegisteredWeldAgentDispatch} (no longer
+ * invoked from the publish path).
  */
 
 export interface WeldAgentEventPayload {
@@ -12,9 +13,11 @@ export interface WeldAgentEventPayload {
   action: string;
   entityId: string;
   data: Record<string, unknown>;
-  /** Opaque tenant DB handle from the publisher. */
+  /** Opaque tenant DB handle from the consumer. */
   db: unknown;
   env: unknown;
+  /** Entity-event id (`evt_…`) for hub-retry idempotency. */
+  eventId?: string;
 }
 
 export type WeldAgentEventRunner = (payload: WeldAgentEventPayload) => Promise<void>;

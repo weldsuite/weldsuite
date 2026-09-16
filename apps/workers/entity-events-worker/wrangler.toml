@@ -54,6 +54,20 @@ queue = "entity-webhooks-dev"
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows-dev"
 
+# Phase 5: WeldAgent eventSubscriptions → app-api
+#   wrangler queues create entity-agents-dev
+#   wrangler queues create entity-agents-dlq-dev
+[[queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents-dev"
+
+# Phase 6: realtime WorkspaceHub bridge → realtime-worker
+#   wrangler queues create entity-realtime-dev
+#   wrangler queues create entity-realtime-dlq-dev
+[[queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -88,6 +102,14 @@ queue = "entity-webhooks-test"
 [[env.test.queues.producers]]
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime-test"
 
 [env.test.observability]
 enabled = true
@@ -127,6 +149,14 @@ queue = "entity-webhooks"
 [[env.production.queues.producers]]
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows"
+
+[[env.production.queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents"
+
+[[env.production.queues.producers]]
+binding = "SUB_REALTIME"
+queue = "entity-realtime"
 
 [env.production.observability]
 enabled = true
