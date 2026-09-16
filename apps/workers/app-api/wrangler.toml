@@ -203,23 +203,15 @@ database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues for entity mutation events (mirrors api-worker producers).
+# Cloudflare Queues: ENTITY_EVENTS hub (Phase 2). Hub fans out to audit/analytics/search.
 [[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
-
-
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
 # Semantic search indexing. Unlike the three queues above, app-api is BOTH the
 # producer and the consumer — the indexer needs a tenant DB handle plus the AI
 # gateway, which this worker already has. Create the queue before deploying:
 #   wrangler queues create search-index-dev
-[[queues.producers]]
-binding = "SEARCH_EVENTS"
-queue = "search-index-dev"
 
 # max_batch_size is deliberately modest: each message can cost an embedding
 # call, and the consumer coalesces per record, so a large batch mostly buys
@@ -386,17 +378,8 @@ binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
 [[env.test.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-test"
-
-
-[[env.test.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-test"
-
-[[env.test.queues.producers]]
-binding = "SEARCH_EVENTS"
-queue = "search-index-test"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
 
 [[env.test.queues.consumers]]
 queue = "search-index-test"
@@ -537,19 +520,11 @@ binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
 [[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
-
-
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 # Semantic search indexing — produced and consumed by this worker.
 #   wrangler queues create search-index
-[[env.production.queues.producers]]
-binding = "SEARCH_EVENTS"
-queue = "search-index"
 
 #   wrangler queues create search-index-dlq
 [[env.production.queues.consumers]]

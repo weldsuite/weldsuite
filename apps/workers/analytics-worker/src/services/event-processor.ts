@@ -13,6 +13,8 @@ export interface AnalyticsRecord {
   entity_id: string;
   user_id: string;
   count: number;
+  /** Entity-event id — used for in-batch / pipeline lineage (Phase 2). */
+  event_id?: string;
   status?: string;
   priority?: string;
   channel?: string;
@@ -305,6 +307,7 @@ export function transformEvent(event: EntityEventMessage): AnalyticsRecord {
     entity_id: String(event.entityId),
     user_id: event.metadata.userId,
     count: 1,
+    event_id: event.id,
   };
 
   // Auto-extract common fields from data even without config

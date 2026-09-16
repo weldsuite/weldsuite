@@ -71,16 +71,11 @@ namespace_id = "13"
   limit = 5000
   period = 60
 
-# Entity-event sinks (dev). Fed by publishEntityEvent so public-API mutations
-# reach the same audit / workflow / analytics / realtime systems as app-api.
+# Entity-event hub (Phase 2). Fed by publishEntityEvent; hub fans out to
+# audit / analytics / search. Realtime stays a direct service binding.
 [[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
-
-
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
 [[services]]
 binding = "REALTIME"
@@ -109,13 +104,8 @@ binding = "API_CACHE"
 id = "6ffe3c8ea4e041398d84f9f670e93f88"
 
 [[env.test.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-test"
-
-
-[[env.test.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-test"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -218,13 +208,8 @@ id = "f27cfb0a77a24936911ebd762adf3410"
 
 # Entity-event sinks (production)
 [[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
-
-
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 [[env.production.services]]
 binding = "REALTIME"

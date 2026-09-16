@@ -3,9 +3,13 @@
  *
  * Called by the event processor to persist audit logs for every entity mutation.
  * Failures are caught and logged so they never block event forwarding.
+ *
+ * Idempotency (Phase 2): skips insert when `metadata.eventId` already matches
+ * `event.id` (hub retries re-fan out the same message). No unique index yet —
+ * select-before-insert only; a DB unique constraint is a follow-up migration.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema } from '../db';
 import { generateId } from '../lib/id';
 import type { EntityEventMessage } from '../lib/entity-events';
@@ -173,12 +177,25 @@ function transformChanges(
 /**
  * Write an audit log entry from an entity event message.
  * Wrapped in try/catch so failures never block event forwarding.
+ *
+ * @returns `'written'` | `'duplicate'` | `'error'`
  */
 export async function writeAuditLogFromEvent(
   db: Database,
   event: EntityEventMessage,
-): Promise<void> {
+): Promise<'written' | 'duplicate' | 'error'> {
   try {
+    // Phase 2 idempotency: hub (and queue) retries reuse the same event.id.
+    const [existing] = await db
+      .select({ id: schema.auditLogs.id })
+      .from(schema.auditLogs)
+      .where(sql`${schema.auditLogs.metadata}->>'eventId' = ${event.id}`)
+      .limit(1);
+    if (existing) {
+      console.log(`[AuditLogWriter] Skipping duplicate event ${event.id}`);
+      return 'duplicate';
+    }
+
     const data = event.data as Record<string, unknown>;
     const entityName = getEntityDisplayName(event.entityType, data);
     const displayType = stripModulePrefix(event.entityType);
@@ -212,7 +229,9 @@ export async function writeAuditLogFromEvent(
         },
       },
     });
+    return 'written';
   } catch (err) {
     console.error('[AuditLogWriter] Failed to write audit log:', err);
+    return 'error';
   }
 }
