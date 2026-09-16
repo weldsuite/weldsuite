@@ -26,11 +26,12 @@ function sampleMessage(eventType = 'customer:created'): EntityEventMessage {
 }
 
 describe('fanOutHubMessage', () => {
-  it('enqueues to all matching Phase 1–3 subscribers and reports success', async () => {
+  it('enqueues to all matching Phase 1–4 subscribers and reports success', async () => {
     const SUB_AUDIT = mockQueue();
     const SUB_ANALYTICS = mockQueue();
     const SUB_SEARCH = mockQueue();
     const SUB_WEBHOOKS = mockQueue();
+    const SUB_WELDCONNECT = mockQueue();
     const message = sampleMessage();
 
     const result = await fanOutHubMessage(message, {
@@ -38,16 +39,19 @@ describe('fanOutHubMessage', () => {
       SUB_ANALYTICS,
       SUB_SEARCH,
       SUB_WEBHOOKS,
+      SUB_WELDCONNECT,
     });
 
     expect(result.failed).toEqual([]);
-    expect(result.succeeded.sort()).toEqual(['analytics', 'audit', 'search-index', 'webhooks']);
-    expect(SUB_AUDIT.send).toHaveBeenCalledWith(message);
-    expect(SUB_ANALYTICS.send).toHaveBeenCalledWith(message);
-    expect(SUB_SEARCH.send).toHaveBeenCalledWith(message);
-    expect(SUB_WEBHOOKS.send).toHaveBeenCalledWith(message);
-    // Same id preserved
-    expect(SUB_WEBHOOKS.send.mock.calls[0]![0].id).toBe('evt_test01');
+    expect(result.succeeded.sort()).toEqual([
+      'analytics',
+      'audit',
+      'search-index',
+      'webhooks',
+      'weldconnect',
+    ]);
+    expect(SUB_WELDCONNECT.send).toHaveBeenCalledWith(message);
+    expect(SUB_WELDCONNECT.send.mock.calls[0]![0].id).toBe('evt_test01');
   });
 
   it('reports failure when one enqueue throws (caller should retry/not ack)', async () => {
@@ -59,22 +63,23 @@ describe('fanOutHubMessage', () => {
     };
     const SUB_SEARCH = mockQueue();
     const SUB_WEBHOOKS = mockQueue();
+    const SUB_WELDCONNECT = mockQueue();
 
     const result = await fanOutHubMessage(sampleMessage(), {
       SUB_AUDIT,
       SUB_ANALYTICS,
       SUB_SEARCH,
       SUB_WEBHOOKS,
+      SUB_WELDCONNECT,
     });
 
-    expect(result.succeeded.sort()).toEqual(['audit', 'search-index', 'webhooks']);
+    expect(result.succeeded.sort()).toEqual(['audit', 'search-index', 'webhooks', 'weldconnect']);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]!.id).toBe('analytics');
   });
 
   it('fails a subscriber when its queue binding is missing', async () => {
     const SUB_AUDIT = mockQueue();
-    // SUB_ANALYTICS + SUB_SEARCH + SUB_WEBHOOKS intentionally omitted
 
     const result = await fanOutHubMessage(sampleMessage(), { SUB_AUDIT });
 
@@ -83,6 +88,7 @@ describe('fanOutHubMessage', () => {
       'analytics',
       'search-index',
       'webhooks',
+      'weldconnect',
     ]);
   });
 

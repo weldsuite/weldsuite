@@ -37,12 +37,13 @@ export {
   type EntityEventSubscriber,
 } from './subscribers';
 
-// Workflow dispatch (exported for advanced use; the publisher already wires it in)
+// Workflow dispatch (entity_event + integration_event matchers)
 export {
   matchAndDispatchWorkflowTriggers,
   matchAndDispatchIntegrationTriggers,
   integrationTriggerMatches,
   evalFilters,
+  workflowInstanceIdForEvent,
   type MatchAndDispatchInput,
   type MatchAndDispatchIntegrationInput,
   type WorkflowDispatchEnv,
