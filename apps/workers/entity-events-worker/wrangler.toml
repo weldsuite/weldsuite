@@ -1,0 +1,133 @@
+# WeldSuite Entity Events Hub Worker
+# Orchestrator-only: consumes ENTITY_EVENTS and enqueues to matching subscriber queues.
+# No business logic (no DB writes, no HTTP, no Workflow.create).
+
+name = "weldsuite-entity-events"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ LOCAL DEVELOPMENT ============
+# Create queues before local/dev use:
+#   wrangler queues create entity-events-dev
+#   wrangler queues create entity-events-dlq-dev
+
+[vars]
+ENVIRONMENT = "development"
+
+# Hub consumer
+[[queues.consumers]]
+queue = "entity-events-dev"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "entity-events-dlq-dev"
+
+# Phase 1 subscriber producers → existing per-concern queues
+[[queues.producers]]
+binding = "SUB_AUDIT"
+queue = "audit-events-dev"
+
+[[queues.producers]]
+binding = "SUB_ANALYTICS"
+queue = "analytics-events-dev"
+
+[[queues.producers]]
+binding = "SUB_SEARCH"
+queue = "search-index-dev"
+
+# Phase 3: outbound customer webhooks → integration-webhook-worker
+#   wrangler queues create entity-webhooks-dev
+#   wrangler queues create entity-webhooks-dlq-dev
+[[queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks-dev"
+
+# Phase 4: WeldConnect entity_event triggers → workflow-worker
+#   wrangler queues create entity-workflows-dev
+#   wrangler queues create entity-workflows-dlq-dev
+[[queues.producers]]
+binding = "SUB_WELDCONNECT"
+queue = "entity-workflows-dev"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-entity-events-test"
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.queues.consumers]]
+queue = "entity-events-test"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "entity-events-dlq-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_AUDIT"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_ANALYTICS"
+queue = "analytics-events-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_SEARCH"
+queue = "search-index-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_WELDCONNECT"
+queue = "entity-workflows-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-entity-events"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.queues.consumers]]
+queue = "entity-events"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "entity-events-dlq"
+
+[[env.production.queues.producers]]
+binding = "SUB_AUDIT"
+queue = "audit-events"
+
+[[env.production.queues.producers]]
+binding = "SUB_ANALYTICS"
+queue = "analytics-events"
+
+[[env.production.queues.producers]]
+binding = "SUB_SEARCH"
+queue = "search-index"
+
+[[env.production.queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks"
+
+[[env.production.queues.producers]]
+binding = "SUB_WELDCONNECT"
+queue = "entity-workflows"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

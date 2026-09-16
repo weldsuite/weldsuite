@@ -1,5 +1,5 @@
 /**
- * Tests for the SEARCH_EVENTS consumer — batch grouping and message disposition.
+ * Tests for the search-index consumer — batch grouping and message disposition.
  *
  * Coalescing is the consumer's whole reason for existing: an edit burst on one
  * record produces a stream of events, and re-embedding once per event would

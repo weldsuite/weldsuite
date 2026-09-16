@@ -26,12 +26,24 @@ export {
   type EntityEventPublisherVariables,
 } from './publisher';
 
-// Workflow dispatch (exported for advanced use; the publisher already wires it in)
+// Hub subscriber registry (Phase 1+)
+export {
+  defineEntityEventSubscribers,
+  topicMatches,
+  matchEntityEventSubscribers,
+  ENTITY_EVENT_SUBSCRIBERS,
+  type EntityEventTopicPattern,
+  type EntityEventSubscriberQueueBinding,
+  type EntityEventSubscriber,
+} from './subscribers';
+
+// Workflow dispatch (entity_event + integration_event matchers)
 export {
   matchAndDispatchWorkflowTriggers,
   matchAndDispatchIntegrationTriggers,
   integrationTriggerMatches,
   evalFilters,
+  workflowInstanceIdForEvent,
   type MatchAndDispatchInput,
   type MatchAndDispatchIntegrationInput,
   type WorkflowDispatchEnv,
@@ -86,6 +98,7 @@ export {
 export {
   deliverWebhookEvent,
   dispatchWebhookDeliveries,
+  hasExistingWebhookDelivery,
   retryFailedWebhookDeliveries,
   signWebhookPayload,
   type WebhookRow,

@@ -1,10 +1,11 @@
 /**
- * SEARCH_EVENTS queue consumer — keeps the semantic index fresh.
+ * search-index queue consumer — keeps the semantic index fresh.
  *
- * Every entity mutation fans out to this queue via `publishEntityEvent`
- * (sink 4 in `@weldsuite/entity-events`). Messages are grouped by workspace so
- * one tenant DB connection serves a whole batch, then coalesced per record: an
- * edit burst on one ticket produces many events but exactly one re-index.
+ * Phase 2: producers publish once to ENTITY_EVENTS; entity-events-worker
+ * enqueues onto `search-index*`. This worker still *consumes* that queue.
+ * Messages are grouped by workspace so one tenant DB connection serves a whole
+ * batch, then coalesced per record: an edit burst on one ticket produces many
+ * events but exactly one re-index.
  *
  * The consumer never trusts the event payload. It re-reads the record through
  * the loader registry, which means a delete, a soft-delete and a move into a

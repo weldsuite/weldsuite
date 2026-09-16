@@ -60,6 +60,7 @@ import {
 } from '@/hooks/use-phone-numbers';
 import { usePortingOrders, type PortingOrderStatus } from '@/hooks/use-porting';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
+import { PendingNumberDocuments } from './pending-number-documents';
 
 interface PhoneNumberSettingsClientProps {
   phoneNumbers: VoipPhoneNumber[];
@@ -244,6 +245,11 @@ export function PhoneNumberSettingsClient({
                 </Tooltip>
               </TooltipProvider>
             )}
+            {phone.status === 'pending' && (
+              <Badge variant="outline" className="text-xs">
+                {tp.pendingDocuments}
+              </Badge>
+            )}
           </div>
         );
       },
@@ -387,6 +393,15 @@ export function PhoneNumberSettingsClient({
       </div>
 
       <PendingPortsSection />
+
+      <PendingNumberDocuments
+        phoneNumbers={phoneNumbers}
+        onActivated={(id) => {
+          setPhoneNumbers((prev) =>
+            prev.map((p) => (p.id === id ? { ...p, status: 'active' } : p)),
+          );
+        }}
+      />
 
       <div className="space-y-3">
         {/* Filters */}

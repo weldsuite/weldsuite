@@ -79,6 +79,17 @@ name = "execute-workflow-dev"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 
+# Phase 4: hub SUB_WELDCONNECT → entity-workflows* (entity_event matching)
+#   wrangler queues create entity-workflows-dev
+#   wrangler queues create entity-workflows-dlq-dev
+[[queues.consumers]]
+queue = "entity-workflows-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-workflows-dlq-dev"
+
 [triggers]
 # Workflow schedule sweep — matches enabled workflow_schedules against their
 # cron expression + timezone and dispatches due ones every minute (see
@@ -112,6 +123,14 @@ service = "weldsuite-realtime-test"
 name = "execute-workflow"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
+
+[[env.test.queues.consumers]]
+queue = "entity-workflows-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-workflows-dlq-test"
 
 [env.test.triggers]
 crons = ["* * * * *"]
@@ -147,6 +166,14 @@ service = "weldsuite-realtime-production"
 name = "execute-workflow"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
+
+[[env.production.queues.consumers]]
+queue = "entity-workflows"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-workflows-dlq"
 
 [env.production.triggers]
 crons = ["* * * * *"]

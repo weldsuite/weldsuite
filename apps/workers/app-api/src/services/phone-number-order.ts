@@ -1,6 +1,9 @@
 /**
  * Order a Telnyx number and persist it on the tenant — only after Stripe
  * has already taken payment (domain-registration pattern).
+ *
+ * Regulatory documents are collected *after* this order: Telnyx bills the
+ * number when the order is placed, then asks for docs on a pending order.
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
@@ -8,6 +11,10 @@ import { getTenantDbForWorkspace, schema } from '../db';
 import { generateId } from '../lib/id';
 import { upsertPhoneNumberRegistry } from '../lib/phone-registry';
 import { isTelnyxConfigured, telnyxRequest, type TelnyxEnv } from '../lib/telnyx';
+import {
+  telnyxOrderNeedsDocuments,
+  type TelnyxNumberOrder,
+} from './phone-number-requirements';
 
 export interface FulfillPaidPhoneNumberInput {
   clerkOrgId: string;
@@ -23,18 +30,7 @@ export interface FulfillPaidPhoneNumberInput {
 export interface FulfillPaidPhoneNumberResult {
   id: string;
   alreadyFulfilled: boolean;
-}
-
-interface TelnyxNumberOrderResponse {
-  data?: {
-    id?: string;
-    status?: string;
-    phone_numbers?: Array<{
-      id?: string;
-      phone_number?: string;
-      status?: string;
-    }>;
-  };
+  status: 'active' | 'pending';
 }
 
 export async function fulfillPaidPhoneNumber(
@@ -55,36 +51,43 @@ export async function fulfillPaidPhoneNumber(
     .where(and(eq(voipPhoneNumbers.phoneNumber, phoneNumber), isNull(voipPhoneNumbers.deletedAt)))
     .limit(1);
 
-  if (existing?.status === 'active' && existing.providerPhoneNumberId) {
+  if (existing?.providerPhoneNumberId) {
+    const status = existing.status === 'active' ? 'active' as const : 'pending' as const;
     try {
       await upsertPhoneNumberRegistry(env, {
         phoneNumber,
         clerkOrgId: input.clerkOrgId,
         voipPhoneNumberId: existing.id,
-        isActive: true,
+        isActive: status === 'active',
       });
     } catch (regErr) {
-      console.error('[PhoneOrder] Registry upsert on already-active number failed:', regErr);
+      console.error('[PhoneOrder] Registry upsert on existing number failed:', regErr);
     }
-    return { id: existing.id, alreadyFulfilled: true };
+    return { id: existing.id, alreadyFulfilled: true, status };
   }
 
   const voipId = input.voipPhoneNumberId || existing?.id || generateId('vpn');
   const connectionId = env.TELNYX_CONNECTION_ID;
 
+  const phoneEntry: Record<string, unknown> = { phone_number: phoneNumber };
+  if (input.addressId) phoneEntry.address_id = input.addressId;
+
   const orderBody: Record<string, unknown> = {
-    phone_numbers: [{ phone_number: phoneNumber }],
+    phone_numbers: [phoneEntry],
     customer_reference: voipId,
   };
   if (connectionId) orderBody.connection_id = connectionId;
 
-  const order = await telnyxRequest<TelnyxNumberOrderResponse>(env, '/number_orders', {
+  const order = await telnyxRequest<{ data?: TelnyxNumberOrder }>(env, '/number_orders', {
     method: 'POST',
     body: JSON.stringify(orderBody),
   });
 
   const ordered = order.data?.phone_numbers?.find((n) => n.phone_number === phoneNumber)
     ?? order.data?.phone_numbers?.[0];
+
+  const needsDocs = telnyxOrderNeedsDocuments(order.data);
+  const status = needsDocs ? 'pending' as const : 'active' as const;
 
   const now = new Date();
   const row = {
@@ -93,7 +96,7 @@ export async function fulfillPaidPhoneNumber(
     formattedNumber: input.friendlyName || existing?.formattedNumber || phoneNumber,
     countryCode: input.countryCode.toUpperCase(),
     numberType: input.numberType,
-    status: 'active' as const,
+    status,
     providerPhoneNumberId: ordered?.id ?? order.data?.id ?? null,
     providerConnectionId: connectionId ?? null,
     displayName: input.displayName ?? existing?.displayName ?? null,
@@ -119,11 +122,11 @@ export async function fulfillPaidPhoneNumber(
       phoneNumber,
       clerkOrgId: input.clerkOrgId,
       voipPhoneNumberId: existing?.id ?? voipId,
-      isActive: true,
+      isActive: status === 'active',
     });
   } catch (regErr) {
     console.error('[PhoneOrder] Failed to register number for inbound routing:', regErr);
   }
 
-  return { id: existing?.id ?? voipId, alreadyFulfilled: false };
+  return { id: existing?.id ?? voipId, alreadyFulfilled: false, status };
 }

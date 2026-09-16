@@ -1,6 +1,9 @@
 /**
- * Resolve the customer monthly price for a phone number: Telnyx wholesale
- * plus admin markup (WeldHost-style), falling back to the catalog row.
+ * Resolve the customer monthly + first-month setup price for a phone number:
+ * Telnyx wholesale plus admin markup (WeldHost-style), falling back to the catalog row.
+ *
+ * Telnyx bills an upfront/base cost and a monthly cost. The first invoice is
+ * both; later invoices are monthly only.
  */
 
 import { eq } from 'drizzle-orm';
@@ -17,6 +20,7 @@ import { telnyxRequest, type TelnyxEnv } from '../lib/telnyx';
 export interface ResolvedPhonePrice {
   wholesaleMajor: string;
   monthlyPrice: string;
+  setupPrice: string;
   currency: string;
   stripePriceId?: string;
   stripeProductId?: string;
@@ -28,11 +32,29 @@ function hasMarkup(markup: TelephonyMarkup | undefined): boolean {
   return markup.markupAmount != null || markup.markupPercent != null;
 }
 
+export function majorToCents(major: string | number | null | undefined): number {
+  const n = typeof major === 'number' ? major : Number.parseFloat(String(major ?? ''));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
+}
+
+/** Prefer a positive catalog wholesale amount; otherwise use the live Telnyx figure. */
+export function pickWholesaleMajor(
+  catalog: string | null | undefined,
+  live: string | null | undefined,
+): string | null {
+  const catalogN = Number.parseFloat(String(catalog ?? ''));
+  if (Number.isFinite(catalogN) && catalogN > 0) return String(catalog);
+  const liveN = Number.parseFloat(String(live ?? ''));
+  if (Number.isFinite(liveN) && liveN > 0) return String(live);
+  return null;
+}
+
 export async function lookupTelnyxWholesale(
   env: TelnyxEnv,
   phoneNumber: string,
   countryCode: string,
-): Promise<{ monthly: string; currency: string } | null> {
+): Promise<{ monthly: string; upfront: string; currency: string } | null> {
   const params = new URLSearchParams();
   params.set('filter[country_code]', countryCode.toUpperCase());
   params.set('filter[limit]', '20');
@@ -48,11 +70,12 @@ export async function lookupTelnyxWholesale(
     .map((row) => mapTelnyxAvailableNumber(row as never, countryCode))
     .filter((row): row is NonNullable<typeof row> => row !== null);
   const hit = mapped.find((n) => n.phone_number === phoneNumber) ?? mapped[0];
-  const monthly = hit?.cost_information?.monthly_cost;
-  if (!monthly) return null;
-  const n = Number.parseFloat(monthly);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return { monthly, currency: hit.cost_information?.currency || 'USD' };
+  if (!hit?.cost_information) return null;
+  return {
+    monthly: hit.cost_information.monthly_cost || '0',
+    upfront: hit.cost_information.upfront_cost || '0',
+    currency: hit.cost_information.currency || 'USD',
+  };
 }
 
 export async function resolveCustomerPhonePrice(
@@ -76,26 +99,36 @@ export async function resolveCustomerPhonePrice(
   };
 
   let wholesaleMajor = catalog?.monthlyPrice != null ? String(catalog.monthlyPrice) : null;
+  let wholesaleSetup = catalog?.setupFee != null ? String(catalog.setupFee) : null;
   let currency = catalog?.currency || 'USD';
 
-  if (!wholesaleMajor || Number.parseFloat(wholesaleMajor) <= 0) {
+  const needLiveMonthly = !wholesaleMajor || Number.parseFloat(wholesaleMajor) <= 0;
+  const needLiveSetup = !wholesaleSetup || Number.parseFloat(wholesaleSetup) <= 0;
+  if (needLiveMonthly || needLiveSetup) {
     const live = await lookupTelnyxWholesale(env, args.phoneNumber, country);
     if (live) {
-      wholesaleMajor = live.monthly;
-      currency = live.currency;
+      wholesaleMajor = pickWholesaleMajor(wholesaleMajor, live.monthly);
+      wholesaleSetup = pickWholesaleMajor(wholesaleSetup, live.upfront);
+      currency = live.currency || currency;
     }
   }
 
   if (!wholesaleMajor) return null;
   const monthlyPrice = applyTelephonyMarkupMajor(wholesaleMajor, markup) ?? wholesaleMajor;
-  const cents = Math.round(Number.parseFloat(monthlyPrice) * 100);
-  if (!Number.isFinite(cents) || cents < 1) return null;
+  const cents = majorToCents(monthlyPrice);
+  if (cents < 1) return null;
+
+  const setupWholesale = pickWholesaleMajor(wholesaleSetup, null);
+  const setupPrice = setupWholesale
+    ? (applyTelephonyMarkupMajor(setupWholesale, markup) ?? setupWholesale)
+    : '0.00';
 
   const useCatalogStripe = Boolean(catalog?.stripePriceId) && !hasMarkup(markup);
 
   return {
     wholesaleMajor,
     monthlyPrice,
+    setupPrice,
     currency,
     stripePriceId: useCatalogStripe ? catalog?.stripePriceId ?? undefined : undefined,
     stripeProductId: catalog?.stripeProductId ?? undefined,

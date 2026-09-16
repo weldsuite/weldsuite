@@ -43,12 +43,16 @@ import {
   normalizeNumberType,
   resolveTelephonyMarkup,
 } from '../../lib/telnyx-available-numbers';
-import { resolveCustomerPhonePrice } from '../../services/phone-number-pricing';
-import { fulfillPaidPhoneNumber } from '../../services/phone-number-order';
+import { majorToCents, resolveCustomerPhonePrice } from '../../services/phone-number-pricing';
+import {
+  listOrderingRequirements,
+  listPendingOrderRequirements,
+  submitNumberOrderRequirements,
+  uploadTelnyxDocument,
+} from '../../services/phone-number-requirements';
 import {
   billingErrorMessage,
   readJsonObject,
-  shouldStartPhoneCheckout,
 } from '../../lib/phone-billing-result';
 
 const READ_TELEPHONY = 'telephony:read';
@@ -336,12 +340,11 @@ app.post('/phone-numbers/search', requirePermission(MANAGE_TELEPHONY), zValidato
 });
 
 /**
- * POST /telephony/phone-numbers/provision — Provision (order) a phone number
+ * POST /telephony/phone-numbers/provision — Start Stripe Checkout for a number.
  *
- * Success is `{ data: { success: true, provisioningStatus: 'pending' } }`.
- * When the workspace has no payment method the response is
- * `{ data: { requiresCheckout: true, checkoutUrl } }` (HTTP 200) — the actual
- * number purchase happens post-checkout via the billing worker.
+ * Telnyx is ordered only after the billing webhook sees payment_status=paid
+ * (same as WeldHost domain registration). First invoice = monthly + Telnyx
+ * setup/upfront; later invoices are monthly only.
  */
 app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValidator('json', provisionSchema), async (c) => {
   if (!isTelnyxConfigured(c.env)) {
@@ -351,7 +354,6 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
   const data = c.req.valid('json');
 
   try {
-    // Check address requirement
     if (COUNTRIES_REQUIRING_ADDRESS.includes(data.countryCode.toUpperCase()) && !data.addressId) {
       return c.json({
         error: {
@@ -362,9 +364,6 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       }, 400);
     }
 
-    // Customer price = Telnyx/catalog wholesale + admin markup. Stripe catalog
-    // rows are optional — missing NL/US prices used to 400 here before we
-    // charged or ordered anything.
     const priced = await resolveCustomerPhonePrice(c.env, {
       countryCode: data.countryCode,
       numberType: data.numberType,
@@ -374,7 +373,8 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       return error.badRequest(c, 'No pricing configured for this phone number type');
     }
 
-    const unitAmountCents = Math.round(Number.parseFloat(priced.monthlyPrice) * 100);
+    const unitAmountCents = majorToCents(priced.monthlyPrice);
+    const setupAmountCents = majorToCents(priced.setupPrice);
     const clerkOrgId = c.get('workspaceId');
     const origin = c.req.header('origin') ?? 'https://app.weldsuite.org';
 
@@ -383,6 +383,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
     const billingPayload = {
       stripePriceId: priced.stripePriceId,
       unitAmountCents,
+      setupAmountCents: setupAmountCents > 0 ? setupAmountCents : undefined,
       currency: priced.currency,
       countryCode: data.countryCode,
       numberType: data.numberType,
@@ -395,7 +396,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       cancelUrl: `${origin}/settings/apps/phone-numbers?billing=canceled`,
     };
 
-    const billingResp = await fetch(`${billingUrl}/api/billing/phone/add-number`, {
+    const checkoutResp = await fetch(`${billingUrl}/api/billing/phone/checkout`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -403,60 +404,19 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       },
       body: JSON.stringify(billingPayload),
     });
-
-    const billingResult = await readJsonObject(billingResp);
-
-    if (shouldStartPhoneCheckout(billingResult)) {
-      const checkoutResp = await fetch(`${billingUrl}/api/billing/phone/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        },
-        body: JSON.stringify(billingPayload),
-      });
-      const checkoutResult = await readJsonObject(checkoutResp);
-      const checkoutUrl = typeof checkoutResult.url === 'string' ? checkoutResult.url : '';
-      if (checkoutUrl) {
-        return success(c, { requiresCheckout: true, checkoutUrl });
-      }
-      console.error('[Telephony] Phone billing did not confirm payment', {
-        addNumberStatus: billingResp.status,
-        addNumber: billingResult,
-        checkoutStatus: checkoutResp.status,
-        checkout: checkoutResult,
-      });
-      return error.badRequest(
-        c,
-        billingErrorMessage(
-          checkoutResult,
-          billingErrorMessage(billingResult, 'Payment was not confirmed. Please try again.'),
-        ),
-      );
+    const checkoutResult = await readJsonObject(checkoutResp);
+    const checkoutUrl = typeof checkoutResult.url === 'string' ? checkoutResult.url : '';
+    if (checkoutUrl) {
+      return success(c, { requiresCheckout: true, checkoutUrl });
     }
-
-    // Card-on-file: Stripe already charged. Order Telnyx only now (same
-    // "pay first, register after" rule as WeldHost domains).
-    const fulfilled = await fulfillPaidPhoneNumber(c.env, {
-      clerkOrgId,
-      phoneNumber: data.phoneNumber,
-      countryCode: data.countryCode,
-      numberType: data.numberType,
-      addressId: data.addressId,
-      displayName: data.displayName,
-      friendlyName: data.friendlyName,
+    console.error('[Telephony] Phone checkout failed', {
+      checkoutStatus: checkoutResp.status,
+      checkout: checkoutResult,
     });
-    if (!fulfilled.alreadyFulfilled) {
-      publishEntityEvent({
-        c,
-        entityType: 'voip_phone_number',
-        action: 'created',
-        entityId: fulfilled.id,
-        data: { id: fulfilled.id, phoneNumber: data.phoneNumber, status: 'active' },
-      });
-    }
-
-    return success(c, { success: true, provisioningStatus: 'pending' as const });
+    return error.badRequest(
+      c,
+      billingErrorMessage(checkoutResult, 'Payment was not confirmed. Please try again.'),
+    );
   } catch (err) {
     console.error('[Telephony] Failed to provision phone number:', err);
     const rawMsg = err instanceof Error ? err.message : '';
@@ -641,7 +601,7 @@ app.get('/bundles', requirePermission(READ_TELEPHONY), async (c) => {
 // ---------- Regulatory Requirements ----------
 
 /**
- * GET /telephony/requirements — List regulatory requirements for a country
+ * GET /telephony/requirements — List regulatory requirements for a country + type
  */
 app.get('/requirements', requirePermission(READ_TELEPHONY), async (c) => {
   if (!isTelnyxConfigured(c.env)) {
@@ -652,19 +612,149 @@ app.get('/requirements', requirePermission(READ_TELEPHONY), async (c) => {
   if (!countryCode) {
     return error.badRequest(c, 'countryCode query parameter is required');
   }
+  const numberType = c.req.query('numberType') || 'local';
 
   try {
-    const params = new URLSearchParams();
-    params.set('filter[country_code]', countryCode);
-
-    const resp = await telnyxRequest<{ data: any[] }>(
-      c.env,
-      `/phone_number_regulatory_requirements?${params.toString()}`,
-    );
-    return success(c, { requirements: resp.data || [] });
+    const requirements = await listOrderingRequirements(c.env, countryCode, numberType);
+    return success(c, { requirements });
   } catch (err) {
     console.error('[Telephony] Failed to list requirements:', err);
     return error.internal(c, 'Failed to list requirements');
+  }
+});
+
+const submitRequirementsSchema = z.object({
+  values: z.array(z.object({
+    requirementId: z.string().min(1),
+    fieldValue: z.string().min(1),
+  })).min(1),
+});
+
+/**
+ * GET /telephony/phone-numbers/:id/regulatory-requirements
+ * Live Telnyx docs/address still owed on a paid-but-pending order.
+ */
+app.get('/phone-numbers/:id/regulatory-requirements', requirePermission(READ_TELEPHONY), async (c) => {
+  if (!isTelnyxConfigured(c.env)) {
+    return success(c, { requirementsMet: true, requirements: [] });
+  }
+  const id = c.req.param('id');
+  try {
+    const db = c.get('tenantDb');
+    const { voipPhoneNumbers } = schema;
+    const [phone] = await db
+      .select()
+      .from(voipPhoneNumbers)
+      .where(and(eq(voipPhoneNumbers.id, id), isNull(voipPhoneNumbers.deletedAt)))
+      .limit(1);
+    if (!phone) return error.notFound(c, 'Phone number', id);
+
+    const pending = await listPendingOrderRequirements(c.env, {
+      customerReference: phone.id,
+      phoneNumber: phone.phoneNumber,
+      countryCode: phone.countryCode,
+      numberType: phone.numberType || 'local',
+    });
+    if (!pending) {
+      return success(c, { requirementsMet: phone.status === 'active', requirements: [] });
+    }
+    return success(c, pending);
+  } catch (err) {
+    console.error('[Telephony] Failed to list order requirements:', err);
+    return error.internal(c, 'Failed to list regulatory requirements');
+  }
+});
+
+/**
+ * POST /telephony/phone-numbers/:id/regulatory-requirements
+ * Attach documents/address after Stripe has already paid.
+ */
+app.post(
+  '/phone-numbers/:id/regulatory-requirements',
+  requirePermission(MANAGE_TELEPHONY),
+  zValidator('json', submitRequirementsSchema),
+  async (c) => {
+    if (!isTelnyxConfigured(c.env)) {
+      return error.badRequest(c, 'Phone service is not activated');
+    }
+    const id = c.req.param('id');
+    const data = c.req.valid('json');
+    try {
+      const db = c.get('tenantDb');
+      const clerkOrgId = c.get('workspaceId');
+      const { voipPhoneNumbers } = schema;
+      const [phone] = await db
+        .select()
+        .from(voipPhoneNumbers)
+        .where(and(eq(voipPhoneNumbers.id, id), isNull(voipPhoneNumbers.deletedAt)))
+        .limit(1);
+      if (!phone) return error.notFound(c, 'Phone number', id);
+
+      const pending = await listPendingOrderRequirements(c.env, {
+        customerReference: phone.id,
+        phoneNumber: phone.phoneNumber,
+        countryCode: phone.countryCode,
+        numberType: phone.numberType || 'local',
+      });
+      if (!pending) {
+        return error.badRequest(c, 'No Telnyx order found for this number');
+      }
+
+      const submitted = await submitNumberOrderRequirements(c.env, {
+        phoneNumberOrderId: pending.phoneNumberOrderId,
+        values: data.values,
+      });
+
+      if (submitted.requirementsMet && phone.status !== 'active') {
+        await db.update(voipPhoneNumbers).set({
+          status: 'active',
+          updatedAt: new Date(),
+        }).where(eq(voipPhoneNumbers.id, phone.id));
+        try {
+          await upsertPhoneNumberRegistry(c.env, {
+            phoneNumber: phone.phoneNumber,
+            clerkOrgId,
+            voipPhoneNumberId: phone.id,
+            isActive: true,
+          });
+        } catch (regErr) {
+          console.error('[Telephony] Registry activate after documents failed:', regErr);
+        }
+        publishEntityEvent({
+          c,
+          entityType: 'voip_phone_number',
+          action: 'updated',
+          entityId: phone.id,
+          data: { id: phone.id, phoneNumber: phone.phoneNumber, status: 'active' },
+        });
+      }
+
+      return success(c, { requirementsMet: submitted.requirementsMet });
+    } catch (err) {
+      console.error('[Telephony] Failed to submit order requirements:', err);
+      return error.internal(c, err instanceof Error ? err.message : 'Failed to submit documents');
+    }
+  },
+);
+
+/**
+ * POST /telephony/documents — Upload a file to Telnyx (used after payment).
+ */
+app.post('/documents', requirePermission(MANAGE_TELEPHONY), async (c) => {
+  if (!isTelnyxConfigured(c.env)) {
+    return error.badRequest(c, 'Phone service is not activated');
+  }
+  try {
+    const form = await c.req.formData();
+    const file = form.get('file') as unknown;
+    if (!(file instanceof File)) {
+      return error.badRequest(c, 'file is required');
+    }
+    const uploaded = await uploadTelnyxDocument(c.env, file);
+    return success(c, uploaded);
+  } catch (err) {
+    console.error('[Telephony] Failed to upload document:', err);
+    return error.internal(c, err instanceof Error ? err.message : 'Failed to upload document');
   }
 });
 
@@ -687,14 +777,17 @@ app.get('/pricing', requirePermission(READ_TELEPHONY), async (c) => {
 
     const catalog = rows.filter((r) => !isDefaultTelephonyPricing(r.countryCode, r.numberType));
     const pricing = catalog.map((r) => {
-      const customer = applyTelephonyMarkupMajor(String(r.monthlyPrice), {
+      const markup = {
         markupAmount: r.markupAmount,
         markupPercent: r.markupPercent != null ? String(r.markupPercent) : null,
-      });
+      };
+      const customer = applyTelephonyMarkupMajor(String(r.monthlyPrice), markup);
+      const setup = applyTelephonyMarkupMajor(String(r.setupFee ?? '0'), markup);
       return {
         countryCode: r.countryCode.toUpperCase(),
         numberType: normalizeNumberType(r.numberType),
         monthlyPrice: Number(customer ?? r.monthlyPrice),
+        setupFee: Number(setup ?? r.setupFee ?? 0),
         currency: r.currency,
         stripePriceId: r.stripePriceId ?? undefined,
       };

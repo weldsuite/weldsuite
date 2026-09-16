@@ -63,16 +63,8 @@ binding = "API_CACHE"
 id = "6ffe3c8ea4e041398d84f9f670e93f88"
 
 [[env.test.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-test"
-
-[[env.test.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-test"
-
-[[env.test.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-test"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -107,20 +99,11 @@ id = "f27cfb0a77a24936911ebd762adf3410"
 binding = "HYPERDRIVE_MASTER"
 id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
-# Entity-event sinks. Mutations made through MCP publish to the same queues as
-# every other surface so audit/workflow/analytics stay complete. Each binding is
-# optional at runtime — a missing one logs a warning and the others still fire.
+# Entity-event hub (Phase 2). Mutations publish once; entity-events-worker fans
+# out to audit / analytics / search. Optional at runtime if unbound.
 [[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
-
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
-
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 # R2 bucket for user-app bundles (shared with app-api's STORAGE binding).
 [[env.production.r2_buckets]]

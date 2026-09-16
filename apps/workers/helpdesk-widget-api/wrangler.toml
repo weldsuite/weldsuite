@@ -47,10 +47,7 @@ id = "748b8f38937f4807b3978cacb17e1880"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues for entity mutation events
-[[queues.producers]]
-binding = "ENTITY_EVENTS"
-queue = "entity-events-dev"
+# Cloudflare Queues — analytics only (orphan ENTITY_EVENTS producer removed).
 
 [[queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -82,9 +79,6 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
-[[env.test.queues.producers]]
-binding = "ENTITY_EVENTS"
-queue = "entity-events-test"
 
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -128,9 +122,6 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
 
-[[env.production.queues.producers]]
-binding = "ENTITY_EVENTS"
-queue = "entity-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

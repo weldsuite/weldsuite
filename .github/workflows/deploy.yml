@@ -218,6 +218,9 @@ jobs:
               - 'apps/workers/audit-log-worker/**'
               - 'packages/core/entity-events/**'
               - 'packages/core/realtime/**'
+            entity-events-worker:
+              - 'apps/workers/entity-events-worker/**'
+              - 'packages/core/entity-events/**'
             external-api:
               - 'apps/workers/external-api/**'
               - 'packages/clients/core-api-client/**'
@@ -303,6 +306,7 @@ jobs:
           W_APP_API: ${{ steps.filter.outputs.app-api }}
           W_BILLING: ${{ steps.filter.outputs.billing-worker }}
           W_AUDIT: ${{ steps.filter.outputs.audit-log-worker }}
+          W_ENTITY_EVENTS: ${{ steps.filter.outputs.entity-events-worker }}
           W_EXTERNAL: ${{ steps.filter.outputs.external-api }}
           W_WEBHOOK: ${{ steps.filter.outputs.integration-webhook-worker }}
           W_SYNC: ${{ steps.filter.outputs.integration-sync-worker }}
@@ -336,6 +340,7 @@ jobs:
               echo "app-api=true"
               echo "billing-worker=true"
               echo "audit-log-worker=true"
+              echo "entity-events-worker=true"
               echo "external-api=true"
               echo "integration-webhook-worker=true"
               echo "integration-sync-worker=true"
@@ -368,6 +373,7 @@ jobs:
             echo "app-api=$W_APP_API"
             echo "billing-worker=$W_BILLING"
             echo "audit-log-worker=$W_AUDIT"
+            echo "entity-events-worker=$W_ENTITY_EVENTS"
             echo "external-api=$W_EXTERNAL"
             echo "integration-webhook-worker=$W_WEBHOOK"
             echo "integration-sync-worker=$W_SYNC"
@@ -390,6 +396,7 @@ jobs:
           W_APP_API: ${{ steps.changes.outputs.app-api }}
           W_BILLING: ${{ steps.changes.outputs.billing-worker }}
           W_AUDIT: ${{ steps.changes.outputs.audit-log-worker }}
+          W_ENTITY_EVENTS: ${{ steps.changes.outputs.entity-events-worker }}
           W_EXTERNAL: ${{ steps.changes.outputs.external-api }}
           W_WEBHOOK: ${{ steps.changes.outputs.integration-webhook-worker }}
           W_SYNC: ${{ steps.changes.outputs.integration-sync-worker }}
@@ -405,10 +412,10 @@ jobs:
           W_HELPDESK_WORKFLOW: ${{ steps.changes.outputs.helpdesk-workflow-worker }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker"]'
+          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 16 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
+            echo "Deploying all 17 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
             exit 0
           fi
 
@@ -417,6 +424,7 @@ jobs:
           add app-api "$W_APP_API"
           add billing-worker "$W_BILLING"
           add audit-log-worker "$W_AUDIT"
+          add entity-events-worker "$W_ENTITY_EVENTS"
           add external-api "$W_EXTERNAL"
           add integration-webhook-worker "$W_WEBHOOK"
           add integration-sync-worker "$W_SYNC"

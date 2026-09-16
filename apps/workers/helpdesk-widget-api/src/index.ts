@@ -29,7 +29,6 @@ export interface Env {
   R2_PUBLIC_URL?: string;
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
-  ENTITY_EVENTS: Queue<import('./lib/entity-events').EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<import('./lib/entity-events').EntityEventMessage>;
   WIDGET_TOKEN_SECRET?: string;
   /** Shared with discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret. */
