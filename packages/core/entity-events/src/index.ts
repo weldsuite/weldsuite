@@ -26,6 +26,17 @@ export {
   type EntityEventPublisherVariables,
 } from './publisher';
 
+// Hub subscriber registry (Phase 1+)
+export {
+  defineEntityEventSubscribers,
+  topicMatches,
+  matchEntityEventSubscribers,
+  ENTITY_EVENT_SUBSCRIBERS,
+  type EntityEventTopicPattern,
+  type EntityEventSubscriberQueueBinding,
+  type EntityEventSubscriber,
+} from './subscribers';
+
 // Workflow dispatch (exported for advanced use; the publisher already wires it in)
 export {
   matchAndDispatchWorkflowTriggers,
