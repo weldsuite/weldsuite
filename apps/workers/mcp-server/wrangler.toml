@@ -66,9 +66,6 @@ id = "6ffe3c8ea4e041398d84f9f670e93f88"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-test"
 
-[[env.test.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-test"
 
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -114,9 +111,6 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
 
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

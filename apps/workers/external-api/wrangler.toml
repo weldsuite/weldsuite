@@ -77,9 +77,6 @@ namespace_id = "13"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
-[[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
 
 [[queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -115,9 +112,6 @@ id = "6ffe3c8ea4e041398d84f9f670e93f88"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-test"
 
-[[env.test.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-test"
 
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -227,9 +221,6 @@ id = "f27cfb0a77a24936911ebd762adf3410"
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
 
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"
