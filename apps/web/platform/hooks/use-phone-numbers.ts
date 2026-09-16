@@ -102,6 +102,7 @@ export function useNumberPricing() {
           countryCode: string;
           numberType: string;
           monthlyPrice: number;
+          setupFee?: number;
           currency: string;
           stripePriceId?: string;
         }>;
@@ -270,6 +271,73 @@ export function useCreateAddress() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: phoneNumberKeys.addresses() });
+    },
+  });
+}
+
+export type PhoneRequirementFieldType = 'textual' | 'address' | 'document' | 'action' | 'datetime';
+
+export interface PhoneOrderRequirement {
+  id: string;
+  name: string;
+  description: string;
+  fieldType: PhoneRequirementFieldType;
+  example?: string;
+  fieldValue?: string;
+  status?: string;
+}
+
+export function usePhoneOrderRequirements(phoneNumberId: string | null) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...phoneNumberKeys.all, 'order-requirements', phoneNumberId],
+    enabled: Boolean(phoneNumberId),
+    queryFn: async () => {
+      const client = await getClient();
+      const result = await client.get<Envelope<{
+        orderId?: string;
+        phoneNumberOrderId?: string;
+        requirementsMet: boolean;
+        requirements: PhoneOrderRequirement[];
+      }>>(`/telephony/phone-numbers/${phoneNumberId}/regulatory-requirements`);
+      return result.data;
+    },
+  });
+}
+
+export function useUploadTelephonyDocument() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const client = await getClient();
+      const form = new FormData();
+      form.append('file', file);
+      const result = await client.postForm<Envelope<{ id: string; filename: string }>>(
+        '/telephony/documents',
+        form,
+      );
+      return result.data;
+    },
+  });
+}
+
+export function useSubmitPhoneOrderRequirements() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      phoneNumberId: string;
+      values: Array<{ requirementId: string; fieldValue: string }>;
+    }) => {
+      const client = await getClient();
+      const result = await client.post<Envelope<{ requirementsMet: boolean }>>(
+        `/telephony/phone-numbers/${args.phoneNumberId}/regulatory-requirements`,
+        { values: args.values },
+      );
+      return result.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: phoneNumberKeys.all });
     },
   });
 }

@@ -33,6 +33,7 @@ import {
 type PhoneBillBody = {
   stripePriceId?: string;
   unitAmountCents?: number;
+  setupAmountCents?: number;
   currency?: string;
   countryCode: string;
   numberType: string;
@@ -66,6 +67,31 @@ async function resolvePhoneStripePriceId(
     unitAmount: cents,
     currency,
     interval: 'month',
+  });
+  return price.id as string;
+}
+
+async function resolvePhoneSetupPriceId(
+  stripeKey: string,
+  body: PhoneBillBody,
+): Promise<string | null> {
+  const cents = body.setupAmountCents;
+  if (!cents || cents < 1) return null;
+  const currency = stripeCurrency(body.currency);
+  const product = await createStripeProduct(stripeKey, {
+    name: `Phone Number Setup - ${body.countryCode} ${body.numberType}`,
+    metadata: {
+      countryCode: body.countryCode,
+      numberType: body.numberType,
+      kind: 'setup',
+      managedBy: 'weldsuite',
+    },
+  });
+  const price = await createStripePrice(stripeKey, {
+    productId: product.id,
+    unitAmount: cents,
+    currency,
+    oneTime: true,
   });
   return price.id as string;
 }
@@ -420,6 +446,7 @@ phoneBillingRoutes.post('/checkout', async (c) => {
     if (!stripePriceId) {
       return c.json({ error: 'Missing stripePriceId or unitAmountCents' }, 400);
     }
+    const setupPriceId = await resolvePhoneSetupPriceId(c.env.STRIPE_SECRET_KEY, body);
 
     const masterDb = getMasterDb(c.env);
 
@@ -453,6 +480,7 @@ phoneBillingRoutes.post('/checkout', async (c) => {
       customerId: checkoutCustomerId,
       priceId: stripePriceId,
       quantity: 1,
+      extraLineItems: setupPriceId ? [{ priceId: setupPriceId, quantity: 1 }] : undefined,
       successUrl: body.successUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=success',
       cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/apps/phone-numbers?billing=canceled',
       metadata: {

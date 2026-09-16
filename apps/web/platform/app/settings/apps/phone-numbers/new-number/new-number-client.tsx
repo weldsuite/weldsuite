@@ -70,6 +70,7 @@ export interface PricingEntry {
   countryCode: string;
   numberType: string;
   monthlyPrice: number;
+  setupFee?: number;
   currency: string;
   stripePriceId?: string;
 }
@@ -167,10 +168,11 @@ export function NewNumberClient({
 
   // Build a lookup map from pricing data
   const pricingMap = useMemo(() => {
-    const map: Record<string, { monthlyPrice: number; currency: string; stripePriceId?: string }> = {};
+    const map: Record<string, { monthlyPrice: number; setupFee: number; currency: string; stripePriceId?: string }> = {};
     for (const p of pricingData) {
       map[pricingKey(p.countryCode, p.numberType)] = {
         monthlyPrice: p.monthlyPrice,
+        setupFee: p.setupFee ?? 0,
         currency: p.currency,
         stripePriceId: p.stripePriceId,
       };
@@ -181,14 +183,30 @@ export function NewNumberClient({
   const getPrice = (countryCode: string | undefined, numberType: string) =>
     pricingMap[pricingKey(countryCode || searchCountry, numberType)] ?? null;
 
+  const monthlyAmount = (num: AvailableNumber) => {
+    const stripe = getPrice(num.iso_country, searchType)?.monthlyPrice;
+    if (typeof stripe === 'number' && Number.isFinite(stripe) && stripe > 0) return stripe;
+    const telnyx = Number(num.cost_information?.monthly_cost);
+    return Number.isFinite(telnyx) && telnyx > 0 ? telnyx : 0;
+  };
+
+  const setupAmount = (num: AvailableNumber) => {
+    const catalog = getPrice(num.iso_country, searchType)?.setupFee;
+    if (typeof catalog === 'number' && Number.isFinite(catalog) && catalog > 0) return catalog;
+    const telnyx = Number(num.cost_information?.upfront_cost);
+    return Number.isFinite(telnyx) && telnyx > 0 ? telnyx : 0;
+  };
+
+  const firstMonthAmount = (num: AvailableNumber) => monthlyAmount(num) + setupAmount(num);
+
+  const formatMoney = (currency: string, amount: number) => `${currency} ${amount.toFixed(2)}`;
+
   const formatPrice = (num: AvailableNumber, numberType: string) => {
-    const price = getPrice(num.iso_country, numberType);
-    if (price) return `${price.currency} ${price.monthlyPrice.toFixed(2)}/mo`;
-    const monthly = Number(num.cost_information?.monthly_cost);
-    if (Number.isFinite(monthly) && monthly > 0) {
-      return `${num.cost_information?.currency || 'USD'} ${monthly.toFixed(2)}/mo`;
-    }
-    return tn.notAvailable;
+    const currency =
+      getPrice(num.iso_country, numberType)?.currency || num.cost_information?.currency || 'USD';
+    const monthly = monthlyAmount(num);
+    if (monthly <= 0) return tn.notAvailable;
+    return `${formatMoney(currency, monthly)}/mo`;
   };
 
   // Address selection state
@@ -367,14 +385,9 @@ export function NewNumberClient({
 
   const isSubmitDisabled = (!isPreviewingNumber && cartNumbers.length === 0) || isProvisioning || (!isPreviewingNumber && cartNumbers.length > 0 && selectedCountryRequiresAddress && !selectedAddressId && !selectedBundleId);
 
-  const lineAmount = (num: AvailableNumber) => {
-    const stripe = getPrice(num.iso_country, searchType)?.monthlyPrice;
-    if (typeof stripe === 'number' && Number.isFinite(stripe)) return stripe;
-    const telnyx = Number(num.cost_information?.monthly_cost);
-    return Number.isFinite(telnyx) ? telnyx : 0;
-  };
-  const allCartPriced = cartNumbers.length > 0 && cartNumbers.every((num) => lineAmount(num) > 0);
-  const totalPrice = cartNumbers.reduce((sum, num) => sum + (Number.isFinite(lineAmount(num)) ? lineAmount(num) : 0), 0);
+  const allCartPriced = cartNumbers.length > 0 && cartNumbers.every((num) => monthlyAmount(num) > 0);
+  const totalPrice = cartNumbers.reduce((sum, num) => sum + firstMonthAmount(num), 0);
+  const monthlyTotal = cartNumbers.reduce((sum, num) => sum + monthlyAmount(num), 0);
   const totalFormatted = totalPrice.toFixed(2);
   const cartCurrency =
     cartNumbers.length > 0
@@ -436,7 +449,7 @@ export function NewNumberClient({
                   <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
               </div>
-              <span className="text-sm font-medium">{formatPrice(num, searchType)}</span>
+              <span className="text-sm font-medium">{formatMoney(cartCurrency, firstMonthAmount(num))}</span>
             </div>
 
             {isExpanded && (
@@ -453,6 +466,12 @@ export function NewNumberClient({
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">{tn.summaryLocation}</span>
                     <span className="font-medium">{num.locality}{num.region ? `, ${num.region}` : ''}</span>
+                  </div>
+                )}
+                {setupAmount(num) > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{tn.setupFee}</span>
+                    <span className="font-medium">{formatMoney(cartCurrency, setupAmount(num))}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between">
@@ -476,7 +495,11 @@ export function NewNumberClient({
               >
                 {tn.remove}
               </Button>
-              <span className="text-xs text-muted-foreground">{getPrice(num.iso_country, searchType) || num.cost_information?.monthly_cost ? tn.renewsAt.replace('{price}', formatPrice(num, searchType)) : tn.priceNotAvailable}</span>
+              <span className="text-xs text-muted-foreground">{
+                monthlyAmount(num) > 0
+                  ? tn.thenMonthly.replace('{price}', formatMoney(cartCurrency, monthlyAmount(num)))
+                  : tn.priceNotAvailable
+              }</span>
             </div>
           </div>
         );
@@ -725,8 +748,13 @@ export function NewNumberClient({
         summaryFields={summaryFields}
         summaryBottomFields={!isPreviewingNumber && cartNumbers.length > 0 ? [
           {
-            label: <span className="text-base">{tn.total}</span>,
-            value: <span className="text-base font-semibold">{allCartPriced ? `${cartCurrency} ${totalFormatted}/mo` : tn.notAvailable}</span>,
+            label: <span className="text-base">{tn.firstMonth}</span>,
+            value: <span className="text-base font-semibold">{allCartPriced ? `${cartCurrency} ${totalFormatted}` : tn.notAvailable}</span>,
+            bordered: false,
+          },
+          {
+            label: <span className="text-sm text-muted-foreground">{tn.thenMonthly.replace('{price}', `${cartCurrency} ${monthlyTotal.toFixed(2)}`)}</span>,
+            value: <span className="text-sm text-muted-foreground">{'\u00a0'}</span>,
             bordered: false,
           },
         ] : undefined}

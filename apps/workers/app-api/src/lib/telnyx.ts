@@ -45,12 +45,13 @@ export async function telnyxRequest<T>(
   }
 
   const url = endpoint.startsWith('http') ? endpoint : `${TELNYX_API_BASE}${endpoint}`;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
   const response = await fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...options.headers,
     },
   });

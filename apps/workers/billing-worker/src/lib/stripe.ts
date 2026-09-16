@@ -249,6 +249,8 @@ export async function createCheckoutSession(
       applicationFeePercent?: number;
       transferDataDestination?: string;
     };
+    /** Extra Checkout line items (e.g. one-time Telnyx setup on first invoice). */
+    extraLineItems?: Array<{ priceId: string; quantity?: number }>;
   }
 ): Promise<any> {
   const body: Record<string, string> = {
@@ -259,6 +261,14 @@ export async function createCheckoutSession(
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
   };
+
+  if (params.extraLineItems) {
+    params.extraLineItems.forEach((item, i) => {
+      const idx = i + 1;
+      body[`line_items[${idx}][price]`] = item.priceId;
+      body[`line_items[${idx}][quantity]`] = String(item.quantity ?? 1);
+    });
+  }
 
   if (params.automaticTax) {
     body['automatic_tax[enabled]'] = 'true';
@@ -521,14 +531,19 @@ export async function createStripePrice(
     unitAmount: number;
     currency: string;
     interval?: string;
+    /** When true, create a one-time price (no recurring interval). */
+    oneTime?: boolean;
   }
 ): Promise<any> {
-  return stripeApiRequest(key, 'POST', '/v1/prices', {
+  const body: Record<string, string> = {
     product: params.productId,
     unit_amount: params.unitAmount.toString(),
     currency: params.currency.toLowerCase(),
-    'recurring[interval]': params.interval || 'month',
-  });
+  };
+  if (!params.oneTime) {
+    body['recurring[interval]'] = params.interval || 'month';
+  }
+  return stripeApiRequest(key, 'POST', '/v1/prices', body);
 }
 
 /**
