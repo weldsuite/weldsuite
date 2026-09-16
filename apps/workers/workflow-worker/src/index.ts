@@ -30,6 +30,8 @@ import { fireWorkflowCompleteTriggers } from './engine/workflow-complete';
 import { runWorkflowScheduleSweep } from './cron/schedule-sweep';
 import { runGatewayCreditRollup } from './cron/gateway-credit-rollup';
 import { rebuildScheduleIndex } from './schedule-index';
+import { handleEntityWorkflowBatch } from './entity-workflows-consumer';
+import type { EntityEventMessage } from '@weldsuite/entity-events';
 
 export interface ExecuteWorkflowParams {
   workspaceId: string;
@@ -257,6 +259,14 @@ export default {
       }
     }
     return new Response('workflow-worker: use the EXECUTE_WORKFLOW binding', { status: 404 });
+  },
+
+  async queue(batch: MessageBatch<EntityEventMessage>, env: Env): Promise<void> {
+    if (batch.queue.startsWith('entity-workflows')) {
+      await handleEntityWorkflowBatch(batch, env);
+      return;
+    }
+    console.warn(`[workflow-worker] no consumer registered for queue "${batch.queue}"`);
   },
 
   // Cron Trigger: workflow schedule sweep (every minute — see wrangler.toml

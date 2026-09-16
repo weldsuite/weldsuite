@@ -6,7 +6,22 @@ import {
   evalFilters,
   integrationTriggerMatches,
   matchAndDispatchIntegrationTriggers,
+  workflowInstanceIdForEvent,
 } from './workflow-dispatch';
+
+describe('workflowInstanceIdForEvent', () => {
+  it('joins eventId and workflowId under 64 chars', () => {
+    expect(workflowInstanceIdForEvent('evt_abc', 'wf_1')).toBe('evt_abc-wf_1');
+  });
+
+  it('truncates when the joined id would exceed 64 chars', () => {
+    const eventId = `evt_${'a'.repeat(30)}`;
+    const workflowId = `wf_${'b'.repeat(40)}`;
+    const id = workflowInstanceIdForEvent(eventId, workflowId);
+    expect(id.length).toBe(64);
+    expect(id.startsWith('evt_')).toBe(true);
+  });
+});
 
 describe('deriveEventTypes', () => {
   it('returns just the action for non-update events', () => {
@@ -112,6 +127,67 @@ describe('matchAndDispatchWorkflowTriggers', () => {
         }),
       }),
     );
+  });
+
+  it('passes a stable CF Workflow instance id when eventId is set', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        eventType: 'created',
+        filters: null,
+        workflowName: 'A',
+      },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+      eventId: 'evt_abc123def456',
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'evt_abc123def456-wf_1',
+        params: expect.objectContaining({
+          triggerData: expect.objectContaining({ eventId: 'evt_abc123def456' }),
+        }),
+      }),
+    );
+  });
+
+  it('omits instance id when eventId is absent', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        eventType: 'created',
+        filters: null,
+        workflowName: 'A',
+      },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+    });
+
+    const arg = create.mock.calls[0]![0] as { id?: string };
+    expect(arg.id).toBeUndefined();
   });
 
   it('skips index rows whose eventType does not match', async () => {

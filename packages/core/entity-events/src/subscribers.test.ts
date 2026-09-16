@@ -63,18 +63,19 @@ describe('defineEntityEventSubscribers', () => {
 });
 
 describe('ENTITY_EVENT_SUBSCRIBERS registry', () => {
-  it('includes Phase 1–3 audit/analytics/search/webhooks subscribers', () => {
+  it('includes Phase 1–4 audit/analytics/search/webhooks/weldconnect subscribers', () => {
     const ids = ENTITY_EVENT_SUBSCRIBERS.map((s) => s.id).sort();
-    expect(ids).toEqual(['analytics', 'audit', 'search-index', 'webhooks']);
+    expect(ids).toEqual(['analytics', 'audit', 'search-index', 'webhooks', 'weldconnect']);
   });
 
-  it('matches all Phase 1–3 subscribers for a typical event', () => {
+  it('matches all Phase 1–4 subscribers for a typical event', () => {
     const matched = matchEntityEventSubscribers('customer:created');
     expect(matched.map((s) => s.id).sort()).toEqual([
       'analytics',
       'audit',
       'search-index',
       'webhooks',
+      'weldconnect',
     ]);
   });
 
@@ -82,6 +83,12 @@ describe('ENTITY_EVENT_SUBSCRIBERS registry', () => {
     const webhooks = ENTITY_EVENT_SUBSCRIBERS.find((s) => s.id === 'webhooks');
     expect(webhooks?.queueBinding).toBe('SUB_WEBHOOKS');
     expect(webhooks?.topics).toEqual(['*']);
+  });
+
+  it('weldconnect subscriber binds SUB_WELDCONNECT', () => {
+    const weldconnect = ENTITY_EVENT_SUBSCRIBERS.find((s) => s.id === 'weldconnect');
+    expect(weldconnect?.queueBinding).toBe('SUB_WELDCONNECT');
+    expect(weldconnect?.topics).toEqual(['*']);
   });
 
   it('respects per-subscriber topic filters', () => {

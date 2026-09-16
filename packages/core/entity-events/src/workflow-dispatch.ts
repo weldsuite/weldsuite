@@ -2,8 +2,11 @@
  * Workflow trigger matcher.
  *
  * Matches an entity event against `entity_event` triggers on active
- * WeldConnect workflows and dispatches CF Workflow instances. Called
- * fire-and-forget from `publishEntityEvent`.
+ * WeldConnect workflows and dispatches CF Workflow instances.
+ *
+ * Phase 4: called from the entity-workflows queue consumer on workflow-worker
+ * (not the publish path). Optional `eventId` enables CF Workflow instance-id
+ * idempotency so hub retries do not start duplicate runs.
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
@@ -71,11 +74,14 @@ export function evalFilters(
 /**
  * Minimal env shape — only the Cloudflare Workflow binding required to
  * dispatch a run. Workers wider environments are accepted via structural
- * typing.
+ * typing. Optional `id` enables idempotent create on hub retries.
  */
 export interface WorkflowDispatchEnv {
   EXECUTE_WORKFLOW?: {
-    create: (init: { params: Record<string, unknown> }) => Promise<unknown>;
+    create: (init: {
+      id?: string;
+      params: Record<string, unknown>;
+    }) => Promise<unknown>;
   };
 }
 
@@ -89,6 +95,23 @@ export interface MatchAndDispatchInput {
   action: string;
   data: Record<string, unknown>;
   changes?: Record<string, { old: unknown; new: unknown }>;
+  /**
+   * Entity-event id (`evt_…`). When set, CF Workflow.create uses a stable
+   * instance id so hub/queue retries do not start a second run for the same
+   * (event, workflow) pair.
+   */
+  eventId?: string;
+}
+
+/**
+ * Stable Cloudflare Workflow instance id for an entity-event dispatch.
+ * CF accepts alphanumeric + hyphen/underscore; keep under 64 chars.
+ */
+export function workflowInstanceIdForEvent(eventId: string, workflowId: string): string {
+  const raw = `${eventId}-${workflowId}`;
+  if (raw.length <= 64) return raw;
+  // Truncate conservatively — both ids are already unique enough together.
+  return raw.slice(0, 64);
 }
 
 /**
@@ -169,12 +192,16 @@ async function dispatchEntityMatches(
   base: Omit<MatchAndDispatchInput, 'env' | 'db' | 'changes'> & {
     action: string;
     changes?: MatchAndDispatchInput['changes'];
+    eventId?: string;
   },
 ): Promise<void> {
-  const { workspaceId, userId, entityType, entityId, action, data, changes } = base;
+  const { workspaceId, userId, entityType, entityId, action, data, changes, eventId } = base;
   for (const row of matches) {
     try {
       await env.EXECUTE_WORKFLOW!.create({
+        ...(eventId
+          ? { id: workflowInstanceIdForEvent(eventId, row.workflowId) }
+          : {}),
         params: {
           workspaceId,
           userId,
@@ -188,6 +215,7 @@ async function dispatchEntityMatches(
             action,
             data,
             changes,
+            ...(eventId ? { eventId } : {}),
           },
           source: 'weldconnect',
         },
@@ -204,12 +232,13 @@ async function dispatchEntityMatches(
 export async function matchAndDispatchWorkflowTriggers(
   input: MatchAndDispatchInput,
 ): Promise<void> {
-  const { env, db, workspaceId, userId, entityType, entityId, action, data, changes } = input;
+  const { env, db, workspaceId, userId, entityType, entityId, action, data, changes, eventId } =
+    input;
 
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
   const eventTypes = deriveEventTypes(action, changes);
-  const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes };
+  const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes, eventId };
 
   let indexRows: Array<{
     workflowId: string;
