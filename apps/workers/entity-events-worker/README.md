@@ -32,6 +32,14 @@ wrangler queues create entity-workflows-test
 wrangler queues create entity-workflows-dlq-test
 wrangler queues create entity-workflows
 wrangler queues create entity-workflows-dlq
+
+# Phase 5 WeldAgent eventSubscriptions
+wrangler queues create entity-agents-dev
+wrangler queues create entity-agents-dlq-dev
+wrangler queues create entity-agents-test
+wrangler queues create entity-agents-dlq-test
+wrangler queues create entity-agents
+wrangler queues create entity-agents-dlq
 ```
 
 Existing subscriber destinations (do not recreate): `audit-events*`, `analytics-events*`, `search-index*`.
@@ -51,3 +59,15 @@ Registry row `{ id: 'weldconnect', queueBinding: 'SUB_WELDCONNECT' }` → `entit
 3. Deploy `workflow-worker` (with `entity-workflows*` consumer).
 
 If the hub gains `SUB_WELDCONNECT` before the consumer is live, messages backlog on `entity-workflows*` until the consumer deploys (safe).
+
+## Phase 5 (WeldAgent)
+
+Registry row `{ id: 'weldagent', queueBinding: 'SUB_WELDAGENT' }` → `entity-agents*` → `app-api` queue consumer → `runRegisteredWeldAgentDispatch` / `dispatchWeldAgentsForEvent` (idempotent on `evt_*` + agent id via `trigger_data->>'eventId'`). Publisher no longer runs agent dispatch inline.
+
+**Deploy order:**
+
+1. Create `entity-agents*` + DLQs (above).
+2. Deploy `entity-events-worker` (with `SUB_WELDAGENT` producer).
+3. Deploy `app-api` (with `entity-agents*` consumer).
+
+If the hub gains `SUB_WELDAGENT` before the consumer is live, messages backlog on `entity-agents*` until the consumer deploys (safe).

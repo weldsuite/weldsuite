@@ -3,18 +3,16 @@
  *
  * Fans out a single entity mutation to:
  *   1. ENTITY_EVENTS hub queue (entity-events-worker) — audit / analytics /
- *      search-index / outbound webhooks / WeldConnect fan-out happens in the hub
+ *      search-index / webhooks / WeldConnect / WeldAgent fan-out in the hub
  *   2. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
- *   3. WeldAgent (inline until Phase 5)
  *
  * Phase 0: stopped producing to the unused WORKFLOW_EVENTS queue.
  * Phase 1: hub registry + dual-write-ready ENTITY_EVENTS path.
  * Phase 2: producers bind ENTITY_EVENTS only for queue sinks; hub fans out to
  * audit-events / analytics-events / search-index.
- * Phase 3: outbound webhooks move off the publish path onto hub →
- * entity-webhooks* → integration-webhook-worker.
- * Phase 4: WeldConnect entity_event matching moves onto hub →
- * entity-workflows* → workflow-worker.
+ * Phase 3: outbound webhooks → entity-webhooks* → integration-webhook-worker.
+ * Phase 4: WeldConnect → entity-workflows* → workflow-worker.
+ * Phase 5: WeldAgent → entity-agents* → app-api.
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -31,7 +29,6 @@ import type {
 import type { EntityType } from './events';
 import type { DataFor } from './events/data';
 import type { WorkflowDispatchEnv } from './workflow-dispatch';
-import { runRegisteredWeldAgentDispatch } from './agent-dispatch';
 import type { TenantDb } from './internal-types';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +39,7 @@ import type { TenantDb } from './internal-types';
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
   /**
    * Hub queue consumed by `entity-events-worker`, which fans out to
-   * audit / analytics / search-index / outbound webhooks / WeldConnect
+   * audit / analytics / search-index / webhooks / WeldConnect / WeldAgent
    * subscriber queues.
    */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
@@ -123,7 +120,8 @@ interface FanOutParams {
  * raw context). Never throws — each sink swallows its own errors.
  */
 function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<unknown>[] {
-  const { env, db, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } = params;
+  const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
+    params;
 
   const message: EntityEventMessage = {
     id: generateEventId(),
@@ -143,11 +141,13 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Hub queue — entity-events-worker fans out to audit / analytics / search / webhooks / weldconnect
+  // 1. Hub queue — fans out to audit / analytics / search / webhooks / weldconnect / weldagent
   if (env.ENTITY_EVENTS) {
     tasks.push(
       env.ENTITY_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published hub event ${message.eventType} for ${entityId}`))
+        .then(() =>
+          console.log(`[EntityEvents] Published hub event ${message.eventType} for ${entityId}`),
+        )
         .catch((err: unknown) => console.error('[EntityEvents] Failed to publish hub event:', err)),
     );
   }
@@ -171,24 +171,6 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   if (!env.ENTITY_EVENTS && !env.REALTIME) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
-  }
-
-  // 3. Workspace AI agents (optional runner registered by app-api) — Phase 5 will move to hub
-  if (workspaceId) {
-    tasks.push(
-      runRegisteredWeldAgentDispatch({
-        workspaceId,
-        userId,
-        entityType,
-        action,
-        entityId,
-        data: data as Record<string, unknown>,
-        db,
-        env,
-      }).catch((err: unknown) =>
-        console.error('[EntityEvents] Failed to dispatch weldagent event:', err),
-      ),
-    );
   }
 
   return tasks;

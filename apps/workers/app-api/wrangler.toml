@@ -229,6 +229,17 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "search-index-dlq-dev"
 
+# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
+#   wrangler queues create entity-agents-dev
+#   wrangler queues create entity-agents-dlq-dev
+[[queues.consumers]]
+queue = "entity-agents-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq-dev"
+
 # Service binding to realtime-worker (Durable Objects event system) — used by
 # publishEntityEvent for live WorkspaceHub fan-out AND WeldChat message fan-out
 # to the ChatRoom DO (services/chat/post-message.ts).
@@ -389,6 +400,17 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "search-index-dlq-test"
 
+# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
+#   wrangler queues create entity-agents-test
+#   wrangler queues create entity-agents-dlq-test
+[[env.test.queues.consumers]]
+queue = "entity-agents-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq-test"
+
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
@@ -534,6 +556,17 @@ max_batch_timeout = 10
 max_retries = 3
 max_concurrency = 4
 dead_letter_queue = "search-index-dlq"
+
+# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
+#   wrangler queues create entity-agents
+#   wrangler queues create entity-agents-dlq
+[[env.production.queues.consumers]]
+queue = "entity-agents"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq"
 
 [[env.production.services]]
 binding = "REALTIME"

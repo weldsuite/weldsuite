@@ -296,7 +296,7 @@ import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-regist
 import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
 
-// Register entity-event → workspace agent dispatch (no dedicated queue needed).
+// Register entity-event → workspace agent dispatch (Phase 5: hub → entity-agents*).
 registerWeldAgentEventRunner(async (payload) => {
   await dispatchWeldAgentsForEvent(payload.env as Env, payload.db as never, {
     workspaceId: payload.workspaceId,
@@ -305,6 +305,7 @@ registerWeldAgentEventRunner(async (payload) => {
     action: payload.action,
     entityId: payload.entityId,
     data: payload.data,
+    eventId: payload.eventId,
   });
 });
 
@@ -805,19 +806,23 @@ import { runCalendarReplanSweep } from './cron/calendar-replan';
 import { runDomainAutoRenewSweep } from './cron/domain-auto-renew';
 import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
+import { handleEntityAgentBatch } from './queue/entity-agents-consumer';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
 export default {
   fetch: app.fetch,
   /**
-   * search-index consumer — keeps the semantic search index in step with
-   * tenant mutations. Phase 2: the hub (`entity-events-worker`) produces onto
-   * this queue; app-api only consumes. The indexer needs a tenant DB handle
-   * and the AI gateway, which this worker already has.
+   * Queue consumers:
+   * - search-index* — semantic index (Phase 2 hub SUB_SEARCH)
+   * - entity-agents* — WeldAgent eventSubscriptions (Phase 5 hub SUB_WELDAGENT)
    */
   queue: async (batch: MessageBatch<EntityEventMessage>, env: Env) => {
     if (batch.queue.startsWith('search-index')) {
       await handleSearchIndexBatch(batch, env);
+      return;
+    }
+    if (batch.queue.startsWith('entity-agents')) {
+      await handleEntityAgentBatch(batch, env);
       return;
     }
     console.warn(`[app-api] no consumer registered for queue "${batch.queue}"`);
