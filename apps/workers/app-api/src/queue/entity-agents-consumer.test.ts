@@ -1,25 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
-const runRegisteredWeldAgentDispatch = vi.fn(async () => undefined);
-const getTenantDbForWorkspace = vi.fn(async () => ({ mocked: true }));
-
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
     '@weldsuite/entity-events',
   );
   return {
     ...actual,
-    runRegisteredWeldAgentDispatch: (...args: unknown[]) =>
-      runRegisteredWeldAgentDispatch(...args),
+    runRegisteredWeldAgentDispatch: vi.fn(async () => undefined),
   };
 });
 
 vi.mock('../db', () => ({
-  getTenantDbForWorkspace: (...args: unknown[]) => getTenantDbForWorkspace(...args),
+  getTenantDbForWorkspace: vi.fn(async () => ({ mocked: true })),
 }));
 
+import { runRegisteredWeldAgentDispatch } from '@weldsuite/entity-events';
+import { getTenantDbForWorkspace } from '../db';
 import { handleEntityAgentMessage, handleEntityAgentBatch } from './entity-agents-consumer';
+
+const runDispatch = vi.mocked(runRegisteredWeldAgentDispatch);
+const getTenantDb = vi.mocked(getTenantDbForWorkspace);
 
 function sampleEvent(id = 'evt_1'): EntityEventMessage {
   return {
@@ -40,8 +41,9 @@ function sampleEvent(id = 'evt_1'): EntityEventMessage {
 
 describe('handleEntityAgentMessage', () => {
   beforeEach(() => {
-    runRegisteredWeldAgentDispatch.mockClear();
-    getTenantDbForWorkspace.mockClear();
+    runDispatch.mockClear();
+    getTenantDb.mockClear();
+    getTenantDb.mockResolvedValue({ mocked: true } as never);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -51,8 +53,8 @@ describe('handleEntityAgentMessage', () => {
     const env = { AI: {} };
     await handleEntityAgentMessage(sampleEvent('evt_abc'), env as never);
 
-    expect(getTenantDbForWorkspace).toHaveBeenCalledWith(env, 'org_1');
-    expect(runRegisteredWeldAgentDispatch).toHaveBeenCalledWith({
+    expect(getTenantDb).toHaveBeenCalledWith(env, 'org_1');
+    expect(runDispatch).toHaveBeenCalledWith({
       workspaceId: 'org_1',
       userId: 'usr_1',
       entityType: 'customer',
@@ -69,23 +71,23 @@ describe('handleEntityAgentMessage', () => {
     const event = sampleEvent();
     (event.metadata as { workspaceId: string }).workspaceId = '';
     await handleEntityAgentMessage(event, {} as never);
-    expect(getTenantDbForWorkspace).not.toHaveBeenCalled();
-    expect(runRegisteredWeldAgentDispatch).not.toHaveBeenCalled();
+    expect(getTenantDb).not.toHaveBeenCalled();
+    expect(runDispatch).not.toHaveBeenCalled();
   });
 });
 
 describe('handleEntityAgentBatch', () => {
   beforeEach(() => {
-    runRegisteredWeldAgentDispatch.mockClear();
-    getTenantDbForWorkspace.mockReset();
-    getTenantDbForWorkspace.mockResolvedValue({ mocked: true });
+    runDispatch.mockClear();
+    getTenantDb.mockReset();
+    getTenantDb.mockResolvedValue({ mocked: true } as never);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   it('acks successful messages and retries failures', async () => {
-    getTenantDbForWorkspace
-      .mockResolvedValueOnce({ mocked: true })
+    getTenantDb
+      .mockResolvedValueOnce({ mocked: true } as never)
       .mockRejectedValueOnce(new Error('db down'));
 
     const ack1 = vi.fn();
