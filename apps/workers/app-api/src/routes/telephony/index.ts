@@ -746,7 +746,7 @@ app.post('/documents', requirePermission(MANAGE_TELEPHONY), async (c) => {
   }
   try {
     const form = await c.req.formData();
-    const file = form.get('file');
+    const file = form.get('file') as unknown;
     if (!(file instanceof File)) {
       return error.badRequest(c, 'file is required');
     }
