@@ -313,7 +313,7 @@ AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflar
 - **Hyperdrive**, Neon pooling
 - **KV**, Workspace cache + config
 - **R2**, Files / attachments
-- **Queues**, `audit-events`, `workflow-events`, `analytics-events`
+- **Queues**, `entity-events` (hub), `audit-events`, `analytics-events`, `search-index`, `entity-webhooks`, `entity-workflows`, `entity-agents`, `entity-realtime` (+ DLQs)
 - **Service Bindings**, Cross-worker calls (e.g. helpdesk widget → workflow worker, integration workers → `app-api`)
 - **Realtime**, `@weldsuite/realtime` (Cloudflare Durable Objects + WebSocket; notifications, live chat); token via `/api/realtime/token`
 
