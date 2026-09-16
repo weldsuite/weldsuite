@@ -17,6 +17,8 @@ import { upsertCompany, upsertPerson, softDeleteByMapping, resolveCompanyByExter
 import { getValidAccessToken } from './lib/token';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { publishEntityEventRaw, matchAndDispatchIntegrationTriggers, retryFailedWebhookDeliveries } from '@weldsuite/entity-events';
+import type { EntityEventMessage } from '@weldsuite/entity-events';
+import { handleEntityWebhookBatch } from './entity-webhooks-consumer';
 import {
   listDueTenantWorkIndex,
   markTenantWorkIndexRan,
@@ -91,7 +93,7 @@ export interface Env {
   HUBSPOT_CLIENT_SECRET?: string;
   // Entity-event hub (publishEntityEventRaw). Optional — the publisher
   // no-ops + warns when the binding is absent. Hub fans out to audit /
-  // analytics / search (Phase 2).
+  // analytics / search / webhooks (Phase 2–3).
   ENTITY_EVENTS?: Queue;
   REALTIME?: Fetcher;
 }
@@ -1673,6 +1675,13 @@ export { GithubProjectOutboundSyncWorkflow } from './workflows/github-project-ou
 
 export default {
   fetch: app.fetch,
+  async queue(batch: MessageBatch<EntityEventMessage>, env: Env): Promise<void> {
+    if (batch.queue.startsWith('entity-webhooks')) {
+      await handleEntityWebhookBatch(batch, env);
+      return;
+    }
+    console.warn(`[integration-webhook-worker] no consumer registered for queue "${batch.queue}"`);
+  },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Due-index sweeps only (D1). CRM auto-sync lives on integration-sync-worker.
     // Inbound webhooks (fetch) are unaffected.

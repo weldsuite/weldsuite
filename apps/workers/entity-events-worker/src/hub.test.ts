@@ -26,25 +26,28 @@ function sampleMessage(eventType = 'customer:created'): EntityEventMessage {
 }
 
 describe('fanOutHubMessage', () => {
-  it('enqueues to all matching Phase 1 subscribers and reports success', async () => {
+  it('enqueues to all matching Phase 1–3 subscribers and reports success', async () => {
     const SUB_AUDIT = mockQueue();
     const SUB_ANALYTICS = mockQueue();
     const SUB_SEARCH = mockQueue();
+    const SUB_WEBHOOKS = mockQueue();
     const message = sampleMessage();
 
     const result = await fanOutHubMessage(message, {
       SUB_AUDIT,
       SUB_ANALYTICS,
       SUB_SEARCH,
+      SUB_WEBHOOKS,
     });
 
     expect(result.failed).toEqual([]);
-    expect(result.succeeded.sort()).toEqual(['analytics', 'audit', 'search-index']);
+    expect(result.succeeded.sort()).toEqual(['analytics', 'audit', 'search-index', 'webhooks']);
     expect(SUB_AUDIT.send).toHaveBeenCalledWith(message);
     expect(SUB_ANALYTICS.send).toHaveBeenCalledWith(message);
     expect(SUB_SEARCH.send).toHaveBeenCalledWith(message);
+    expect(SUB_WEBHOOKS.send).toHaveBeenCalledWith(message);
     // Same id preserved
-    expect(SUB_AUDIT.send.mock.calls[0]![0].id).toBe('evt_test01');
+    expect(SUB_WEBHOOKS.send.mock.calls[0]![0].id).toBe('evt_test01');
   });
 
   it('reports failure when one enqueue throws (caller should retry/not ack)', async () => {
@@ -55,26 +58,32 @@ describe('fanOutHubMessage', () => {
       }),
     };
     const SUB_SEARCH = mockQueue();
+    const SUB_WEBHOOKS = mockQueue();
 
     const result = await fanOutHubMessage(sampleMessage(), {
       SUB_AUDIT,
       SUB_ANALYTICS,
       SUB_SEARCH,
+      SUB_WEBHOOKS,
     });
 
-    expect(result.succeeded.sort()).toEqual(['audit', 'search-index']);
+    expect(result.succeeded.sort()).toEqual(['audit', 'search-index', 'webhooks']);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]!.id).toBe('analytics');
   });
 
   it('fails a subscriber when its queue binding is missing', async () => {
     const SUB_AUDIT = mockQueue();
-    // SUB_ANALYTICS + SUB_SEARCH intentionally omitted
+    // SUB_ANALYTICS + SUB_SEARCH + SUB_WEBHOOKS intentionally omitted
 
     const result = await fanOutHubMessage(sampleMessage(), { SUB_AUDIT });
 
     expect(result.succeeded).toEqual(['audit']);
-    expect(result.failed.map((f) => f.id).sort()).toEqual(['analytics', 'search-index']);
+    expect(result.failed.map((f) => f.id).sort()).toEqual([
+      'analytics',
+      'search-index',
+      'webhooks',
+    ]);
   });
 
   it('respects topic filters on a custom registry', async () => {

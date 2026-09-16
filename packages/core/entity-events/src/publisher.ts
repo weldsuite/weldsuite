@@ -3,16 +3,17 @@
  *
  * Fans out a single entity mutation to:
  *   1. ENTITY_EVENTS hub queue (entity-events-worker) — audit / analytics /
- *      search-index fan-out happens in the hub (Phase 2 cutover)
+ *      search-index / outbound webhooks fan-out happens in the hub
  *   2. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
  *   3. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW (inline WeldConnect)
- *   4. Outbound webhooks + WeldAgent (inline)
+ *   4. WeldAgent (inline)
  *
  * Phase 0: stopped producing to the unused WORKFLOW_EVENTS queue.
  * Phase 1: hub registry + dual-write-ready ENTITY_EVENTS path.
  * Phase 2: producers bind ENTITY_EVENTS only for queue sinks; hub fans out to
- * audit-events / analytics-events / search-index. Legacy AUDIT/ANALYTICS/SEARCH
- * producer sends removed from this publisher.
+ * audit-events / analytics-events / search-index.
+ * Phase 3: outbound webhooks move off the publish path onto hub →
+ * entity-webhooks* → integration-webhook-worker.
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -29,7 +30,6 @@ import type {
 import type { EntityType } from './events';
 import type { DataFor } from './events/data';
 import { matchAndDispatchWorkflowTriggers, type WorkflowDispatchEnv } from './workflow-dispatch';
-import { dispatchWebhookDeliveries } from './webhook-delivery';
 import { runRegisteredWeldAgentDispatch } from './agent-dispatch';
 import type { TenantDb } from './internal-types';
 
@@ -41,7 +41,7 @@ import type { TenantDb } from './internal-types';
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
   /**
    * Hub queue consumed by `entity-events-worker`, which fans out to
-   * audit / analytics / search-index subscriber queues.
+   * audit / analytics / search-index / outbound webhooks subscriber queues.
    */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   REALTIME?: Fetcher;
@@ -141,7 +141,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Hub queue — entity-events-worker fans out to audit / analytics / search
+  // 1. Hub queue — entity-events-worker fans out to audit / analytics / search / webhooks
   if (env.ENTITY_EVENTS) {
     tasks.push(
       env.ENTITY_EVENTS.send(message)
@@ -171,23 +171,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
   }
 
-  // 3. Outbound customer webhooks (external_webhooks subscriptions). No binding
-  // required — reads straight off the tenant `db`, so this always runs; it's a
-  // cheap no-op when no active webhook is subscribed to this event.
-  if (workspaceId) {
-    tasks.push(
-      dispatchWebhookDeliveries({
-        db,
-        workspaceId,
-        entityType,
-        action,
-        eventId: message.id,
-        data,
-      }).catch((err: unknown) => console.error('[EntityEvents] Failed to dispatch webhook deliveries:', err)),
-    );
-  }
-
-  // 4. Inline workflow trigger matching (CF Workflows binding)
+  // 3. Inline workflow trigger matching (CF Workflows binding) — Phase 4 will move to hub
   if (workspaceId && env.EXECUTE_WORKFLOW) {
     tasks.push(
       matchAndDispatchWorkflowTriggers({
@@ -204,7 +188,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 5. Workspace AI agents (optional runner registered by app-api)
+  // 4. Workspace AI agents (optional runner registered by app-api) — Phase 5 will move to hub
   if (workspaceId) {
     tasks.push(
       runRegisteredWeldAgentDispatch({

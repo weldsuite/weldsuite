@@ -1,8 +1,9 @@
 /**
  * Static first-party subscriber registry for the entity-events hub.
  *
- * Phase 1: audit / analytics / search-index. Later phases add webhooks,
- * WeldConnect, WeldAgent, and realtime as additional registry rows + queues.
+ * Phase 1–2: audit / analytics / search-index.
+ * Phase 3: webhooks.
+ * Later: WeldConnect, WeldAgent, realtime.
  *
  * Topic patterns (v1):
  *   - `*`                  — all events
@@ -84,9 +85,10 @@ export const ENTITY_EVENT_SUBSCRIBERS = defineEntityEventSubscribers([
   { id: 'audit', topics: ['*'], queueBinding: 'SUB_AUDIT' },
   { id: 'analytics', topics: ['*'], queueBinding: 'SUB_ANALYTICS' },
   { id: 'search-index', topics: ['*'], queueBinding: 'SUB_SEARCH' },
-  // Phase 3+: webhooks / weldconnect / weldagent / realtime — registry rows
-  // land with their queues in later phases so the hub never sends to missing
-  // bindings in production.
+  // Phase 3: outbound customer webhooks (external_webhooks)
+  { id: 'webhooks', topics: ['*'], queueBinding: 'SUB_WEBHOOKS' },
+  // Phase 4+: weldconnect / weldagent / realtime — registry rows land with
+  // their queues later so the hub never sends to missing bindings in production.
 ] as const);
 
 /**

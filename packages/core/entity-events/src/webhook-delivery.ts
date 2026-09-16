@@ -3,11 +3,11 @@
  * customer-configured `external_webhooks` endpoints, logging every attempt to
  * `webhook_deliveries`.
  *
- * Called from three places:
- *  - `fanOutEntityEvent` (publisher.ts) — fire-and-forget delivery on every
- *    entity mutation, matched against each webhook's subscribed `events[]`.
+ * Called from:
+ *  - `apps/workers/integration-webhook-worker` queue consumer (Phase 3 hub path)
+ *    — primary fan-out for entity mutations via `dispatchWebhookDeliveries`.
  *  - `apps/workers/app-api`'s `external-webhooks` route — `POST /:id/test` sends a
- *    single synthetic event through the same code path.
+ *    single synthetic event through `deliverWebhookEvent`.
  *  - `apps/workers/integration-webhook-worker`'s cron — `retryFailedWebhookDeliveries`
  *    sweeps deliveries whose `nextRetryAt` is due.
  *
@@ -160,13 +160,53 @@ export interface DeliverWebhookEventResult {
 }
 
 /**
+ * True when this webhook already has a delivery row for `eventId`.
+ * Used so hub/queue retries do not double-POST; cron retries insert new
+ * attempt rows via `retryFailedWebhookDeliveries` (not this helper).
+ */
+export async function hasExistingWebhookDelivery(
+  db: TenantDb,
+  webhookId: string,
+  eventId: string,
+): Promise<boolean> {
+  const [existing] = await db
+    .select({ id: webhookDeliveries.id })
+    .from(webhookDeliveries)
+    .where(
+      and(
+        eq(webhookDeliveries.webhookId, webhookId),
+        eq(webhookDeliveries.eventId, eventId),
+      ),
+    )
+    .limit(1);
+  return Boolean(existing);
+}
+
+/**
  * Deliver a single event to a single webhook, with one immediate retry on
  * network error or 5xx, and record the attempt in `webhook_deliveries`.
+ *
+ * Phase 3 idempotency: if any delivery row already exists for
+ * `(webhookId, eventId)`, skip the HTTP POST (hub retries re-deliver the
+ * same evt_ id). Further attempts are owned by `retryFailedWebhookDeliveries`.
  */
 export async function deliverWebhookEvent(
   input: DeliverWebhookEventInput,
 ): Promise<DeliverWebhookEventResult> {
   const { db, webhook, eventId, eventType, workspaceId, data } = input;
+
+  if (await hasExistingWebhookDelivery(db, webhook.id, eventId)) {
+    console.log(
+      `[WebhookDelivery] Skipping duplicate event ${eventId} for webhook ${webhook.id}`,
+    );
+    return {
+      delivered: true,
+      responseStatus: null,
+      responseBody: null,
+      errorMessage: null,
+    };
+  }
+
   const payload = {
     id: eventId,
     type: eventType,
@@ -229,11 +269,13 @@ export interface DispatchWebhookDeliveriesInput {
 }
 
 /**
- * Fan-out entry point called from `fanOutEntityEvent`. Looks up active
+ * Fan-out entry point for outbound customer webhooks. Looks up active
  * `external_webhooks` subscribed to `<entityType>.<action>` and delivers to
  * each, fire-and-forget (errors are swallowed per-webhook). Cheap no-op when
  * no webhook matches — the JSONB containment query IS the existence check,
  * so there is no separate pre-check to maintain.
+ *
+ * Phase 3: invoked from the entity-webhooks queue consumer (not the publish path).
  */
 export async function dispatchWebhookDeliveries(input: DispatchWebhookDeliveriesInput): Promise<void> {
   const { db, workspaceId, entityType, action, eventId, data } = input;

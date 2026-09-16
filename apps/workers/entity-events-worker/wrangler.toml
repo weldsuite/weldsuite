@@ -40,6 +40,13 @@ queue = "analytics-events-dev"
 binding = "SUB_SEARCH"
 queue = "search-index-dev"
 
+# Phase 3: outbound customer webhooks → integration-webhook-worker
+#   wrangler queues create entity-webhooks-dev
+#   wrangler queues create entity-webhooks-dlq-dev
+[[queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -66,6 +73,10 @@ queue = "analytics-events-test"
 [[env.test.queues.producers]]
 binding = "SUB_SEARCH"
 queue = "search-index-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks-test"
 
 [env.test.observability]
 enabled = true
@@ -97,6 +108,10 @@ queue = "analytics-events"
 [[env.production.queues.producers]]
 binding = "SUB_SEARCH"
 queue = "search-index"
+
+[[env.production.queues.producers]]
+binding = "SUB_WEBHOOKS"
+queue = "entity-webhooks"
 
 [env.production.observability]
 enabled = true

@@ -97,6 +97,7 @@ export {
 export {
   deliverWebhookEvent,
   dispatchWebhookDeliveries,
+  hasExistingWebhookDelivery,
   retryFailedWebhookDeliveries,
   signWebhookPayload,
   type WebhookRow,
