@@ -26,13 +26,14 @@ function sampleMessage(eventType = 'customer:created'): EntityEventMessage {
 }
 
 describe('fanOutHubMessage', () => {
-  it('enqueues to all matching Phase 1–5 subscribers and reports success', async () => {
+  it('enqueues to all matching Phase 1–6 subscribers and reports success', async () => {
     const SUB_AUDIT = mockQueue();
     const SUB_ANALYTICS = mockQueue();
     const SUB_SEARCH = mockQueue();
     const SUB_WEBHOOKS = mockQueue();
     const SUB_WELDCONNECT = mockQueue();
     const SUB_WELDAGENT = mockQueue();
+    const SUB_REALTIME = mockQueue();
     const message = sampleMessage();
 
     const result = await fanOutHubMessage(message, {
@@ -42,19 +43,21 @@ describe('fanOutHubMessage', () => {
       SUB_WEBHOOKS,
       SUB_WELDCONNECT,
       SUB_WELDAGENT,
+      SUB_REALTIME,
     });
 
     expect(result.failed).toEqual([]);
     expect(result.succeeded.sort()).toEqual([
       'analytics',
       'audit',
+      'realtime',
       'search-index',
       'webhooks',
       'weldagent',
       'weldconnect',
     ]);
-    expect(SUB_WELDAGENT.send).toHaveBeenCalledWith(message);
-    expect(SUB_WELDAGENT.send.mock.calls[0]![0].id).toBe('evt_test01');
+    expect(SUB_REALTIME.send).toHaveBeenCalledWith(message);
+    expect(SUB_REALTIME.send.mock.calls[0]![0].id).toBe('evt_test01');
   });
 
   it('reports failure when one enqueue throws (caller should retry/not ack)', async () => {
@@ -68,6 +71,7 @@ describe('fanOutHubMessage', () => {
     const SUB_WEBHOOKS = mockQueue();
     const SUB_WELDCONNECT = mockQueue();
     const SUB_WELDAGENT = mockQueue();
+    const SUB_REALTIME = mockQueue();
 
     const result = await fanOutHubMessage(sampleMessage(), {
       SUB_AUDIT,
@@ -76,10 +80,12 @@ describe('fanOutHubMessage', () => {
       SUB_WEBHOOKS,
       SUB_WELDCONNECT,
       SUB_WELDAGENT,
+      SUB_REALTIME,
     });
 
     expect(result.succeeded.sort()).toEqual([
       'audit',
+      'realtime',
       'search-index',
       'webhooks',
       'weldagent',
@@ -97,6 +103,7 @@ describe('fanOutHubMessage', () => {
     expect(result.succeeded).toEqual(['audit']);
     expect(result.failed.map((f) => f.id).sort()).toEqual([
       'analytics',
+      'realtime',
       'search-index',
       'webhooks',
       'weldagent',
@@ -112,10 +119,14 @@ describe('fanOutHubMessage', () => {
       { id: 'all', topics: ['*'], queueBinding: 'SUB_ANALYTICS' },
     ]);
 
-    const result = await fanOutHubMessage(sampleMessage('order:created'), {
-      SUB_AUDIT,
-      SUB_ANALYTICS,
-    }, subscribers);
+    const result = await fanOutHubMessage(
+      sampleMessage('order:created'),
+      {
+        SUB_AUDIT,
+        SUB_ANALYTICS,
+      },
+      subscribers,
+    );
 
     expect(result.succeeded.sort()).toEqual(['all', 'orders']);
   });

@@ -16,8 +16,8 @@ export interface Env {
   SUB_WELDCONNECT: Queue<EntityEventMessage>;
   /** WeldAgent eventSubscriptions (Phase 5) → entity-agents* → app-api. */
   SUB_WELDAGENT: Queue<EntityEventMessage>;
-  /** Optional until later phases register these subscribers. */
-  SUB_REALTIME?: Queue<EntityEventMessage>;
+  /** Realtime WorkspaceHub bridge (Phase 6) → entity-realtime* → realtime-worker. */
+  SUB_REALTIME: Queue<EntityEventMessage>;
 }
 
 export type SubscriberQueueEnv = Pick<

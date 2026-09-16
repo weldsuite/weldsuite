@@ -18,6 +18,8 @@ import {
 import { getTenantDbForWorkspace } from './lib/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
+import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import { handleEntityRealtimeBatch } from './entity-realtime-consumer';
 
 // Re-export DO classes for wrangler
 export { WorkspaceHub } from './durable-objects/workspace-hub';
@@ -643,4 +645,17 @@ app.post('/publish/support/:workspaceId', async (c) => {
 
 app.get('/health', (c) => c.json({ status: 'ok', service: 'realtime-worker' }));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  /**
+   * Queue consumers:
+   * - entity-realtime* — entity-event → WorkspaceHub (Phase 6 hub SUB_REALTIME)
+   */
+  queue: async (batch: MessageBatch<EntityEventMessage>, env: Env) => {
+    if (batch.queue.startsWith('entity-realtime')) {
+      await handleEntityRealtimeBatch(batch, env);
+      return;
+    }
+    console.warn(`[realtime-worker] no consumer registered for queue "${batch.queue}"`);
+  },
+};

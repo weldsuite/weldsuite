@@ -3,8 +3,8 @@
  *
  * Fans out a single entity mutation to:
  *   1. ENTITY_EVENTS hub queue (entity-events-worker) — audit / analytics /
- *      search-index / webhooks / WeldConnect / WeldAgent fan-out in the hub
- *   2. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
+ *      search-index / webhooks / WeldConnect / WeldAgent / realtime fan-out
+ *      happens in the hub
  *
  * Phase 0: stopped producing to the unused WORKFLOW_EVENTS queue.
  * Phase 1: hub registry + dual-write-ready ENTITY_EVENTS path.
@@ -13,6 +13,7 @@
  * Phase 3: outbound webhooks → entity-webhooks* → integration-webhook-worker.
  * Phase 4: WeldConnect → entity-workflows* → workflow-worker.
  * Phase 5: WeldAgent → entity-agents* → app-api.
+ * Phase 6: realtime → entity-realtime* → realtime-worker (WorkspaceHub).
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -20,7 +21,6 @@
  */
 
 import type { Context } from 'hono';
-import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type {
   EntityEventMessage,
   EntityAction,
@@ -39,11 +39,10 @@ import type { TenantDb } from './internal-types';
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
   /**
    * Hub queue consumed by `entity-events-worker`, which fans out to
-   * audit / analytics / search-index / webhooks / WeldConnect / WeldAgent
-   * subscriber queues.
+   * audit / analytics / search-index / webhooks / WeldConnect / WeldAgent /
+   * realtime subscriber queues.
    */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
-  REALTIME?: Fetcher;
 }
 
 export interface EntityEventPublisherVariables {
@@ -89,7 +88,10 @@ export interface PublishEntityEventParams<
    */
   data: DataFor<E>;
   changes?: Record<string, { old: unknown; new: unknown }> | null;
-  /** When set, only these users receive the realtime event. */
+  /**
+   * When set, only these users receive the realtime event (carried on the
+   * hub message as `accessUserIds`; the realtime bridge stitches `_access`).
+   */
   accessUserIds?: string[];
   /** Defaults to `'api'`. */
   source?: EventSource;
@@ -131,6 +133,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     action,
     data,
     ...(changes ? { changes } : {}),
+    ...(accessUserIds?.length ? { accessUserIds } : {}),
     metadata: {
       workspaceId,
       userId,
@@ -141,7 +144,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Hub queue — fans out to audit / analytics / search / webhooks / weldconnect / weldagent
+  // Hub queue — fans out to all registry subscribers (incl. realtime Phase 6)
   if (env.ENTITY_EVENTS) {
     tasks.push(
       env.ENTITY_EVENTS.send(message)
@@ -150,27 +153,8 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
         )
         .catch((err: unknown) => console.error('[EntityEvents] Failed to publish hub event:', err)),
     );
-  }
-
-  // 2. Cloudflare DO realtime (stays on publish path until Phase 6)
-  if (workspaceId && env.REALTIME) {
-    tasks.push(
-      (async () => {
-        try {
-          const realtime = new RealtimePublisher(env.REALTIME!);
-          const realtimeData = accessUserIds
-            ? { ...(data as object), _access: { userIds: accessUserIds } }
-            : data;
-          await realtime.publish(workspaceId, entityType, action, realtimeData, userId);
-        } catch (err) {
-          console.error('[EntityEvents] Failed to publish realtime event:', err);
-        }
-      })(),
-    );
-  }
-
-  if (!env.ENTITY_EVENTS && !env.REALTIME) {
-    console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
+  } else {
+    console.warn('[EntityEvents] No ENTITY_EVENTS binding available — skipping publish');
   }
 
   return tasks;

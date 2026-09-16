@@ -45,6 +45,13 @@ export interface EntityEventMessage<T = Record<string, unknown>> {
   data: T;
   /** Only present on "updated" events. */
   changes?: Record<string, { old: unknown; new: unknown }>;
+  /**
+   * When set, the realtime bridge must publish with `_access.userIds` so
+   * WorkspaceHub only fans out to those users. Not stamped into `data` on
+   * the hub wire (keeps audit/webhooks/agents free of the access control
+   * field). Phase 6+.
+   */
+  accessUserIds?: string[];
   /** Contextual information. */
   metadata: {
     workspaceId: string;
