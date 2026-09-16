@@ -54,6 +54,13 @@ queue = "entity-webhooks-dev"
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows-dev"
 
+# Phase 5: WeldAgent eventSubscriptions → app-api
+#   wrangler queues create entity-agents-dev
+#   wrangler queues create entity-agents-dlq-dev
+[[queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -88,6 +95,10 @@ queue = "entity-webhooks-test"
 [[env.test.queues.producers]]
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows-test"
+
+[[env.test.queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents-test"
 
 [env.test.observability]
 enabled = true
@@ -127,6 +138,10 @@ queue = "entity-webhooks"
 [[env.production.queues.producers]]
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows"
+
+[[env.production.queues.producers]]
+binding = "SUB_WELDAGENT"
+queue = "entity-agents"
 
 [env.production.observability]
 enabled = true

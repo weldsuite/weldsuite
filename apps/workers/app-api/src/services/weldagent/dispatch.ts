@@ -1,10 +1,13 @@
 /**
  * Entity-event → WeldAgent dispatch.
  *
- * Registered into `@weldsuite/entity-events` so publishEntityEvent can fan out
- * to active agents without a dedicated Cloudflare queue.
+ * Phase 5: invoked from the entity-agents queue consumer on app-api (via the
+ * registered runner hook). Hub retries re-deliver the same evt_ id — skip
+ * agents that already have a run for that eventId.
  */
 
+import { and, eq, sql } from 'drizzle-orm';
+import { schema } from '../../db';
 import type { Env, Variables } from '../../types';
 import { findAgentsForEvent, createAgentRun } from './agents';
 import { executeAgentRun } from './run';
@@ -18,11 +21,30 @@ export interface WeldAgentDispatchMessage {
   action: string;
   entityId: string;
   data: Record<string, unknown>;
+  /** Entity-event id (`evt_…`) for hub-retry idempotency. */
+  eventId?: string;
+}
+
+/**
+ * True when this agent already has a run whose triggerData.eventId matches.
+ */
+export async function hasExistingAgentRunForEvent(
+  db: AgentDb,
+  agentId: string,
+  eventId: string,
+): Promise<boolean> {
+  const { weldagentAgentRuns: r } = schema;
+  const [existing] = await db
+    .select({ id: r.id })
+    .from(r)
+    .where(and(eq(r.agentId, agentId), sql`${r.triggerData}->>'eventId' = ${eventId}`))
+    .limit(1);
+  return Boolean(existing);
 }
 
 /**
  * Match active agents for an entity event, queue runs, and execute them.
- * Safe to call fire-and-forget — never throws to the publisher.
+ * Safe to call fire-and-forget — never throws to the publisher / queue ack.
  */
 export async function dispatchWeldAgentsForEvent(
   env: Env,
@@ -47,6 +69,16 @@ export async function dispatchWeldAgentsForEvent(
 
   for (const agent of agents) {
     try {
+      if (message.eventId) {
+        const exists = await hasExistingAgentRunForEvent(db, agent.id, message.eventId);
+        if (exists) {
+          console.log(
+            `[weldagent/dispatch] Skipping duplicate event ${message.eventId} for agent ${agent.id}`,
+          );
+          continue;
+        }
+      }
+
       const runId = await createAgentRun(db, {
         agentId: agent.id,
         status: 'queued',
@@ -57,6 +89,7 @@ export async function dispatchWeldAgentsForEvent(
           action: message.action,
           entityId: message.entityId,
           data: message.data,
+          ...(message.eventId ? { eventId: message.eventId } : {}),
         },
       });
 
@@ -72,7 +105,11 @@ export async function dispatchWeldAgentsForEvent(
         actorUserId: message.userId || agent.createdBy || 'system',
         agentId: agent.id,
         triggerType: 'event',
-        triggerData: { eventKey, entityId: message.entityId },
+        triggerData: {
+          eventKey,
+          entityId: message.entityId,
+          ...(message.eventId ? { eventId: message.eventId } : {}),
+        },
         userMessage: prompt,
         extraSystem: `Triggered by entity event ${eventKey}.`,
         runId,
