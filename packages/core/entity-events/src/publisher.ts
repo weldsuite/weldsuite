@@ -2,15 +2,19 @@
  * publishEntityEvent — the orchestrator.
  *
  * Fans out a single entity mutation to:
- *   1. AUDIT_EVENTS queue (audit-log-worker)
- *   2. ANALYTICS_EVENTS queue (analytics-worker)
+ *   0. ENTITY_EVENTS hub queue (entity-events-worker) — Phase 1 dual-write
+ *   1. AUDIT_EVENTS queue (audit-log-worker) — legacy until Phase 2 cutover
+ *   2. ANALYTICS_EVENTS queue (analytics-worker) — legacy until Phase 2 cutover
  *   3. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
  *   4. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
  *   5. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW (inline WeldConnect)
  *   6. Outbound webhooks + WeldAgent (inline)
  *
  * Phase 0: stopped producing to the unused WORKFLOW_EVENTS queue (no consumer).
- * WeldConnect continues via EXECUTE_WORKFLOW on this publish path.
+ * Phase 1: when `ENTITY_EVENTS` is bound, also enqueue once on the hub queue
+ * (dual-write). Legacy sinks still fire until Phase 2 cutover. Producer
+ * wrangler bindings for `ENTITY_EVENTS` are enabled in Phase 2 after
+ * subscriber idempotency, so Phase 1 does not double-deliver in production.
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -40,6 +44,11 @@ import type { TenantDb } from './internal-types';
 // ---------------------------------------------------------------------------
 
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
+  /**
+   * Hub queue consumed by `entity-events-worker`. When set, the publisher
+   * dual-writes the same message here in addition to legacy per-sink queues.
+   */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
   SEARCH_EVENTS?: Queue<EntityEventMessage>;
@@ -140,7 +149,17 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Audit queue
+  // 0. Hub queue (Phase 1 dual-write). Same message id is preserved for
+  // subscriber idempotency once producers bind ENTITY_EVENTS in Phase 2.
+  if (env.ENTITY_EVENTS) {
+    tasks.push(
+      env.ENTITY_EVENTS.send(message)
+        .then(() => console.log(`[EntityEvents] Published hub event ${message.eventType} for ${entityId}`))
+        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish hub event:', err)),
+    );
+  }
+
+  // 1. Audit queue (legacy until Phase 2 cutover)
   if (env.AUDIT_EVENTS) {
     tasks.push(
       env.AUDIT_EVENTS.send(message)
@@ -149,7 +168,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 2. Analytics queue
+  // 2. Analytics queue (legacy until Phase 2 cutover)
   if (env.ANALYTICS_EVENTS) {
     tasks.push(
       env.ANALYTICS_EVENTS.send(message)
@@ -187,6 +206,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
   }
 
   if (
+    !env.ENTITY_EVENTS &&
     !env.AUDIT_EVENTS &&
     !env.ANALYTICS_EVENTS &&
     !env.SEARCH_EVENTS &&
