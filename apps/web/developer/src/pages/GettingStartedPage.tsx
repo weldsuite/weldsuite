@@ -60,7 +60,7 @@ export function GettingStartedPage() {
             n={4}
             title={t.gettingStarted.step4Title}
             body={t.gettingStarted.step4Body}
-            code={`# bump version in weldapp.json\nweld app deploy --changelog "First release"`}
+            code={`# bump version in weldapp.json\nweld app deploy --changelog "First release"\nweld app versions\nweld app update\nweld app oauth --create`}
           />
           <Step
             n={5}

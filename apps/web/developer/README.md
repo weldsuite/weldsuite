@@ -41,5 +41,7 @@ projects (Git auto-deploy **off**) and attach custom domains:
 ## Related
 
 - Platform manage UI: `/apps/manage` on `app.weldsuite.org`
-- CLI: `@weldsuite/cli` (`weld app create|dev|deploy|publish`)
+- CLI: `@weldsuite/cli` (`weld app create|dev|deploy|publish|update|versions|oauth|delete`)
 - Plan: project store `docs/developer-portal.md`
+
+The portal is **optional**. Prefer the CLI for day-to-day create → deploy → publish.

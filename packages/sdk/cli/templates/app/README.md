@@ -15,10 +15,16 @@ npm install          # install dependencies
 
 export WELD_API_KEY=wsk_...   # workspace API key (Settings → API keys)
 weld app create      # register (scaffolds too if weldapp.json is missing)
+weld app info        # metadata / visibility / review
 weld app dev         # live preview in /apps/{code} (add --tunnel for the hosted platform)
 weld app deploy      # build + upload a new version (uses weldapp.json's version)
+weld app versions    # list uploaded versions
+weld app update      # sync metadata from weldapp.json
+weld app oauth --create  # optional server-to-server credentials
 weld app publish     # optional: submit to the public app store
 ```
+
+The developer portal is optional — this CLI covers create → deploy → publish → manage.
 
 ## Notes
 

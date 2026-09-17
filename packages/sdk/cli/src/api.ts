@@ -125,12 +125,16 @@ export interface UserAppSummary {
   id: string;
   code: string;
   name: string;
+  description?: string | null;
+  category?: string | null;
   visibility?: string;
   reviewStatus?: string;
   review_status?: string;
   installCount?: number;
   installs?: number;
   isActive?: boolean;
+  websiteUrl?: string | null;
+  privacyUrl?: string | null;
 }
 
 /** List the caller's apps. */
