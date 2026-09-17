@@ -20,7 +20,7 @@ Options:
   --webhook-url <url>   Empty string clears
   --active / --inactive Toggle isActive
 
-Requires WELD_API_KEY.
+Requires weld login (or WELD_API_KEY).
 `;
 
 function nullableUrl(value: string | undefined): string | null | undefined {

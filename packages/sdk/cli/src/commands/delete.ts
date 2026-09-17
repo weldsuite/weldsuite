@@ -14,7 +14,7 @@ Options:
   --code <code>     App code (default: weldapp.json)
   --yes             Skip the confirmation prompt
 
-Requires WELD_API_KEY.
+Requires weld login (or WELD_API_KEY).
 `;
 
 export async function run(args: ParsedArgs): Promise<void> {
