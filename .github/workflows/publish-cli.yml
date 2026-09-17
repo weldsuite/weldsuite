@@ -73,10 +73,6 @@ jobs:
       - name: Build (via prepublishOnly)
         run: pnpm --filter @weldsuite/cli build
 
-      - name: Strip test artifacts from dist
-        working-directory: packages/sdk/cli
-        run: find dist -name '*.test.js' -delete
-
       - name: Configure npm auth
         uses: actions/setup-node@v4
         with:

@@ -46,6 +46,8 @@ pnpm install   # from repo root if needed
 pnpm run typecheck
 pnpm test
 pnpm run build
+# `build` uses tsconfig.json which excludes `*.test.ts`, so dist/ has no test
+# artifacts (no Unix `find` / Windows-incompatible cleanup step).
 npm pack --dry-run   # expect dist/, templates/, README, LICENSE — no *.test.js
 
 # auth (pick one)
