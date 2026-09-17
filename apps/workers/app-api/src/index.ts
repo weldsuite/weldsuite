@@ -24,6 +24,7 @@ import { requestId } from './middleware/request-id';
 import { clerkMiddleware } from './middleware/clerk';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
 import { featureFlagsMiddleware } from './middleware/feature-flags';
+import { resolveCorsOrigin } from './lib/cors-origins';
 import { weldpassRoutes } from './routes/weldpass';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
@@ -323,19 +324,7 @@ app.use('*', logger());
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      if (origin && /\.welddesk\.org$/.test(origin)) return origin;
-      const allowed = [
-        'https://app.weldsuite.org',
-        'https://app-test.weldsuite.org',
-        'https://app-preview.weldsuite.org',
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-      ];
-      if (origin && allowed.includes(origin)) return origin;
-      return 'https://app.weldsuite.org';
-    },
+    origin: (origin) => resolveCorsOrigin(origin),
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // X-Test-Token / X-Test-Flags are the test-only seams (gated by env +
     // token in their respective middleware, inert in production). Allowing the
