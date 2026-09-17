@@ -24,7 +24,7 @@ Options:
   --user-id <id>     Clerk user id that should see the preview (required
                      with a workspace API key; personal keys infer it)
 
-Requires WELD_API_KEY. Optional WELD_DEV_USER_ID is equivalent to --user-id.
+Requires weld login or WELD_API_KEY. Optional WELD_DEV_USER_ID is equivalent to --user-id.
 `;
 
 const HEARTBEAT_MS = 30_000;

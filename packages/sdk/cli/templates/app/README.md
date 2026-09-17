@@ -14,6 +14,7 @@ A [WeldSuite](https://weldsuite.org) app scaffolded with `weld app init`. It run
 npm install          # install dependencies
 
 export WELD_API_KEY=wsk_...   # workspace API key (Settings → API keys)
+# or: weld login
 weld app create      # register (scaffolds too if weldapp.json is missing)
 weld app dev         # live preview in /apps/{code} (add --tunnel for the hosted platform)
 weld app deploy      # build + upload a new version (uses weldapp.json's version)

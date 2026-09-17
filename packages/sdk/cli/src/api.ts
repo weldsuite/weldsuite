@@ -1,52 +1,39 @@
-import { bold, cyan } from './log.js';
+import { cyan } from './log.js';
+import { missingAuthMessage, readCredentials } from './credentials.js';
+import { defaultExternalApiUrl } from './env.js';
+import { ApiError, CliError } from './errors.js';
 
-const DEFAULT_API_URL = 'https://api.weldsuite.org';
+export { ApiError, CliError } from './errors.js';
 
 export interface CliConfig {
   apiKey: string;
   apiUrl: string;
+  /** True when auth came from WELD_API_KEY rather than the credentials file. */
+  fromEnv: boolean;
 }
 
-/** Error whose message is already user-friendly — rendered without a stack trace. */
-export class CliError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CliError';
-  }
-}
-
-/** A structured `{ error: { code, message } }` response from the API. */
-export class ApiError extends CliError {
-  readonly code: string;
-  readonly status: number;
-
-  constructor(message: string, code: string, status: number) {
-    super(message);
-    this.name = 'ApiError';
-    this.code = code;
-    this.status = status;
-  }
-}
-
-/** Read WELD_API_KEY / WELD_API_URL from the environment. */
+/**
+ * Resolve API credentials.
+ *
+ * Precedence: `WELD_API_KEY` (CI / scripts) → local `weld login` session → error.
+ * `WELD_API_URL` overrides the stored/default external-api base when set.
+ */
 export function loadConfig(): CliConfig {
-  const apiKey = process.env.WELD_API_KEY;
-  if (!apiKey) {
-    throw new CliError(
-      [
-        `${bold('WELD_API_KEY is not set.')}`,
-        '',
-        'The weld CLI talks to the WeldSuite API with a workspace API key (wsk_…).',
-        'Create one in your workspace under Settings → API keys, then run:',
-        '',
-        `  ${cyan('export WELD_API_KEY=wsk_...')}`,
-        '',
-        `Optionally set ${cyan('WELD_API_URL')} to target a non-production API (default: ${DEFAULT_API_URL}).`,
-      ].join('\n'),
-    );
+  const envKey = process.env.WELD_API_KEY;
+  const envUrl = process.env.WELD_API_URL;
+
+  if (envKey) {
+    const apiUrl = (envUrl ?? defaultExternalApiUrl()).replace(/\/+$/, '');
+    return { apiKey: envKey, apiUrl, fromEnv: true };
   }
-  const apiUrl = (process.env.WELD_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, '');
-  return { apiKey, apiUrl };
+
+  const stored = readCredentials();
+  if (stored) {
+    const apiUrl = (envUrl ?? stored.apiUrl ?? defaultExternalApiUrl()).replace(/\/+$/, '');
+    return { apiKey: stored.apiKey, apiUrl, fromEnv: false };
+  }
+
+  throw new CliError(missingAuthMessage());
 }
 
 interface ApiErrorBody {
@@ -108,7 +95,11 @@ export async function apiRequest<T>(
     const code = errorBody?.code ?? 'http_error';
     const message = errorBody?.message ?? `HTTP ${response.status} ${response.statusText}`;
     if (response.status === 401) {
-      throw new ApiError(`${message}\nYour WELD_API_KEY was rejected — check it is a valid wsk_… key.`, code, 401);
+      throw new ApiError(
+        `${message}\nCredentials were rejected — run ${cyan('weld login')} again or check WELD_API_KEY.`,
+        code,
+        401,
+      );
     }
     throw new ApiError(`${message} ${`(${code}, HTTP ${response.status})`}`, code, response.status);
   }

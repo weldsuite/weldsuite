@@ -235,6 +235,7 @@ import { accessRequestsRoutes } from './routes/access-requests';
 import { searchRoutes } from './routes/search';
 import { workspaceSettingsRoutes } from './routes/workspace-settings';
 import { authDesktopRoutes } from './routes/auth-desktop';
+import { cliAuthRoutes } from './routes/cli-auth';
 import { accountRoutes } from './routes/account';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
@@ -410,6 +411,10 @@ app.route('/public/user-apps', publicUserAppsRoutes);
 // itself; mounting here (BEFORE the global /api/* workspaceDb guard) skips the
 // org requirement. Must stay ABOVE the app.use('/api/*', ...) line below.
 app.route('/api/auth-desktop', authDesktopRoutes);
+
+// CLI device-code login — PUBLIC for /device + /token; /approve applies Clerk
+// + workspace itself. Must stay ABOVE the global /api/* workspaceDb guard.
+app.route('/api/cli-auth', cliAuthRoutes);
 
 // Account self-service (deletion) — Clerk-authenticated but org-LESS: a user
 // without any workspace must still be able to delete their account (Google

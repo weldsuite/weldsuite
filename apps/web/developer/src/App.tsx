@@ -4,12 +4,14 @@ import { AppsPage } from '@/pages/AppsPage';
 import { CreateAppPage } from '@/pages/CreateAppPage';
 import { AppDetailPage } from '@/pages/AppDetailPage';
 import { GettingStartedPage } from '@/pages/GettingStartedPage';
+import { CliAuthPage } from '@/pages/CliAuthPage';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
+      <Route path="/cli-auth" element={<CliAuthPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>

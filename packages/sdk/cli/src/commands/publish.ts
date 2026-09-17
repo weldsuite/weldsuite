@@ -11,7 +11,7 @@ POST /v1/user-apps/:id/submit.
 Options:
   --notes <text>     Notes for the review team
 
-Requires WELD_API_KEY.
+Requires weld login or WELD_API_KEY.
 `;
 
 export async function run(args: ParsedArgs): Promise<void> {
