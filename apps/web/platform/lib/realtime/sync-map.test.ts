@@ -184,8 +184,9 @@ describe('platformSyncMap — WeldStash', () => {
     ]);
   });
 
-  it('product publisher + wms_product alias invalidate products/stock', () => {
+  it('product publisher invalidates commerce + stash; wms_product stays stash', () => {
     expect(platformSyncMap.product?.invalidate).toEqual([
+      ['weldcommerce', 'products'],
       ['weldstash', 'products'],
       ['weldstash', 'stock'],
     ]);
@@ -237,6 +238,130 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.wms_category?.invalidate).toEqual([
       ['weldstash', 'categories'],
       ['weldstash', 'products'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldCommerce', () => {
+  const COMMERCE_CATALOG = [
+    'order',
+    'commerce_order',
+    'product',
+    'category',
+    'commerce_customer',
+    'discount',
+    'website',
+    'website_domain',
+    'website_page',
+    'website_section',
+    'cart',
+    'return',
+    'return_reason',
+    'return_rule',
+    'shipment',
+    'shipping_price',
+    'shipping_rule',
+  ] as const;
+
+  it('covers all 17 commerce catalog entity types', () => {
+    for (const topic of COMMERCE_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('product dual-maps commerce + stash; category/orders match commerceKeys', () => {
+    expect(platformSyncMap.product?.invalidate).toEqual([
+      ['weldcommerce', 'products'],
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.category?.invalidate).toEqual([
+      ['weldcommerce', 'categories'],
+      ['weldcommerce', 'products'],
+    ]);
+    expect(platformSyncMap.commerce_order?.invalidate).toEqual([
+      ['weldcommerce', 'orders'],
+    ]);
+    expect(platformSyncMap.order?.invalidate).toEqual([['weldcommerce', 'orders']]);
+  });
+
+  it('commerce_customer aliases CRM people/companies roots', () => {
+    expect(platformSyncMap.commerce_customer?.invalidate).toEqual([
+      ['companies'],
+      ['people'],
+    ]);
+  });
+
+  it('provisional fulfillment + website builder prefixes use weldcommerce', () => {
+    expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
+    expect(platformSyncMap.website?.invalidate).toEqual([['weldcommerce', 'websites']]);
+    expect(platformSyncMap.website_domain?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-domains'],
+    ]);
+    expect(platformSyncMap.website_page?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-pages'],
+    ]);
+    expect(platformSyncMap.website_section?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-sections'],
+      ['weldcommerce', 'website-pages'],
+    ]);
+    expect(platformSyncMap.cart?.invalidate).toEqual([['weldcommerce', 'carts']]);
+    expect(platformSyncMap.return?.invalidate).toEqual([['weldcommerce', 'returns']]);
+    expect(platformSyncMap.return_reason?.invalidate).toEqual([
+      ['weldcommerce', 'return-reasons'],
+    ]);
+    expect(platformSyncMap.return_rule?.invalidate).toEqual([
+      ['weldcommerce', 'return-rules'],
+    ]);
+    expect(platformSyncMap.shipment?.invalidate).toEqual([['weldcommerce', 'shipments']]);
+    expect(platformSyncMap.shipping_price?.invalidate).toEqual([
+      ['weldcommerce', 'shipping-prices'],
+    ]);
+    expect(platformSyncMap.shipping_rule?.invalidate).toEqual([
+      ['weldcommerce', 'shipping-rules'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldHost', () => {
+  const HOST_CATALOG = [
+    'domain',
+    'domain_transfer',
+    'dns_record',
+    'dns_zone',
+    'email_forward',
+    'voip_phone_number',
+    'voip_porting_order',
+  ] as const;
+
+  it('covers all 7 host catalog entity types', () => {
+    for (const topic of HOST_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('domain/dns/voip keys match hostKeys + phone/porting hooks', () => {
+    expect(platformSyncMap.domain?.invalidate).toEqual([
+      ['host', 'domains'],
+      ['host', 'dashboard'],
+    ]);
+    expect(platformSyncMap.domain_transfer?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.dns_record?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.dns_zone?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.voip_phone_number?.invalidate).toEqual([
+      ['phone-numbers'],
+      ['crm', 'voip-calls', 'phone-numbers'],
+    ]);
+    expect(platformSyncMap.voip_porting_order?.invalidate).toEqual([['porting']]);
+  });
+
+  it('email_forward invalidates provisional forwards + domains', () => {
+    expect(platformSyncMap.email_forward?.invalidate).toEqual([
+      ['host', 'email-forwards'],
+      ['host', 'domains'],
     ]);
   });
 });

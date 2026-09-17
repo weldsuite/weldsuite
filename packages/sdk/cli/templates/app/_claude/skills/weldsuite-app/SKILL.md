@@ -61,7 +61,9 @@ The SDK implements this, you rarely touch raw messages, but knowing the lifecycl
 
 Consequences:
 
-- `connect()` **fails after 10s outside WeldSuite** (e.g. a plain `vite dev` tab). Use `weld app dev` so the platform iframes your local server.
+- `connect()` **fails outside WeldSuite** unless you opt into **local preview** (`localDev: true`, `?weldLocal=1`, or `window.__WELD_LOCAL_DEV__`). Local mode never activates while iframed — production host security is unchanged.
+- Local preview: mock user/theme/locale, in-memory `records`/`kv`, no-op `toast`/`navigate`, banner “Local preview — not connected to WeldSuite”. Other `/v1/*` calls error with `local_preview`.
+- For real host + API: use `weld app dev` (optional `--tunnel`) so the platform iframes your Vite server at `/apps/{code}`.
 - Tokens are short-lived. The SDK caches them and refreshes 60s before expiry; a 401 triggers one refresh + retry. Never store the token yourself.
 - Request timeout is 15s.
 
@@ -76,7 +78,7 @@ Install: `npm install @weldsuite/app-sdk`. Two entry points: core (`@weldsuite/a
 import { WeldAppProvider, WeldAppGate } from '@weldsuite/app-sdk/react';
 
 createRoot(rootElement).render(
-  <WeldAppProvider>
+  <WeldAppProvider localDev={import.meta.env.DEV}>
     <WeldAppGate fallback={<p>Connecting…</p>}>
       <App />
     </WeldAppGate>
@@ -171,7 +173,7 @@ Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) 
 | --- | --- |
 | `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill). |
 | `weld app create [dir]` | Scaffold if needed, then register the app from `weldapp.json`. |
-| `weld app dev [--port --tunnel --user-id]` | Live preview: Vite + per-user iframe URL at `/apps/{code}`. |
+| `weld app dev [--port --tunnel --user-id]` | Live preview inside WeldSuite: Vite + per-user iframe URL at `/apps/{code}`. For bare localhost UI (no host), `npm run dev` + SDK `localDev`. |
 | `weld app deploy [--dir dist] [--changelog text] [--skip-build]` | Validate manifest → run build → upload `dist/**` as a new version. |
 | `weld app publish [--notes text]` | Submit for public app-store review. |
 | `weld app list` | Table of your apps (code, name, visibility, review status, installs). |
