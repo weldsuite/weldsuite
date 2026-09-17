@@ -280,9 +280,13 @@ export const platformSyncMap: EntitySyncMap = {
   // both keys so either emitter refreshes stock/movements.
   inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   wms_inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
-  // Product CRUD publishes commerce catalog `product`; `wms_product` is the
-  // catalog twin for connectors/future emitters.
-  product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
+  // Shared `products` table: commerce + WMS UIs both listen. Catalog twin
+  // `wms_product` covers connectors/future emitters.
+  product: inv(
+    ['weldcommerce', 'products'],
+    ['weldstash', 'products'],
+    ['weldstash', 'stock'],
+  ),
   wms_product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_adjustment: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   picklist: inv(['weldstash', 'pickLists'], ['weldstash', 'stock']),
@@ -299,6 +303,38 @@ export const platformSyncMap: EntitySyncMap = {
   wms_cycle_count: inv(['weldstash', 'cycle-counts'], ['weldstash', 'stock']),
   wms_order: inv(['weldstash', 'orders']),
   wms_category: inv(['weldstash', 'categories'], ['weldstash', 'products']),
+
+  // =========================================================================
+  // WeldCommerce — Products, Orders, Fulfillment, Website builder (catalog)
+  // =========================================================================
+  // Real UI today: products / categories / orders via commerceKeys
+  // (`['weldcommerce', …]` in use-commerce-queries.ts). Runtime order routes
+  // publish `commerce_order`; connector ingest may emit legacy `order`.
+  category: inv(['weldcommerce', 'categories'], ['weldcommerce', 'products']),
+  commerce_order: inv(['weldcommerce', 'orders']),
+  order: inv(['weldcommerce', 'orders']),
+  // Commerce customers UI is people/companies filters; primary sync is
+  // company/person. Alias covers any future commerce_customer emitters.
+  commerce_customer: inv(['companies'], ['people']),
+  // Provisional kebab prefixes — API (and/or catalog) ahead of list hooks.
+  discount: inv(['weldcommerce', 'discounts']),
+  website: inv(['weldcommerce', 'websites']),
+  website_domain: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-domains']),
+  // Builder pages/sections: dual-invalidate so future detail hooks under
+  // website-pages / website-sections refresh without bare ['weldcommerce'].
+  website_page: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-pages']),
+  website_section: inv(
+    ['weldcommerce', 'websites'],
+    ['weldcommerce', 'website-sections'],
+    ['weldcommerce', 'website-pages'],
+  ),
+  cart: inv(['weldcommerce', 'carts']),
+  return: inv(['weldcommerce', 'returns']),
+  return_reason: inv(['weldcommerce', 'return-reasons']),
+  return_rule: inv(['weldcommerce', 'return-rules']),
+  shipment: inv(['weldcommerce', 'shipments']),
+  shipping_price: inv(['weldcommerce', 'shipping-prices']),
+  shipping_rule: inv(['weldcommerce', 'shipping-rules']),
 
   // =========================================================================
   // WeldDesk — Helpdesk
@@ -401,10 +437,14 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // WeldHost — Domains, DNS, VoIP
   // =========================================================================
+  // hostKeys: domains / dashboard / nested dns under domains/:id/dns.
+  // VoIP uses phoneNumberKeys + portingKeys (not under hostKeys).
   domain: inv(['host', 'domains'], ['host', 'dashboard']),
   domain_transfer: inv(['host']),
   dns_record: inv(['host']),
   dns_zone: inv(['host']),
+  // No list hooks yet; domain detail shows emailForwardingEnabled flag.
+  email_forward: inv(['host', 'email-forwards'], ['host', 'domains']),
   voip_phone_number: inv(['phone-numbers'], ['crm', 'voip-calls', 'phone-numbers']),
   voip_porting_order: inv(['porting']),
 
