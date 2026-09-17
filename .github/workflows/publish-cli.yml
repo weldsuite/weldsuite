@@ -1,0 +1,101 @@
+name: Publish Weld CLI
+
+# Publishes @weldsuite/cli to the public npm registry.
+# Requires repo secret NPM_TOKEN (npm Automation token with publish on @weldsuite).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to publish (must match or update package.json)'
+        required: true
+        default: '0.1.0'
+      dist_tag:
+        description: 'npm dist-tag'
+        required: true
+        default: 'latest'
+        type: choice
+        options:
+          - latest
+          - next
+          - beta
+          - alpha
+  push:
+    tags:
+      - 'cli-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          node-version: '22'
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${GITHUB_REF_NAME#cli-v}"
+            echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.dist_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${GITHUB_REF_NAME}" in
+              *beta*) echo "tag=beta" >> "$GITHUB_OUTPUT" ;;
+              *alpha*) echo "tag=alpha" >> "$GITHUB_OUTPUT" ;;
+              *rc*|*next*) echo "tag=next" >> "$GITHUB_OUTPUT" ;;
+              *) echo "tag=latest" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Set package version
+        working-directory: packages/sdk/cli
+        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Typecheck
+        run: pnpm --filter @weldsuite/cli typecheck
+
+      - name: Test
+        run: pnpm --filter @weldsuite/cli test
+
+      - name: Build (via prepublishOnly)
+        run: pnpm --filter @weldsuite/cli build
+
+      - name: Strip test artifacts from dist
+        working-directory: packages/sdk/cli
+        run: find dist -name '*.test.js' -delete
+
+      - name: Configure npm auth
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        working-directory: packages/sdk/cli
+        run: npm publish --access public --tag "${{ steps.ver.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        run: |
+          {
+            echo "## Published @weldsuite/cli"
+            echo ""
+            echo "- version: \`${{ steps.ver.outputs.version }}\`"
+            echo "- dist-tag: \`${{ steps.ver.outputs.tag }}\`"
+            echo "- install: \`npm install -g @weldsuite/cli\`"
+            echo "- page: https://www.npmjs.com/package/@weldsuite/cli"
+          } >> "$GITHUB_STEP_SUMMARY"
