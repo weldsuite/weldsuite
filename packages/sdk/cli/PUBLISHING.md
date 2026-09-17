@@ -92,7 +92,9 @@ pnpm install
 pnpm run typecheck    # CLI / app-sdk scripts differ slightly
 pnpm test             # CLI only
 pnpm run build
-npm pack --dry-run
+# `build` uses tsconfig.json which excludes `*.test.ts`, so dist/ has no test
+# artifacts (no Unix `find` / Windows-incompatible cleanup step).
+npm pack --dry-run   # expect dist/, templates/, README, LICENSE — no *.test.js
 
 # interactive auth — prefer this over Automation tokens
 npm login
