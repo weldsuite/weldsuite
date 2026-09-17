@@ -36,7 +36,20 @@ WeldApps are separate Vite frontends. The platform loads them in a sandboxed ifr
 
 ---
 
-## Preview locally (`weld app dev`)
+## Preview locally
+
+### Bare localhost (no platform host)
+
+The scaffold opts into SDK **local preview** in Vite DEV. Start Vite and open the URL in a normal tab:
+
+```bash
+npm run dev
+# open http://localhost:5173/
+```
+
+You get a mock user, in-memory app storage, and a banner (“Local preview — not connected to WeldSuite”). Real CRM/people API calls need the platform path below. Opt-in alternatives: `?weldLocal=1`, or `createWeldApp({ localDev: true })`.
+
+### Inside WeldSuite (`weld app dev`)
 
 ```bash
 weld app dev
@@ -47,8 +60,6 @@ This starts Vite and registers a **per-user** preview URL. Open `/apps/{code}` i
 - Platform on `localhost:3000` → no tunnel.
 - Hosted platform (`https://app-test.weldsuite.org`) cannot iframe `http://localhost`. Re-run with `weld app dev --tunnel` (Cloudflare quick tunnel).
 - Workspace API keys have no user: pass `--user-id` or `WELD_DEV_USER_ID` (your Clerk user id).
-
-A plain `vite` tab is expected to fail the host handshake after 10 seconds.
 
 ---
 

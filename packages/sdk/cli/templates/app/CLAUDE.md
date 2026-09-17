@@ -39,5 +39,5 @@ Every collection used in code must be declared in `weldapp.json` → `collection
 ## Rules
 
 - Keep TypeScript strict; no `any`, no `@ts-ignore`.
-- The bridge only connects inside WeldSuite. Use `weld app dev` (optional `--tunnel`) so `/apps/{code}` iframes your Vite server. A plain `vite dev` tab will show the connect-timeout error; that is expected.
+- The bridge connects inside WeldSuite, or in **local preview** when `localDev` is opted in (scaffold uses `import.meta.env.DEV`). Open `http://localhost:5173/` for UI + in-memory storage without the host; use `weld app dev` (optional `--tunnel`) for real integration at `/apps/{code}`.
 - New user-visible behaviour should respect `theme` and degrade gracefully while `status !== 'ready'`.

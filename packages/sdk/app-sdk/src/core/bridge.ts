@@ -1,3 +1,10 @@
+import {
+  buildLocalInitPayload,
+  buildLocalTokenInfo,
+  LocalMemoryStore,
+  shouldUseLocalDev,
+  type WeldAppBridgeOptions,
+} from './local-dev';
 import type {
   AppMessage,
   BridgeEventName,
@@ -36,6 +43,10 @@ function expiresAtMs(value: string | number): number {
  * WeldSuite platform, calls `connect()` (posts `weldapp:ready`), and receives
  * `weldapp:init` with the app code, theme, locale, API base URL, a
  * workspace-scoped access token, and the current user.
+ *
+ * Local preview: pass `{ localDev: true }` (or `?weldLocal=1`) when opening
+ * the Vite server outside the platform shell. Production iframe security is
+ * unchanged — local mode never activates while embedded.
  */
 export class WeldAppBridge {
   private initPayload: InitPayload | null = null;
@@ -47,6 +58,25 @@ export class WeldAppBridge {
   private tokenInfo: WeldTokenInfo | null = null;
   private tokenRefreshPromise: Promise<WeldTokenInfo> | null = null;
   private listening = false;
+  private localDevActive = false;
+  private readonly options: WeldAppBridgeOptions;
+  private memoryStore: LocalMemoryStore | null = null;
+
+  constructor(options: WeldAppBridgeOptions = {}) {
+    this.options = options;
+    // Resolve eagerly so WeldApi can branch before connect() finishes.
+    this.activateLocalDevIfNeeded();
+  }
+
+  /** True when running in local preview (mock host, no platform iframe). */
+  get isLocalDev(): boolean {
+    return this.localDevActive;
+  }
+
+  /** In-memory storage used only when {@link isLocalDev} is true. */
+  get localStore(): LocalMemoryStore | null {
+    return this.memoryStore;
+  }
 
   /** The init payload, once connected. Theme/locale stay current with host events. */
   get init(): InitPayload | null {
@@ -61,9 +91,23 @@ export class WeldAppBridge {
    * Perform the handshake with the WeldSuite host. Idempotent — concurrent
    * and repeated calls share one handshake. Rejects after 10s with a hint
    * that the app is probably not running inside WeldSuite.
+   *
+   * In local preview mode, resolves immediately with a mock payload.
    */
   connect(): Promise<InitPayload> {
     if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    // Re-check in case the constructor ran before window was ready, or the
+    // URL gained `?weldLocal=1` after construction.
+    this.activateLocalDevIfNeeded();
+
+    if (this.localDevActive) {
+      const payload = buildLocalInitPayload(this.options.local);
+      this.initPayload = payload;
+      this.tokenInfo = buildLocalTokenInfo(payload);
+      this.connectPromise = Promise.resolve(payload);
       return this.connectPromise;
     }
 
@@ -80,8 +124,11 @@ export class WeldAppBridge {
         reject(
           new Error(
             '@weldsuite/app-sdk: this page is not embedded in an iframe. ' +
-              'WeldSuite apps only run inside the WeldSuite platform — install the app in a workspace ' +
-              'and open it there, or use `weld app deploy` to upload a new version.',
+              'WeldSuite apps normally run inside the WeldSuite platform — open `/apps/{code}` there, ' +
+              'or use `weld app deploy` to upload a new version. ' +
+              'For UI-only local preview without the host, opt in: pass `{ localDev: true }` to ' +
+              '`createWeldApp` / `<WeldAppProvider>`, open with `?weldLocal=1`, or set ' +
+              '`window.__WELD_LOCAL_DEV__ = true`.',
           ),
         );
         return;
@@ -93,7 +140,8 @@ export class WeldAppBridge {
           new Error(
             '@weldsuite/app-sdk: timed out after 10s waiting for the WeldSuite host to reply to `weldapp:ready`. ' +
               'This usually means the app is running outside WeldSuite (e.g. a plain `vite dev` tab). ' +
-              'Open the app from within your WeldSuite workspace instead.',
+              'Open the app from within your WeldSuite workspace, or enable local preview ' +
+              '(`localDev: true` / `?weldLocal=1`).',
           ),
         );
       }, CONNECT_TIMEOUT_MS);
@@ -120,10 +168,15 @@ export class WeldAppBridge {
 
   /**
    * Send a correlated request to the host and await its response.
-   * Times out after 15s.
+   * Times out after 15s. In local preview, host methods are stubbed.
    */
   async request<TResult = unknown>(method: BridgeRequestMethod, payload?: unknown): Promise<TResult> {
     await this.connect();
+
+    if (this.localDevActive) {
+      return this.handleLocalRequest<TResult>(method, payload);
+    }
+
     const id = `req_${++this.requestCounter}_${Math.random().toString(36).slice(2, 10)}`;
 
     return new Promise<TResult>((resolve, reject) => {
@@ -179,6 +232,12 @@ export class WeldAppBridge {
       }
     }
 
+    if (this.localDevActive) {
+      const info = buildLocalTokenInfo(this.initPayload ?? buildLocalInitPayload(this.options.local));
+      this.tokenInfo = info;
+      return info;
+    }
+
     if (!this.tokenRefreshPromise) {
       this.tokenRefreshPromise = this.request<WeldTokenInfo>('getToken')
         .then((info) => {
@@ -216,6 +275,45 @@ export class WeldAppBridge {
     this.listeners.clear();
     this.connectPromise = null;
     this.initResolve = null;
+  }
+
+  private activateLocalDevIfNeeded(): void {
+    if (this.localDevActive) {
+      return;
+    }
+    if (!shouldUseLocalDev(this.options)) {
+      return;
+    }
+    this.localDevActive = true;
+    this.memoryStore = new LocalMemoryStore();
+  }
+
+  private handleLocalRequest<TResult>(method: BridgeRequestMethod, payload?: unknown): TResult {
+    switch (method) {
+      case 'getToken': {
+        const info = buildLocalTokenInfo(this.initPayload ?? buildLocalInitPayload(this.options.local));
+        this.tokenInfo = info;
+        return info as TResult;
+      }
+      case 'navigate': {
+        if (typeof console !== 'undefined' && console.debug) {
+          const to = (payload as { to?: string } | undefined)?.to;
+          console.debug(`[weld local preview] navigate(${JSON.stringify(to ?? '')}) — no-op`);
+        }
+        return undefined as TResult;
+      }
+      case 'toast': {
+        if (typeof console !== 'undefined' && console.debug) {
+          const message = (payload as { message?: string; variant?: string } | undefined)?.message;
+          const variant = (payload as { variant?: string } | undefined)?.variant ?? 'default';
+          console.debug(`[weld local preview] toast(${JSON.stringify(message ?? '')}, ${variant}) — no-op`);
+        }
+        return undefined as TResult;
+      }
+      default: {
+        throw new Error(`@weldsuite/app-sdk: unknown host method "${method as string}" in local preview.`);
+      }
+    }
   }
 
   private attachListener(): void {

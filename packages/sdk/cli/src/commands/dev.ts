@@ -13,6 +13,11 @@ Starts the Vite dev server and registers a per-user preview URL so the
 platform iframe at /apps/{code} loads your local build (hot reload). Other
 workspace members keep seeing the published bundle.
 
+For UI-only work without the platform shell, run ${cyan('npm run dev')} and
+open localhost in a bare tab — the scaffold enables SDK ${cyan('localDev')}
+in Vite DEV (mock host + in-memory storage). Use this command (or
+${cyan('--tunnel')}) when you need the real host bridge and API.
+
 HTTPS mixed content: the hosted platform cannot iframe http://localhost.
 Use ${cyan('--tunnel')} (Cloudflare quick tunnel) when developing against
 app-test.weldsuite.org / app.weldsuite.org. Skip the tunnel when the
