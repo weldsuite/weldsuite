@@ -16,6 +16,7 @@ import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedContr
 import type { SocialApproval, SocialPost } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { APPROVAL_STATUS_META, formatDateTime } from '@/lib/social';
 
 type Segment = 'pending' | 'decided';
@@ -64,6 +65,15 @@ export default function ApprovalsScreen() {
   }, [segment]);
 
   const { data, loading, refreshing, error, refresh, reload } = useAsyncData(fetcher);
+
+  useSocialRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'approvals' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   const openDecision = (approval: SocialApproval, status: Decision['status']) => {
     setNotes('');

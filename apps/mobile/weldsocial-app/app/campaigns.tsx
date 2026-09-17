@@ -15,6 +15,7 @@ import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { CAMPAIGN_STATUS_META, formatDateTime } from '@/lib/social';
 
 export default function CampaignsScreen() {
@@ -30,6 +31,15 @@ export default function CampaignsScreen() {
 
   const fetcher = useCallback(async () => (await appApi.social.campaigns.list({ limit: 100 })).data, []);
   const { data: campaigns, loading, refreshing, error, refresh, reload } = useAsyncData(fetcher);
+
+  useSocialRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'campaigns' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   const handleCreate = async () => {
     if (!name.trim()) return;
