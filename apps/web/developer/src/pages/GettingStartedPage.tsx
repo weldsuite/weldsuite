@@ -42,7 +42,7 @@ export function GettingStartedPage() {
             n={1}
             title={t.gettingStarted.step1Title}
             body={t.gettingStarted.step1Body}
-            code={`npm install -g @weldsuite/cli\nexport WELD_API_KEY=wsk_...`}
+            code={`npm install -g @weldsuite/cli\nweld login\n# or for CI: export WELD_API_KEY=wsk_...`}
           />
           <Step
             n={2}
@@ -60,7 +60,7 @@ export function GettingStartedPage() {
             n={4}
             title={t.gettingStarted.step4Title}
             body={t.gettingStarted.step4Body}
-            code={`# bump version in weldapp.json\nweld app deploy --changelog "First release"`}
+            code={`# bump version in weldapp.json\nweld app deploy --changelog "First release"\nweld app versions\nweld app update\nweld app oauth --create`}
           />
           <Step
             n={5}

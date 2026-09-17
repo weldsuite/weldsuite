@@ -4,11 +4,16 @@ import { CliError } from './api.js';
 import { parseArgs, type ParsedArgs } from './args.js';
 import { bold, cyan, error as logError, info } from './log.js';
 import * as appCreate from './commands/create.js';
+import * as appDelete from './commands/delete.js';
 import * as appDeploy from './commands/deploy.js';
 import * as appDev from './commands/dev.js';
+import * as appInfo from './commands/info.js';
 import * as appInit from './commands/init.js';
 import * as appList from './commands/list.js';
+import * as appOauth from './commands/oauth.js';
 import * as appPublish from './commands/publish.js';
+import * as appUpdate from './commands/update.js';
+import * as appVersions from './commands/versions.js';
 import * as skillInstall from './commands/skill-install.js';
 import * as login from './commands/login.js';
 import * as logout from './commands/logout.js';
@@ -25,10 +30,15 @@ const COMMANDS: Record<string, Command> = {
   whoami,
   'app init': appInit,
   'app create': appCreate,
+  'app info': appInfo,
+  'app list': appList,
+  'app update': appUpdate,
+  'app versions': appVersions,
   'app dev': appDev,
   'app deploy': appDeploy,
   'app publish': appPublish,
-  'app list': appList,
+  'app oauth': appOauth,
+  'app delete': appDelete,
   'skill install': skillInstall,
 };
 
@@ -45,10 +55,15 @@ Auth:
 App commands:
   app init [dir]        Scaffold a new WeldSuite app (Vite + React + app-sdk)
   app create [dir]      Scaffold if needed, then register the app in your workspace
+  app info              Show one app's metadata (visibility, review, listing)
+  app list              List your workspace's apps
+  app update            Patch metadata (from weldapp.json or flags)
+  app versions          List uploaded versions
   app dev               Run locally inside the WeldSuite iframe (optional --tunnel)
   app deploy            Build the app and upload a new version
-  app publish           Submit the app for public-store review
-  app list              List your workspace's apps
+  app publish           Submit the app for public-store review (sets visibility public)
+  app oauth             Create, rotate, or show the app OAuth client
+  app delete            Soft-delete the app (--yes to skip confirm)
 
 Skill commands:
   skill install         Install the weldsuite-app Claude skill into ./.claude/
@@ -63,6 +78,11 @@ Environment:
   WELD_APP_API_URL      app-api base for weld login (default: derived from WELD_API_URL)
   WELD_LOGIN_URL        Developer portal origin for weld login
   WELD_DEV_USER_ID      Clerk user id for weld app dev (required with workspace keys)
+
+Auth note:
+  Prefer ${cyan('weld login')} (Clerk device code → personal wsk_…).
+  For CI, set WELD_API_KEY to a workspace/personal key with user-apps:manage.
+  The developer portal remains optional for the same manage flows.
 `;
 
 function readVersion(): string {

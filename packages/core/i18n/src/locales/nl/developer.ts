@@ -13,10 +13,11 @@ export const developer = {
   },
   apps: {
     title: 'Uw apps',
-    subtitle: 'Maak WeldApps aan, deploy ze en beheer ze voor uw werkruimte.',
+    subtitle: 'Optionele web-UI — de Weld CLI dekt het volledige pad create → deploy → publish.',
     createApp: 'App aanmaken',
     empty: 'Nog geen apps',
-    emptyDescription: 'Maak hier een app-shell aan en upload bundles met de Weld CLI.',
+    emptyDescription:
+      'Bij voorkeur via de CLI: weld app create, daarna weld app deploy. Of maak hier eerst een shell aan.',
     columnName: 'Naam',
     columnCode: 'Code',
     columnVisibility: 'Zichtbaarheid',
@@ -102,7 +103,8 @@ export const developer = {
   },
   gettingStarted: {
     title: 'Aan de slag',
-    subtitle: 'Bouw WeldApps lokaal, host ze op WeldSuite en beheer ze hier.',
+    subtitle:
+      'Het primaire pad is de CLI — maken, previewen, deployen en beheren zonder dit portaal. Het portaal is optioneel.',
     step1Title: 'Installeer de CLI en meld je aan',
     step1Body:
       'Vereist Node 20+. Voer `weld login` uit om in te loggen met je WeldSuite-account (of zet WELD_API_KEY voor CI).',
@@ -111,10 +113,12 @@ export const developer = {
     step3Title: 'Lokale preview',
     step3Body:
       'Start Vite en registreert een preview per gebruiker zodat het platform /apps/{code} uw lokale server iframe’t. Gebruik --tunnel tegen gehoste HTTPS.',
-    step4Title: 'Een versie deployen',
-    step4Body: 'Valideert weldapp.json, bouwt, en uploadt dist/** naar R2.',
+    step4Title: 'Deployen en beheren',
+    step4Body:
+      'weld app deploy uploadt dist/**. Gebruik weld app versions, weld app update en weld app oauth voor dezelfde beheerflows als dit portaal.',
     step5Title: 'Optioneel: openbare store',
-    step5Body: 'Dien in voor openbare App Store-beoordeling (of gebruik Indienen ter beoordeling op de app-detailpagina).',
+    step5Body:
+      'weld app publish dient in voor openbare App Store-beoordeling (zet zichtbaarheid op public). Officiële publishers worden automatisch goedgekeurd.',
     docsLink: 'Volledige CLI-documentatie',
   },
   cliAuth: {
