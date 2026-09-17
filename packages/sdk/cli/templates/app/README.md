@@ -17,6 +17,7 @@ export WELD_API_KEY=wsk_...   # workspace API key (Settings → API keys)
 # or: weld login
 weld app create      # register (scaffolds too if weldapp.json is missing)
 weld app info        # metadata / visibility / review
+npm run dev          # local preview in a bare tab (SDK localDev — no platform host)
 weld app dev         # live preview in /apps/{code} (add --tunnel for the hosted platform)
 weld app deploy      # build + upload a new version (uses weldapp.json's version)
 weld app versions    # list uploaded versions
@@ -29,6 +30,7 @@ The developer portal is optional — this CLI covers create → deploy → publi
 
 ## Notes
 
+- **Local preview (no host):** `npm run dev` and open `http://localhost:5173/`. The scaffold opts into SDK `localDev` in Vite DEV so the bridge connects with a mock user, in-memory storage, and a “Local preview — not connected to WeldSuite” banner. For real API + host chrome, use `weld app dev` (or `--tunnel`).
 - Bump `version` in `weldapp.json` before each deploy.
 - Declare every storage collection you use under `collections` in `weldapp.json`.
 - Any WeldSuite API beyond app storage requires the matching entry in `scopes` (e.g. `people:read`), consented by the workspace admin on install.

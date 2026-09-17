@@ -89,7 +89,7 @@ weld --help | --version
 | `app list` | Table of your workspace apps. |
 | `app update` | Patch metadata (`PATCH /v1/user-apps/:id`); default syncs from `weldapp.json`. |
 | `app versions` | List uploaded versions. |
-| `app dev` | Vite + per-user preview so `/apps/{code}` iframes your local server. Use `--tunnel` against hosted HTTPS. |
+| `app dev` | Vite + per-user preview so `/apps/{code}` iframes your local server. Use `--tunnel` against hosted HTTPS. For bare localhost UI without the host, `npm run dev` + SDK `localDev`. |
 | `app deploy` | Validate manifest, build, upload `dist/**`. |
 | `app publish` | Submit for public store review (sets visibility `public`). Official publishers auto-approve. |
 | `app oauth` | Create / rotate / show the OAuth client for server-to-server calls. |
@@ -109,7 +109,8 @@ cd expense-notes && npm install
 weld app list
 weld app info
 
-weld app dev                 # or: weld app dev --tunnel
+npm run dev                  # local preview in a bare tab (SDK localDev)
+weld app dev                 # or: weld app dev --tunnel — real host + API
 # bump version in weldapp.json
 weld app deploy --changelog "First release"
 weld app versions
