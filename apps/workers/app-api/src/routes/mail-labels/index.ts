@@ -40,6 +40,7 @@ import {
 } from '../../services/mail/labels';
 import { listThreadsByLabel } from '../../services/mail/threads';
 import { checkAccountAccess } from '../../services/mail/access';
+import { getMessageAccountId } from '../../services/mail/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -173,12 +174,14 @@ app.post(
     }
     try {
       const result = await bulkAddLabelToMessages(c.get('tenantDb'), labelName, messageIds);
+      const anchorId = messageIds[0]!;
+      const accountId = (await getMessageAccountId(c.get('tenantDb'), anchorId)) ?? '';
       publishEntityEvent({
         c,
         entityType: 'email',
-        entityId: messageIds[0]!,
+        entityId: anchorId,
         action: 'updated',
-        data: { id: messageIds[0], messageIds, labelsAdded: [labelName] },
+        data: { id: anchorId, accountId, subject: null, from: null, to: null },
       });
       return success(c, { count: result.affected });
     } catch (err) {
@@ -199,12 +202,14 @@ app.post(
     }
     try {
       const result = await bulkRemoveLabelFromMessages(c.get('tenantDb'), labelName, messageIds);
+      const anchorId = messageIds[0]!;
+      const accountId = (await getMessageAccountId(c.get('tenantDb'), anchorId)) ?? '';
       publishEntityEvent({
         c,
         entityType: 'email',
-        entityId: messageIds[0]!,
+        entityId: anchorId,
         action: 'updated',
-        data: { id: messageIds[0], messageIds, labelsRemoved: [labelName] },
+        data: { id: anchorId, accountId, subject: null, from: null, to: null },
       });
       return success(c, { count: result.affected });
     } catch (err) {
@@ -238,7 +243,7 @@ app.post(
         entityType: 'email',
         entityId: threadId,
         action: 'updated',
-        data: { id: threadId, accountId, threadId, labelName, labelAction: action },
+        data: { id: threadId, accountId, subject: null, from: null, to: null },
       });
       return success(c, { affected: result.affected, action });
     } catch (err) {

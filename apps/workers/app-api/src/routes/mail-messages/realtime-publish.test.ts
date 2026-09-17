@@ -103,6 +103,7 @@ beforeEach(() => {
 describe('mail-messages realtime publish', () => {
   it('publishes email:updated on bulk actions', async () => {
     isAdminOrOwner.mockResolvedValueOnce(true);
+    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
     bulkUpdateMessages.mockResolvedValueOnce({ affected: 2 });
 
     const { request } = makeApp();
@@ -122,8 +123,8 @@ describe('mail-messages realtime publish', () => {
         entityId: MESSAGE_ID,
         action: 'updated',
         data: expect.objectContaining({
-          messageIds: [MESSAGE_ID, 'msg_002'],
-          bulkAction: 'trash',
+          id: MESSAGE_ID,
+          accountId: ACCOUNT_ID,
         }),
       }),
     );
@@ -131,6 +132,7 @@ describe('mail-messages realtime publish', () => {
 
   it('publishes email:deleted on bulk delete', async () => {
     isAdminOrOwner.mockResolvedValueOnce(true);
+    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
     bulkUpdateMessages.mockResolvedValueOnce({ affected: 1 });
 
     const { request } = makeApp();

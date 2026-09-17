@@ -277,15 +277,19 @@ app.post(
       const result = await messages.bulkUpdateMessages(db, data.messageIds, data.action);
       // One hub event is enough — platformSyncMap invalidates the whole
       // `['mail']` prefix. Avoid enqueueing N hub messages for a bulk of 100.
+      const anchorId = data.messageIds[0]!;
+      const anchorAccountId = await messages.getMessageAccountId(db, anchorId);
       publishEntityEvent({
         c,
         entityType: 'email',
-        entityId: data.messageIds[0]!,
+        entityId: anchorId,
         action: data.action === 'delete' ? 'deleted' : 'updated',
         data: {
-          id: data.messageIds[0],
-          messageIds: data.messageIds,
-          bulkAction: data.action,
+          id: anchorId,
+          accountId: anchorAccountId ?? '',
+          subject: null,
+          from: null,
+          to: null,
         },
       });
       return success(c, result);
@@ -347,7 +351,7 @@ app.post(
         entityType: 'email',
         entityId: id,
         action: 'updated',
-        data: { id, accountId, labels: next },
+        data: { id, accountId, subject: null, from: null, to: null },
       });
       return success(c, { id, labels: next });
     } catch (err) {
@@ -377,7 +381,7 @@ app.post(
         entityType: 'email',
         entityId: id,
         action: 'updated',
-        data: { id, accountId, labels: next },
+        data: { id, accountId, subject: null, from: null, to: null },
       });
       return success(c, { id, labels: next });
     } catch (err) {

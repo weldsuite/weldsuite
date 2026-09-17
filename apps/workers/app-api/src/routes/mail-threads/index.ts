@@ -51,13 +51,7 @@ app.post(
           entityType: 'email',
           entityId: threadId,
           action: 'updated',
-          data: {
-            id: threadId,
-            accountId,
-            threadId,
-            isRead,
-            updatedCount: result.updatedCount,
-          },
+          data: { id: threadId, accountId, subject: null, from: null, to: null },
         });
       }
       return success(c, result);
