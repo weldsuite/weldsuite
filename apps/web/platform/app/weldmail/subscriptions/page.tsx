@@ -38,7 +38,7 @@ function isLinkOnly(sub: MailSubscription): boolean {
 }
 
 export default function SubscriptionsPage() {
-  const { t, language, pluralize } = useI18n();
+  const { t, language, plural } = useI18n();
   const ts = t.mail.subscriptions;
 
   useBreadcrumbs([
@@ -85,7 +85,12 @@ export default function SubscriptionsPage() {
     if (!accountId) return;
     try {
       const res = await scan.mutateAsync(accountId);
-      toast.success(interpolate(ts.scanComplete, res.data));
+      toast.success(
+        interpolate(ts.scanComplete, {
+          scanned: res.data.scanned,
+          subscriptions: res.data.subscriptions,
+        }),
+      );
     } catch {
       toast.error(ts.scanFailed);
     }
@@ -235,7 +240,7 @@ export default function SubscriptionsPage() {
                   </div>
                   {sub.lastSubject && <p className="text-muted-foreground truncate text-sm">{sub.lastSubject}</p>}
                   <p className="text-muted-foreground text-xs">
-                    {pluralize(sub.messageCount, { one: ts.emailCountOne, other: ts.emailCount })}
+                    {plural(sub.messageCount, { one: ts.emailCountOne, other: ts.emailCount })}
                     {' · '}
                     {interpolate(ts.lastReceived, {
                       time: formatDistanceToNow(new Date(sub.lastReceivedAt), { addSuffix: true, locale: dateLocale }),

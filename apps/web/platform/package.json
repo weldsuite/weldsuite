@@ -38,7 +38,6 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/df3-noise-suppression": "workspace:*",
-    "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

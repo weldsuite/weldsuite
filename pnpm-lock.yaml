@@ -3220,9 +3220,6 @@ importers:
       '@weldsuite/df3-noise-suppression':
         specifier: workspace:*
         version: link:../../../packages/core/df3-noise-suppression
-      '@weldsuite/entity-events':
-        specifier: workspace:*
-        version: link:../../../packages/core/entity-events
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
