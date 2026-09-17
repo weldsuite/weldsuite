@@ -154,7 +154,10 @@ export const platformSyncMap: EntitySyncMap = {
   project_whiteboard: { invalidate: [projectKeys.all] },
   project_milestone: inv(projectKeys.all), // replaces the stale 'milestone' topic
   project_sprint: inv(projectKeys.all),
-  project_task: inv(projectKeys.all, ['app-api', 'task-panel']),
+  // Project-scoped tasks publish as `project_task` (not `task`). Invalidate
+  // My Tasks (`['task']`) as well as project boards + the object panel so
+  // cross-screen sync covers every task surface.
+  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel']),
   project_time_entry: inv(projectKeys.all),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),

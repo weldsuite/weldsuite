@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { markThreadRead } from '../../services/mail/thread-ops';
@@ -37,12 +38,22 @@ app.post(
     const allowed = await checkAccountAccess(c.get('tenantDb'), accountId, c.get('userId'));
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
+      const isRead = c.req.valid('json').isRead;
       const result = await markThreadRead(
         c.get('tenantDb'),
         accountId,
         threadId,
-        c.req.valid('json').isRead,
+        isRead,
       );
+      if (result.updatedCount > 0) {
+        publishEntityEvent({
+          c,
+          entityType: 'email',
+          entityId: threadId,
+          action: 'updated',
+          data: { id: threadId, accountId, subject: null, from: null, to: null },
+        });
+      }
       return success(c, result);
     } catch (err) {
       console.error('[app-api/mail-threads] mark-read failed:', err);
