@@ -1,6 +1,10 @@
 /**
  * Lockstep checks for platformSyncMap — ensure first-slice task/mail topics
  * invalidate the canonical TanStack Query roots used by WeldFlow + WeldMail.
+ *
+ * Phase 0 member ACL ↔ catalog lockstep lives in realtime-worker /
+ * `@weldsuite/entity-events` (hub-topics) so platform type-check does not
+ * pull Cloudflare `Queue` types from the entity-events publisher.
  */
 import { describe, expect, it } from 'vitest';
 import { platformSyncMap } from './sync-map';

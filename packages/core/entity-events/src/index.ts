@@ -76,6 +76,14 @@ export {
   type ExtraEntityTypes,
 } from './events';
 
+// WorkspaceHub ACL topics (catalog-driven member/viewer subscribe allow-list)
+export {
+  PERSONAL_HUB_TOPIC_PREFIXES,
+  EXTRA_MEMBER_HUB_TOPICS,
+  listMemberHubEntityTopics,
+  listMemberHubTopics,
+} from './hub-topics';
+
 // WeldObjects — runtime-defined custom object entity types
 export {
   publishCustomObjectEvent,

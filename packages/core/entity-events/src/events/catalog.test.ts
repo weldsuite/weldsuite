@@ -26,6 +26,7 @@ import { DRIVE_ENTITY_EVENTS } from './drive';
 import { WELDDATA_ENTITY_EVENTS } from './welddata';
 import { KNOWLEDGE_ENTITY_EVENTS } from './knowledge';
 import { USER_APPS_ENTITY_EVENTS } from './user-apps';
+import { ADS_ENTITY_EVENTS } from './ads';
 
 const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['crm', CRM_ENTITY_EVENTS],
@@ -45,6 +46,7 @@ const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['welddata', WELDDATA_ENTITY_EVENTS],
   ['knowledge', KNOWLEDGE_ENTITY_EVENTS],
   ['user-apps', USER_APPS_ENTITY_EVENTS],
+  ['ads', ADS_ENTITY_EVENTS],
 ];
 
 describe('ENTITY_EVENTS catalog', () => {
