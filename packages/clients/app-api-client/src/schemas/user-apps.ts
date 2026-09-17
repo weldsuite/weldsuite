@@ -41,6 +41,59 @@ export const agentToolSchema = z.object({
   action: agentToolActionSchema,
 });
 
+// ---------------------------------------------------------------------------
+// Lifecycle webhook URL safety (write-time Zod + dispatch-time fetch)
+// ---------------------------------------------------------------------------
+
+const BLOCKED_WEBHOOK_HOSTNAMES = new Set([
+  'localhost',
+  'metadata',
+  'metadata.google.internal',
+  'metadata.goog',
+  'kubernetes.default',
+  'kubernetes.default.svc',
+  'kubernetes.default.svc.cluster.local',
+]);
+
+function isBlockedWebhookHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (!host) return true;
+  if (BLOCKED_WEBHOOK_HOSTNAMES.has(host)) return true;
+  if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+
+  // Reject literal IPs (loopback / private / link-local / metadata / public).
+  // Lifecycle webhooks must use a DNS hostname; dispatch uses redirect:'manual'.
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return true;
+  if (host.includes(':')) return true;
+
+  return false;
+}
+
+/**
+ * True when `raw` is safe to use as an app lifecycle webhook destination.
+ * Requires public https, no credentials, DNS hostnames only (no IP literals),
+ * and rejects loopback / metadata / .local / .internal hosts.
+ */
+export function isSafeAppLifecycleWebhookUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
+    return !isBlockedWebhookHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export const appLifecycleWebhookUrlSchema = z
+  .string()
+  .url()
+  .max(2000)
+  .refine(isSafeAppLifecycleWebhookUrl, {
+    message:
+      'webhookUrl must be a public https URL with a DNS hostname (no private, link-local, loopback, metadata, or IP-literal hosts)',
+  });
+
 export const userAppManifestSchema = z.object({
   code: userAppCodeSchema,
   name: z.string().min(1).max(100),
@@ -77,7 +130,7 @@ export const userAppManifestSchema = z.object({
   websiteUrl: z.string().url().max(2000).optional(),
   privacyUrl: z.string().url().max(2000).optional(),
   screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
-  webhookUrl: z.string().url().max(2000).optional(),
+  webhookUrl: appLifecycleWebhookUrlSchema.optional(),
   /** Reserved — v1 renders on the web platform only. */
   mobile: z.boolean().optional(),
 });
@@ -97,7 +150,7 @@ export const createUserAppSchema = z.object({
   websiteUrl: z.string().url().max(2000).optional(),
   privacyUrl: z.string().url().max(2000).optional(),
   screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
-  webhookUrl: z.string().url().max(2000).optional(),
+  webhookUrl: appLifecycleWebhookUrlSchema.optional(),
 });
 
 export const updateUserAppSchema = z.object({
@@ -109,7 +162,7 @@ export const updateUserAppSchema = z.object({
   websiteUrl: z.string().url().max(2000).nullable().optional(),
   privacyUrl: z.string().url().max(2000).nullable().optional(),
   screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
-  webhookUrl: z.string().url().max(2000).nullable().optional(),
+  webhookUrl: appLifecycleWebhookUrlSchema.nullable().optional(),
 });
 
 /** Register or heartbeat a per-developer preview URL (`weld app dev`). */

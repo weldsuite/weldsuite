@@ -8,9 +8,12 @@
  */
 
 import { and, eq, ne } from 'drizzle-orm';
+import { isSafeAppLifecycleWebhookUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { UserApp, UserAppManifest, UserAppVersion } from '@weldsuite/db/schema/master';
 import { masterSchema, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
+
+export { isSafeAppLifecycleWebhookUrl };
 
 // ---------------------------------------------------------------------------
 // Reserved codes — first-party modules share the sidenav/app-store namespace
@@ -161,10 +164,12 @@ export function appFieldsFromManifest(manifest: UserAppManifest): Partial<typeof
         ? String(manifest.pricing.monthlyPrice)
         : null,
     ...(manifest.pricing?.currency ? { currency: manifest.pricing.currency.toUpperCase() } : {}),
-    websiteUrl: manifest.websiteUrl ?? null,
-    privacyUrl: manifest.privacyUrl ?? null,
-    screenshots: manifest.screenshots ?? [],
-    webhookUrl: manifest.webhookUrl ?? null,
+    // Omit listing / webhook fields when the manifest does not set them so a
+    // redeploy cannot wipe values previously stored via the manage API.
+    ...(manifest.websiteUrl !== undefined ? { websiteUrl: manifest.websiteUrl } : {}),
+    ...(manifest.privacyUrl !== undefined ? { privacyUrl: manifest.privacyUrl } : {}),
+    ...(manifest.screenshots !== undefined ? { screenshots: manifest.screenshots } : {}),
+    ...(manifest.webhookUrl !== undefined ? { webhookUrl: manifest.webhookUrl } : {}),
   };
 }
 
@@ -371,19 +376,6 @@ export function isOfficialPublisherWorkspace(
     .includes(workspaceId);
 }
 
-const LOOPBACK_WEBHOOK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-
-export function isSafeAppLifecycleWebhookUrl(raw: string): boolean {
-  try {
-    const parsed = new URL(raw);
-    if (parsed.username || parsed.password) return false;
-    if (parsed.protocol === 'https:') return true;
-    return parsed.protocol === 'http:' && LOOPBACK_WEBHOOK_HOSTS.has(parsed.hostname.toLowerCase());
-  } catch {
-    return false;
-  }
-}
-
 /** Store listings omit lifecycle webhook URLs and Stripe ids. */
 export function toUserAppStoreListing<
   T extends { webhookUrl?: unknown; stripeProductId?: unknown; stripePriceId?: unknown },
@@ -416,6 +408,9 @@ export async function dispatchAppLifecycleWebhook(
         'user-agent': 'WeldSuite-Apps/1.0',
       },
       body: JSON.stringify(payload),
+      // Block open-redirect chains into private/metadata destinations after
+      // the write-time hostname checks.
+      redirect: 'manual',
       signal: controller.signal,
     });
   } catch {
