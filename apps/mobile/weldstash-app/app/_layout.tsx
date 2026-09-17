@@ -26,6 +26,7 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
+import { RealtimeSyncBridge } from '@/providers/realtime-sync-bridge';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -170,6 +171,7 @@ function AppStack() {
                 <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
                 <AuthGuard>
                   <RealtimeProvider>
+                    <RealtimeSyncBridge />
                     <Stack screenOptions={{ headerShown: false }}>
                       <Stack.Screen name="authorisation" />
                       <Stack.Screen name="sso-callback" />

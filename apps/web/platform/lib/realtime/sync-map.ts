@@ -55,7 +55,6 @@ const personKeys = {
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
 const pipelineKeys = { all: ['crm', 'pipelines'] as const };
-const accountingKeys = { all: ['accounting'] as const };
 const helpdeskKeys = { all: ['helpdesk'] as const };
 const notificationKeys = { all: ['notifications'] as const };
 const weldmeetKeys = { all: ['weldmeet'] as const };
@@ -234,9 +233,26 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // WeldBooks — Accounting
   // =========================================================================
-  invoice: { invalidate: [accountingKeys.all] },
-  bill: { invalidate: [accountingKeys.all] },
-  payment: { invalidate: [accountingKeys.all] },
+  // Prefer targeted prefixes over bare ['accounting'] so WMS-style latency-
+  // sensitive screens aren't forced to share an over-broad root.
+  invoice: inv(
+    ['accounting', 'invoices'],
+    ['accounting', 'payments'],
+    ['accounting', 'dashboard'],
+    ['accounting', 'reports'],
+  ),
+  bill: inv(
+    ['accounting', 'bills'],
+    ['accounting', 'payments'],
+    ['accounting', 'dashboard'],
+    ['accounting', 'documents'],
+  ),
+  payment: inv(
+    ['accounting', 'payments'],
+    ['accounting', 'invoices'],
+    ['accounting', 'bills'],
+    ['accounting', 'dashboard'],
+  ),
   account: inv(['accounting', 'accounts']),
   accounting_contact: inv(['accounting', 'customers']),
   accounting_document: inv(['accounting', 'documents']),
@@ -250,14 +266,39 @@ export const platformSyncMap: EntitySyncMap = {
   tax_rate: inv(['accounting', 'tax-rates']),
   vat_return: inv(['accounting', 'vat-returns']),
   accounting_entity: inv(['accounting', 'entities']),
+  // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
+  // accountingKeys style until dedicated list hooks land.
+  purchase_order: inv(['accounting', 'purchase-orders']),
+  fiscal_period: inv(['accounting', 'fiscal-periods']),
+  fx_rate: inv(['accounting', 'fx-rates']),
 
   // =========================================================================
   // WeldStash — WMS
   // =========================================================================
   warehouse: inv(['weldstash', 'warehouses'], ['weldstash', 'stock']),
-  wms_inventory: inv(['weldstash', 'stock']),
+  // Runtime inventory routes publish `inventory` (not `wms_inventory`). Keep
+  // both keys so either emitter refreshes stock/movements.
+  inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
+  wms_inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
+  // Product CRUD publishes commerce catalog `product`; `wms_product` is the
+  // catalog twin for connectors/future emitters.
+  product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
-  wms_adjustment: inv(['weldstash', 'stock']),
+  wms_adjustment: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
+  picklist: inv(['weldstash', 'pickLists'], ['weldstash', 'stock']),
+  wms_inventory_movement: inv(['weldstash', 'movements'], ['weldstash', 'stock']),
+  // Provisional — no dedicated platform list hooks yet (API/agents).
+  picker: inv(['weldstash', 'pickers']),
+  putaway: inv(['weldstash', 'putaway'], ['weldstash', 'stock']),
+  warehouse_zone: inv(['weldstash', 'zones'], ['weldstash', 'warehouses']),
+  wms_location: inv(
+    ['weldstash', 'locations'],
+    ['weldstash', 'warehouses'],
+    ['weldstash', 'stock'],
+  ),
+  wms_cycle_count: inv(['weldstash', 'cycle-counts'], ['weldstash', 'stock']),
+  wms_order: inv(['weldstash', 'orders']),
+  wms_category: inv(['weldstash', 'categories'], ['weldstash', 'products']),
 
   // =========================================================================
   // WeldDesk — Helpdesk
