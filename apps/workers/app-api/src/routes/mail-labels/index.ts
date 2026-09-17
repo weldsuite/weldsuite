@@ -173,6 +173,13 @@ app.post(
     }
     try {
       const result = await bulkAddLabelToMessages(c.get('tenantDb'), labelName, messageIds);
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: messageIds[0]!,
+        action: 'updated',
+        data: { id: messageIds[0], messageIds, labelsAdded: [labelName] },
+      });
       return success(c, { count: result.affected });
     } catch (err) {
       console.error('[app-api/mail-labels] add-to-messages failed:', err);
@@ -192,6 +199,13 @@ app.post(
     }
     try {
       const result = await bulkRemoveLabelFromMessages(c.get('tenantDb'), labelName, messageIds);
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: messageIds[0]!,
+        action: 'updated',
+        data: { id: messageIds[0], messageIds, labelsRemoved: [labelName] },
+      });
       return success(c, { count: result.affected });
     } catch (err) {
       console.error('[app-api/mail-labels] remove-from-messages failed:', err);
@@ -217,6 +231,15 @@ app.post(
         labelName,
         action,
       );
+      // Thread label changes move messages between folder views — fan out as
+      // email:updated so other screens invalidate `['mail']`.
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: threadId,
+        action: 'updated',
+        data: { id: threadId, accountId, threadId, labelName, labelAction: action },
+      });
       return success(c, { affected: result.affected, action });
     } catch (err) {
       console.error('[app-api/mail-labels] apply-to-thread failed:', err);

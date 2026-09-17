@@ -38,34 +38,77 @@ export function getWorkspacePermissions(auth: AuthInfo): WorkspacePermissions {
     return { subscribe: ['*'] };
   }
 
-  // Regular members get most topics
+  // Regular members get most topics.
+  // Underscore entity types (project_task, mail_folder, …) are listed
+  // explicitly — canSubscribe only matches exact or `prefix.` children, so
+  // allowing `project` does NOT grant `project_task`.
   if (auth.role === 'member') {
     return {
       subscribe: [
         ...personalTopics,
+        // WeldFlow
         'project',
+        'project_member',
+        'project_document',
+        'project_file',
+        'project_goal',
+        'project_message',
+        'project_whiteboard',
+        'project_milestone',
+        'project_sprint',
+        'project_task',
+        'project_time_entry',
+        'project_timesheet',
+        'project_label',
         'task',
+        'personal_task',
+        'task_comment',
+        'task_project',
+        'task_tag',
+        'time_entry',
+        // WeldCRM
         'contact',
         'company',
         'person',
         'lead',
         'opportunity',
+        // Commerce / inventory / books (common member surfaces)
         'product',
         'inventory',
         'invoice',
         'bill',
         'payment',
         'commerce_order',
+        // WeldDesk
         'ticket',
         'helpdesk',
+        // WeldMail (workspace hub topics — personal mail.* is already above)
+        'email',
+        'mail_account',
+        'mail_attachment',
+        'mail_domain',
+        'mail_draft',
+        'mail_folder',
+        'mail_label',
         'presence',
       ],
     };
   }
 
-  // Viewers get read-only subset
+  // Viewers get read-only subset (still need task + mail topics to live-sync)
   return {
-    subscribe: [...personalTopics, 'project', 'task', 'presence'],
+    subscribe: [
+      ...personalTopics,
+      'project',
+      'project_task',
+      'task',
+      'personal_task',
+      'email',
+      'mail_folder',
+      'mail_label',
+      'mail_draft',
+      'presence',
+    ],
   };
 }
 
