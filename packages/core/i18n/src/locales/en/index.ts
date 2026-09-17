@@ -45,6 +45,7 @@ import { deskInbox2 } from './desk-inbox2';
 import { weldapps } from './weldapps';
 import { weldobjects } from './weldobjects';
 import { sweep } from './sweep';
+import { developer } from './developer';
 
 export const en = {
   common,
@@ -93,4 +94,5 @@ export const en = {
   weldapps,
   weldobjects,
   sweep,
+  developer,
 };
