@@ -120,3 +120,123 @@ describe('platformSyncMap — WeldDesk', () => {
     ]);
   });
 });
+
+describe('platformSyncMap — WeldBooks', () => {
+  it('Phase 3 catalog gaps invalidate provisional accounting prefixes', () => {
+    expect(platformSyncMap.purchase_order?.invalidate).toEqual([
+      ['accounting', 'purchase-orders'],
+    ]);
+    expect(platformSyncMap.fiscal_period?.invalidate).toEqual([
+      ['accounting', 'fiscal-periods'],
+    ]);
+    expect(platformSyncMap.fx_rate?.invalidate).toEqual([['accounting', 'fx-rates']]);
+  });
+
+  it('invoice/bill/payment use targeted prefixes (not bare accounting)', () => {
+    expect(platformSyncMap.invoice?.invalidate).toEqual([
+      ['accounting', 'invoices'],
+      ['accounting', 'payments'],
+      ['accounting', 'dashboard'],
+      ['accounting', 'reports'],
+    ]);
+    expect(platformSyncMap.bill?.invalidate).toEqual([
+      ['accounting', 'bills'],
+      ['accounting', 'payments'],
+      ['accounting', 'dashboard'],
+      ['accounting', 'documents'],
+    ]);
+    expect(platformSyncMap.payment?.invalidate).toEqual([
+      ['accounting', 'payments'],
+      ['accounting', 'invoices'],
+      ['accounting', 'bills'],
+      ['accounting', 'dashboard'],
+    ]);
+    for (const topic of ['invoice', 'bill', 'payment'] as const) {
+      const keys = platformSyncMap[topic]?.invalidate ?? [];
+      expect(keys.map((k) => JSON.stringify(k))).not.toContain(JSON.stringify(['accounting']));
+    }
+  });
+
+  it('core GL/banking topics keep targeted accounting prefixes', () => {
+    expect(platformSyncMap.account?.invalidate).toEqual([['accounting', 'accounts']]);
+    expect(platformSyncMap.journal_entry?.invalidate).toEqual([
+      ['accounting', 'journal-entries'],
+      ['accounting', 'accounts'],
+    ]);
+    expect(platformSyncMap.bank_account?.invalidate).toEqual([
+      ['accounting', 'bank-accounts'],
+    ]);
+    expect(platformSyncMap.accounting_entity?.invalidate).toEqual([
+      ['accounting', 'entities'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldStash', () => {
+  it('inventory publisher + wms_inventory alias invalidate stock/movements', () => {
+    expect(platformSyncMap.inventory?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+    expect(platformSyncMap.wms_inventory?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+  });
+
+  it('product publisher + wms_product alias invalidate products/stock', () => {
+    expect(platformSyncMap.product?.invalidate).toEqual([
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_product?.invalidate).toEqual([
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+  });
+
+  it('picklist + movements + warehouse keys match weldstash hooks', () => {
+    expect(platformSyncMap.picklist?.invalidate).toEqual([
+      ['weldstash', 'pickLists'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_inventory_movement?.invalidate).toEqual([
+      ['weldstash', 'movements'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.warehouse?.invalidate).toEqual([
+      ['weldstash', 'warehouses'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_adjustment?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+  });
+
+  it('Phase 3 provisional WMS catalog types are mapped', () => {
+    expect(platformSyncMap.picker?.invalidate).toEqual([['weldstash', 'pickers']]);
+    expect(platformSyncMap.putaway?.invalidate).toEqual([
+      ['weldstash', 'putaway'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.warehouse_zone?.invalidate).toEqual([
+      ['weldstash', 'zones'],
+      ['weldstash', 'warehouses'],
+    ]);
+    expect(platformSyncMap.wms_location?.invalidate).toEqual([
+      ['weldstash', 'locations'],
+      ['weldstash', 'warehouses'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_cycle_count?.invalidate).toEqual([
+      ['weldstash', 'cycle-counts'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_order?.invalidate).toEqual([['weldstash', 'orders']]);
+    expect(platformSyncMap.wms_category?.invalidate).toEqual([
+      ['weldstash', 'categories'],
+      ['weldstash', 'products'],
+    ]);
+  });
+});
