@@ -409,9 +409,13 @@ export const platformSyncMap: EntitySyncMap = {
   meeting: { invalidate: [weldmeetKeys.all] },
   meeting_session: { invalidate: [weldmeetKeys.all] },
   meeting_message: inv(['meeting-chat']),
+  // DB waitlist CRUD (portal / admin). Live admit UI is RealtimeKit
+  // participants.waitlisted — provisional weldmeet root for catalog completeness.
+  meeting_waitlist: inv(weldmeetKeys.all),
   calendar_event: { invalidate: [calendarKeys.all] },
   calendar: inv(['user-calendars'], ['calendar']),
-  calendar_booking: inv(['bookings'], ['calendar']),
+  // Booking list hooks removed (W5b); keep calendar so event-side effects refresh.
+  calendar_booking: inv(['calendar']),
   calendar_booking_page: inv(['booking-pages']),
   calendar_share: inv(['user-calendars']),
 
@@ -419,6 +423,8 @@ export const platformSyncMap: EntitySyncMap = {
   // Workspace — Notifications, Automation (WeldFlow workflows), Settings
   // =========================================================================
   notification: { invalidate: [notificationKeys.all] },
+  // Parcel SMS/WhatsApp/webhook templates (API + portals); no platform list hooks yet.
+  notification_template: inv(['parcel-notifications']),
   digest_settings: inv(['task-digest', 'settings']),
   workspace_settings: inv(['settings', 'workspace']),
   workflow: inv(
@@ -433,6 +439,8 @@ export const platformSyncMap: EntitySyncMap = {
   workflow_trigger: inv(['automation', 'triggers']),
   workflow_variable: inv(['automation', 'variables']),
   workflow_webhook: inv(['automation', 'webhooks']),
+  // WeldConnect › Connectors — connectorKeys.all in use-connector-queries.ts
+  connector_connection: inv(['connectors']),
 
   // =========================================================================
   // WeldHost — Domains, DNS, VoIP
@@ -449,10 +457,13 @@ export const platformSyncMap: EntitySyncMap = {
   voip_porting_order: inv(['porting']),
 
   // =========================================================================
-  // Drive — Files & Folders
+  // Drive — Files & Folders (+ native rich-text docs)
   // =========================================================================
   file: inv(['drive']),
   folder: inv(['drive']),
+  // Native doc content (`docs` table). Create also publishes `file`; list
+  // refresh is drive-root. Open editor (useHtmlDoc) is local — not CRDT.
+  doc: inv(['drive']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki
@@ -462,7 +473,13 @@ export const platformSyncMap: EntitySyncMap = {
     // Structural changes (created/deleted/moved/restored) all reshuffle the
     // sidebar tree and trash list; `updated` (title/icon/content) also needs
     // the tree invalidated since it carries title/icon for the sidebar rows.
-    invalidate: [knowledgeKeys.tree(), knowledgeKeys.trash(), knowledgeKeys.favorites()],
+    // `pages` prefix covers pageDetail + versions list queries.
+    invalidate: [
+      knowledgeKeys.tree(),
+      knowledgeKeys.trash(),
+      knowledgeKeys.favorites(),
+      knowledgeKeys.pages(),
+    ],
     updateDetail: detailUpdater(knowledgeKeys.pageDetail),
     remove: detailRemover(knowledgeKeys.pageDetail),
   },

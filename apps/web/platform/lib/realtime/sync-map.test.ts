@@ -365,3 +365,104 @@ describe('platformSyncMap — WeldHost', () => {
     ]);
   });
 });
+
+describe('platformSyncMap — WeldMeet + Calendar', () => {
+  const MEET_CATALOG = [
+    'meeting',
+    'meeting_session',
+    'meeting_message',
+    'meeting_waitlist',
+    'meeting_bot_session',
+    'calendar',
+    'calendar_event',
+    'calendar_booking',
+    'calendar_booking_page',
+    'calendar_share',
+  ] as const;
+
+  it('covers all 10 meet/calendar catalog entity types', () => {
+    for (const topic of MEET_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('meeting/session/waitlist invalidate weldmeet; message uses meeting-chat', () => {
+    expect(platformSyncMap.meeting?.invalidate).toEqual([['weldmeet']]);
+    expect(platformSyncMap.meeting_session?.invalidate).toEqual([['weldmeet']]);
+    expect(platformSyncMap.meeting_waitlist?.invalidate).toEqual([['weldmeet']]);
+    expect(platformSyncMap.meeting_message?.invalidate).toEqual([['meeting-chat']]);
+  });
+
+  it('calendar topics match calendarKeys / user-calendars / booking-pages', () => {
+    expect(platformSyncMap.calendar_event?.invalidate).toEqual([['calendar']]);
+    expect(platformSyncMap.calendar?.invalidate).toEqual([
+      ['user-calendars'],
+      ['calendar'],
+    ]);
+    expect(platformSyncMap.calendar_booking?.invalidate).toEqual([['calendar']]);
+    expect(platformSyncMap.calendar_booking_page?.invalidate).toEqual([
+      ['booking-pages'],
+    ]);
+    expect(platformSyncMap.calendar_share?.invalidate).toEqual([['user-calendars']]);
+  });
+
+  it('meeting_bot_session stays on CRM call-intelligence prefix', () => {
+    expect(platformSyncMap.meeting_bot_session?.invalidate).toEqual([
+      ['crm', 'call-intelligence', 'meeting-bot'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — Drive', () => {
+  it('file/folder/doc invalidate drive root', () => {
+    expect(platformSyncMap.file?.invalidate).toEqual([['drive']]);
+    expect(platformSyncMap.folder?.invalidate).toEqual([['drive']]);
+    expect(platformSyncMap.doc?.invalidate).toEqual([['drive']]);
+  });
+});
+
+describe('platformSyncMap — WeldKnow', () => {
+  it('knowledge_space invalidates spaces + tree', () => {
+    expect(platformSyncMap.knowledge_space?.invalidate).toEqual([
+      ['knowledge', 'spaces'],
+      ['knowledge', 'tree'],
+    ]);
+  });
+
+  it('knowledge_page invalidates tree/trash/favorites/pages with detail helpers', () => {
+    expect(platformSyncMap.knowledge_page?.invalidate).toEqual([
+      ['knowledge', 'tree'],
+      ['knowledge', 'trash'],
+      ['knowledge', 'favorites'],
+      ['knowledge', 'pages'],
+    ]);
+    expect(platformSyncMap.knowledge_page?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.knowledge_page?.remove).toBeTypeOf('function');
+  });
+});
+
+describe('platformSyncMap — WeldConnect leftovers', () => {
+  it('connector_connection invalidates connectors root', () => {
+    expect(platformSyncMap.connector_connection?.invalidate).toEqual([
+      ['connectors'],
+    ]);
+  });
+
+  it('notification_template uses provisional parcel-notifications prefix', () => {
+    expect(platformSyncMap.notification_template?.invalidate).toEqual([
+      ['parcel-notifications'],
+    ]);
+  });
+
+  it('workflow topics keep automation prefixes', () => {
+    expect(platformSyncMap.workflow?.invalidate).toEqual([
+      ['automation', 'workflows'],
+      ['automation', 'workflow-stats'],
+      ['automation', 'workflows-chaining'],
+    ]);
+    expect(platformSyncMap.workflow_execution?.invalidate).toEqual([
+      ['automation', 'executions'],
+      ['automation', 'dashboard'],
+    ]);
+  });
+});
