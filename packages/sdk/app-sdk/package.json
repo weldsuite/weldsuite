@@ -40,10 +40,18 @@
   ],
   "author": "WeldSuite",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/weldcorporation/weldsuite.git",
-    "directory": "packages/app-sdk"
+    "url": "https://github.com/weldsuite/weldsuite.git",
+    "directory": "packages/sdk/app-sdk"
+  },
+  "homepage": "https://www.npmjs.com/package/@weldsuite/app-sdk",
+  "bugs": {
+    "url": "https://github.com/weldsuite/weldsuite/issues"
   },
   "devDependencies": {
     "@rollup/plugin-typescript": "^11.1.6",

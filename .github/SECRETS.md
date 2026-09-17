@@ -54,9 +54,24 @@ First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.y
 
 ### Repo-level (npm publish)
 
+**Happy path:** `publish-cli.yml` uses **npm Trusted Publishing** (GitHub Actions
+OIDC). Configure once per package on npmjs.com → Package settings → Trusted
+Publisher → GitHub Actions:
+
+| Field | Value |
+|---|---|
+| Organization or user | `weldsuite` |
+| Repository | `weldsuite` |
+| Workflow filename | `publish-cli.yml` (exact; no path) |
+| Environment | *(leave empty)* |
+
+Applies to `@weldsuite/cli` and `@weldsuite/app-sdk`. Full click path:
+`packages/sdk/cli/PUBLISHING.md`. No GitHub secret required for OIDC publishes.
+Provenance is generated automatically for this public repo.
+
 | GitHub secret | Used by |
 |---|---|
-| `NPM_TOKEN` | `publish-cli.yml` — npm Automation token with publish rights on the `@weldsuite` org. Publishes `@weldsuite/cli` (and later other public `@weldsuite/*` SDKs). Not an Environment secret; set under repo Actions secrets. |
+| `NPM_TOKEN` | **Legacy fallback only.** Optional Automation token for `publish-cli.yml` when the workflow input `use_legacy_npm_token` is true. Do **not** create this for normal releases. Delete the secret (and revoke the npm token) after Trusted Publishing works. Not an Environment secret. |
 
 Worker runtime **vars** (not GitHub secrets) — set in `wrangler.toml` per env:
 
