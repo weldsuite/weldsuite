@@ -303,6 +303,13 @@ app.post(
             addedAt: new Date(),
           })),
         );
+        publishEntityEvent({
+          c,
+          entityType: 'customer_list',
+          entityId: id,
+          action: 'updated',
+          data: { id, kind: parent.kind, added: toAdd.length },
+        });
       }
       return success(c, { id, added: toAdd.length });
     } catch (err) {
@@ -317,7 +324,26 @@ app.delete('/:id/members/:entityId', requirePermission('companies:update'), asyn
   const id = c.req.param('id');
   const entityId = c.req.param('entityId');
   try {
-    await db.delete(lm).where(and(eq(lm.listId, id), eq(lm.entityId, entityId)));
+    const [parent] = await db
+      .select({ id: t.id, kind: t.kind })
+      .from(t)
+      .where(and(eq(t.id, id), isNull(t.deletedAt)))
+      .limit(1);
+    if (!parent) return error.notFound(c, 'List', id);
+
+    const deleted = await db
+      .delete(lm)
+      .where(and(eq(lm.listId, id), eq(lm.entityId, entityId)))
+      .returning({ id: lm.id });
+    if (deleted.length > 0) {
+      publishEntityEvent({
+        c,
+        entityType: 'customer_list',
+        entityId: id,
+        action: 'updated',
+        data: { id, kind: parent.kind, removedEntityId: entityId },
+      });
+    }
     return noContent(c);
   } catch (err) {
     console.error('[app-api/lists] remove member failed:', err);

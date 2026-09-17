@@ -179,7 +179,15 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // WeldCRM
   // =========================================================================
+  // Runtime CRM publishers emit `person` / `company`. Catalog also keeps the
+  // legacy `contact` / `customer` topics (agents/analytics); alias them to the
+  // same people/companies caches so residual hub events still refresh UI.
   person: {
+    invalidate: [personKeys.all],
+    updateDetail: detailUpdater(personKeys.detail),
+    remove: detailRemover(personKeys.detail),
+  },
+  contact: {
     invalidate: [personKeys.all],
     updateDetail: detailUpdater(personKeys.detail),
     remove: detailRemover(personKeys.detail),
@@ -189,11 +197,22 @@ export const platformSyncMap: EntitySyncMap = {
     updateDetail: detailUpdater(companyKeys.detail),
     remove: detailRemover(companyKeys.detail),
   },
+  customer: {
+    invalidate: [companyKeys.all],
+    updateDetail: detailUpdater(companyKeys.detail),
+    remove: detailRemover(companyKeys.detail),
+  },
+  // Person↔company junction. Publishers emit contact_link created/deleted and
+  // also person+company updated; invalidate both identity roots either way.
+  contact_link: inv(personKeys.all, companyKeys.all),
   lead: { invalidate: [leadKeys.all] },
   opportunity: { invalidate: [opportunityKeys.all, pipelineKeys.all] },
   activity: inv(['crm', 'activities']),
-  supplier: inv(['crm', 'suppliers']),
-  customer_list: inv(['crm', 'lists']),
+  // WMS suppliers table publishes entityType `supplier`; CRM "suppliers" UI is
+  // an isSupplier filter on people/companies (covered by those topics).
+  supplier: inv(['weldstash', 'suppliers']),
+  // Primary list pages use ['lists']; customer-detail picker uses ['crm','lists'].
+  customer_list: inv(['lists'], ['crm', 'lists']),
   pipeline: inv(['crm', 'pipelines']),
   pipeline_stage: inv(['crm', 'pipeline-stages']),
   custom_field: inv(['settings', 'custom-fields'], ['settings', 'custom-fields-all']),
@@ -201,6 +220,11 @@ export const platformSyncMap: EntitySyncMap = {
   enrich_field: inv(['enrich-fields']),
   sequence: inv(['sequences']),
   call: inv(['crm', 'voip-calls'], ['crm', 'call-intelligence']),
+  transcription: inv(
+    ['crm', 'voip-calls'],
+    ['crm', 'call-recordings'],
+    ['crm', 'call-intelligence'],
+  ),
   meeting_bot_session: inv(['crm', 'call-intelligence', 'meeting-bot']),
   customer_status: inv(['weldcrm', 'customer-statuses']),
   // Shared topic name across CRM + WeldFlow analytics — invalidate both roots.

@@ -1,6 +1,6 @@
 /**
  * Lockstep checks for platformSyncMap — ensure first-slice task/mail topics
- * invalidate the canonical TanStack Query roots used by WeldFlow + WeldMail.
+ * and WeldCRM topics invalidate the canonical TanStack Query roots.
  *
  * Phase 0 member ACL ↔ catalog lockstep lives in realtime-worker /
  * `@weldsuite/entity-events` (hub-topics) so platform type-check does not
@@ -29,5 +29,60 @@ describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
     expect(platformSyncMap.task?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.task?.remove).toBeTypeOf('function');
     expect(platformSyncMap.task?.invalidate).toEqual([['task']]);
+  });
+});
+
+describe('platformSyncMap — WeldCRM', () => {
+  it('person/company invalidate people/companies roots with detail helpers', () => {
+    expect(platformSyncMap.person?.invalidate).toEqual([['people']]);
+    expect(platformSyncMap.company?.invalidate).toEqual([['companies']]);
+    expect(platformSyncMap.person?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.person?.remove).toBeTypeOf('function');
+    expect(platformSyncMap.company?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.company?.remove).toBeTypeOf('function');
+  });
+
+  it('customer aliases companies; contact aliases people', () => {
+    expect(platformSyncMap.customer?.invalidate).toEqual([['companies']]);
+    expect(platformSyncMap.contact?.invalidate).toEqual([['people']]);
+    expect(platformSyncMap.customer?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.contact?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.customer?.remove).toBeTypeOf('function');
+    expect(platformSyncMap.contact?.remove).toBeTypeOf('function');
+  });
+
+  it('contact_link invalidates both people and companies', () => {
+    expect(platformSyncMap.contact_link?.invalidate).toEqual([['people'], ['companies']]);
+  });
+
+  it('lead/opportunity/activity/pipeline keys match hook roots', () => {
+    expect(platformSyncMap.lead?.invalidate).toEqual([['crm', 'leads']]);
+    expect(platformSyncMap.opportunity?.invalidate).toEqual([
+      ['crm', 'opportunities'],
+      ['crm', 'pipelines'],
+    ]);
+    expect(platformSyncMap.activity?.invalidate).toEqual([['crm', 'activities']]);
+    expect(platformSyncMap.pipeline?.invalidate).toEqual([['crm', 'pipelines']]);
+    expect(platformSyncMap.pipeline_stage?.invalidate).toEqual([['crm', 'pipeline-stages']]);
+    expect(platformSyncMap.call?.invalidate).toEqual([
+      ['crm', 'voip-calls'],
+      ['crm', 'call-intelligence'],
+    ]);
+  });
+
+  it('transcription invalidates voip + call-recording + call-intelligence prefixes', () => {
+    expect(platformSyncMap.transcription?.invalidate).toEqual([
+      ['crm', 'voip-calls'],
+      ['crm', 'call-recordings'],
+      ['crm', 'call-intelligence'],
+    ]);
+  });
+
+  it('customer_list invalidates both lists and crm lists roots', () => {
+    expect(platformSyncMap.customer_list?.invalidate).toEqual([['lists'], ['crm', 'lists']]);
+  });
+
+  it('supplier invalidates weldstash suppliers (WMS table publisher)', () => {
+    expect(platformSyncMap.supplier?.invalidate).toEqual([['weldstash', 'suppliers']]);
   });
 });
