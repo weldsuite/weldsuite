@@ -120,3 +120,248 @@ describe('platformSyncMap — WeldDesk', () => {
     ]);
   });
 });
+
+describe('platformSyncMap — WeldBooks', () => {
+  it('Phase 3 catalog gaps invalidate provisional accounting prefixes', () => {
+    expect(platformSyncMap.purchase_order?.invalidate).toEqual([
+      ['accounting', 'purchase-orders'],
+    ]);
+    expect(platformSyncMap.fiscal_period?.invalidate).toEqual([
+      ['accounting', 'fiscal-periods'],
+    ]);
+    expect(platformSyncMap.fx_rate?.invalidate).toEqual([['accounting', 'fx-rates']]);
+  });
+
+  it('invoice/bill/payment use targeted prefixes (not bare accounting)', () => {
+    expect(platformSyncMap.invoice?.invalidate).toEqual([
+      ['accounting', 'invoices'],
+      ['accounting', 'payments'],
+      ['accounting', 'dashboard'],
+      ['accounting', 'reports'],
+    ]);
+    expect(platformSyncMap.bill?.invalidate).toEqual([
+      ['accounting', 'bills'],
+      ['accounting', 'payments'],
+      ['accounting', 'dashboard'],
+      ['accounting', 'documents'],
+    ]);
+    expect(platformSyncMap.payment?.invalidate).toEqual([
+      ['accounting', 'payments'],
+      ['accounting', 'invoices'],
+      ['accounting', 'bills'],
+      ['accounting', 'dashboard'],
+    ]);
+    for (const topic of ['invoice', 'bill', 'payment'] as const) {
+      const keys = platformSyncMap[topic]?.invalidate ?? [];
+      expect(keys.map((k) => JSON.stringify(k))).not.toContain(JSON.stringify(['accounting']));
+    }
+  });
+
+  it('core GL/banking topics keep targeted accounting prefixes', () => {
+    expect(platformSyncMap.account?.invalidate).toEqual([['accounting', 'accounts']]);
+    expect(platformSyncMap.journal_entry?.invalidate).toEqual([
+      ['accounting', 'journal-entries'],
+      ['accounting', 'accounts'],
+    ]);
+    expect(platformSyncMap.bank_account?.invalidate).toEqual([
+      ['accounting', 'bank-accounts'],
+    ]);
+    expect(platformSyncMap.accounting_entity?.invalidate).toEqual([
+      ['accounting', 'entities'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldStash', () => {
+  it('inventory publisher + wms_inventory alias invalidate stock/movements', () => {
+    expect(platformSyncMap.inventory?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+    expect(platformSyncMap.wms_inventory?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+  });
+
+  it('product publisher invalidates commerce + stash; wms_product stays stash', () => {
+    expect(platformSyncMap.product?.invalidate).toEqual([
+      ['weldcommerce', 'products'],
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_product?.invalidate).toEqual([
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+  });
+
+  it('picklist + movements + warehouse keys match weldstash hooks', () => {
+    expect(platformSyncMap.picklist?.invalidate).toEqual([
+      ['weldstash', 'pickLists'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_inventory_movement?.invalidate).toEqual([
+      ['weldstash', 'movements'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.warehouse?.invalidate).toEqual([
+      ['weldstash', 'warehouses'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_adjustment?.invalidate).toEqual([
+      ['weldstash', 'stock'],
+      ['weldstash', 'movements'],
+    ]);
+  });
+
+  it('Phase 3 provisional WMS catalog types are mapped', () => {
+    expect(platformSyncMap.picker?.invalidate).toEqual([['weldstash', 'pickers']]);
+    expect(platformSyncMap.putaway?.invalidate).toEqual([
+      ['weldstash', 'putaway'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.warehouse_zone?.invalidate).toEqual([
+      ['weldstash', 'zones'],
+      ['weldstash', 'warehouses'],
+    ]);
+    expect(platformSyncMap.wms_location?.invalidate).toEqual([
+      ['weldstash', 'locations'],
+      ['weldstash', 'warehouses'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_cycle_count?.invalidate).toEqual([
+      ['weldstash', 'cycle-counts'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.wms_order?.invalidate).toEqual([['weldstash', 'orders']]);
+    expect(platformSyncMap.wms_category?.invalidate).toEqual([
+      ['weldstash', 'categories'],
+      ['weldstash', 'products'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldCommerce', () => {
+  const COMMERCE_CATALOG = [
+    'order',
+    'commerce_order',
+    'product',
+    'category',
+    'commerce_customer',
+    'discount',
+    'website',
+    'website_domain',
+    'website_page',
+    'website_section',
+    'cart',
+    'return',
+    'return_reason',
+    'return_rule',
+    'shipment',
+    'shipping_price',
+    'shipping_rule',
+  ] as const;
+
+  it('covers all 17 commerce catalog entity types', () => {
+    for (const topic of COMMERCE_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('product dual-maps commerce + stash; category/orders match commerceKeys', () => {
+    expect(platformSyncMap.product?.invalidate).toEqual([
+      ['weldcommerce', 'products'],
+      ['weldstash', 'products'],
+      ['weldstash', 'stock'],
+    ]);
+    expect(platformSyncMap.category?.invalidate).toEqual([
+      ['weldcommerce', 'categories'],
+      ['weldcommerce', 'products'],
+    ]);
+    expect(platformSyncMap.commerce_order?.invalidate).toEqual([
+      ['weldcommerce', 'orders'],
+    ]);
+    expect(platformSyncMap.order?.invalidate).toEqual([['weldcommerce', 'orders']]);
+  });
+
+  it('commerce_customer aliases CRM people/companies roots', () => {
+    expect(platformSyncMap.commerce_customer?.invalidate).toEqual([
+      ['companies'],
+      ['people'],
+    ]);
+  });
+
+  it('provisional fulfillment + website builder prefixes use weldcommerce', () => {
+    expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
+    expect(platformSyncMap.website?.invalidate).toEqual([['weldcommerce', 'websites']]);
+    expect(platformSyncMap.website_domain?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-domains'],
+    ]);
+    expect(platformSyncMap.website_page?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-pages'],
+    ]);
+    expect(platformSyncMap.website_section?.invalidate).toEqual([
+      ['weldcommerce', 'websites'],
+      ['weldcommerce', 'website-sections'],
+      ['weldcommerce', 'website-pages'],
+    ]);
+    expect(platformSyncMap.cart?.invalidate).toEqual([['weldcommerce', 'carts']]);
+    expect(platformSyncMap.return?.invalidate).toEqual([['weldcommerce', 'returns']]);
+    expect(platformSyncMap.return_reason?.invalidate).toEqual([
+      ['weldcommerce', 'return-reasons'],
+    ]);
+    expect(platformSyncMap.return_rule?.invalidate).toEqual([
+      ['weldcommerce', 'return-rules'],
+    ]);
+    expect(platformSyncMap.shipment?.invalidate).toEqual([['weldcommerce', 'shipments']]);
+    expect(platformSyncMap.shipping_price?.invalidate).toEqual([
+      ['weldcommerce', 'shipping-prices'],
+    ]);
+    expect(platformSyncMap.shipping_rule?.invalidate).toEqual([
+      ['weldcommerce', 'shipping-rules'],
+    ]);
+  });
+});
+
+describe('platformSyncMap — WeldHost', () => {
+  const HOST_CATALOG = [
+    'domain',
+    'domain_transfer',
+    'dns_record',
+    'dns_zone',
+    'email_forward',
+    'voip_phone_number',
+    'voip_porting_order',
+  ] as const;
+
+  it('covers all 7 host catalog entity types', () => {
+    for (const topic of HOST_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('domain/dns/voip keys match hostKeys + phone/porting hooks', () => {
+    expect(platformSyncMap.domain?.invalidate).toEqual([
+      ['host', 'domains'],
+      ['host', 'dashboard'],
+    ]);
+    expect(platformSyncMap.domain_transfer?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.dns_record?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.dns_zone?.invalidate).toEqual([['host']]);
+    expect(platformSyncMap.voip_phone_number?.invalidate).toEqual([
+      ['phone-numbers'],
+      ['crm', 'voip-calls', 'phone-numbers'],
+    ]);
+    expect(platformSyncMap.voip_porting_order?.invalidate).toEqual([['porting']]);
+  });
+
+  it('email_forward invalidates provisional forwards + domains', () => {
+    expect(platformSyncMap.email_forward?.invalidate).toEqual([
+      ['host', 'email-forwards'],
+      ['host', 'domains'],
+    ]);
+  });
+});

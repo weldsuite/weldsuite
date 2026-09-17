@@ -20,5 +20,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "templates"]
+  "exclude": ["node_modules", "dist", "templates", "src/**/*.test.ts"]
 }

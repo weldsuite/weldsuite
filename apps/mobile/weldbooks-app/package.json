@@ -27,6 +27,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
     "expo": "~57.0.20",
     "expo-apple-authentication": "~57.0.1",
     "expo-build-properties": "~57.0.17",

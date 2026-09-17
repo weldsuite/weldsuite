@@ -5,10 +5,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { WeldApi } from '../core/api';
 import { WeldAppBridge } from '../core/bridge';
+import type { LocalDevOptions, WeldAppBridgeOptions } from '../core/local-dev';
 import type { InitPayload, RecordsClient, WeldAppUser, WeldTheme } from '../core/types';
 
 export type WeldAppStatus = 'connecting' | 'ready' | 'error';
@@ -23,6 +25,8 @@ export interface WeldAppContextValue {
   bridge: WeldAppBridge;
   status: WeldAppStatus;
   error: Error | null;
+  /** True when the mock local-preview bridge is active. */
+  isLocalDev: boolean;
 }
 
 const WeldAppContext = createContext<WeldAppContextValue | null>(null);
@@ -31,16 +35,67 @@ export interface WeldAppProviderProps {
   children: ReactNode;
   /** Bring your own bridge (e.g. shared with non-React code). Defaults to a fresh one. */
   bridge?: WeldAppBridge;
+  /**
+   * Opt into local preview when the page is not iframed. Safe with
+   * `import.meta.env.DEV`: when `weld app dev` embeds the same server in the
+   * platform host, the real bridge is still used.
+   */
+  localDev?: boolean;
+  /** Customize the mock init payload for local preview. */
+  local?: LocalDevOptions;
+  /** Hide the built-in “Local preview” banner. Default: show when local. */
+  hideLocalBanner?: boolean;
+}
+
+const bannerStyle: CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 9999,
+  margin: 0,
+  padding: '8px 12px',
+  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  fontSize: '13px',
+  lineHeight: 1.4,
+  textAlign: 'center',
+  color: '#1a1a1a',
+  background: '#f5e6a8',
+  borderBottom: '1px solid #e0c96a',
+};
+
+/** Fixed banner shown during local preview (no platform host). */
+export function LocalPreviewBanner(): ReactNode {
+  return (
+    <p role="status" data-weld-local-preview-banner="" style={bannerStyle}>
+      Local preview — not connected to WeldSuite
+    </p>
+  );
 }
 
 /**
  * Connects the iframe bridge to the WeldSuite host and exposes app context
  * (theme, locale, user, API client) to the tree.
  */
-export function WeldAppProvider({ children, bridge: bridgeProp }: WeldAppProviderProps) {
+export function WeldAppProvider({
+  children,
+  bridge: bridgeProp,
+  localDev,
+  local,
+  hideLocalBanner = false,
+}: WeldAppProviderProps) {
   const bridgeRef = useRef<WeldAppBridge | null>(null);
   if (bridgeRef.current === null) {
-    bridgeRef.current = bridgeProp ?? new WeldAppBridge();
+    if (bridgeProp) {
+      bridgeRef.current = bridgeProp;
+    } else {
+      const options: WeldAppBridgeOptions = {};
+      if (localDev !== undefined) {
+        options.localDev = localDev;
+      }
+      if (local !== undefined) {
+        options.local = local;
+      }
+      bridgeRef.current = new WeldAppBridge(options);
+    }
   }
   const bridge = bridgeRef.current;
 
@@ -99,11 +154,17 @@ export function WeldAppProvider({ children, bridge: bridgeProp }: WeldAppProvide
       bridge,
       status,
       error,
+      isLocalDev: bridge.isLocalDev,
     }),
     [init, theme, locale, api, bridge, status, error],
   );
 
-  return <WeldAppContext.Provider value={value}>{children}</WeldAppContext.Provider>;
+  return (
+    <WeldAppContext.Provider value={value}>
+      {bridge.isLocalDev && !hideLocalBanner ? <LocalPreviewBanner /> : null}
+      {children}
+    </WeldAppContext.Provider>
+  );
 }
 
 /** Access the WeldSuite app context. Must be used inside a WeldAppProvider. */
@@ -152,4 +213,4 @@ export function WeldAppGate({ children, fallback = null, errorFallback }: WeldAp
 }
 
 export { WeldApi, WeldAppBridge };
-export type { InitPayload, RecordsClient, WeldAppUser, WeldTheme };
+export type { InitPayload, LocalDevOptions, RecordsClient, WeldAppUser, WeldTheme };

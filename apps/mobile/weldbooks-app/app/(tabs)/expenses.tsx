@@ -29,6 +29,7 @@ import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
+import { useBooksRealtime } from '@/hooks/useBooksRealtime';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Bill } from '@/types/accounting';
@@ -61,6 +62,15 @@ export default function ExpensesScreen() {
 
   const { reload } = list;
   useFocusEffect(useCallback(() => reload(), [reload]));
+
+  useBooksRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'bills' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   const visible = useMemo(() => {
     if (filter !== 'overdue') return list.items;

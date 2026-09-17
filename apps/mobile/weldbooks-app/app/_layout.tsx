@@ -24,6 +24,7 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import api from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { OfflineQueueProvider } from '@/contexts/OfflineQueueContext';
+import { RealtimeProvider } from '@/providers/realtime-provider';
 import {
   AccountingEntityProvider,
   useAccountingEntity,
@@ -193,32 +194,34 @@ function AppStack() {
                 <NavigationThemeProvider value={navigationTheme}>
                   <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
                   <AuthGuard>
-                    <EntityGate>
-                      <Stack screenOptions={{ headerShown: false }}>
-                        <Stack.Screen name="authorisation" />
-                        <Stack.Screen name="sso-callback" />
-                        <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                        <Stack.Screen name="invoice/[id]" />
-                        <Stack.Screen name="invoice/new" />
-                        <Stack.Screen name="invoice/document" options={{ presentation: 'modal' }} />
-                        <Stack.Screen name="bill/[id]" />
-                        <Stack.Screen name="bill/new" />
-                        <Stack.Screen name="expense/quick" />
-                        <Stack.Screen name="scan/index" options={{ presentation: 'fullScreenModal' }} />
-                        <Stack.Screen name="bank/index" />
-                        <Stack.Screen name="bank/[id]" />
-                        <Stack.Screen name="reconciliation/index" />
-                        <Stack.Screen name="vat/index" />
-                        <Stack.Screen name="vat/[id]" />
-                        <Stack.Screen name="reports/index" />
-                        <Stack.Screen name="reports/profit-loss" />
-                        <Stack.Screen name="reports/balance-sheet" />
-                        <Stack.Screen name="contacts/index" />
-                        <Stack.Screen name="contacts/new" />
-                        <Stack.Screen name="contacts/[id]" />
-                        <Stack.Screen name="settings/index" />
-                      </Stack>
-                    </EntityGate>
+                    <RealtimeProvider>
+                      <EntityGate>
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Screen name="authorisation" />
+                          <Stack.Screen name="sso-callback" />
+                          <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                          <Stack.Screen name="invoice/[id]" />
+                          <Stack.Screen name="invoice/new" />
+                          <Stack.Screen name="invoice/document" options={{ presentation: 'modal' }} />
+                          <Stack.Screen name="bill/[id]" />
+                          <Stack.Screen name="bill/new" />
+                          <Stack.Screen name="expense/quick" />
+                          <Stack.Screen name="scan/index" options={{ presentation: 'fullScreenModal' }} />
+                          <Stack.Screen name="bank/index" />
+                          <Stack.Screen name="bank/[id]" />
+                          <Stack.Screen name="reconciliation/index" />
+                          <Stack.Screen name="vat/index" />
+                          <Stack.Screen name="vat/[id]" />
+                          <Stack.Screen name="reports/index" />
+                          <Stack.Screen name="reports/profit-loss" />
+                          <Stack.Screen name="reports/balance-sheet" />
+                          <Stack.Screen name="contacts/index" />
+                          <Stack.Screen name="contacts/new" />
+                          <Stack.Screen name="contacts/[id]" />
+                          <Stack.Screen name="settings/index" />
+                        </Stack>
+                      </EntityGate>
+                    </RealtimeProvider>
                   </AuthGuard>
                 </NavigationThemeProvider>
               </AccountingEntityProvider>

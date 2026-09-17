@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useBooksRealtime } from '@/hooks/useBooksRealtime';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 import type { DashboardData } from '@/types/accounting';
@@ -69,6 +70,17 @@ export default function DashboardScreen() {
     setData(null);
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useBooksRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'dashboard' || surface === 'any') {
+          fetchDashboard();
+        }
+      },
+      [fetchDashboard],
+    ),
+  });
 
   useEffect(() => {
     if (!loading) {

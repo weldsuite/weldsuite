@@ -39,7 +39,8 @@ import App from './App';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <WeldAppProvider>
+    {/* localDev is safe with Vite DEV: when the platform iframes this server, the real host wins */}
+    <WeldAppProvider localDev={import.meta.env.DEV}>
       <WeldAppGate fallback={<p>Connecting to WeldSuite…</p>}>
         <App />
       </WeldAppGate>
@@ -128,7 +129,9 @@ await bridge.toast('Saved!', 'success');
 
 | Member | Description |
 | --- | --- |
-| `connect()` | Handshake with the host. Idempotent. Rejects after 10s outside WeldSuite. |
+| `connect()` | Handshake with the host. Idempotent. In local preview, resolves with a mock payload. Otherwise rejects outside an iframe / after 10s. |
+| `isLocalDev` | `true` when the mock local-preview bridge is active. |
+| `localStore` | In-memory app-storage used only in local preview. |
 | `request(method, payload?)` | Correlated request/response with the host, 15s timeout. |
 | `on(event, cb)` | Subscribe to `theme` / `locale` push events. Returns unsubscribe. |
 | `getToken({ forceRefresh? })` | Cached token, auto-refreshed 60s before expiry. |
@@ -152,18 +155,49 @@ List responses follow the platform envelope: `{ data: T[], pagination: { totalCo
 
 ## Local development
 
-`weld app dev` starts Vite and tells WeldSuite to iframe that server for *your*
-user at `/apps/{code}` (hot reload). Other workspace members still see the
-published bundle.
+Two ways to preview:
+
+### 1. Local preview (no platform host) — UI + in-memory storage
+
+Opt in so `connect()` does not require an iframe. Production iframe security is unchanged: local mode **never** activates while the app is embedded.
+
+```tsx
+// main.tsx — safe with Vite DEV: real host still wins when iframed via `weld app dev`
+import { WeldAppProvider, WeldAppGate } from '@weldsuite/app-sdk/react';
+
+<WeldAppProvider localDev={import.meta.env.DEV}>
+  <WeldAppGate>…</WeldAppGate>
+</WeldAppProvider>
+```
+
+Or without changing code:
+
+- Open `http://localhost:5173/?weldLocal=1`
+- Or set `window.__WELD_LOCAL_DEV__ = true` before `connect()`
+
+What you get:
+
+- Mock user / theme / locale (customize via `local={{ userName, appCode, … }}`)
+- In-memory `records` + `kv` (resets on reload)
+- No-op `toast` / `navigate` (logged to `console.debug`)
+- A sticky banner: **Local preview — not connected to WeldSuite**
+- Other `/v1/*` routes throw `WeldApiError` (`code: local_preview`) — use the platform path below for real API calls
 
 ```bash
-export WELD_API_KEY=wsk_...
-weld app dev                 # platform on localhost:3000
+npm run dev
+# open http://localhost:5173/  (with localDev on the provider)
+# or: open http://localhost:5173/?weldLocal=1
+```
+
+### 2. Platform preview (real host + real API)
+
+```bash
+export WELD_API_KEY=wsk_...   # or: weld login
+weld app dev                 # platform on localhost:3000 iframes your Vite server
 weld app dev --tunnel        # hosted platform (HTTPS iframe via cloudflared)
 ```
 
-A bare `vite dev` tab still fails `connect()` after 10 seconds — the bridge
-needs the WeldSuite host.
+Open `/apps/{code}` in WeldSuite. Hot reload; other workspace members still see the published bundle.
 
 ## License
 

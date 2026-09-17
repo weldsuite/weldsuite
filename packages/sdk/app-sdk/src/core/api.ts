@@ -72,6 +72,10 @@ async function toApiError(response: Response): Promise<WeldApiError> {
  * Every request goes to the external API (`apiBaseUrl` from the init
  * payload) with the bridge-managed `wsat_` token injected as a Bearer
  * header. A 401 triggers one forced token refresh + retry.
+ *
+ * In local preview (`bridge.isLocalDev`), app-storage (records + kv) is
+ * backed by an in-memory store. Other `/v1/*` routes throw a clear error
+ * instead of hitting the network with a fake token.
  */
 export class WeldApi {
   private readonly bridge: WeldAppBridge;
@@ -88,6 +92,14 @@ export class WeldApi {
    * streaming request body would be consumed — pass string/Blob bodies.
    */
   async fetch(path: string, init: RequestInit = {}): Promise<Response> {
+    if (this.bridge.isLocalDev) {
+      throw new WeldApiError(
+        503,
+        'local_preview',
+        'Local preview has no WeldSuite API connection. App-storage (records / kv) works in memory; ' +
+          'other routes need the platform host (`weld app dev` or `weld app dev --tunnel`).',
+      );
+    }
     const first = await this.send(path, init, false);
     if (first.status !== 401) {
       return first;
@@ -120,6 +132,10 @@ export class WeldApi {
 
     return {
       list: async (options: RecordListOptions = {}): Promise<ListResponse<AppRecord<T>>> => {
+        await this.bridge.connect();
+        if (this.bridge.isLocalDev && this.bridge.localStore) {
+          return this.bridge.localStore.list<T>(collection, options);
+        }
         const params = new URLSearchParams();
         if (options.limit !== undefined) {
           params.set('limit', String(options.limit));
@@ -134,14 +150,34 @@ export class WeldApi {
         return this.get<ListResponse<AppRecord<T>>>(query ? `${base}?${query}` : base);
       },
       create: async (data: T): Promise<AppRecord<T>> => {
+        await this.bridge.connect();
+        if (this.bridge.isLocalDev && this.bridge.localStore) {
+          return this.bridge.localStore.create(collection, data);
+        }
         const response = await this.post<SingleResponse<AppRecord<T>>>(base, { data });
         return response.data;
       },
       get: async (id: string): Promise<AppRecord<T>> => {
+        await this.bridge.connect();
+        if (this.bridge.isLocalDev && this.bridge.localStore) {
+          const record = this.bridge.localStore.get<T>(collection, id);
+          if (!record) {
+            throw new WeldApiError(404, 'not_found', `Record ${id} not found in collection "${collection}".`);
+          }
+          return record;
+        }
         const response = await this.get<SingleResponse<AppRecord<T>>>(`${base}/${encodeURIComponent(id)}`);
         return response.data;
       },
       update: async (id: string, data: T): Promise<AppRecord<T>> => {
+        await this.bridge.connect();
+        if (this.bridge.isLocalDev && this.bridge.localStore) {
+          const record = this.bridge.localStore.update(collection, id, data);
+          if (!record) {
+            throw new WeldApiError(404, 'not_found', `Record ${id} not found in collection "${collection}".`);
+          }
+          return record;
+        }
         // PATCH replaces the stored document with `data`.
         const response = await this.patch<SingleResponse<AppRecord<T>>>(`${base}/${encodeURIComponent(id)}`, {
           data,
@@ -149,6 +185,13 @@ export class WeldApi {
         return response.data;
       },
       remove: async (id: string): Promise<void> => {
+        await this.bridge.connect();
+        if (this.bridge.isLocalDev && this.bridge.localStore) {
+          if (!this.bridge.localStore.remove(collection, id)) {
+            throw new WeldApiError(404, 'not_found', `Record ${id} not found in collection "${collection}".`);
+          }
+          return;
+        }
         await this.delete(`${base}/${encodeURIComponent(id)}`);
       },
     };
@@ -157,6 +200,10 @@ export class WeldApi {
   /** Key-value store (`/v1/app-storage/kv/{key}`). `get` returns null for missing keys. */
   readonly kv: KvClient = {
     get: async <T = unknown>(key: string): Promise<T | null> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        return this.bridge.localStore.kvGet<T>(key);
+      }
       const response = await this.fetch(`/v1/app-storage/kv/${encodeURIComponent(key)}`);
       if (response.status === 404) {
         return null;
@@ -172,9 +219,19 @@ export class WeldApi {
       return data as T;
     },
     set: async (key: string, value: unknown): Promise<void> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        this.bridge.localStore.kvSet(key, value);
+        return;
+      }
       await this.json('PUT', `/v1/app-storage/kv/${encodeURIComponent(key)}`, { value });
     },
     delete: async (key: string): Promise<void> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        this.bridge.localStore.kvDelete(key);
+        return;
+      }
       await this.json('DELETE', `/v1/app-storage/kv/${encodeURIComponent(key)}`);
     },
   };
