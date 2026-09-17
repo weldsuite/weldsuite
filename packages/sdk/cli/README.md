@@ -8,12 +8,23 @@ Zero-fat by design: the only runtime dependency is `zod` (for validating `weldap
 
 ## Install
 
+Production (npm registry):
+
 ```bash
 npm install -g @weldsuite/cli
+# or one-shot:
+npx @weldsuite/cli --help
 weld --version
 ```
 
-Requires Node 20+.
+From this monorepo (contributors only):
+
+```bash
+pnpm --filter @weldsuite/cli build
+pnpm --filter @weldsuite/cli exec weld --version
+```
+
+Requires Node 20+. The published package is `@weldsuite/cli` on the public npm registry (`latest` tag).
 
 ## Authentication
 

@@ -52,6 +52,12 @@ First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.y
 |---|---|
 | `HOSTED_APPS_WELD_API_KEY` | Publisher workspace `wsk_` key (`user-apps:manage`). Test env targets `https://api-test.weldsuite.org`; production targets `https://api.weldsuite.org`. Leave unset to skip the job. |
 
+### Repo-level (npm publish)
+
+| GitHub secret | Used by |
+|---|---|
+| `NPM_TOKEN` | `publish-cli.yml` — npm Automation token with publish rights on the `@weldsuite` org. Publishes `@weldsuite/cli` (and later other public `@weldsuite/*` SDKs). Not an Environment secret; set under repo Actions secrets. |
+
 Worker runtime **vars** (not GitHub secrets) — set in `wrangler.toml` per env:
 
 | Var | Workers |
