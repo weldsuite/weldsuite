@@ -100,6 +100,43 @@ export interface MailLabel {
   updatedAt?: string | Date;
 }
 
+export type MailSubscriptionStatus = 'active' | 'unsubscribed';
+export type MailUnsubscribeMethod = 'one_click' | 'mailto' | 'link';
+
+export interface MailSubscription {
+  id: string;
+  personalAccountId: string;
+  accountId: string;
+  senderEmail: string;
+  senderName: string | null;
+  senderDomain: string | null;
+  listId: string | null;
+  unsubscribeUrl: string | null;
+  unsubscribeMailto: string | null;
+  oneClick: boolean;
+  messageCount: number;
+  lastSubject: string | null;
+  firstReceivedAt: string;
+  lastReceivedAt: string;
+  status: MailSubscriptionStatus;
+  unsubscribeMethod: MailUnsubscribeMethod | null;
+  unsubscribedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScanMailSubscriptionsResult {
+  scanned: number;
+  subscriptions: number;
+}
+
+export interface UnsubscribeResult {
+  subscription: MailSubscription;
+  method: MailUnsubscribeMethod;
+  /** For `link`: the page to open so the user can finish unsubscribing. */
+  url: string | null;
+}
+
 export interface MailDraft {
   id: string;
   personalAccountId: string;

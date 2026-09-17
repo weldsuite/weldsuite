@@ -84,6 +84,7 @@ import { Route as WeldmeetPeopleIndexRouteImport } from './routes/weldmeet/peopl
 import { Route as WeldmeetNewIndexRouteImport } from './routes/weldmeet/new/index'
 import { Route as WeldmeetHistoryIndexRouteImport } from './routes/weldmeet/history/index'
 import { Route as WeldmeetMeetingIdIndexRouteImport } from './routes/weldmeet/$meetingId/index'
+import { Route as WeldmailSubscriptionsIndexRouteImport } from './routes/weldmail/subscriptions/index'
 import { Route as WeldmailSnoozedIndexRouteImport } from './routes/weldmail/snoozed/index'
 import { Route as WeldmailSetupIndexRouteImport } from './routes/weldmail/setup/index'
 import { Route as WeldmailSearchIndexRouteImport } from './routes/weldmail/search/index'
@@ -730,6 +731,12 @@ const WeldmeetMeetingIdIndexRoute = WeldmeetMeetingIdIndexRouteImport.update({
   path: '/$meetingId/',
   getParentRoute: () => WeldmeetRouteRoute,
 } as any)
+const WeldmailSubscriptionsIndexRoute =
+  WeldmailSubscriptionsIndexRouteImport.update({
+    id: '/subscriptions/',
+    path: '/subscriptions/',
+    getParentRoute: () => WeldmailRouteRoute,
+  } as any)
 const WeldmailSnoozedIndexRoute = WeldmailSnoozedIndexRouteImport.update({
   id: '/snoozed/',
   path: '/snoozed/',
@@ -2425,6 +2432,7 @@ export interface FileRoutesByFullPath {
   '/weldmail/search/': typeof WeldmailSearchIndexRoute
   '/weldmail/setup/': typeof WeldmailSetupIndexRoute
   '/weldmail/snoozed/': typeof WeldmailSnoozedIndexRoute
+  '/weldmail/subscriptions/': typeof WeldmailSubscriptionsIndexRoute
   '/weldmeet/$meetingId/': typeof WeldmeetMeetingIdIndexRoute
   '/weldmeet/history/': typeof WeldmeetHistoryIndexRoute
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
@@ -2743,6 +2751,7 @@ export interface FileRoutesByTo {
   '/weldmail/search': typeof WeldmailSearchIndexRoute
   '/weldmail/setup': typeof WeldmailSetupIndexRoute
   '/weldmail/snoozed': typeof WeldmailSnoozedIndexRoute
+  '/weldmail/subscriptions': typeof WeldmailSubscriptionsIndexRoute
   '/weldmeet/$meetingId': typeof WeldmeetMeetingIdIndexRoute
   '/weldmeet/history': typeof WeldmeetHistoryIndexRoute
   '/weldmeet/new': typeof WeldmeetNewIndexRoute
@@ -3091,6 +3100,7 @@ export interface FileRoutesById {
   '/weldmail/search/': typeof WeldmailSearchIndexRoute
   '/weldmail/setup/': typeof WeldmailSetupIndexRoute
   '/weldmail/snoozed/': typeof WeldmailSnoozedIndexRoute
+  '/weldmail/subscriptions/': typeof WeldmailSubscriptionsIndexRoute
   '/weldmeet/$meetingId/': typeof WeldmeetMeetingIdIndexRoute
   '/weldmeet/history/': typeof WeldmeetHistoryIndexRoute
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
@@ -3439,6 +3449,7 @@ export interface FileRouteTypes {
     | '/weldmail/search/'
     | '/weldmail/setup/'
     | '/weldmail/snoozed/'
+    | '/weldmail/subscriptions/'
     | '/weldmeet/$meetingId/'
     | '/weldmeet/history/'
     | '/weldmeet/new/'
@@ -3757,6 +3768,7 @@ export interface FileRouteTypes {
     | '/weldmail/search'
     | '/weldmail/setup'
     | '/weldmail/snoozed'
+    | '/weldmail/subscriptions'
     | '/weldmeet/$meetingId'
     | '/weldmeet/history'
     | '/weldmeet/new'
@@ -4104,6 +4116,7 @@ export interface FileRouteTypes {
     | '/weldmail/search/'
     | '/weldmail/setup/'
     | '/weldmail/snoozed/'
+    | '/weldmail/subscriptions/'
     | '/weldmeet/$meetingId/'
     | '/weldmeet/history/'
     | '/weldmeet/new/'
@@ -4822,6 +4835,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldmeet/$meetingId/'
       preLoaderRoute: typeof WeldmeetMeetingIdIndexRouteImport
       parentRoute: typeof WeldmeetRouteRoute
+    }
+    '/weldmail/subscriptions/': {
+      id: '/weldmail/subscriptions/'
+      path: '/subscriptions'
+      fullPath: '/weldmail/subscriptions/'
+      preLoaderRoute: typeof WeldmailSubscriptionsIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
     '/weldmail/snoozed/': {
       id: '/weldmail/snoozed/'
@@ -7604,6 +7624,7 @@ interface WeldmailRouteRouteChildren {
   WeldmailScheduledIndexRoute: typeof WeldmailScheduledIndexRoute
   WeldmailSearchIndexRoute: typeof WeldmailSearchIndexRoute
   WeldmailSnoozedIndexRoute: typeof WeldmailSnoozedIndexRoute
+  WeldmailSubscriptionsIndexRoute: typeof WeldmailSubscriptionsIndexRoute
   WeldmailAiSmartReplyIndexRoute: typeof WeldmailAiSmartReplyIndexRoute
   WeldmailAiSummaryIndexRoute: typeof WeldmailAiSummaryIndexRoute
   WeldmailInboxComposeIndexRoute: typeof WeldmailInboxComposeIndexRoute
@@ -7622,6 +7643,7 @@ const WeldmailRouteRouteChildren: WeldmailRouteRouteChildren = {
   WeldmailScheduledIndexRoute: WeldmailScheduledIndexRoute,
   WeldmailSearchIndexRoute: WeldmailSearchIndexRoute,
   WeldmailSnoozedIndexRoute: WeldmailSnoozedIndexRoute,
+  WeldmailSubscriptionsIndexRoute: WeldmailSubscriptionsIndexRoute,
   WeldmailAiSmartReplyIndexRoute: WeldmailAiSmartReplyIndexRoute,
   WeldmailAiSummaryIndexRoute: WeldmailAiSummaryIndexRoute,
   WeldmailInboxComposeIndexRoute: WeldmailInboxComposeIndexRoute,

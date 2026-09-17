@@ -10,6 +10,7 @@ export * from './mail-messages';
 export * from './mail-labels';
 export * from './mail-drafts';
 export * from './mail-attachments';
+export * from './mail-subscriptions';
 export * from './device-tokens';
 export * from './calendars';
 export * from './calendar-events';

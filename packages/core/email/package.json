@@ -19,7 +19,8 @@
     "./providers/cloudflare/addresses": "./src/providers/cloudflare/addresses.ts",
     "./providers/gmail": "./src/providers/gmail/index.ts",
     "./providers/outlook": "./src/providers/outlook/index.ts",
-    "./sanitize": "./src/sanitize.ts"
+    "./sanitize": "./src/sanitize.ts",
+    "./list-unsubscribe": "./src/list-unsubscribe.ts"
   },
   "dependencies": {
     "cloudflare": "^7.0.0",

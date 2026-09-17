@@ -126,6 +126,7 @@ export * from './mail-campaigns';
 export * from './mail-rules';
 export * from './mail-signatures';
 export * from './mail-labels';
+export * from './mail-subscriptions';
 
 // Helpdesk module
 export * from './helpdesk-agents';

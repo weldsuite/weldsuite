@@ -8,6 +8,7 @@
 
 export type SystemLabelSlug =
   | 'inbox'
+  | 'promotions'
   | 'sent'
   | 'drafts'
   | 'starred'
@@ -40,6 +41,15 @@ export const SYSTEM_LABELS: Record<SystemLabelSlug, SystemLabelConfig> = {
     systemLabel: 'INBOX',
     displayName: 'Inbox',
     icon: 'Inbox',
+    filterType: 'label',
+    isMainMailbox: true,
+    isSecondary: false,
+  },
+  promotions: {
+    slug: 'promotions',
+    systemLabel: 'PROMOTIONS',
+    displayName: 'Promotions',
+    icon: 'Tag',
     filterType: 'label',
     isMainMailbox: true,
     isSecondary: false,

@@ -32,6 +32,7 @@ const SYSTEM_LABEL_SEEDS = [
   { name: 'Trash', slug: 'TRASH' },
   { name: 'Spam', slug: 'SPAM' },
   { name: 'Starred', slug: 'STARRED' },
+  { name: 'Promotions', slug: 'PROMOTIONS' },
 ] as const;
 
 const addressSchema = z

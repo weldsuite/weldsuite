@@ -1338,6 +1338,13 @@
       "when": 1788000000000,
       "tag": "0190_mail_domain_catch_all",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1788100000000,
+      "tag": "0191_mail_subscriptions",
+      "breakpoints": true
     }
   ]
 }

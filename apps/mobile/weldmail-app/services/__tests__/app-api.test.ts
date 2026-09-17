@@ -49,6 +49,7 @@ describe('services/app-api', () => {
           'mailDrafts',
           'mailWeldmail',
           'mailSnooze',
+          'mailSubscriptions',
           'mailScheduled',
           'mailDomains',
           'pushTokens',

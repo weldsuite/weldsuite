@@ -42,8 +42,8 @@ describe('MailContext', () => {
   });
 
   describe('default label sets', () => {
-    it('MAIN_LABELS holds the four primary mailboxes in order', () => {
-      expect(MAIN_LABELS.map((l) => l.slug)).toEqual(['INBOX', 'STARRED', 'SENT', 'DRAFTS']);
+    it('MAIN_LABELS holds the primary mailboxes in order', () => {
+      expect(MAIN_LABELS.map((l) => l.slug)).toEqual(['INBOX', 'PROMOTIONS', 'STARRED', 'SENT', 'DRAFTS']);
     });
 
     it('SECONDARY_LABELS holds the expected slugs in order', () => {

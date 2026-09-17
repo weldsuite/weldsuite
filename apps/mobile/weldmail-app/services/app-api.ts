@@ -21,6 +21,7 @@ import { createMailLabelsApi } from '@weldsuite/app-api-client/domains/mail-labe
 import { createMailDraftsApi } from '@weldsuite/app-api-client/domains/mail-drafts';
 import { createMailWeldMailApi } from '@weldsuite/app-api-client/domains/mail-weldmail';
 import { createMailSnoozeApi } from '@weldsuite/app-api-client/domains/mail-snooze';
+import { createMailSubscriptionsApi } from '@weldsuite/app-api-client/domains/mail-subscriptions';
 import { createMailScheduledApi } from '@weldsuite/app-api-client/domains/mail-scheduled';
 import { createMailDomainsApi } from '@weldsuite/app-api-client/domains/mail-domains';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
@@ -51,6 +52,7 @@ export const appApi = {
   mailDrafts: createMailDraftsApi(client),
   mailWeldmail: createMailWeldMailApi(client),
   mailSnooze: createMailSnoozeApi(client),
+  mailSubscriptions: createMailSubscriptionsApi(client),
   mailScheduled: createMailScheduledApi(client),
   mailDomains: createMailDomainsApi(client),
   pushTokens: createPushTokensApi(client),

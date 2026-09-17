@@ -42,6 +42,7 @@ import { createMailCampaignsApi } from '@weldsuite/app-api-client/domains/mail-c
 import { createMailDomainsApi } from '@weldsuite/app-api-client/domains/mail-domains';
 import { createMailScheduledApi } from '@weldsuite/app-api-client/domains/mail-scheduled';
 import { createMailSnoozeApi } from '@weldsuite/app-api-client/domains/mail-snooze';
+import { createMailSubscriptionsApi } from '@weldsuite/app-api-client/domains/mail-subscriptions';
 import { createMailSyncApi } from '@weldsuite/app-api-client/domains/mail-sync';
 import { createMailThreadsApi } from '@weldsuite/app-api-client/domains/mail-threads';
 import { createMailWeldMailApi } from '@weldsuite/app-api-client/domains/mail-weldmail';
@@ -148,6 +149,7 @@ export function useAppApi() {
       mailDomains: createMailDomainsApi(lazyClient),
       mailScheduled: createMailScheduledApi(lazyClient),
       mailSnooze: createMailSnoozeApi(lazyClient),
+      mailSubscriptions: createMailSubscriptionsApi(lazyClient),
       mailSync: createMailSyncApi(lazyClient),
       mailThreads: createMailThreadsApi(lazyClient),
       mailWeldMail: createMailWeldMailApi(lazyClient),

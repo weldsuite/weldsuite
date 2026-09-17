@@ -17,6 +17,7 @@ import { mailAccountsRoutes } from './routes/mail-accounts';
 import { mailMessagesRoutes } from './routes/mail-messages';
 import { mailLabelsRoutes } from './routes/mail-labels';
 import { mailDraftsRoutes } from './routes/mail-drafts';
+import { mailSubscriptionsRoutes } from './routes/mail-subscriptions';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { calendarsRoutes } from './routes/calendars';
 import { calendarEventsRoutes } from './routes/calendar-events';
@@ -63,6 +64,7 @@ app.route('/api/mail/accounts', mailAccountsRoutes);
 app.route('/api/mail/messages', mailMessagesRoutes);
 app.route('/api/mail/labels', mailLabelsRoutes);
 app.route('/api/mail/drafts', mailDraftsRoutes);
+app.route('/api/mail/subscriptions', mailSubscriptionsRoutes);
 
 app.route('/api/push-tokens', pushTokensRoutes);
 

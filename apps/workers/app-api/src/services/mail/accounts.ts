@@ -32,6 +32,7 @@ const SYSTEM_LABEL_SEEDS = [
   { name: 'Archive', slug: 'ARCHIVE' },
   { name: 'Snoozed', slug: 'SNOOZED' },
   { name: 'Scheduled', slug: 'SCHEDULED' },
+  { name: 'Promotions', slug: 'PROMOTIONS' },
 ] as const;
 
 // ---------------------------------------------------------------------------

@@ -428,7 +428,15 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
     if (body.isRead !== undefined) patch.isRead = body.isRead;
     if (body.isStarred !== undefined) patch.isStarred = body.isStarred;
     if (body.isTrash !== undefined) patch.isTrash = body.isTrash;
-    if (body.labels !== undefined) patch.labels = body.labels;
+    if (body.labels !== undefined) {
+      const had = (existing.labels as string[] | null) ?? [];
+      // Moving a promotion to the inbox takes it out of Promotions, matching
+      // app-api's location-label behaviour.
+      patch.labels =
+        body.labels.includes('INBOX') && !had.includes('INBOX')
+          ? body.labels.filter((l) => l !== 'PROMOTIONS')
+          : body.labels;
+    }
 
     if (body.isSpam === true && body.labels === undefined) {
       patch.isSpam = true;
