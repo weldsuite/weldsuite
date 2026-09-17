@@ -4,6 +4,8 @@ packages:
   - "apps/tools/*"
   - "apps/mobile/*"
   - "!apps/mobile/_template"
+  - "apps/hosted-apps/*"
+  - "!apps/hosted-apps/_template"
   - "apps/desktop"
   - "packages/*/*"
 

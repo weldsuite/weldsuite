@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { Puzzle } from 'lucide-react';
@@ -11,24 +11,13 @@ import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useInstalledUserApps,
+  useUserAppDevSession,
   useUserAppSessionToken,
 } from '@/hooks/queries/use-user-apps-queries';
 import { getAppApiUrl } from '@/lib/api/public-env';
+import { iframeSandbox, iframeTargetOrigin } from './preview';
 
 const APP_API_BASE = getAppApiUrl();
-
-/**
- * postMessage targetOrigin for the app iframe.
- *
- * The iframe is sandboxed WITHOUT `allow-same-origin` (all user-app bundles
- * share the app-api host, so giving them a real origin would let one app
- * reach another's storage/cookies on that shared origin). That gives the
- * document an opaque ("null") origin, which can never match a concrete
- * targetOrigin — `'*'` is the only value that delivers. This stays safe
- * because every message is posted directly to the one `contentWindow` we
- * created, and inbound messages are only accepted from that same window.
- */
-const IFRAME_TARGET_ORIGIN = '*';
 
 interface WeldAppReadyMessage {
   type: 'weldapp:ready';
@@ -53,11 +42,9 @@ type IncomingWeldAppMessage = WeldAppReadyMessage | WeldAppRequestMessage;
  *    matching `weldapp:response`.
  *  - host -> iframe `weldapp:event` pushes live theme/locale changes.
  *
- * Every message in both directions is scoped to this exact iframe: incoming
- * messages are only accepted from `event.source === iframe.contentWindow`,
- * and outgoing messages are posted directly to that window. The sandbox
- * omits `allow-same-origin`, so the app runs with an opaque origin and has
- * no same-origin access to the shared bundle host (see IFRAME_TARGET_ORIGIN).
+ * When the signed-in developer has an active `weld app dev` session, the
+ * iframe loads that preview URL instead of the R2 bundle. Everyone else
+ * still sees the published bundle.
  */
 export default function WeldAppHostPage() {
   const { appCode } = useParams<{ appCode: string }>();
@@ -67,12 +54,16 @@ export default function WeldAppHostPage() {
   const { user } = useUser();
   const { resolvedTheme } = useTheme();
   const { data: installedApps, isLoading } = useInstalledUserApps();
+  const { data: devSession } = useUserAppDevSession(appCode);
   const sessionTokenMutation = useUserAppSessionToken();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const targetOrigin = IFRAME_TARGET_ORIGIN;
 
   const app = installedApps?.find((a) => a.appCode === appCode);
   const bundleSrc = appCode ? `${APP_API_BASE}/public/user-apps/${appCode}/index.html` : '';
+  const previewUrl = devSession?.url ?? null;
+  const iframeSrc = previewUrl ?? bundleSrc;
+  const targetOrigin = useMemo(() => iframeTargetOrigin(iframeSrc), [iframeSrc]);
+  const sandbox = useMemo(() => iframeSandbox(iframeSrc), [iframeSrc]);
 
   const mintSessionToken = useCallback(async () => {
     if (!appCode) return null;
@@ -84,8 +75,8 @@ export default function WeldAppHostPage() {
   }, [appCode, sessionTokenMutation]);
 
   // The postMessage bridge itself. Re-bound whenever anything it captures in
-  // its closure (theme, locale, user, appCode) changes so replies always
-  // reflect the current host state.
+  // its closure (theme, locale, user, appCode, targetOrigin) changes so replies
+  // always reflect the current host state.
   useEffect(() => {
     if (!appCode) return;
 
@@ -226,15 +217,24 @@ export default function WeldAppHostPage() {
   return (
     <div className="w-full h-full bg-background flex flex-col overflow-hidden">
       <BreadcrumbHeader segments={[{ label: wa.breadcrumb.title, href: '/appstore' }, { label: app.name }]} />
+      {previewUrl ? (
+        <div
+          className="shrink-0 px-4 py-2 text-xs bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2"
+          role="status"
+        >
+          <span className="font-semibold uppercase tracking-wide">{wa.host.developmentBadge}</span>
+          <span className="truncate">{wa.host.developmentDescription}</span>
+          <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
+        </div>
+      ) : null}
       <div className="flex-1 min-h-0">
         <iframe
+          key={iframeSrc}
           ref={iframeRef}
-          src={bundleSrc}
+          src={iframeSrc}
           title={app.name}
           className="w-full h-full border-0"
-          // No `allow-same-origin`: all user-app bundles share the app-api
-          // origin, so a real origin here would break cross-app isolation.
-          sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+          sandbox={sandbox}
         />
       </div>
     </div>

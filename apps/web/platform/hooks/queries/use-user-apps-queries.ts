@@ -40,6 +40,11 @@ export interface UserApp {
   pricingType: UserAppPricingType;
   priceMonthly?: number | null;
   currency?: string | null;
+  publisherType?: 'community' | 'weldsuite';
+  websiteUrl?: string | null;
+  privacyUrl?: string | null;
+  screenshots?: string[] | null;
+  webhookUrl?: string | null;
   installCount: number;
   isActive: boolean;
   createdAt: string;
@@ -47,9 +52,10 @@ export interface UserApp {
 
 /** A user app as returned by the installable store listing. */
 export interface StoreUserApp extends UserApp {
-  installed: boolean;
+  isInstalled?: boolean;
+  installed?: boolean;
   /** Present when an already-installed app's manifest requests new scopes the member hasn't approved yet. */
-  pendingScopes?: string[];
+  pendingScopes?: string[] | null;
 }
 
 /** A user app as it appears in the sidenav / iframe host's installed list. */
@@ -78,6 +84,10 @@ export interface CreateUserAppInput {
   description?: string;
   icon?: string;
   category?: string;
+  websiteUrl?: string;
+  privacyUrl?: string;
+  screenshots?: string[];
+  webhookUrl?: string;
 }
 
 export interface UserAppOauthClient {
@@ -124,6 +134,7 @@ export const userAppsKeys = {
   detail: (id: string) => [...userAppsKeys.all, 'detail', id] as const,
   versions: (id: string) => [...userAppsKeys.all, id, 'versions'] as const,
   oauthClient: (id: string) => [...userAppsKeys.all, id, 'oauth-client'] as const,
+  devSession: (code: string) => [...userAppsKeys.all, 'dev-session', code] as const,
 };
 
 // =============================================================================
@@ -427,6 +438,32 @@ export function useUserAppSessionToken() {
       const result = await client.post<{
         data: { token: string; expiresAt: string; apiBaseUrl: string };
       }>(`/user-apps/code/${code}/session-token`);
+      return result.data;
+    },
+  });
+}
+
+export interface UserAppDevSession {
+  url: string;
+  expiresAt: string;
+}
+
+/**
+ * Active `weld app dev` preview for the signed-in developer. Polls so the
+ * iframe picks up a session started after this page was opened. Other
+ * workspace members always get `null` and keep seeing the R2 bundle.
+ */
+export function useUserAppDevSession(appCode: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: userAppsKeys.devSession(appCode ?? ''),
+    enabled: Boolean(appCode),
+    refetchInterval: 5_000,
+    queryFn: async () => {
+      const client = await getClient();
+      const result = await client.get<{ data: UserAppDevSession | null }>(
+        `/user-apps/code/${appCode}/dev-session`,
+      );
       return result.data;
     },
   });

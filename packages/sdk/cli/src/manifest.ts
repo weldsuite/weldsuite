@@ -7,7 +7,7 @@ import { CliError } from './api.js';
  * weldapp.json manifest schema.
  *
  * SYNC WARNING: this is a copy of `userAppManifestSchema` in
- * `packages/app-api-client/src/schemas/user-apps.ts` — the server validates
+ * `packages/clients/app-api-client/src/schemas/user-apps.ts` — the server validates
  * uploads against that schema. Any change there MUST be mirrored here (and
  * vice versa) so `weld app deploy` gives identical validation offline.
  */
@@ -45,6 +45,35 @@ export const agentToolSchema = z.object({
   action: agentToolActionSchema,
 });
 
+/** Mirror of `isSafeAppLifecycleWebhookUrl` in app-api-client schemas/user-apps. */
+function isSafeAppLifecycleWebhookUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    if (!host) return false;
+    if (
+      host === 'localhost' ||
+      host === 'metadata' ||
+      host === 'metadata.google.internal' ||
+      host === 'metadata.goog' ||
+      host === 'kubernetes.default' ||
+      host === 'kubernetes.default.svc' ||
+      host === 'kubernetes.default.svc.cluster.local' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal')
+    ) {
+      return false;
+    }
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const manifestSchema = z.object({
   code: appCodeSchema,
   name: z.string().min(1).max(100),
@@ -76,6 +105,18 @@ export const manifestSchema = z.object({
       type: z.enum(['free', 'subscription']),
       monthlyPrice: z.number().min(0).max(10000).optional(),
       currency: z.string().length(3).optional(),
+    })
+    .optional(),
+  websiteUrl: z.string().url().max(2000).optional(),
+  privacyUrl: z.string().url().max(2000).optional(),
+  screenshots: z.array(z.string().url().max(2000)).max(8).optional(),
+  webhookUrl: z
+    .string()
+    .url()
+    .max(2000)
+    .refine(isSafeAppLifecycleWebhookUrl, {
+      message:
+        'webhookUrl must be a public https URL with a DNS hostname (no private, link-local, loopback, metadata, or IP-literal hosts)',
     })
     .optional(),
   /** Reserved — v1 renders on the web platform only. */

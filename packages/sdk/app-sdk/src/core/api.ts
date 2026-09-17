@@ -3,9 +3,14 @@ import type {
   AppRecord,
   KvClient,
   ListResponse,
+  PeopleClient,
+  PersonSummary,
   RecordListOptions,
   RecordsClient,
+  ResourceListOptions,
   SingleResponse,
+  TicketSummary,
+  TicketsClient,
 } from './types';
 
 interface ApiErrorBody {
@@ -35,6 +40,15 @@ function joinUrl(base: string, path: string): string {
   const trimmedBase = base.replace(/\/+$/, '');
   const trimmedPath = path.startsWith('/') ? path : `/${path}`;
   return `${trimmedBase}${trimmedPath}`;
+}
+
+function withQuery(path: string, options: ResourceListOptions): string {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.cursor !== undefined) params.set('cursor', options.cursor);
+  if (options.search !== undefined) params.set('search', options.search);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 async function toApiError(response: Response): Promise<WeldApiError> {
@@ -163,6 +177,20 @@ export class WeldApi {
     delete: async (key: string): Promise<void> => {
       await this.json('DELETE', `/v1/app-storage/kv/${encodeURIComponent(key)}`);
     },
+  };
+
+  /** `/v1/people` — requires the `people:read` scope. */
+  readonly people: PeopleClient = {
+    list: (options: ResourceListOptions = {}) =>
+      this.get<ListResponse<PersonSummary>>(withQuery('/v1/people', options)),
+    get: (id: string) => this.get<SingleResponse<PersonSummary>>(`/v1/people/${encodeURIComponent(id)}`),
+  };
+
+  /** `/v1/tickets` — requires the `tickets:read` scope. */
+  readonly tickets: TicketsClient = {
+    list: (options: ResourceListOptions = {}) =>
+      this.get<ListResponse<TicketSummary>>(withQuery('/v1/tickets', options)),
+    get: (id: string) => this.get<SingleResponse<TicketSummary>>(`/v1/tickets/${encodeURIComponent(id)}`),
   };
 
   private async send(path: string, init: RequestInit, forceRefresh: boolean): Promise<Response> {

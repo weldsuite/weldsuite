@@ -1,0 +1,155 @@
+name: Deploy hosted apps
+
+# First-party WeldApps under apps/hosted-apps/<code>/.
+#   push to develop → api-test.weldsuite.org
+#   push to main    → api.weldsuite.org
+#
+# Requires GitHub Environment secret HOSTED_APPS_WELD_API_KEY (publisher wsk_).
+# See .github/SECRETS.md. The job no-ops when the secret is unset or there
+# are no changed apps with a weldapp.json.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'apps/hosted-apps/**'
+      - 'packages/sdk/app-sdk/**'
+      - 'packages/sdk/cli/**'
+      - '.github/workflows/deploy-hosted-apps.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target. Push to develop always uses test; push to main always uses production.'
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+        default: 'test'
+
+concurrency:
+  group: hosted-apps-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'test') }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy hosted apps (${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'test') }})
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'test') }}
+    steps:
+      - name: Resolve environment
+        id: ctx
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="${INPUT_ENV:-test}"
+          elif [ "$REF_NAME" = "main" ]; then
+            ENV="production"
+          else
+            ENV="test"
+          fi
+          if [ "$ENV" = "production" ] && [ "$REF_NAME" != "main" ]; then
+            echo "::error::production hosted-app deploys only from main (got $REF_NAME)"
+            exit 1
+          fi
+          echo "cf_env=$ENV" >> "$GITHUB_OUTPUT"
+          if [ "$ENV" = "production" ]; then
+            echo "api_url=https://api.weldsuite.org" >> "$GITHUB_OUTPUT"
+          else
+            echo "api_url=https://api-test.weldsuite.org" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-monorepo
+
+      - name: Build CLI
+        run: pnpm --filter @weldsuite/cli build
+
+      - name: Detect hosted apps to deploy
+        id: apps
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ROOT="apps/hosted-apps"
+          codes=()
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            while IFS= read -r dir; do
+              code="$(basename "$dir")"
+              case "$code" in _*) continue ;; esac
+              if [ -f "$dir/weldapp.json" ]; then
+                codes+=("$code")
+              fi
+            done < <(find "$ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+          else
+            mapfile -t changed < <(git diff --name-only "$BEFORE" "$SHA" -- "$ROOT" "packages/sdk/app-sdk" "packages/sdk/cli" | awk -F/ '
+              $1=="apps" && $2=="hosted-apps" && NF>=3 { print $3 }
+            ' | sort -u)
+            sdk_changed="$(git diff --name-only "$BEFORE" "$SHA" -- packages/sdk/app-sdk packages/sdk/cli || true)"
+            if [ -n "$sdk_changed" ]; then
+              while IFS= read -r dir; do
+                code="$(basename "$dir")"
+                case "$code" in _*) continue ;; esac
+                if [ -f "$dir/weldapp.json" ]; then
+                  codes+=("$code")
+                fi
+              done < <(find "$ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+            else
+              for code in "${changed[@]:-}"; do
+                case "$code" in _*|'' ) continue ;; esac
+                if [ -f "$ROOT/$code/weldapp.json" ]; then
+                  codes+=("$code")
+                fi
+              done
+            fi
+          fi
+          unique="$(printf '%s\n' "${codes[@]:-}" | awk 'NF && !seen[$0]++')"
+          {
+            echo "codes<<EOF"
+            echo "$unique"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -z "$(echo "$unique" | tr -d '[:space:]')" ]; then
+            echo "has_apps=false" >> "$GITHUB_OUTPUT"
+            echo "No hosted apps to deploy"
+          else
+            echo "has_apps=true" >> "$GITHUB_OUTPUT"
+            echo "Deploying:"
+            echo "$unique"
+          fi
+
+      - name: Deploy
+        if: steps.apps.outputs.has_apps == 'true'
+        working-directory: ${{ github.workspace }}
+        env:
+          WELD_API_KEY: ${{ secrets.HOSTED_APPS_WELD_API_KEY }}
+          WELD_API_URL: ${{ steps.ctx.outputs.api_url }}
+          CODES: ${{ steps.apps.outputs.codes }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WELD_API_KEY:-}" ]; then
+            echo "HOSTED_APPS_WELD_API_KEY is not set — skipping hosted app deploy."
+            exit 0
+          fi
+          WELD=(node "${GITHUB_WORKSPACE}/packages/sdk/cli/dist/cli.js")
+          while IFS= read -r code; do
+            [ -z "$code" ] && continue
+            dir="${GITHUB_WORKSPACE}/apps/hosted-apps/${code}"
+            echo "::group::Deploy ${code}"
+            (cd "$dir" && pnpm install --frozen-lockfile=false)
+            if ! (cd "$dir" && "${WELD[@]}" app list | grep -Fq "$code"); then
+              (cd "$dir" && "${WELD[@]}" app create) || true
+            fi
+            (cd "$dir" && "${WELD[@]}" app deploy --changelog "deploy ${GITHUB_SHA}")
+            (cd "$dir" && "${WELD[@]}" app publish --notes "Official hosted app ${code}") || true
+            echo "::endgroup::"
+          done <<< "$CODES"

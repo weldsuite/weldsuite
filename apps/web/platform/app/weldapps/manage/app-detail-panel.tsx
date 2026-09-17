@@ -187,6 +187,11 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: AppDeta
                 <Badge variant={app.reviewStatus === 'rejected' ? 'destructive' : 'secondary'}>
                   {reviewStatusLabel(app.reviewStatus)}
                 </Badge>
+                {app.publisherType === 'weldsuite' ? (
+                  <Badge className="bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
+                    {wa.store.badgeOfficial}
+                  </Badge>
+                ) : null}
               </div>
 
               {app.reviewStatus === 'rejected' && app.reviewNotes && (
@@ -213,6 +218,40 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: AppDeta
                   <Button size="sm" variant="outline" onClick={() => setSubmitOpen(true)}>
                     {wa.submit.button}
                   </Button>
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-2">{wa.manage.listingTitle}</h3>
+                {app.websiteUrl || app.privacyUrl || app.webhookUrl || (app.screenshots && app.screenshots.length > 0) ? (
+                  <div className="space-y-1.5 text-sm">
+                    {app.websiteUrl ? (
+                      <p>
+                        <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                          {wa.store.website}
+                        </a>
+                      </p>
+                    ) : null}
+                    {app.privacyUrl ? (
+                      <p>
+                        <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                          {wa.store.privacy}
+                        </a>
+                      </p>
+                    ) : null}
+                    {app.webhookUrl ? (
+                      <p className="text-xs text-muted-foreground font-mono truncate">{wa.manage.listingWebhook}: {app.webhookUrl}</p>
+                    ) : null}
+                    {app.screenshots && app.screenshots.length > 0 ? (
+                      <div className="flex gap-2 overflow-x-auto pt-1">
+                        {app.screenshots.map((src) => (
+                          <img key={src} src={src} alt="" className="h-16 w-24 object-cover rounded-md border border-border shrink-0" />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{wa.manage.listingEmpty}</p>
                 )}
               </div>
 

@@ -4,7 +4,8 @@
   "description": "A WeldSuite app built with @weldsuite/app-sdk.",
   "version": "1.0.0",
   "icon": "Puzzle",
-  "scopes": [],
+  "category": "Productivity",
+  "scopes": ["people:read"],
   "collections": [
     {
       "name": "items",

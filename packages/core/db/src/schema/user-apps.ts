@@ -63,6 +63,14 @@ export interface UserAppManifest {
     monthlyPrice?: number;
     currency?: string;
   };
+  /** Public website shown on the store listing. */
+  websiteUrl?: string;
+  /** Privacy policy URL shown on the store listing. */
+  privacyUrl?: string;
+  /** Public screenshot URLs shown on the store listing (https only). */
+  screenshots?: string[];
+  /** HTTPS endpoint that receives app lifecycle events (`app.installed` / `app.uninstalled`). */
+  webhookUrl?: string;
   /** Reserved — v1 apps render on the web platform only. */
   mobile?: boolean;
 }
@@ -75,6 +83,9 @@ export type UserAppReviewStatus = (typeof USER_APP_REVIEW_STATUSES)[number];
 
 export const USER_APP_PRICING_TYPES = ['free', 'subscription'] as const;
 export type UserAppPricingType = (typeof USER_APP_PRICING_TYPES)[number];
+
+export const USER_APP_PUBLISHER_TYPES = ['community', 'weldsuite'] as const;
+export type UserAppPublisherType = (typeof USER_APP_PUBLISHER_TYPES)[number];
 
 // User-created apps registry
 export const userApps = pgTable('user_apps', {
@@ -90,6 +101,8 @@ export const userApps = pgTable('user_apps', {
   // Authorship (workspaces.id in master — no FK to avoid an import cycle with master.ts)
   ownerWorkspaceId: varchar('owner_workspace_id', { length: 255 }).notNull(),
   createdBy: varchar('created_by', { length: 255 }).notNull(),
+  /** `weldsuite` = first-party hosted app (official store badge, skip review). */
+  publisherType: varchar('publisher_type', { length: 20 }).notNull().default('community'),
 
   // Distribution: private = authoring workspace only, public = global store (reviewed)
   visibility: varchar('visibility', { length: 20 }).notNull().default('private'),
@@ -110,6 +123,12 @@ export const userApps = pgTable('user_apps', {
   platformFeePercent: integer('platform_fee_percent').notNull().default(15),
   stripeProductId: varchar('stripe_product_id', { length: 255 }),
   stripePriceId: varchar('stripe_price_id', { length: 255 }),
+
+  // Store listing + lifecycle webhooks (synced from the live manifest)
+  websiteUrl: text('website_url'),
+  privacyUrl: text('privacy_url'),
+  screenshots: jsonb('screenshots').$type<string[]>().default([]),
+  webhookUrl: text('webhook_url'),
 
   // Stats
   installCount: integer('install_count').notNull().default(0),
@@ -280,3 +299,39 @@ export const appDeveloperAccounts = pgTable('app_developer_accounts', {
 
 export type AppDeveloperAccount = typeof appDeveloperAccounts.$inferSelect;
 export type NewAppDeveloperAccount = typeof appDeveloperAccounts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Per-developer preview sessions (`weld app dev`)
+//
+// The platform iframe loads `url` instead of the R2 bundle when the *current
+// Clerk user* has an unexpired row. Other workspace members keep seeing the
+// published bundle. TTL is short (minutes); the CLI heartbeats while running.
+// ---------------------------------------------------------------------------
+
+export const userAppDevSessions = pgTable('user_app_dev_sessions', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+
+  appId: varchar('app_id', { length: 30 })
+    .notNull()
+    .references(() => userApps.id, { onDelete: 'cascade' }),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull(),
+  /** Clerk user id of the developer who started `weld app dev`. */
+  userId: varchar('user_id', { length: 255 }).notNull(),
+
+  url: text('url').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('user_app_dev_sessions_app_user_workspace_idx').on(
+    table.appId,
+    table.userId,
+    table.workspaceId,
+  ),
+  index('user_app_dev_sessions_app_id_idx').on(table.appId),
+  index('user_app_dev_sessions_expires_at_idx').on(table.expiresAt),
+]);
+
+export type UserAppDevSession = typeof userAppDevSessions.$inferSelect;
+export type NewUserAppDevSession = typeof userAppDevSessions.$inferInsert;
