@@ -11,7 +11,7 @@ GET /v1/user-apps/:id fields used for manage / store listing.
 Options:
   --code <code>     App code (default: weldapp.json)
 
-Requires WELD_API_KEY.
+Requires weld login (or WELD_API_KEY).
 `;
 
 export async function run(args: ParsedArgs): Promise<void> {

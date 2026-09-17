@@ -30,6 +30,16 @@ Same Clerk application as the platform. Add to **Allowed origins** and **Redirec
 - `https://developer-test.weldsuite.org`
 - `http://localhost:3202` (local)
 
+Also allow the CLI auth path as a redirect / after-sign-in URL:
+
+- `https://developer.weldsuite.org/cli-auth`
+- `https://developer-test.weldsuite.org/cli-auth`
+- `http://localhost:3202/cli-auth`
+
+No separate OAuth application is required — `weld login` uses a device-code
+flow against app-api (`/api/cli-auth/*`) plus the existing Clerk session on
+this portal.
+
 ## Cloudflare Pages
 
 CI deploys `developer-web` / `developer-web-test`. Ops must create the Pages

@@ -7,7 +7,7 @@ export const help = `${bold('weld app list')} — list your workspace's apps
 Shows code, name, visibility, review status and install count for every app
 returned by GET /v1/user-apps.
 
-Requires WELD_API_KEY.
+Requires weld login or WELD_API_KEY.
 `;
 
 export async function run(_args: ParsedArgs): Promise<void> {

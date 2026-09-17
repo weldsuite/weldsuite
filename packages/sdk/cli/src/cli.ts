@@ -15,6 +15,9 @@ import * as appPublish from './commands/publish.js';
 import * as appUpdate from './commands/update.js';
 import * as appVersions from './commands/versions.js';
 import * as skillInstall from './commands/skill-install.js';
+import * as login from './commands/login.js';
+import * as logout from './commands/logout.js';
+import * as whoami from './commands/whoami.js';
 
 interface Command {
   help: string;
@@ -22,6 +25,9 @@ interface Command {
 }
 
 const COMMANDS: Record<string, Command> = {
+  login,
+  logout,
+  whoami,
   'app init': appInit,
   'app create': appCreate,
   'app info': appInfo,
@@ -40,6 +46,11 @@ const HELP = `${bold('weld')} — the WeldSuite app CLI
 
 Usage:
   ${cyan('weld <command> [options]')}
+
+Auth:
+  login                 Sign in via browser (device code) and store credentials
+  logout                Remove the local login session
+  whoami                Show the active identity [--check]
 
 App commands:
   app init [dir]        Scaffold a new WeldSuite app (Vite + React + app-sdk)
@@ -62,13 +73,15 @@ Global options:
   --version, -v         Show the CLI version
 
 Environment:
-  WELD_API_KEY          Workspace API key (wsk_…) — required for API commands
-  WELD_API_URL          API base URL (default: https://api.weldsuite.org)
+  WELD_API_KEY          Optional override — workspace/personal API key (wsk_…) for CI
+  WELD_API_URL          External API base URL (default: https://api.weldsuite.org)
+  WELD_APP_API_URL      app-api base for weld login (default: derived from WELD_API_URL)
+  WELD_LOGIN_URL        Developer portal origin for weld login
   WELD_DEV_USER_ID      Clerk user id for weld app dev (required with workspace keys)
 
 Auth note:
-  The CLI uses workspace/personal API keys (wsk_), not Clerk browser login.
-  Create a key under Settings → API keys with the user-apps:manage scope.
+  Prefer ${cyan('weld login')} (Clerk device code → personal wsk_…).
+  For CI, set WELD_API_KEY to a workspace/personal key with user-apps:manage.
   The developer portal remains optional for the same manage flows.
 `;
 
@@ -82,6 +95,24 @@ function readVersion(): string {
   }
 }
 
+/** Single-word auth commands vs two-word app/skill commands. */
+function resolveCommand(words: string[]): { name: string; arity: number; command: Command | undefined } {
+  if (words.length >= 1) {
+    const single = words[0] ?? '';
+    if (COMMANDS[single] && !single.includes(' ')) {
+      // Prefer exact single-token commands (login/logout/whoami) over "app …".
+      if (single === 'login' || single === 'logout' || single === 'whoami') {
+        return { name: single, arity: 1, command: COMMANDS[single] };
+      }
+    }
+  }
+  const two = words.slice(0, 2).join(' ');
+  if (COMMANDS[two]) return { name: two, arity: 2, command: COMMANDS[two] };
+  const one = words[0] ?? '';
+  if (COMMANDS[one]) return { name: one, arity: 1, command: COMMANDS[one] };
+  return { name: two || one, arity: 2, command: undefined };
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
 
@@ -92,8 +123,7 @@ async function main(): Promise<void> {
 
   const wantsHelp = argv.includes('--help') || argv.includes('-h');
   const words = argv.filter((token) => !token.startsWith('-'));
-  const commandName = words.slice(0, 2).join(' ');
-  const command = COMMANDS[commandName];
+  const { arity, command } = resolveCommand(words);
 
   if (!command) {
     info(HELP);
@@ -108,11 +138,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Strip the two command words, keep the rest (flags + extra positionals).
+  // Strip the command word(s), keep the rest (flags + extra positionals).
   const rest: string[] = [];
   let skipped = 0;
   for (const token of argv) {
-    if (skipped < 2 && !token.startsWith('-')) {
+    if (skipped < arity && !token.startsWith('-')) {
       skipped += 1;
       continue;
     }

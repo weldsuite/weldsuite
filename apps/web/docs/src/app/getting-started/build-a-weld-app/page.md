@@ -18,7 +18,7 @@ WeldApps are separate Vite frontends. The platform loads them in a sandboxed ifr
 
    ```bash
    npm install -g @weldsuite/cli
-   export WELD_API_KEY=wsk_...   # Settings → API keys (scope user-apps:manage)
+   weld login                    # interactive; or for CI: export WELD_API_KEY=wsk_...
    ```
 
 2. Scaffold and register in one step:

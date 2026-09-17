@@ -15,7 +15,7 @@ Options:
   --rotate          Force rotate (same as --create when a client already exists)
   --show            Print the client id only (secret is never returned again)
 
-Requires WELD_API_KEY.
+Requires weld login (or WELD_API_KEY).
 `;
 
 interface OauthClientMeta {

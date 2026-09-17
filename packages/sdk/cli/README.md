@@ -15,23 +15,42 @@ weld --version
 
 Requires Node 20+.
 
-## Environment
+## Authentication
+
+### Interactive (recommended)
+
+```bash
+weld login
+```
+
+Opens the developer portal, shows a short device code, and after you confirm + pick a workspace, stores a personal API key under `~/.config/weldsuite/credentials.json` (mode `0600`). Then:
+
+```bash
+weld whoami
+weld app list
+weld logout          # removes the local file (revoke “Weld CLI” in Settings if desired)
+```
+
+### CI / scripts
+
+```bash
+export WELD_API_KEY=wsk_...   # always wins over the login session
+```
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `WELD_API_KEY` | for API commands | Workspace or personal API key (`wsk_…`) with `user-apps:manage`. Create one in WeldSuite under **Settings → API keys**. |
-| `WELD_API_URL` | no | API base URL. Default: `https://api.weldsuite.org` (test: `https://api-test.weldsuite.org`). |
-| `WELD_DEV_USER_ID` | with workspace keys | Clerk user id that should see `weld app dev` previews. Personal API keys infer this. |
-
-```bash
-export WELD_API_KEY=wsk_...
-```
-
-Auth is API-key only — there is no Clerk browser login in the CLI.
+| `WELD_API_KEY` | for CI | Workspace or personal API key (`wsk_…`) with `user-apps:manage`. Overrides `weld login`. |
+| `WELD_API_URL` | no | External API base. Default: `https://api.weldsuite.org` (test: `https://api-test.weldsuite.org`). |
+| `WELD_APP_API_URL` | no | app-api host used by `weld login`. Derived from `WELD_API_URL` when unset. |
+| `WELD_LOGIN_URL` | no | Developer portal origin for the browser step. |
+| `WELD_DEV_USER_ID` | with workspace keys | Clerk user id that should see `weld app dev` previews. Personal keys infer this. |
 
 ## Commands
 
 ```text
+weld login [--no-browser] [--api-url <url>] [--login-url <url>]
+weld logout
+weld whoami [--check]
 weld app init [dir] [--name <name>] [--code <code>] [--force]
 weld app create [dir] [--name <name>] [--code <code>] [--force]
 weld app info [--code <code>]
@@ -50,6 +69,9 @@ weld --help | --version
 
 | Command | Purpose |
 | --- | --- |
+| `login` | Clerk browser + device-code flow; mints a personal key with `user-apps:manage`. |
+| `logout` | Delete the local credentials file. |
+| `whoami` | Print the active identity; `--check` pings the API. |
 | `app init` | Scaffold a Vite + React app wired to `@weldsuite/app-sdk`. |
 | `app create` | Scaffold if needed, then register (`POST /v1/user-apps`). |
 | `app info` | Show one app's metadata, visibility, and review status. |
@@ -66,7 +88,8 @@ weld --help | --version
 ## Portal-free happy path
 
 ```bash
-export WELD_API_KEY=wsk_...
+weld login
+# or for CI: export WELD_API_KEY=wsk_...
 # optional for test: export WELD_API_URL=https://api-test.weldsuite.org
 
 weld app create expense-notes --name "Expense Notes" --code expense-notes
@@ -92,12 +115,13 @@ Install the app in your workspace (**App Store → Custom apps**) so `/apps/{cod
 
 ## Errors
 
-API errors are rendered from the platform's `{ error: { code, message } }` envelope, and a missing `WELD_API_KEY` prints setup instructions instead of a stack trace.
+API errors are rendered from the platform's `{ error: { code, message } }` envelope. Missing credentials point at `weld login` (or `WELD_API_KEY` for CI) instead of a stack trace.
 
 ## Related
 
 - [`@weldsuite/app-sdk`](https://www.npmjs.com/package/@weldsuite/app-sdk) — runtime SDK (bridge + API client + React bindings).
-- Optional portal: `https://developer.weldsuite.org` (same manage features via Clerk).
+- Developer portal CLI auth: `https://developer.weldsuite.org/cli-auth` (opened by `weld login`).
+- Optional portal manage UI: `https://developer.weldsuite.org` (same manage features via Clerk).
 
 ## License
 

@@ -105,9 +105,9 @@ export const developer = {
     title: 'Aan de slag',
     subtitle:
       'Het primaire pad is de CLI — maken, previewen, deployen en beheren zonder dit portaal. Het portaal is optioneel.',
-    step1Title: 'Installeer de CLI',
+    step1Title: 'Installeer de CLI en meld je aan',
     step1Body:
-      'Vereist Node 20+. Maak een werkruimte-API-sleutel (wsk_…) met user-apps:manage onder Instellingen → API-sleutels. Geen Clerk-login in de CLI.',
+      'Vereist Node 20+. Voer `weld login` uit om in te loggen met je WeldSuite-account (of zet WELD_API_KEY voor CI).',
     step2Title: 'Scaffolden en registreren',
     step2Body: 'Maakt een Vite + React-app met @weldsuite/app-sdk en registreert deze voor uw werkruimte.',
     step3Title: 'Lokale preview',
@@ -120,5 +120,21 @@ export const developer = {
     step5Body:
       'weld app publish dient in voor openbare App Store-beoordeling (zet zichtbaarheid op public). Officiële publishers worden automatisch goedgekeurd.',
     docsLink: 'Volledige CLI-documentatie',
+  },
+  cliAuth: {
+    title: 'Weld CLI autoriseren',
+    subtitle: 'Bevestig de code uit je terminal en geef de CLI toegang tot deze werkruimte.',
+    signInHint: 'Meld je aan om de Weld CLI aan je werkruimte te koppelen.',
+    selectWorkspaceHint: 'Kies de werkruimte waarvoor de CLI apps mag beheren.',
+    codeLabel: 'Apparaatcode',
+    codeRequired: 'Voer de code uit je terminal in.',
+    workspaceLabel: 'Werkruimte',
+    userLabel: 'Account',
+    authorize: 'CLI autoriseren',
+    approving: 'Autoriseren…',
+    approveError: 'Kon de CLI niet autoriseren. Controleer de code en probeer opnieuw.',
+    doneTitle: 'CLI geautoriseerd',
+    doneBody: 'Ga terug naar je terminal — weld login zou automatisch moeten afronden.',
+    backToPortal: 'Terug naar developer portal',
   },
 };

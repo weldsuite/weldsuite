@@ -15,7 +15,7 @@ workspace via POST /v1/user-apps.
 When weldapp.json already exists, it only registers (run once per app;
 afterwards use ${cyan('weld app deploy')} to upload versions).
 
-Requires WELD_API_KEY for the register step.
+Requires weld login or WELD_API_KEY for the register step.
 `;
 
 export async function run(args: ParsedArgs): Promise<void> {
@@ -33,7 +33,7 @@ export async function run(args: ParsedArgs): Promise<void> {
   } catch (cause) {
     if (cause instanceof CliError) {
       info('');
-      info('App files are ready. Set WELD_API_KEY and re-run weld app create to register it.');
+      info('App files are ready. Run weld login (or set WELD_API_KEY) and re-run weld app create to register it.');
       throw cause;
     }
     throw cause;

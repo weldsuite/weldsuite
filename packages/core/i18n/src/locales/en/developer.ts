@@ -105,9 +105,9 @@ export const developer = {
     title: 'Getting started',
     subtitle:
       'Primary path is the CLI — create, preview, deploy, and manage without this portal. The portal is optional.',
-    step1Title: 'Install the CLI',
+    step1Title: 'Install the CLI and sign in',
     step1Body:
-      'Requires Node 20+. Create a workspace API key (wsk_…) with user-apps:manage under Settings → API keys. No Clerk login in the CLI.',
+      'Requires Node 20+. Run `weld login` to sign in with your WeldSuite account (or set WELD_API_KEY for CI).',
     step2Title: 'Scaffold and register',
     step2Body: 'Creates a Vite + React app with @weldsuite/app-sdk and registers it for your workspace.',
     step3Title: 'Local preview',
@@ -120,5 +120,21 @@ export const developer = {
     step5Body:
       'weld app publish submits for public App Store review (sets visibility public). Official publishers auto-approve.',
     docsLink: 'Full CLI docs',
+  },
+  cliAuth: {
+    title: 'Authorize Weld CLI',
+    subtitle: 'Confirm the code shown in your terminal, then authorize access for this workspace.',
+    signInHint: 'Sign in to connect the Weld CLI to your workspace.',
+    selectWorkspaceHint: 'Choose the workspace the CLI should manage apps for.',
+    codeLabel: 'Device code',
+    codeRequired: 'Enter the code from your terminal.',
+    workspaceLabel: 'Workspace',
+    userLabel: 'Account',
+    authorize: 'Authorize CLI',
+    approving: 'Authorizing…',
+    approveError: 'Could not authorize the CLI. Check the code and try again.',
+    doneTitle: 'CLI authorized',
+    doneBody: 'Return to your terminal — weld login should finish automatically.',
+    backToPortal: 'Back to developer portal',
   },
 };
