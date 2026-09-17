@@ -13,10 +13,11 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import {
   createUserAppSchema,
   submitUserAppSchema,
+  updateUserAppSchema,
   upsertUserAppDevSessionSchema,
   userAppManifestSchema,
   isAllowedDevSessionUrl,
@@ -26,7 +27,23 @@ import type { HonoEnv } from '../../types';
 import { hasScope } from '../../lib/scopes';
 import { generateId } from '../../lib/id';
 import { createMasterDb, masterSchema, type MasterDatabase } from '../../lib/master-db';
+import { schema as tenantSchema } from '../../db';
 import { error, list, noContent, success, cursorPagination } from '../../lib/response';
+
+/** SHA-256 hex digest via Web Crypto (native to Workers). */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function randomHex(bytes: number): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const app = new Hono<HonoEnv>();
 
@@ -267,9 +284,107 @@ app.get('/:id', async (c) => {
   return success(c, appRow);
 });
 
+app.patch('/:id', zValidator('json', updateUserAppSchema), async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const update: Partial<typeof masterSchema.userApps.$inferInsert> = { updatedAt: new Date() };
+  if (data.name !== undefined) update.name = data.name;
+  if (data.description !== undefined) update.description = data.description;
+  if (data.icon !== undefined) update.icon = data.icon;
+  if (data.category !== undefined) update.category = data.category;
+  if (data.isActive !== undefined) update.isActive = data.isActive;
+  if (data.websiteUrl !== undefined) update.websiteUrl = data.websiteUrl;
+  if (data.privacyUrl !== undefined) update.privacyUrl = data.privacyUrl;
+  if (data.screenshots !== undefined) update.screenshots = data.screenshots;
+  if (data.webhookUrl !== undefined) update.webhookUrl = data.webhookUrl;
+
+  const [updated] = await masterDb
+    .update(masterSchema.userApps)
+    .set(update)
+    .where(eq(masterSchema.userApps.id, id))
+    .returning();
+  if (!updated) return error.internal(c, 'Failed to update app');
+  return success(c, updated);
+});
+
+app.delete('/:id', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+  const db = c.get('tenantDb');
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const [foreign] = await masterDb
+    .select({ count: sql<number>`count(*)` })
+    .from(masterSchema.userAppInstalls)
+    .where(
+      and(
+        eq(masterSchema.userAppInstalls.appId, id),
+        eq(masterSchema.userAppInstalls.status, 'active'),
+        ne(masterSchema.userAppInstalls.workspaceId, session.workspaceId),
+      ),
+    );
+  if (Number(foreign?.count ?? 0) > 0) {
+    return error.conflict(c, 'App is still installed in other workspaces');
+  }
+
+  const now = new Date();
+  await masterDb
+    .update(masterSchema.userApps)
+    .set({ deletedAt: now, isActive: false, updatedAt: now })
+    .where(eq(masterSchema.userApps.id, id));
+  await masterDb
+    .update(masterSchema.userAppInstalls)
+    .set({ status: 'revoked', revokedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(masterSchema.userAppInstalls.appId, id),
+        eq(masterSchema.userAppInstalls.status, 'active'),
+      ),
+    );
+  await masterDb
+    .update(masterSchema.userAppTokens)
+    .set({ revokedAt: now })
+    .where(
+      and(eq(masterSchema.userAppTokens.appId, id), isNull(masterSchema.userAppTokens.revokedAt)),
+    );
+
+  const wsApps = tenantSchema.workspaceInstalledApps;
+  await db
+    .update(wsApps)
+    .set({ deletedAt: now, isActive: false, updatedAt: now })
+    .where(and(eq(wsApps.userAppId, id), isNull(wsApps.deletedAt)));
+
+  return noContent(c);
+});
+
 // ============================================================================
-// Versions — multipart bundle upload (weld CLI `weld deploy`)
+// Versions — list + multipart bundle upload (weld CLI)
 // ============================================================================
+
+app.get('/:id/versions', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const rows = await masterDb
+    .select()
+    .from(masterSchema.userAppVersions)
+    .where(eq(masterSchema.userAppVersions.appId, id))
+    .orderBy(desc(masterSchema.userAppVersions.createdAt), desc(masterSchema.userAppVersions.id));
+  return list(c, rows, cursorPagination(rows.length, false, null));
+});
 
 app.post('/:id/versions', async (c) => {
   const session = c.get('apiSession');
@@ -593,6 +708,65 @@ app.delete('/:id/dev-session', async (c) => {
       and(eq(table.appId, appRow.id), eq(table.userId, userId), eq(table.workspaceId, session.workspaceId)),
     );
   return noContent(c);
+});
+
+// ============================================================================
+// OAuth client (server-to-server credentials for the app backend)
+// ============================================================================
+
+app.get('/:id/oauth-client', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const [client] = await masterDb
+    .select({
+      clientId: masterSchema.userAppOauthClients.clientId,
+      createdAt: masterSchema.userAppOauthClients.createdAt,
+    })
+    .from(masterSchema.userAppOauthClients)
+    .where(eq(masterSchema.userAppOauthClients.appId, id))
+    .limit(1);
+  if (!client) return error.notFound(c, 'OAuth client', id);
+  return success(c, client);
+});
+
+app.post('/:id/oauth-client', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const clientSecret = `wacs_${randomHex(20)}`;
+  const clientSecretHash = await sha256Hex(clientSecret);
+  const now = new Date();
+  const table = masterSchema.userAppOauthClients;
+
+  const [existing] = await masterDb.select().from(table).where(eq(table.appId, id)).limit(1);
+
+  if (existing) {
+    await masterDb
+      .update(table)
+      .set({ clientSecretHash, updatedAt: now })
+      .where(eq(table.id, existing.id));
+    return success(c, { clientId: existing.clientId, clientSecret });
+  }
+
+  const clientId = `wac_${randomHex(12)}`;
+  await masterDb.insert(table).values({
+    id: generateId('uaoc'),
+    appId: id,
+    clientId,
+    clientSecretHash,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return success(c, { clientId, clientSecret }, 201);
 });
 
 export default app;

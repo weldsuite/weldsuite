@@ -13,10 +13,11 @@ export const developer = {
   },
   apps: {
     title: 'Your apps',
-    subtitle: 'Create, deploy, and manage WeldApps for your workspace.',
+    subtitle: 'Optional web UI — the Weld CLI covers the full create → deploy → publish path.',
     createApp: 'Create app',
     empty: 'No apps yet',
-    emptyDescription: 'Create an app shell here, then upload bundles with the Weld CLI.',
+    emptyDescription:
+      'Prefer the CLI: weld app create, then weld app deploy. Or create a shell here first.',
     columnName: 'Name',
     columnCode: 'Code',
     columnVisibility: 'Visibility',
@@ -102,18 +103,22 @@ export const developer = {
   },
   gettingStarted: {
     title: 'Getting started',
-    subtitle: 'Build WeldApps locally, host them on WeldSuite, and manage them here.',
+    subtitle:
+      'Primary path is the CLI — create, preview, deploy, and manage without this portal. The portal is optional.',
     step1Title: 'Install the CLI',
-    step1Body: 'Requires Node 20+. Create a workspace API key (wsk_…) under Settings → API keys.',
+    step1Body:
+      'Requires Node 20+. Create a workspace API key (wsk_…) with user-apps:manage under Settings → API keys. No Clerk login in the CLI.',
     step2Title: 'Scaffold and register',
     step2Body: 'Creates a Vite + React app with @weldsuite/app-sdk and registers it for your workspace.',
     step3Title: 'Local preview',
     step3Body:
       'Starts Vite and registers a per-user preview so the platform /apps/{code} host iframes your local server. Use --tunnel against hosted HTTPS.',
-    step4Title: 'Deploy a version',
-    step4Body: 'Validates weldapp.json, builds, and uploads dist/** to R2.',
+    step4Title: 'Deploy and manage',
+    step4Body:
+      'weld app deploy uploads dist/**. Use weld app versions, weld app update, and weld app oauth for manage flows that this portal also offers.',
     step5Title: 'Optional: public store',
-    step5Body: 'Submit for public App Store review (or use Submit for review on the app detail page).',
+    step5Body:
+      'weld app publish submits for public App Store review (sets visibility public). Official publishers auto-approve.',
     docsLink: 'Full CLI docs',
   },
 };
