@@ -7,17 +7,23 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import type { Context } from 'hono';
+import {
+  createPersonCompanySchema,
+  updatePersonCompanySchema,
+} from '@weldsuite/core-api-client/schemas/person-companies';
+import type { Env, Variables } from '../../types';
+import { error, noContent, success } from '../../lib/response';
+import { generateId } from '../../lib/id';
+import { schema } from '../../db';
 
-function publishBothSides(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
-  personId: string,
-  companyId: string,
-) {
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+function publishBothSides(c: AppContext, personId: string, companyId: string) {
   publishEntityEvent({
     c,
     entityType: 'person',
@@ -33,14 +39,23 @@ function publishBothSides(
     data: { id: companyId },
   });
 }
-import {
-  createPersonCompanySchema,
-  updatePersonCompanySchema,
-} from '@weldsuite/core-api-client/schemas/person-companies';
-import type { Env, Variables } from '../../types';
-import { error, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema } from '../../db';
+
+/** Catalog `contact_link` actions are created/deleted only (no updated). */
+function publishContactLink(
+  c: AppContext,
+  linkId: string,
+  personId: string,
+  companyId: string,
+  action: 'created' | 'deleted',
+) {
+  publishEntityEvent({
+    c,
+    entityType: 'contact_link',
+    entityId: linkId,
+    action,
+    data: { id: linkId, personId, companyId },
+  });
+}
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.personCompanies;
@@ -69,6 +84,7 @@ app.post('/', requirePermission('contacts:update'), zValidator('json', createPer
         .where(and(eq(t.personId, data.personId), ne(t.id, id)));
     }
     const [row] = await db.select().from(t).where(eq(t.id, id)).limit(1);
+    publishContactLink(c, id, data.personId, data.companyId, 'created');
     publishBothSides(c, data.personId, data.companyId);
     return success(c, row, 201);
   } catch (err) {
@@ -120,6 +136,7 @@ app.delete('/:id', requirePermission('contacts:update'), async (c) => {
       .limit(1);
     if (!existing) return error.notFound(c, 'PersonCompany', id);
     await db.delete(t).where(eq(t.id, id));
+    publishContactLink(c, existing.id, existing.personId, existing.companyId, 'deleted');
     publishBothSides(c, existing.personId, existing.companyId);
     return noContent(c);
   } catch (err) {

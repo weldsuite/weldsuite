@@ -8,9 +8,12 @@
  */
 
 import { and, eq, ne } from 'drizzle-orm';
+import { isSafeAppLifecycleWebhookUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { UserApp, UserAppManifest, UserAppVersion } from '@weldsuite/db/schema/master';
 import { masterSchema, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
+
+export { isSafeAppLifecycleWebhookUrl };
 
 // ---------------------------------------------------------------------------
 // Reserved codes — first-party modules share the sidenav/app-store namespace
@@ -161,6 +164,12 @@ export function appFieldsFromManifest(manifest: UserAppManifest): Partial<typeof
         ? String(manifest.pricing.monthlyPrice)
         : null,
     ...(manifest.pricing?.currency ? { currency: manifest.pricing.currency.toUpperCase() } : {}),
+    // Omit listing / webhook fields when the manifest does not set them so a
+    // redeploy cannot wipe values previously stored via the manage API.
+    ...(manifest.websiteUrl !== undefined ? { websiteUrl: manifest.websiteUrl } : {}),
+    ...(manifest.privacyUrl !== undefined ? { privacyUrl: manifest.privacyUrl } : {}),
+    ...(manifest.screenshots !== undefined ? { screenshots: manifest.screenshots } : {}),
+    ...(manifest.webhookUrl !== undefined ? { webhookUrl: manifest.webhookUrl } : {}),
   };
 }
 
@@ -348,4 +357,66 @@ export async function resolveBundleForCode(
   };
   await kv.put(cacheKey, JSON.stringify(resolved), { expirationTtl: ASSET_CACHE_TTL_SECONDS });
   return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Official publisher + lifecycle webhooks
+// ---------------------------------------------------------------------------
+
+/** Workspace ids (comma-separated) whose new apps are first-party (`weldsuite`). */
+export function isOfficialPublisherWorkspace(
+  env: { WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string },
+  workspaceId: string,
+): boolean {
+  const raw = env.WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS ?? '';
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .includes(workspaceId);
+}
+
+/** Store listings omit lifecycle webhook URLs and Stripe ids. */
+export function toUserAppStoreListing<
+  T extends { webhookUrl?: unknown; stripeProductId?: unknown; stripePriceId?: unknown },
+>(app: T): Omit<T, 'webhookUrl' | 'stripeProductId' | 'stripePriceId'> {
+  const { webhookUrl: _webhookUrl, stripeProductId: _stripeProductId, stripePriceId: _stripePriceId, ...rest } = app;
+  return rest;
+}
+
+export interface AppLifecycleWebhookPayload {
+  event: 'app.installed' | 'app.uninstalled';
+  appId: string;
+  appCode: string;
+  workspaceId: string;
+  occurredAt: string;
+}
+
+/** Fire-and-forget POST to the app's declared lifecycle webhook. Never throws. */
+export async function dispatchAppLifecycleWebhook(
+  webhookUrl: string | null | undefined,
+  payload: AppLifecycleWebhookPayload,
+): Promise<void> {
+  if (!webhookUrl || !isSafeAppLifecycleWebhookUrl(webhookUrl)) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'user-agent': 'WeldSuite-Apps/1.0',
+      },
+      body: JSON.stringify(payload),
+      // Block open-redirect chains into private/metadata destinations after
+      // the write-time hostname checks.
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+  } catch {
+    // Lifecycle delivery is best-effort — a down developer endpoint must not
+    // fail install/uninstall.
+  } finally {
+    clearTimeout(timer);
+  }
 }

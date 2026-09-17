@@ -285,6 +285,14 @@ function AppStack() {
                       }}
                     />
                     <Stack.Screen
+                      name="subscriptions"
+                      options={{
+                        animation: 'slide_from_right',
+                        gestureEnabled: true,
+                        gestureDirection: 'horizontal',
+                      }}
+                    />
+                    <Stack.Screen
                       name="add-account"
                       options={{
                         headerShown: false,

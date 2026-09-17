@@ -54,4 +54,5 @@ Per-app settings (mail accounts, desk inboxes, etc.) live under **Settings** onc
 ## Next steps
 
 - [Workspace overview](/getting-started) — how navigation and workspaces work
+- [Build a WeldSuite app](/getting-started/build-a-weld-app) — scaffold, preview, and deploy a hosted app
 - Pick an app overview from the sidebar (for example [WeldCRM](/weldcrm) or [WeldMail](/weldmail))

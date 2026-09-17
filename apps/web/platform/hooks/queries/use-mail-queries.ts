@@ -69,6 +69,7 @@ export const mailKeys = {
   syncStatus: (accountId: string) => [...mailKeys.all, 'sync', accountId] as const,
   scheduledEmails: (accountId?: string) => [...mailKeys.all, 'scheduled', accountId] as const,
   snoozedEmails: (accountId?: string) => [...mailKeys.all, 'snoozed', accountId] as const,
+  subscriptions: (accountId?: string) => [...mailKeys.all, 'subscriptions', accountId] as const,
   search: (query: string) => [...mailKeys.all, 'search', query] as const,
   contacts: (query?: string) => [...mailKeys.all, 'contacts', query] as const,
   recentContacts: () => [...mailKeys.all, 'contacts', 'recent'] as const,
@@ -733,6 +734,40 @@ export function useSmartReplies() {
     mutationFn: async (data: Parameters<typeof mailAi.smartReplies>[0]): Promise<AiSmartRepliesResponse> => {
       const res = await mailAi.smartReplies(data);
       return res.json();
+    },
+  });
+}
+// =============================================================================
+// Subscriptions (mailing lists + unsubscribe)
+// =============================================================================
+
+export function useMailSubscriptions(accountId?: string) {
+  const { mailSubscriptions } = useAppApi();
+  return useQuery({
+    queryKey: mailKeys.subscriptions(accountId),
+    queryFn: () => mailSubscriptions.list({ accountId: accountId! }),
+    enabled: !!accountId,
+  });
+}
+
+export function useScanMailSubscriptions() {
+  const { mailSubscriptions } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (accountId: string) => mailSubscriptions.scan({ accountId }),
+    onSuccess: (_res, accountId) => {
+      qc.invalidateQueries({ queryKey: mailKeys.subscriptions(accountId) });
+    },
+  });
+}
+
+export function useUnsubscribeMailSubscription() {
+  const { mailSubscriptions } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => mailSubscriptions.unsubscribe(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: mailKeys.subscriptions(res.data.subscription.accountId) });
     },
   });
 }

@@ -30,6 +30,7 @@ export const SYSTEM_LABELS = {
   ARCHIVE: 'ARCHIVE',
   SNOOZED: 'SNOOZED',
   SCHEDULED: 'SCHEDULED',
+  PROMOTIONS: 'PROMOTIONS',
 } as const;
 
 export type SystemLabel = (typeof SYSTEM_LABELS)[keyof typeof SYSTEM_LABELS];
@@ -46,6 +47,7 @@ const SLUG_TO_SYSTEM_LABEL: Record<string, string> = {
   archive: 'ARCHIVE',
   snoozed: 'SNOOZED',
   scheduled: 'SCHEDULED',
+  promotions: 'PROMOTIONS',
 };
 
 export function isSystemLabelSlug(slug: string): boolean {
@@ -335,8 +337,9 @@ export async function bulkRemoveLabelFromMessages(
  *
  * System slugs are normalised (`archive` → `ARCHIVE`) so callers can
  * pass either form. Adding `ARCHIVE` also strips `INBOX` (and adding
- * `INBOX` strips `ARCHIVE`) so a conversation cannot sit in both the
- * inbox and the archive at once — Gmail-style location labels.
+ * `INBOX` strips `ARCHIVE` and `PROMOTIONS`) so a conversation cannot sit
+ * in the inbox and the archive or promotions at once — Gmail-style
+ * location labels.
  */
 export async function applyLabelToThread(
   db: Database,
@@ -366,6 +369,7 @@ export async function applyLabelToThread(
       affected = Math.max(affected, removed.affected);
     } else if (normalized === SYSTEM_LABELS.INBOX) {
       await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.ARCHIVE, ids);
+      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.PROMOTIONS, ids);
     }
     return { affected };
   }

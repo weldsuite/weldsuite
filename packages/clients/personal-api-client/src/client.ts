@@ -21,6 +21,8 @@ import type {
   MailDraft,
   MailLabel,
   MailMessage,
+  MailSubscription,
+  MailSubscriptionStatus,
   MeResponse,
   PaginationMeta,
   PatchMessageBody,
@@ -30,9 +32,11 @@ import type {
   RangeEventsParams,
   RegisterPushTokenBody,
   ReplyMessageBody,
+  ScanMailSubscriptionsResult,
   SendMessageBody,
   TimeSlot,
   UnreadCount,
+  UnsubscribeResult,
   UpdateBookingPageInput,
   UpdateDraftBody,
   UpdateEventInput,
@@ -200,6 +204,17 @@ export class PersonalApiClient {
   readonly mailLabels = {
     list: (accountId?: string): Promise<DataResponse<MailLabel[]>> =>
       this.request('GET', `/mail/labels${buildQuery({ accountId })}`),
+  };
+
+  readonly mailSubscriptions = {
+    list: (params: { accountId: string; status?: MailSubscriptionStatus }): Promise<DataResponse<MailSubscription[]>> =>
+      this.request('GET', `/mail/subscriptions${buildQuery(params)}`),
+
+    scan: (accountId: string): Promise<DataResponse<ScanMailSubscriptionsResult>> =>
+      this.request('POST', '/mail/subscriptions/scan', { accountId }),
+
+    unsubscribe: (id: string): Promise<DataResponse<UnsubscribeResult>> =>
+      this.request('POST', `/mail/subscriptions/${id}/unsubscribe`, {}),
   };
 
   readonly mailDrafts = {

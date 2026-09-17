@@ -193,6 +193,7 @@ app.get('/setup/labels', requirePermission('accounts:read'), (c) =>
     { id: 'STARRED', name: 'Starred', type: 'system' },
     { id: 'IMPORTANT', name: 'Important', type: 'system' },
     { id: 'ARCHIVE', name: 'Archive', type: 'system' },
+    { id: 'PROMOTIONS', name: 'Promotions', type: 'system' },
   ]),
 );
 

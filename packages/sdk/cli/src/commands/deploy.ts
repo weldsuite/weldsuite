@@ -18,7 +18,7 @@ Options:
   --changelog <text>     Changelog entry for this version
   --skip-build           Upload the existing bundle without rebuilding
 
-Requires WELD_API_KEY. The app must exist — run ${cyan('weld app create')} first.
+Requires weld login or WELD_API_KEY. The app must exist — run ${cyan('weld app create')} first.
 `;
 
 const MIME_TYPES: Record<string, string> = {

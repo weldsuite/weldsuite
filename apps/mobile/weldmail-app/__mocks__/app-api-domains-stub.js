@@ -14,6 +14,7 @@ module.exports = {
   createMailDraftsApi: factory('mailDrafts'),
   createMailWeldMailApi: factory('mailWeldmail'),
   createMailSnoozeApi: factory('mailSnooze'),
+  createMailSubscriptionsApi: factory('mailSubscriptions'),
   createMailScheduledApi: factory('mailScheduled'),
   createMailDomainsApi: factory('mailDomains'),
   createPushTokensApi: factory('pushTokens'),

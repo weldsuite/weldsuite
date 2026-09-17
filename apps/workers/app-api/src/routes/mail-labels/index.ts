@@ -40,6 +40,7 @@ import {
 } from '../../services/mail/labels';
 import { listThreadsByLabel } from '../../services/mail/threads';
 import { checkAccountAccess } from '../../services/mail/access';
+import { getMessageAccountId } from '../../services/mail/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -173,6 +174,15 @@ app.post(
     }
     try {
       const result = await bulkAddLabelToMessages(c.get('tenantDb'), labelName, messageIds);
+      const anchorId = messageIds[0]!;
+      const accountId = (await getMessageAccountId(c.get('tenantDb'), anchorId)) ?? '';
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: anchorId,
+        action: 'updated',
+        data: { id: anchorId, accountId, subject: null, from: null, to: null },
+      });
       return success(c, { count: result.affected });
     } catch (err) {
       console.error('[app-api/mail-labels] add-to-messages failed:', err);
@@ -192,6 +202,15 @@ app.post(
     }
     try {
       const result = await bulkRemoveLabelFromMessages(c.get('tenantDb'), labelName, messageIds);
+      const anchorId = messageIds[0]!;
+      const accountId = (await getMessageAccountId(c.get('tenantDb'), anchorId)) ?? '';
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: anchorId,
+        action: 'updated',
+        data: { id: anchorId, accountId, subject: null, from: null, to: null },
+      });
       return success(c, { count: result.affected });
     } catch (err) {
       console.error('[app-api/mail-labels] remove-from-messages failed:', err);
@@ -217,6 +236,15 @@ app.post(
         labelName,
         action,
       );
+      // Thread label changes move messages between folder views — fan out as
+      // email:updated so other screens invalidate `['mail']`.
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: threadId,
+        action: 'updated',
+        data: { id: threadId, accountId, subject: null, from: null, to: null },
+      });
       return success(c, { affected: result.affected, action });
     } catch (err) {
       console.error('[app-api/mail-labels] apply-to-thread failed:', err);

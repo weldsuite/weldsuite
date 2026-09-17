@@ -52,7 +52,12 @@ export interface RealtimeSyncConfig {
   queryClient: QueryClientLike;
   /** Entity-to-cache mapping for this app. */
   syncMap: EntitySyncMap;
-  /** Current user's ID — events from this user are skipped (mutation already updated cache). */
+  /**
+   * Current user's ID. Own-user events still invalidate list query keys so
+   * other tabs/screens of the same user refresh. Detail merge/remove is
+   * skipped for own events (the mutating tab's onSuccess already wrote the
+   * cache; applying a possibly analytics-shaped payload would clobber it).
+   */
   currentUserId: string;
   /** Debounce interval in ms for batching list invalidations. Default: 200. */
   debounceMs?: number;
@@ -69,7 +74,8 @@ export interface RealtimeSyncConfig {
  * - `created` → debounced list invalidation
  * - `updated` → immediate setQueryData on detail cache + debounced list invalidation
  * - `deleted` / `archived` → immediate cache removal + debounced list invalidation
- * - Own-user events are skipped (the mutation's onSuccess already handled it)
+ * - Own-user events still invalidate lists (cross-tab / cross-screen); detail
+ *   merge/remove is skipped so the mutating tab's optimistic write wins
  * - On reconnection, all queries are invalidated to catch up on missed events
  *
  * Usage (platform):
@@ -132,9 +138,8 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
 
     for (const [topic, entityConfig] of Object.entries(map)) {
       const unsub = client.on(topic, (event) => {
-        // Skip own events — mutation's onSuccess already updated cache
-        if (event.userId === userIdRef.current) return;
-
+        const isOwnEvent =
+          Boolean(userIdRef.current) && event.userId === userIdRef.current;
         const entityId = (event.data as Record<string, unknown>)?.id as string | undefined;
 
         switch (event.event) {
@@ -143,7 +148,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
             break;
 
           case 'updated':
-            if (entityConfig.updateDetail && entityId) {
+            if (!isOwnEvent && entityConfig.updateDetail && entityId) {
               entityConfig.updateDetail(queryClient, entityId, event.data);
             }
             scheduleInvalidation(entityConfig.invalidate);
@@ -152,7 +157,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
           case 'replaced':
             // Treat as updated — emitted by some routes that fully replace
             // an entity rather than patching it.
-            if (entityConfig.updateDetail && entityId) {
+            if (!isOwnEvent && entityConfig.updateDetail && entityId) {
               entityConfig.updateDetail(queryClient, entityId, event.data);
             }
             scheduleInvalidation(entityConfig.invalidate);
@@ -160,7 +165,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
 
           case 'deleted':
           case 'archived':
-            if (entityConfig.remove && entityId) {
+            if (!isOwnEvent && entityConfig.remove && entityId) {
               entityConfig.remove(queryClient, entityId);
             }
             scheduleInvalidation(entityConfig.invalidate);

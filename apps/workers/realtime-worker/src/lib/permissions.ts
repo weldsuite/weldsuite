@@ -1,3 +1,7 @@
+import {
+  listMemberHubTopics,
+  PERSONAL_HUB_TOPIC_PREFIXES,
+} from '@weldsuite/entity-events';
 import type { AuthInfo, WorkspacePermissions, RoomPermissions } from './protocol';
 
 /**
@@ -6,13 +10,32 @@ import type { AuthInfo, WorkspacePermissions, RoomPermissions } from './protocol
  * suffix, regardless of role. This is the subscribe-side half of the
  * personal-topic isolation guarantee; the publisher half attaches
  * `_access: { userIds: [target] }` for defence-in-depth.
+ *
+ * Kept in lockstep with `PERSONAL_HUB_TOPIC_PREFIXES` in
+ * `@weldsuite/entity-events` and `BARE_PERSONAL_TOPICS` in `@weldsuite/realtime`.
  */
-export const PERSONAL_TOPIC_PREFIXES = [
-  'notification',
-  'mail',
-  'inbox',
-  'chat.user',
-] as const;
+export const PERSONAL_TOPIC_PREFIXES = PERSONAL_HUB_TOPIC_PREFIXES;
+
+function personalSubscribeTopics(userId: string): string[] {
+  return [
+    `notification.${userId}`,
+    `mail.${userId}`,
+    `inbox.${userId}`,
+    `chat.user.${userId}`,
+  ];
+}
+
+/**
+ * Member/viewer WorkspaceHub allow-list: user-scoped personal topics plus
+ * every non-personal catalog entity type (+ presence). Derived from
+ * `ENTITY_EVENTS` so new catalog types are covered automatically.
+ *
+ * Underscore entity types need explicit entries — `canSubscribe` only matches
+ * exact topics or `prefix.` children (`project` ≠ `project_task`).
+ */
+function memberViewerSubscribeList(userId: string): string[] {
+  return [...personalSubscribeTopics(userId), ...listMemberHubTopics()];
+}
 
 /**
  * Determine which WorkspaceHub topics a user can subscribe to.
@@ -23,13 +46,6 @@ export const PERSONAL_TOPIC_PREFIXES = [
  * subscriber tap any other user's personal stream.
  */
 export function getWorkspacePermissions(auth: AuthInfo): WorkspacePermissions {
-  const personalTopics = [
-    `notification.${auth.userId}`,
-    `mail.${auth.userId}`,
-    `inbox.${auth.userId}`,
-    `chat.user.${auth.userId}`,
-  ];
-
   // Owners and admins get full access EXCEPT other users' personal streams,
   // which are enforced separately at subscribe time via
   // `isPersonalTopicForOtherUser`. Keep `*` here so the wildcard still grants
@@ -38,34 +54,11 @@ export function getWorkspacePermissions(auth: AuthInfo): WorkspacePermissions {
     return { subscribe: ['*'] };
   }
 
-  // Regular members get most topics
-  if (auth.role === 'member') {
-    return {
-      subscribe: [
-        ...personalTopics,
-        'project',
-        'task',
-        'contact',
-        'company',
-        'person',
-        'lead',
-        'opportunity',
-        'product',
-        'inventory',
-        'invoice',
-        'bill',
-        'payment',
-        'commerce_order',
-        'ticket',
-        'helpdesk',
-        'presence',
-      ],
-    };
-  }
-
-  // Viewers get read-only subset
+  // Members and viewers share the catalog-derived non-personal set: viewers
+  // already open the same read surfaces in product, so they get live updates
+  // for anything they can open. Personal isolation is unchanged.
   return {
-    subscribe: [...personalTopics, 'project', 'task', 'presence'],
+    subscribe: memberViewerSubscribeList(auth.userId),
   };
 }
 

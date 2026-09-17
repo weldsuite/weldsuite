@@ -47,8 +47,8 @@ const RESERVED_CODES = new Set([
   'apps',
 ]);
 
-const MAX_BUNDLE_FILES = 100;
-const MAX_BUNDLE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_BUNDLE_FILES = 500;
+const MAX_BUNDLE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /** Content types for bundle files, by extension. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -311,7 +311,7 @@ app.post('/:id/versions', async (c) => {
   }
   const totalBytes = fileEntries.reduce((sum, f) => sum + f.size, 0);
   if (totalBytes > MAX_BUNDLE_BYTES) {
-    return error.badRequest(c, 'Bundle exceeds the 10MB size limit');
+    return error.badRequest(c, 'Bundle exceeds the 50MB size limit');
   }
 
   // (appId, version) is unique — pre-check for a friendly 409.

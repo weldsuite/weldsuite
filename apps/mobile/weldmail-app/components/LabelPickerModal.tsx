@@ -129,7 +129,7 @@ export default function LabelPickerModal({ visible, onClose, messageId, currentL
 
 const SYSTEM_LABELS_SET = new Set([
   'INBOX', 'SENT', 'DRAFTS', 'TRASH', 'SPAM', 'STARRED',
-  'IMPORTANT', 'ARCHIVE', 'SNOOZED', 'SCHEDULED', 'ALL',
+  'IMPORTANT', 'ARCHIVE', 'SNOOZED', 'SCHEDULED', 'ALL', 'PROMOTIONS',
 ]);
 
 function isSystemLabel(label: string): boolean {

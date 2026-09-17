@@ -10,13 +10,19 @@
   "files": [
     "dist",
     "templates",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "pnpm run build"
+    "test": "pnpm run build && node --test dist/**/*.test.js",
+    "prepublishOnly": "pnpm run build && find dist -name '*.test.js' -delete"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "keywords": [
     "weldsuite",
@@ -29,8 +35,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/weldcorporation/weldsuite.git",
+    "url": "https://github.com/weldsuite/weldsuite.git",
     "directory": "packages/sdk/cli"
+  },
+  "homepage": "https://www.npmjs.com/package/@weldsuite/cli",
+  "bugs": {
+    "url": "https://github.com/weldsuite/weldsuite/issues"
   },
   "dependencies": {
     "zod": "^3.25.76"

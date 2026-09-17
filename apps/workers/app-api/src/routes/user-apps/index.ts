@@ -23,6 +23,7 @@ import {
   reviewUserAppSchema,
   submitUserAppSchema,
   updateUserAppSchema,
+  upsertUserAppDevSessionSchema,
   userAppManifestSchema,
 } from '@weldsuite/app-api-client/schemas/user-apps';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -36,7 +37,10 @@ import {
   assetCacheKey,
   contentTypeFor,
   diffScopes,
+  dispatchAppLifecycleWebhook,
+  isOfficialPublisherWorkspace,
   isSafeBundlePath,
+  toUserAppStoreListing,
   isScopeSuperset,
   mintAppToken,
   publishAppVersion,
@@ -44,6 +48,13 @@ import {
   sha256Hex,
   unionScopes,
 } from '../../services/user-apps';
+import {
+  deleteDevSession,
+  findActiveAppByCode,
+  getActiveDevSession,
+  isAllowedDevSessionUrl,
+  upsertDevSession,
+} from '../../services/user-app-dev-sessions';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -54,8 +65,8 @@ const uTokens = masterSchema.userAppTokens;
 const uOauthClients = masterSchema.userAppOauthClients;
 const wsApps = schema.workspaceInstalledApps;
 
-const MAX_BUNDLE_FILES = 100;
-const MAX_BUNDLE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_BUNDLE_FILES = 500;
+const MAX_BUNDLE_BYTES = 50 * 1024 * 1024; // 50MB
 
 /** Load an app owned by the calling workspace (soft-deleted excluded). */
 async function getOwnedApp(
@@ -67,6 +78,19 @@ async function getOwnedApp(
     .select()
     .from(uApps)
     .where(and(eq(uApps.id, id), eq(uApps.ownerWorkspaceId, workspaceId), isNull(uApps.deletedAt)))
+    .limit(1);
+  return row;
+}
+
+async function getOwnedAppByCode(
+  master: MasterDatabase,
+  code: string,
+  workspaceId: string,
+): Promise<UserApp | undefined> {
+  const [row] = await master
+    .select()
+    .from(uApps)
+    .where(and(eq(uApps.code, code), eq(uApps.ownerWorkspaceId, workspaceId), isNull(uApps.deletedAt)))
     .limit(1);
   return row;
 }
@@ -167,8 +191,13 @@ app.post('/', requirePermission('weldapps:develop'), zValidator('json', createUs
         description: data.description ?? null,
         ...(data.icon ? { icon: data.icon } : {}),
         ...(data.category ? { category: data.category } : {}),
+        ...(data.websiteUrl ? { websiteUrl: data.websiteUrl } : {}),
+        ...(data.privacyUrl ? { privacyUrl: data.privacyUrl } : {}),
+        ...(data.screenshots ? { screenshots: data.screenshots } : {}),
+        ...(data.webhookUrl ? { webhookUrl: data.webhookUrl } : {}),
         ownerWorkspaceId: workspaceId,
         createdBy: userId,
+        publisherType: isOfficialPublisherWorkspace(c.env, workspaceId) ? 'weldsuite' : 'community',
         createdAt: now,
         updatedAt: now,
       })
@@ -236,7 +265,7 @@ app.get('/store', requirePermission('weldapps:read'), async (c) => {
       const tenantRow = tenantByAppId.get(a.id);
       const install = installByAppId.get(a.id);
       return {
-        ...a,
+        ...toUserAppStoreListing(a),
         isInstalled: Boolean(tenantRow?.isActive) && install?.status === 'active',
         pendingScopes: install?.status === 'active' ? (install.pendingScopes ?? null) : null,
       };
@@ -278,7 +307,7 @@ app.get('/store/:code', requirePermission('weldapps:read'), async (c) => {
       .limit(1);
 
     return success(c, {
-      ...row,
+      ...toUserAppStoreListing(row),
       isInstalled: Boolean(tenantRow?.isActive) && install?.status === 'active',
       pendingScopes: install?.status === 'active' ? (install.pendingScopes ?? null) : null,
     });
@@ -420,6 +449,78 @@ app.post('/code/:code/session-token', requirePermission('weldapps:read'), async 
 });
 
 // ============================================================================
+// Preview sessions (`weld app dev`) — per Clerk user, not per workspace
+// ============================================================================
+
+app.get('/code/:code/dev-session', requirePermission('weldapps:read'), async (c) => {
+  const master = getMasterDb(c.env);
+  const code = c.req.param('code');
+  try {
+    const appRow = await findActiveAppByCode(master, code);
+    if (!appRow) return success(c, null);
+    const session = await getActiveDevSession(master, {
+      appId: appRow.id,
+      workspaceId: c.get('workspaceId'),
+      userId: c.get('userId'),
+    });
+    return success(c, session);
+  } catch (err) {
+    console.error('[app-api/user-apps] get dev-session failed:', err);
+    return error.internal(c, 'Failed to fetch preview session');
+  }
+});
+
+app.put(
+  '/code/:code/dev-session',
+  requirePermission('weldapps:develop'),
+  zValidator('json', upsertUserAppDevSessionSchema),
+  async (c) => {
+    const master = getMasterDb(c.env);
+    const workspaceId = c.get('workspaceId');
+    const { url } = c.req.valid('json');
+    const code = c.req.param('code');
+    try {
+      const appRow = await getOwnedAppByCode(master, code, workspaceId);
+      if (!appRow) return error.notFound(c, 'App', code);
+      if (!isAllowedDevSessionUrl(url)) {
+        return error.badRequest(
+          c,
+          'Preview URL must be localhost, 127.0.0.1, a Cloudflare quick tunnel, ngrok, or pages.dev',
+        );
+      }
+      const session = await upsertDevSession(master, {
+        appId: appRow.id,
+        workspaceId,
+        userId: c.get('userId'),
+        url,
+      });
+      return success(c, session);
+    } catch (err) {
+      console.error('[app-api/user-apps] put dev-session failed:', err);
+      return error.internal(c, 'Failed to save preview session');
+    }
+  },
+);
+
+app.delete('/code/:code/dev-session', requirePermission('weldapps:develop'), async (c) => {
+  const master = getMasterDb(c.env);
+  const code = c.req.param('code');
+  try {
+    const appRow = await getOwnedAppByCode(master, code, c.get('workspaceId'));
+    if (!appRow) return error.notFound(c, 'App', code);
+    await deleteDevSession(master, {
+      appId: appRow.id,
+      workspaceId: c.get('workspaceId'),
+      userId: c.get('userId'),
+    });
+    return noContent(c);
+  } catch (err) {
+    console.error('[app-api/user-apps] delete dev-session failed:', err);
+    return error.internal(c, 'Failed to clear preview session');
+  }
+});
+
+// ============================================================================
 // GET /:id — detail (owner workspace only)
 // ============================================================================
 
@@ -454,6 +555,10 @@ app.patch('/:id', requirePermission('weldapps:develop'), zValidator('json', upda
     if (data.icon !== undefined) update.icon = data.icon;
     if (data.category !== undefined) update.category = data.category;
     if (data.isActive !== undefined) update.isActive = data.isActive;
+    if (data.websiteUrl !== undefined) update.websiteUrl = data.websiteUrl;
+    if (data.privacyUrl !== undefined) update.privacyUrl = data.privacyUrl;
+    if (data.screenshots !== undefined) update.screenshots = data.screenshots;
+    if (data.webhookUrl !== undefined) update.webhookUrl = data.webhookUrl;
     const [updated] = await master
       .update(uApps)
       .set(update)
@@ -655,7 +760,10 @@ app.post('/:id/versions', requirePermission('weldapps:develop'), async (c) => {
 
     // Public apps that already passed review must be re-reviewed before the
     // new version goes live; everything else publishes immediately.
-    const reviewGate = appRow.visibility === 'public' && appRow.reviewStatus === 'approved';
+    const reviewGate =
+      appRow.visibility === 'public' &&
+      appRow.reviewStatus === 'approved' &&
+      appRow.publisherType !== 'weldsuite';
     if (reviewGate) {
       await master
         .update(uApps)
@@ -720,13 +828,19 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
       .limit(1);
     if (!version) return error.badRequest(c, 'Upload a version before submitting for review');
 
+    const now = new Date();
+    const official = appRow.publisherType === 'weldsuite';
     const [updated] = await master
       .update(uApps)
       .set({
         visibility: 'public',
-        reviewStatus: 'submitted',
-        ...(notes ? { reviewNotes: notes } : {}),
-        updatedAt: new Date(),
+        reviewStatus: official ? 'approved' : 'submitted',
+        ...(official
+          ? { reviewedBy: c.get('userId'), reviewedAt: now, reviewNotes: notes ?? appRow.reviewNotes }
+          : notes
+            ? { reviewNotes: notes }
+            : {}),
+        updatedAt: now,
       })
       .where(eq(uApps.id, id))
       .returning();
@@ -965,6 +1079,15 @@ app.post('/:id/install', requirePermission('weldapps:manage'), zValidator('json'
       entityId: id,
       data: { id, code: appRow.code, name: appRow.name, installId: install.id, grantedScopes },
     });
+    c.executionCtx.waitUntil(
+      dispatchAppLifecycleWebhook(appRow.webhookUrl, {
+        event: 'app.installed',
+        appId: appRow.id,
+        appCode: appRow.code,
+        workspaceId,
+        occurredAt: now.toISOString(),
+      }),
+    );
     return success(c, { install, token }, 201);
   } catch (err) {
     console.error('[app-api/user-apps] install failed:', err);
@@ -992,6 +1115,12 @@ app.delete('/:id/install', requirePermission('weldapps:manage'), async (c) => {
       .limit(1);
     if (!install) return error.notFound(c, 'App install', id);
 
+    const [appRow] = await master
+      .select({ code: uApps.code, webhookUrl: uApps.webhookUrl })
+      .from(uApps)
+      .where(eq(uApps.id, id))
+      .limit(1);
+
     const now = new Date();
     await master
       .update(uInstalls)
@@ -1017,6 +1146,15 @@ app.delete('/:id/install', requirePermission('weldapps:manage'), async (c) => {
       entityId: id,
       data: { id, installId: install.id },
     });
+    c.executionCtx.waitUntil(
+      dispatchAppLifecycleWebhook(appRow?.webhookUrl, {
+        event: 'app.uninstalled',
+        appId: id,
+        appCode: appRow?.code ?? '',
+        workspaceId,
+        occurredAt: now.toISOString(),
+      }),
+    );
     return noContent(c);
   } catch (err) {
     console.error('[app-api/user-apps] uninstall failed:', err);

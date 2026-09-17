@@ -13,17 +13,37 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import {
   createUserAppSchema,
   submitUserAppSchema,
+  updateUserAppSchema,
+  upsertUserAppDevSessionSchema,
   userAppManifestSchema,
+  isAllowedDevSessionUrl,
+  DEV_SESSION_TTL_MS,
 } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { HonoEnv } from '../../types';
 import { hasScope } from '../../lib/scopes';
 import { generateId } from '../../lib/id';
 import { createMasterDb, masterSchema, type MasterDatabase } from '../../lib/master-db';
+import { schema as tenantSchema } from '../../db';
 import { error, list, noContent, success, cursorPagination } from '../../lib/response';
+
+/** SHA-256 hex digest via Web Crypto (native to Workers). */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function randomHex(bytes: number): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const app = new Hono<HonoEnv>();
 
@@ -47,8 +67,8 @@ const RESERVED_CODES = new Set([
   'apps',
 ]);
 
-const MAX_BUNDLE_FILES = 100;
-const MAX_BUNDLE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_BUNDLE_FILES = 500;
+const MAX_BUNDLE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /** Content types for bundle files, by extension. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -79,6 +99,15 @@ const CONTENT_TYPES: Record<string, string> = {
 function contentTypeFor(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   return CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
+
+function isOfficialPublisher(env: { WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string }, workspaceId: string): boolean {
+  const raw = env.WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS ?? '';
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .includes(workspaceId);
 }
 
 /**
@@ -215,8 +244,13 @@ app.post('/', zValidator('json', createUserAppSchema), async (c) => {
       description: body.description,
       ...(body.icon ? { icon: body.icon } : {}),
       ...(body.category ? { category: body.category } : {}),
+      ...(body.websiteUrl ? { websiteUrl: body.websiteUrl } : {}),
+      ...(body.privacyUrl ? { privacyUrl: body.privacyUrl } : {}),
+      ...(body.screenshots ? { screenshots: body.screenshots } : {}),
+      ...(body.webhookUrl ? { webhookUrl: body.webhookUrl } : {}),
       ownerWorkspaceId: session.workspaceId,
       createdBy: session.userId ?? session.keyId,
+      publisherType: isOfficialPublisher(c.env, session.workspaceId) ? 'weldsuite' : 'community',
       createdAt: now,
       updatedAt: now,
     })
@@ -250,9 +284,107 @@ app.get('/:id', async (c) => {
   return success(c, appRow);
 });
 
+app.patch('/:id', zValidator('json', updateUserAppSchema), async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const update: Partial<typeof masterSchema.userApps.$inferInsert> = { updatedAt: new Date() };
+  if (data.name !== undefined) update.name = data.name;
+  if (data.description !== undefined) update.description = data.description;
+  if (data.icon !== undefined) update.icon = data.icon;
+  if (data.category !== undefined) update.category = data.category;
+  if (data.isActive !== undefined) update.isActive = data.isActive;
+  if (data.websiteUrl !== undefined) update.websiteUrl = data.websiteUrl;
+  if (data.privacyUrl !== undefined) update.privacyUrl = data.privacyUrl;
+  if (data.screenshots !== undefined) update.screenshots = data.screenshots;
+  if (data.webhookUrl !== undefined) update.webhookUrl = data.webhookUrl;
+
+  const [updated] = await masterDb
+    .update(masterSchema.userApps)
+    .set(update)
+    .where(eq(masterSchema.userApps.id, id))
+    .returning();
+  if (!updated) return error.internal(c, 'Failed to update app');
+  return success(c, updated);
+});
+
+app.delete('/:id', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+  const db = c.get('tenantDb');
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const [foreign] = await masterDb
+    .select({ count: sql<number>`count(*)` })
+    .from(masterSchema.userAppInstalls)
+    .where(
+      and(
+        eq(masterSchema.userAppInstalls.appId, id),
+        eq(masterSchema.userAppInstalls.status, 'active'),
+        ne(masterSchema.userAppInstalls.workspaceId, session.workspaceId),
+      ),
+    );
+  if (Number(foreign?.count ?? 0) > 0) {
+    return error.conflict(c, 'App is still installed in other workspaces');
+  }
+
+  const now = new Date();
+  await masterDb
+    .update(masterSchema.userApps)
+    .set({ deletedAt: now, isActive: false, updatedAt: now })
+    .where(eq(masterSchema.userApps.id, id));
+  await masterDb
+    .update(masterSchema.userAppInstalls)
+    .set({ status: 'revoked', revokedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(masterSchema.userAppInstalls.appId, id),
+        eq(masterSchema.userAppInstalls.status, 'active'),
+      ),
+    );
+  await masterDb
+    .update(masterSchema.userAppTokens)
+    .set({ revokedAt: now })
+    .where(
+      and(eq(masterSchema.userAppTokens.appId, id), isNull(masterSchema.userAppTokens.revokedAt)),
+    );
+
+  const wsApps = tenantSchema.workspaceInstalledApps;
+  await db
+    .update(wsApps)
+    .set({ deletedAt: now, isActive: false, updatedAt: now })
+    .where(and(eq(wsApps.userAppId, id), isNull(wsApps.deletedAt)));
+
+  return noContent(c);
+});
+
 // ============================================================================
-// Versions — multipart bundle upload (weld CLI `weld deploy`)
+// Versions — list + multipart bundle upload (weld CLI)
 // ============================================================================
+
+app.get('/:id/versions', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const rows = await masterDb
+    .select()
+    .from(masterSchema.userAppVersions)
+    .where(eq(masterSchema.userAppVersions.appId, id))
+    .orderBy(desc(masterSchema.userAppVersions.createdAt), desc(masterSchema.userAppVersions.id));
+  return list(c, rows, cursorPagination(rows.length, false, null));
+});
 
 app.post('/:id/versions', async (c) => {
   const session = c.get('apiSession');
@@ -311,7 +443,7 @@ app.post('/:id/versions', async (c) => {
   }
   const totalBytes = fileEntries.reduce((sum, f) => sum + f.size, 0);
   if (totalBytes > MAX_BUNDLE_BYTES) {
-    return error.badRequest(c, 'Bundle exceeds the 10MB size limit');
+    return error.badRequest(c, 'Bundle exceeds the 50MB size limit');
   }
 
   // (appId, version) is unique — pre-check for a friendly 409.
@@ -343,8 +475,12 @@ app.post('/:id/versions', async (c) => {
   }
 
   // Private apps (and public apps not yet approved) publish immediately;
-  // approved public apps stage a draft and go back through review.
-  const publishImmediately = appRow.visibility === 'private' || appRow.reviewStatus !== 'approved';
+  // approved public apps stage a draft and go back through review — except
+  // first-party (`weldsuite`) publishers, which skip the review gate.
+  const publishImmediately =
+    appRow.visibility === 'private' ||
+    appRow.reviewStatus !== 'approved' ||
+    appRow.publisherType === 'weldsuite';
   const now = new Date();
 
   const [versionRow] = await masterDb
@@ -392,6 +528,10 @@ app.post('/:id/versions', async (c) => {
         ...(manifest.icon ? { icon: manifest.icon } : {}),
         ...(manifest.category ? { category: manifest.category } : {}),
         description: manifest.description ?? appRow.description,
+        websiteUrl: manifest.websiteUrl ?? appRow.websiteUrl,
+        privacyUrl: manifest.privacyUrl ?? appRow.privacyUrl,
+        screenshots: manifest.screenshots ?? appRow.screenshots,
+        webhookUrl: manifest.webhookUrl ?? appRow.webhookUrl,
         updatedAt: now,
       })
       .where(eq(masterSchema.userApps.id, appRow.id));
@@ -458,18 +598,175 @@ app.post('/:id/submit', zValidator('json', submitUserAppSchema), async (c) => {
     return error.badRequest(c, 'Upload at least one version before submitting for review');
   }
 
+  const now = new Date();
+  const official = appRow.publisherType === 'weldsuite';
   const [row] = await masterDb
     .update(masterSchema.userApps)
     .set({
       visibility: 'public',
-      reviewStatus: 'submitted',
-      ...(body.notes ? { reviewNotes: body.notes } : {}),
-      updatedAt: new Date(),
+      reviewStatus: official ? 'approved' : 'submitted',
+      ...(official
+        ? {
+            reviewedBy: session.userId ?? session.keyId,
+            reviewedAt: now,
+            reviewNotes: body.notes ?? appRow.reviewNotes,
+          }
+        : body.notes
+          ? { reviewNotes: body.notes }
+          : {}),
+      updatedAt: now,
     })
     .where(eq(masterSchema.userApps.id, appRow.id))
     .returning();
   if (!row) return error.internal(c, 'Failed to submit app');
   return success(c, row);
+});
+
+// ============================================================================
+// Preview sessions (`weld app dev`)
+// ============================================================================
+
+app.put('/:id/dev-session', zValidator('json', upsertUserAppDevSessionSchema), async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const body = c.req.valid('json');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const userId = session.userId ?? body.userId ?? null;
+  if (!userId) {
+    return error.badRequest(
+      c,
+      'Pass userId (your Clerk user id) or use a personal API key. The platform iframe matches the preview to the signed-in user.',
+    );
+  }
+  if (!isAllowedDevSessionUrl(body.url)) {
+    return error.badRequest(
+      c,
+      'Preview URL must be localhost, 127.0.0.1, a Cloudflare quick tunnel, ngrok, or pages.dev',
+    );
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + DEV_SESSION_TTL_MS);
+  const table = masterSchema.userAppDevSessions;
+
+  const [existing] = await masterDb
+    .select({ id: table.id })
+    .from(table)
+    .where(
+      and(eq(table.appId, appRow.id), eq(table.userId, userId), eq(table.workspaceId, session.workspaceId)),
+    )
+    .limit(1);
+
+  const row = existing
+    ? (
+        await masterDb
+          .update(table)
+          .set({ url: body.url, expiresAt, updatedAt: now })
+          .where(eq(table.id, existing.id))
+          .returning({ url: table.url, expiresAt: table.expiresAt })
+      )[0]
+    : (
+        await masterDb
+          .insert(table)
+          .values({
+            id: generateId('uads'),
+            appId: appRow.id,
+            workspaceId: session.workspaceId,
+            userId,
+            url: body.url,
+            expiresAt,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ url: table.url, expiresAt: table.expiresAt })
+      )[0];
+
+  if (!row) return error.internal(c, 'Failed to save preview session');
+  return success(c, row);
+});
+
+app.delete('/:id/dev-session', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const userId = session.userId ?? c.req.query('userId') ?? null;
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+  if (!userId) {
+    return error.badRequest(c, 'Pass userId as a query param when using a workspace API key');
+  }
+
+  const table = masterSchema.userAppDevSessions;
+  await masterDb
+    .delete(table)
+    .where(
+      and(eq(table.appId, appRow.id), eq(table.userId, userId), eq(table.workspaceId, session.workspaceId)),
+    );
+  return noContent(c);
+});
+
+// ============================================================================
+// OAuth client (server-to-server credentials for the app backend)
+// ============================================================================
+
+app.get('/:id/oauth-client', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const [client] = await masterDb
+    .select({
+      clientId: masterSchema.userAppOauthClients.clientId,
+      createdAt: masterSchema.userAppOauthClients.createdAt,
+    })
+    .from(masterSchema.userAppOauthClients)
+    .where(eq(masterSchema.userAppOauthClients.appId, id))
+    .limit(1);
+  if (!client) return error.notFound(c, 'OAuth client', id);
+  return success(c, client);
+});
+
+app.post('/:id/oauth-client', async (c) => {
+  const session = c.get('apiSession');
+  const id = c.req.param('id');
+  const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
+
+  const appRow = await getOwnedApp(masterDb, id, session.workspaceId);
+  if (!appRow) return error.notFound(c, 'App', id);
+
+  const clientSecret = `wacs_${randomHex(20)}`;
+  const clientSecretHash = await sha256Hex(clientSecret);
+  const now = new Date();
+  const table = masterSchema.userAppOauthClients;
+
+  const [existing] = await masterDb.select().from(table).where(eq(table.appId, id)).limit(1);
+
+  if (existing) {
+    await masterDb
+      .update(table)
+      .set({ clientSecretHash, updatedAt: now })
+      .where(eq(table.id, existing.id));
+    return success(c, { clientId: existing.clientId, clientSecret });
+  }
+
+  const clientId = `wac_${randomHex(12)}`;
+  await masterDb.insert(table).values({
+    id: generateId('uaoc'),
+    appId: id,
+    clientId,
+    clientSecretHash,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return success(c, { clientId, clientSecret }, 201);
 });
 
 export default app;

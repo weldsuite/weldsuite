@@ -10,6 +10,7 @@ export const MAIL_ENTITY_EVENTS = {
   mail_folder: ['created', 'updated', 'deleted'],
   mail_label: ['created', 'updated', 'deleted'],
   mail_signature: ['created', 'updated', 'deleted'],
+  mail_subscription: ['unsubscribed'],
   email: ['created', 'updated', 'deleted', 'email_sent', 'email_scheduled', 'reply_sent'],
   email_rule: ['created', 'updated', 'deleted', 'enabled', 'disabled'],
   email_template: ['created', 'updated', 'deleted'],

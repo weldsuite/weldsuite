@@ -114,6 +114,18 @@ describe('applyLabelToThread · archive vs inbox', () => {
     expect(labels).not.toContain('ARCHIVE');
   });
 
+  it('adding INBOX strips PROMOTIONS', async () => {
+    const accountId = await seedAccount();
+    const threadId = 'thread_not_a_promotion';
+    const messageId = await seedThread(accountId, ['PROMOTIONS'], threadId);
+
+    await applyLabelToThread(db, accountId, threadId, 'inbox', 'add');
+
+    const labels = await labelsOf(messageId);
+    expect(labels).toContain('INBOX');
+    expect(labels).not.toContain('PROMOTIONS');
+  });
+
   it('does not touch a different account\'s thread with the same threadId', async () => {
     const accountA = await seedAccount();
     const accountB = await seedAccount();

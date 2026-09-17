@@ -145,12 +145,25 @@ await bridge.toast('Saved!', 'success');
 | `get` / `post` / `patch` / `delete` | JSON helpers. Throw `WeldApiError` (`status`, `code`, `message`) on failure. |
 | `records(collection)` | Typed accessor: `list({ limit, cursor, filter })`, `create(data)`, `get(id)`, `update(id, data)`, `remove(id)`. |
 | `kv` | `get(key)` (null if missing), `set(key, value)`, `delete(key)`. |
+| `people` | `/v1/people` helpers (`list` / `get`). Requires `people:read`. |
+| `tickets` | `/v1/tickets` helpers (`list` / `get`). Requires `tickets:read`. |
 
 List responses follow the platform envelope: `{ data: T[], pagination: { totalCount, hasMore, cursor } }`.
 
 ## Local development
 
-Running `vite dev` in a plain browser tab will fail `connect()` after 10 seconds with a clear error, the bridge needs the WeldSuite host on the other side. Develop by deploying to your workspace (`weld app deploy`) or embedding the dev server in a workspace app that points at your local URL.
+`weld app dev` starts Vite and tells WeldSuite to iframe that server for *your*
+user at `/apps/{code}` (hot reload). Other workspace members still see the
+published bundle.
+
+```bash
+export WELD_API_KEY=wsk_...
+weld app dev                 # platform on localhost:3000
+weld app dev --tunnel        # hosted platform (HTTPS iframe via cloudflared)
+```
+
+A bare `vite dev` tab still fails `connect()` after 10 seconds — the bridge
+needs the WeldSuite host.
 
 ## License
 

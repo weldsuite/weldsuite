@@ -37,6 +37,33 @@ Optional frontend build secrets (on both environments if used):
 | `VITE_MIXPANEL_TOKEN` | Platform Pages build |
 | `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
 
+Cloudflare Pages projects for the developer portal (create manually; Git auto-deploy off):
+
+| Project | Custom domain |
+|---|---|
+| `developer-web-test` | `developer-test.weldsuite.org` |
+| `developer-web` | `developer.weldsuite.org` |
+
+Also add both hostnames to Clerk **Allowed origins** / **Redirect URLs**.
+
+First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.yml`):
+
+| GitHub secret | Used by |
+|---|---|
+| `HOSTED_APPS_WELD_API_KEY` | Publisher workspace `wsk_` key (`user-apps:manage`). Test env targets `https://api-test.weldsuite.org`; production targets `https://api.weldsuite.org`. Leave unset to skip the job. |
+
+### Repo-level (npm publish)
+
+| GitHub secret | Used by |
+|---|---|
+| `NPM_TOKEN` | `publish-cli.yml` — npm Automation token with publish rights on the `@weldsuite` org. Publishes `@weldsuite/cli` (and later other public `@weldsuite/*` SDKs). Not an Environment secret; set under repo Actions secrets. |
+
+Worker runtime **vars** (not GitHub secrets) — set in `wrangler.toml` per env:
+
+| Var | Workers |
+|---|---|
+| `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | `app-api`, `external-api`. Comma-separated workspace ids whose new WeldApps are `publisherType=weldsuite` (Official store badge, skip public review). |
+
 The booking portal (`apps/web/booking-portal`) is a Next.js host, not a Worker.
 Give it `DATABASE_URL_PERSONAL` (alias `PERSONAL_DATABASE_URL`) so personal
 booking pages at `/p/{slug}` can read the shared personal Neon DB. Workspace

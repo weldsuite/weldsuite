@@ -1,55 +1,41 @@
 /**
- * useInboxRealtime — Replaces the legacy realtime inbox client.
+ * useInboxRealtime — workspace-hub inbox events for the agent list.
  *
- * Uses WorkspaceClient from @weldsuite/realtime to subscribe to workspace-level
- * helpdesk events (new conversations, messages, status changes).
+ * Dual-listens:
+ * 1. Legacy topic `helpdesk` with underscore event names (`conversation_new`,
+ *    `message_new`, …) still published by mail-inbound / workflows via
+ *    `RealtimePublisher.helpdeskEvent`.
+ * 2. Hub entity topics from `publishEntityEvent` / `publishDeskInbound`:
+ *    `desk_conversation`, `desk_message`, `helpdesk_conversation`,
+ *    `helpdesk_conversation_message`.
+ *
+ * Matches platform `useHelpdeskWebSocket` (subscribe to topic, branch on
+ * `event.event`) — never `client.on('helpdesk.conversation_new')`, which
+ * does not match hub topic `helpdesk`.
+ *
+ * Per-thread messages/typing stay on ConversationRoom (`useHelpdeskRealtime`).
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
-import type { ConnectionState as RTConnectionState } from '@weldsuite/realtime/types';
+import type { ConnectionState as RTConnectionState, WorkspaceEvent } from '@weldsuite/realtime/types';
+import {
+  INBOX_HUB_TOPICS,
+  dispatchInboxRealtimeEvent,
+  type InboxConversation,
+  type InboxNewMessageEvent,
+  type InboxRealtimeHandlers,
+} from './inbox-realtime-dispatch';
 
 export type ConnectionState = RTConnectionState;
+export type { InboxConversation, InboxNewMessageEvent };
+export { dispatchInboxRealtimeEvent, INBOX_HUB_TOPICS };
 
-export interface InboxConversation {
-  id: string;
-  subject?: string;
-  channel?: string;
-  status?: string;
-  priority?: string;
-  contactName?: string;
-  customerName?: string;
-  customerId?: string;
-  assignedToId?: string;
-  assignedToName?: string;
-  lastMessagePreview?: string;
-  lastMessageTime?: string;
-  unreadCount?: number;
-  isRead?: boolean;
-  isStarred?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface InboxNewMessageEvent {
-  conversationId: string;
-  preview: string;
-  timestamp: string;
-  senderId?: string;
-  senderName?: string;
-  senderType: 'customer' | 'agent' | 'system';
-}
-
-interface UseInboxRealtimeOptions {
+interface UseInboxRealtimeOptions extends InboxRealtimeHandlers {
   agentId: string;
   agentName: string;
   agentEmail?: string;
   agentAvatar?: string;
-  onNewConversation?: (conversation: InboxConversation) => void;
-  onConversationUpdated?: (conversation: InboxConversation) => void;
-  onNewMessage?: (data: InboxNewMessageEvent) => void;
-  onConversationClosed?: (conversationId: string) => void;
-  onConversationRead?: (conversationId: string) => void;
   onConnectionStateChange?: (state: ConnectionState) => void;
   autoConnect?: boolean;
 }
@@ -69,85 +55,46 @@ export function useInboxRealtime(options: UseInboxRealtimeOptions): UseInboxReal
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<Error | null>(null);
 
-  const handlersRef = useRef(options);
-  useEffect(() => { handlersRef.current = options; });
-
-  // Subscribe to workspace helpdesk topics
+  const handlersRef = useRef<InboxRealtimeHandlers>(options);
+  const onConnChangeRef = useRef(options.onConnectionStateChange);
   useEffect(() => {
-    if (!client) return;
+    handlersRef.current = options;
+    onConnChangeRef.current = options.onConnectionStateChange;
+  });
 
-    // conversation_new → onNewConversation
-    const offNew = client.on('helpdesk.conversation_new', (event) => {
-      const data = (event as any).data || event;
-      handlersRef.current.onNewConversation?.({
-        id: data.conversationId || data.id,
-        subject: data.subject,
-        customerName: data.customerName,
-        status: data.status || 'active',
-        channel: data.channel,
-        lastMessagePreview: data.preview,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt || data.createdAt,
-      });
-    });
+  useEffect(() => {
+    if (!client || !autoConnect) return;
 
-    // message_new → onNewMessage
-    const offMsg = client.on('helpdesk.message_new', (event) => {
-      const data = (event as any).data || event;
-      handlersRef.current.onNewMessage?.({
-        conversationId: data.conversationId,
-        preview: data.preview || data.content || '',
-        timestamp: data.timestamp || new Date().toISOString(),
-        senderName: data.senderName,
-        senderType: data.senderType || 'customer',
-      });
-    });
+    const offs = INBOX_HUB_TOPICS.map((topic) =>
+      client.on(topic, (event: WorkspaceEvent) => {
+        dispatchInboxRealtimeEvent(
+          event.topic || topic,
+          event.event,
+          event.data,
+          handlersRef.current,
+        );
+      }),
+    );
 
-    // conversation_updated → onConversationUpdated
-    const offUpdated = client.on('helpdesk.conversation_updated', (event) => {
-      const data = (event as any).data || event;
-      handlersRef.current.onConversationUpdated?.({
-        id: data.conversationId || data.id,
-        status: data.status,
-        assignedToId: data.assigneeId,
-        assignedToName: data.assigneeName,
-        updatedAt: data.updatedAt,
-      });
-    });
-
-    // conversation_read → onConversationRead
-    const offRead = client.on('helpdesk.conversation_read', (event) => {
-      const data = (event as any).data || event;
-      handlersRef.current.onConversationRead?.(data.conversationId);
-    });
-
-    // Connection state
     const offConn = client.onConnectionChange((state) => {
       setConnectionState(state);
       setIsConnected(state === 'connected');
-      handlersRef.current.onConnectionStateChange?.(state);
+      onConnChangeRef.current?.(state);
     });
 
-    // Check if already connected
-    setIsConnected(true); // WorkspaceClient connects via RealtimeProvider on mount
+    setIsConnected(true);
 
     return () => {
-      offNew();
-      offMsg();
-      offUpdated();
-      offRead();
+      for (const off of offs) off();
       offConn();
     };
-  }, [client]);
+  }, [client, autoConnect]);
 
   const connect = useCallback(async () => {
-    // WorkspaceClient is managed by RealtimeProvider — no manual connect needed
     setError(null);
   }, []);
 
-  const disconnect = useCallback(async () => {
-    // WorkspaceClient lifecycle managed by RealtimeProvider
-  }, []);
+  const disconnect = useCallback(async () => {}, []);
 
   return { isConnected, connectionState, connect, disconnect, error };
 }

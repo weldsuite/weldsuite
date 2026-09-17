@@ -23,6 +23,7 @@ export interface MailLabel {
 
 export const MAIN_LABELS: MailLabel[] = [
   { id: 'inbox', name: 'Inbox', slug: 'INBOX' },
+  { id: 'promotions', name: 'Promotions', slug: 'PROMOTIONS' },
   { id: 'starred', name: 'Starred', slug: 'STARRED' },
   { id: 'sent', name: 'Sent', slug: 'SENT' },
   { id: 'drafts', name: 'Drafts', slug: 'DRAFTS' },

@@ -23,6 +23,8 @@ import {
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
 import { scoreInboundSpam } from './spam-filter';
+import { classifyPromotion } from './promotion-filter';
+import { parseListUnsubscribe } from '@weldsuite/email/list-unsubscribe';
 import {
   expandCatchAllCandidates,
   isCatchAllRegistryEmail,
@@ -33,6 +35,8 @@ export type StoreEmailResult = {
   messageId: string;
   threadId: string;
   isSpam: boolean;
+  /** Stored under PROMOTIONS instead of INBOX. */
+  isPromotion?: boolean;
 };
 
 /**
@@ -436,6 +440,14 @@ async function storePersonalEmail(
       `[Spam] Personal ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
     );
 
+    const promotion = spam.isSpam ? null : classifyPromotion(email, { isReply });
+    const isPromotion = promotion?.isPromotion ?? false;
+    if (promotion) {
+      console.log(
+        `[Promotion] Personal ${dbMessageId} score=${promotion.score} isPromotion=${isPromotion} reasons=[${promotion.reasons.join(', ')}]`,
+      );
+    }
+
     await personalDb.insert(personalSchema.personalMailMessages).values({
       id: dbMessageId,
       personalAccountId: account.personalAccountId,
@@ -458,7 +470,7 @@ async function storePersonalEmail(
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: spam.isSpam ? ['SPAM'] : ['INBOX'],
+      labels: spam.isSpam ? ['SPAM'] : isPromotion ? ['PROMOTIONS'] : ['INBOX'],
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -467,7 +479,16 @@ async function storePersonalEmail(
     });
 
     console.log(`[Store] Personal email stored ${dbMessageId} for ${account.accountEmail}`);
-    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam };
+
+    if (!spam.isSpam) {
+      try {
+        await upsertPersonalMailSubscription(personalDb, account.personalAccountId, account.accountId, email);
+      } catch (subErr) {
+        console.error(`[Store] Failed to upsert personal subscription for ${dbMessageId}:`, subErr);
+      }
+    }
+
+    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam, isPromotion };
   } catch (error) {
     console.error('[Store] Failed to store personal email:', error);
     return null;
@@ -625,6 +646,16 @@ export async function storeEmail(
       `[Spam] ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
     );
 
+    // Promotions leave the inbox for the PROMOTIONS label. Spam wins, and
+    // replies are never promotions (isReply short-circuits the classifier).
+    const promotion = spam.isSpam ? null : classifyPromotion(email, { isReply });
+    const isPromotion = promotion?.isPromotion ?? false;
+    if (promotion) {
+      console.log(
+        `[Promotion] ${dbMessageId} score=${promotion.score} isPromotion=${isPromotion} reasons=[${promotion.reasons.join(', ')}]`,
+      );
+    }
+
     // Insert message
     await tenantDb.insert(tenantSchema.mailMessages).values({
       id: dbMessageId,
@@ -647,7 +678,7 @@ export async function storeEmail(
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: spam.isSpam ? ['SPAM'] : ['INBOX'],
+      labels: spam.isSpam ? ['SPAM'] : isPromotion ? ['PROMOTIONS'] : ['INBOX'],
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -664,7 +695,16 @@ export async function storeEmail(
       console.error(`[Store] Failed to apply keyword labels for ${dbMessageId}:`, labelErr);
     }
 
-    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam };
+    // Track the mailing list behind this message for the Subscriptions page.
+    if (!spam.isSpam) {
+      try {
+        await upsertMailSubscription(tenantDb, account.accountId, email);
+      } catch (subErr) {
+        console.error(`[Store] Failed to upsert subscription for ${dbMessageId}:`, subErr);
+      }
+    }
+
+    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam, isPromotion };
   } catch (error) {
     console.error(`[Store] Failed to store email:`, error);
     return null;
@@ -806,9 +846,9 @@ async function finishWorkspaceDelivery(
       console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
     }
 
-    // Skip Expo push for spam — still publish realtime above so open clients
-    // can refresh the Spam folder without a banner interruption.
-    if (result.isSpam) {
+    // Skip Expo push for spam and promotions — still publish realtime above so
+    // open clients can refresh those folders without a banner interruption.
+    if (result.isSpam || result.isPromotion) {
       continue;
     }
 
@@ -884,9 +924,9 @@ async function finishPersonalDelivery(
   }
 
   // Push first for ham only: it is what surfaces a banner when the app is
-  // backgrounded or closed. Spam still gets realtime below so open clients
-  // can refresh the Spam folder without a push interruption.
-  if (!result.isSpam) {
+  // backgrounded or closed. Spam and promotions still get realtime below so
+  // open clients can refresh those folders without a push interruption.
+  if (!result.isSpam && !result.isPromotion) {
     try {
       await sendPersonalEmailPushNotification(env, {
         clerkUserId,
@@ -936,6 +976,94 @@ function rewriteCidReferences(
     rewritten = rewritten.replaceAll(`cid:${cid}`, url);
   }
   return rewritten === htmlBody ? null : rewritten;
+}
+
+/**
+ * Record (or refresh) the mailing list a message came from, keyed by the
+ * lower-cased sender address. No-op when the message has no usable
+ * List-Unsubscribe header. An `unsubscribed` status is kept as-is so the
+ * page can show that a sender is still mailing after an unsubscribe.
+ */
+async function upsertMailSubscription(
+  tenantDb: Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>,
+  accountId: string,
+  email: ParsedEmail,
+): Promise<void> {
+  const values = subscriptionValuesFromEmail(email);
+  if (!values) return;
+  const { mailSubscriptions: table } = tenantSchema;
+
+  await tenantDb
+    .insert(table)
+    .values({ id: generateId('msub'), accountId, ...values })
+    .onConflictDoUpdate({
+      target: [table.accountId, table.senderEmail],
+      set: subscriptionConflictSet(table, values),
+    });
+}
+
+/** Personal-mailbox twin of `upsertMailSubscription`. */
+async function upsertPersonalMailSubscription(
+  personalDb: ReturnType<typeof getPersonalDb>,
+  personalAccountId: string,
+  accountId: string,
+  email: ParsedEmail,
+): Promise<void> {
+  const values = subscriptionValuesFromEmail(email);
+  if (!values) return;
+  const { personalMailSubscriptions: table } = personalSchema;
+
+  await personalDb
+    .insert(table)
+    .values({ id: generateId('pmsub'), personalAccountId, accountId, ...values })
+    .onConflictDoUpdate({
+      target: [table.accountId, table.senderEmail],
+      set: subscriptionConflictSet(table, values),
+    });
+}
+
+type SubscriptionValues = NonNullable<ReturnType<typeof subscriptionValuesFromEmail>>;
+
+/** Insert values shared by the tenant and personal subscription tables. */
+function subscriptionValuesFromEmail(email: ParsedEmail) {
+  const info = parseListUnsubscribe(email.headers);
+  const senderEmail = email.from?.email?.trim().toLowerCase();
+  if (!info || !senderEmail) return null;
+  const receivedAt = email.receivedAt ?? new Date();
+  return {
+    senderEmail,
+    senderName: email.from.name?.slice(0, 255) || null,
+    senderDomain: senderEmail.split('@')[1] ?? null,
+    listId: info.listId,
+    unsubscribeUrl: info.url,
+    unsubscribeMailto: info.mailto,
+    oneClick: info.oneClick,
+    messageCount: 1,
+    lastSubject: email.subject?.slice(0, 998) || null,
+    firstReceivedAt: receivedAt,
+    lastReceivedAt: receivedAt,
+  };
+}
+
+/**
+ * On a repeat sender: bump the count, refresh the targets and last subject,
+ * keep the unsubscribe status untouched.
+ */
+function subscriptionConflictSet(
+  table: typeof tenantSchema.mailSubscriptions | typeof personalSchema.personalMailSubscriptions,
+  values: SubscriptionValues,
+) {
+  return {
+    senderName: sql`COALESCE(${values.senderName}, ${table.senderName})`,
+    listId: sql`COALESCE(${values.listId}, ${table.listId})`,
+    unsubscribeUrl: values.unsubscribeUrl,
+    unsubscribeMailto: values.unsubscribeMailto,
+    oneClick: values.oneClick,
+    messageCount: sql`${table.messageCount} + 1`,
+    lastSubject: values.lastSubject,
+    lastReceivedAt: sql`GREATEST(${table.lastReceivedAt}, ${values.lastReceivedAt.toISOString()}::timestamp)`,
+    updatedAt: new Date(),
+  };
 }
 
 /**

@@ -26,6 +26,10 @@ Lives at the project root. Validated by the CLI on deploy and again server-side.
 | `collections` | array | no | Document-storage collections the app uses. Each: `name` (`^[a-z][a-z0-9_-]*$`, 1–100 chars, required) + optional `description` (≤500). Max 50. Declare every collection referenced in code. |
 | `agentTools` | array | no | Tools the app exposes to WeldAgent (AI). Each: `name` (snake_case, ≤64), `description` (1–1000), optional `parameters` (JSON Schema object), and `action`: `{ type: 'storage.list' \| 'storage.create' \| 'storage.update' \| 'storage.delete' \| 'api.request', collection?, method?, path? }`. `collection` for `storage.*` actions; `method` + `path` for `api.request`. Max 50. |
 | `pricing` | object | no | `{ type: 'free' \| 'subscription', monthlyPrice?: 0–10000, currency?: 3-letter code }`. |
+| `websiteUrl` | string | no | Public https URL shown on the store listing. |
+| `privacyUrl` | string | no | Privacy policy URL shown on the store listing. |
+| `screenshots` | string[] | no | Up to 8 public screenshot URLs. |
+| `webhookUrl` | string | no | HTTPS endpoint that receives `app.installed` / `app.uninstalled`. |
 | `mobile` | boolean | no | Reserved, v1 renders on the web platform only. |
 
 Example:
@@ -57,7 +61,7 @@ The SDK implements this, you rarely touch raw messages, but knowing the lifecycl
 
 Consequences:
 
-- `connect()` **fails after 10s outside WeldSuite** (e.g. a plain `vite dev` tab). This is expected, develop by deploying to a workspace.
+- `connect()` **fails after 10s outside WeldSuite** (e.g. a plain `vite dev` tab). Use `weld app dev` so the platform iframes your local server.
 - Tokens are short-lived. The SDK caches them and refreshes 60s before expiry; a 401 triggers one refresh + retry. Never store the token yourself.
 - Request timeout is 15s.
 
@@ -166,7 +170,8 @@ Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) 
 | Command | Purpose |
 | --- | --- |
 | `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill). |
-| `weld app create` | One-time registration of the app from `weldapp.json`. |
+| `weld app create [dir]` | Scaffold if needed, then register the app from `weldapp.json`. |
+| `weld app dev [--port --tunnel --user-id]` | Live preview: Vite + per-user iframe URL at `/apps/{code}`. |
 | `weld app deploy [--dir dist] [--changelog text] [--skip-build]` | Validate manifest → run build → upload `dist/**` as a new version. |
 | `weld app publish [--notes text]` | Submit for public app-store review. |
 | `weld app list` | Table of your apps (code, name, visibility, review status, installs). |
@@ -182,4 +187,4 @@ Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) 
 - [ ] `update()` calls send the **full document** (PATCH replaces, not merges).
 - [ ] `version` in `weldapp.json` bumped (semver) before `weld app deploy`.
 - [ ] No hand-rolled token handling, all API access goes through `WeldApi` / the bridge.
-- [ ] Deployed with `weld app deploy` and verified inside a workspace, not just in a local tab.
+- [ ] Deployed with `weld app deploy` (or verified via `weld app dev`) inside a workspace, not just in a local tab.

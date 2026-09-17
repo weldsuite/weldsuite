@@ -5,6 +5,7 @@ import {
   isPersonalAccountId,
   isPersonalMessage,
   isPersonalAccount,
+  isLinkOnlySubscription,
 } from '../mail-tenant';
 import type { MailMessage } from '@weldsuite/personal-api-client';
 
@@ -61,5 +62,14 @@ describe('mail-tenant', () => {
     expect(isPersonalAccount({ tenantKind: 'personal' })).toBe(true);
     expect(isPersonalAccount({ tenantKind: 'workspace' })).toBe(false);
     expect(isPersonalAccount(null)).toBe(false);
+  });
+});
+
+describe('isLinkOnlySubscription', () => {
+  it('is true only for a plain https link without one-click or mailto', () => {
+    expect(isLinkOnlySubscription({ unsubscribeUrl: 'https://x.com/u', unsubscribeMailto: null, oneClick: false })).toBe(true);
+    expect(isLinkOnlySubscription({ unsubscribeUrl: 'https://x.com/u', unsubscribeMailto: null, oneClick: true })).toBe(false);
+    expect(isLinkOnlySubscription({ unsubscribeUrl: 'https://x.com/u', unsubscribeMailto: 'mailto:u@x.com', oneClick: false })).toBe(false);
+    expect(isLinkOnlySubscription({ unsubscribeUrl: null, unsubscribeMailto: 'mailto:u@x.com', oneClick: false })).toBe(false);
   });
 });

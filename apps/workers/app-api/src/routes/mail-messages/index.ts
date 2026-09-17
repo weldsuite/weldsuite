@@ -275,6 +275,23 @@ app.post(
         }
       }
       const result = await messages.bulkUpdateMessages(db, data.messageIds, data.action);
+      // One hub event is enough — platformSyncMap invalidates the whole
+      // `['mail']` prefix. Avoid enqueueing N hub messages for a bulk of 100.
+      const anchorId = data.messageIds[0]!;
+      const anchorAccountId = await messages.getMessageAccountId(db, anchorId);
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: anchorId,
+        action: data.action === 'delete' ? 'deleted' : 'updated',
+        data: {
+          id: anchorId,
+          accountId: anchorAccountId ?? '',
+          subject: null,
+          from: null,
+          to: null,
+        },
+      });
       return success(c, result);
     } catch (err) {
       console.error('[app-api/mail-messages] bulk failed:', err);
@@ -329,6 +346,13 @@ app.post(
       if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
       const next = await messages.addMessageLabels(db, id, c.req.valid('json').labels);
       if (next === null) return error.notFound(c, 'Message', id);
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: id,
+        action: 'updated',
+        data: { id, accountId, subject: null, from: null, to: null },
+      });
       return success(c, { id, labels: next });
     } catch (err) {
       console.error('[app-api/mail-messages] add-labels failed:', err);
@@ -352,6 +376,13 @@ app.post(
       if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
       const next = await messages.removeMessageLabels(db, id, c.req.valid('json').labels);
       if (next === null) return error.notFound(c, 'Message', id);
+      publishEntityEvent({
+        c,
+        entityType: 'email',
+        entityId: id,
+        action: 'updated',
+        data: { id, accountId, subject: null, from: null, to: null },
+      });
       return success(c, { id, labels: next });
     } catch (err) {
       console.error('[app-api/mail-messages] remove-labels failed:', err);

@@ -352,3 +352,71 @@ export async function applyMessageLabels(
 }
 
 export { sentDateOf };
+
+// =============================================================================
+// Subscriptions (mailing lists + unsubscribe)
+// =============================================================================
+
+export type SubscriptionMethod = 'one_click' | 'mailto' | 'link';
+
+/** Tenant-neutral subscription row for the Subscriptions screen. */
+export interface TenantSubscription {
+  id: string;
+  accountId: string;
+  senderEmail: string;
+  senderName: string | null;
+  lastSubject: string | null;
+  messageCount: number;
+  lastReceivedAt: string;
+  status: 'active' | 'unsubscribed';
+  unsubscribedAt: string | null;
+  unsubscribeUrl: string | null;
+  unsubscribeMailto: string | null;
+  oneClick: boolean;
+}
+
+function toTenantSubscription(row: TenantSubscription): TenantSubscription {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    senderEmail: row.senderEmail,
+    senderName: row.senderName,
+    lastSubject: row.lastSubject,
+    messageCount: row.messageCount,
+    lastReceivedAt: row.lastReceivedAt,
+    status: row.status,
+    unsubscribedAt: row.unsubscribedAt,
+    unsubscribeUrl: row.unsubscribeUrl,
+    unsubscribeMailto: row.unsubscribeMailto,
+    oneClick: row.oneClick,
+  };
+}
+
+export async function listSubscriptions(account: TenantMailAccount): Promise<TenantSubscription[]> {
+  const { data } = isPersonalAccount(account)
+    ? await personalApi.mailSubscriptions.list({ accountId: account.id })
+    : await appApi.mailSubscriptions.list({ accountId: account.id });
+  return data.map(toTenantSubscription);
+}
+
+export async function scanSubscriptions(account: TenantMailAccount): Promise<{ scanned: number; subscriptions: number }> {
+  const { data } = isPersonalAccount(account)
+    ? await personalApi.mailSubscriptions.scan(account.id)
+    : await appApi.mailSubscriptions.scan({ accountId: account.id });
+  return data;
+}
+
+export async function unsubscribeFromSender(
+  account: TenantMailAccount,
+  subscriptionId: string,
+): Promise<{ method: SubscriptionMethod; url: string | null }> {
+  const { data } = isPersonalAccount(account)
+    ? await personalApi.mailSubscriptions.unsubscribe(subscriptionId)
+    : await appApi.mailSubscriptions.unsubscribe(subscriptionId);
+  return { method: data.method, url: data.url };
+}
+
+/** Only a plain https link: the sender's page has to be opened to finish. */
+export function isLinkOnlySubscription(sub: Pick<TenantSubscription, 'unsubscribeUrl' | 'unsubscribeMailto' | 'oneClick'>): boolean {
+  return !!sub.unsubscribeUrl && !sub.oneClick && !sub.unsubscribeMailto;
+}

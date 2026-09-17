@@ -29,6 +29,8 @@ import {
   ChevronDown,
   ChevronUp,
   Calendar,
+  Tag,
+  MailX,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
@@ -46,6 +48,7 @@ const DRAWER_WIDTH = 340;
 export function getLabelIcon(slug: string, color: string, size: number = 22) {
   const icons: Record<string, React.ReactNode> = {
     INBOX: <Inbox size={size} color={color} />,
+    PROMOTIONS: <Tag size={size} color={color} />,
     STARRED: <Star size={size} color={color} />,
     SENT: <SendHorizontal size={size} color={color} />,
     DRAFTS: <File size={size} color={color} />,
@@ -280,6 +283,20 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
 
               {/* Secondary system labels (collapsible) */}
               {showMore && secondaryLabels.map(renderSystemLabel)}
+
+              {showMore && (
+                <TouchableOpacity
+                  style={styles.drawerItem}
+                  onPress={() => { handleClose(); setTimeout(() => router.push('/subscriptions' as any), 250); }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                >
+                  <MailX size={22} color={colors.muted} />
+                  <Text style={[styles.drawerItemText, { color: colors.text }]}>
+                    Subscriptions
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {showMore && (
                 <TouchableOpacity

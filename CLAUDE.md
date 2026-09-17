@@ -31,6 +31,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `admin`, Next.js internal admin console
 - `api-docs`, Next.js public API documentation site
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
+- `developer`, Vite SPA — WeldApps developer portal (`developer.weldsuite.org` / `developer-test.weldsuite.org`)
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 
@@ -64,6 +65,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `_template`, Scaffold for new mobile apps (see root script `create:mobile-app`)
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).
+
+**`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
 
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 

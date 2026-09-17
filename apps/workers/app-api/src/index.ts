@@ -24,6 +24,7 @@ import { requestId } from './middleware/request-id';
 import { clerkMiddleware } from './middleware/clerk';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
 import { featureFlagsMiddleware } from './middleware/feature-flags';
+import { resolveCorsOrigin } from './lib/cors-origins';
 import { weldpassRoutes } from './routes/weldpass';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
@@ -138,6 +139,7 @@ import { mailRulesRoutes } from './routes/mail-rules';
 import { mailScheduledRoutes } from './routes/mail-scheduled';
 import { mailSignaturesRoutes } from './routes/mail-signatures';
 import { mailSnoozeRoutes } from './routes/mail-snooze';
+import { mailSubscriptionsRoutes } from './routes/mail-subscriptions';
 import { mailSyncRoutes } from './routes/mail-sync';
 import { mailTemplatesRoutes } from './routes/mail-templates';
 import { mailThreadsRoutes } from './routes/mail-threads';
@@ -233,6 +235,7 @@ import { accessRequestsRoutes } from './routes/access-requests';
 import { searchRoutes } from './routes/search';
 import { workspaceSettingsRoutes } from './routes/workspace-settings';
 import { authDesktopRoutes } from './routes/auth-desktop';
+import { cliAuthRoutes } from './routes/cli-auth';
 import { accountRoutes } from './routes/account';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
@@ -322,19 +325,7 @@ app.use('*', logger());
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      if (origin && /\.welddesk\.org$/.test(origin)) return origin;
-      const allowed = [
-        'https://app.weldsuite.org',
-        'https://app-test.weldsuite.org',
-        'https://app-preview.weldsuite.org',
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-      ];
-      if (origin && allowed.includes(origin)) return origin;
-      return 'https://app.weldsuite.org';
-    },
+    origin: (origin) => resolveCorsOrigin(origin),
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // X-Test-Token / X-Test-Flags are the test-only seams (gated by env +
     // token in their respective middleware, inert in production). Allowing the
@@ -420,6 +411,10 @@ app.route('/public/user-apps', publicUserAppsRoutes);
 // itself; mounting here (BEFORE the global /api/* workspaceDb guard) skips the
 // org requirement. Must stay ABOVE the app.use('/api/*', ...) line below.
 app.route('/api/auth-desktop', authDesktopRoutes);
+
+// CLI device-code login — PUBLIC for /device + /token; /approve applies Clerk
+// + workspace itself. Must stay ABOVE the global /api/* workspaceDb guard.
+app.route('/api/cli-auth', cliAuthRoutes);
 
 // Account self-service (deletion) — Clerk-authenticated but org-LESS: a user
 // without any workspace must still be able to delete their account (Google
@@ -638,6 +633,7 @@ app.route('/api/mail-rules', mailRulesRoutes);
 app.route('/api/mail-scheduled', mailScheduledRoutes);
 app.route('/api/mail-signatures', mailSignaturesRoutes);
 app.route('/api/mail-snooze', mailSnoozeRoutes);
+app.route('/api/mail-subscriptions', mailSubscriptionsRoutes);
 app.route('/api/mail-sync', mailSyncRoutes);
 app.route('/api/mail-templates', mailTemplatesRoutes);
 app.route('/api/mail-threads', mailThreadsRoutes);

@@ -154,7 +154,10 @@ export const platformSyncMap: EntitySyncMap = {
   project_whiteboard: { invalidate: [projectKeys.all] },
   project_milestone: inv(projectKeys.all), // replaces the stale 'milestone' topic
   project_sprint: inv(projectKeys.all),
-  project_task: inv(projectKeys.all, ['app-api', 'task-panel']),
+  // Project-scoped tasks publish as `project_task` (not `task`). Invalidate
+  // My Tasks (`['task']`) as well as project boards + the object panel so
+  // cross-screen sync covers every task surface.
+  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel']),
   project_time_entry: inv(projectKeys.all),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),
@@ -176,7 +179,15 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // WeldCRM
   // =========================================================================
+  // Runtime CRM publishers emit `person` / `company`. Catalog also keeps the
+  // legacy `contact` / `customer` topics (agents/analytics); alias them to the
+  // same people/companies caches so residual hub events still refresh UI.
   person: {
+    invalidate: [personKeys.all],
+    updateDetail: detailUpdater(personKeys.detail),
+    remove: detailRemover(personKeys.detail),
+  },
+  contact: {
     invalidate: [personKeys.all],
     updateDetail: detailUpdater(personKeys.detail),
     remove: detailRemover(personKeys.detail),
@@ -186,11 +197,22 @@ export const platformSyncMap: EntitySyncMap = {
     updateDetail: detailUpdater(companyKeys.detail),
     remove: detailRemover(companyKeys.detail),
   },
+  customer: {
+    invalidate: [companyKeys.all],
+    updateDetail: detailUpdater(companyKeys.detail),
+    remove: detailRemover(companyKeys.detail),
+  },
+  // Person↔company junction. Publishers emit contact_link created/deleted and
+  // also person+company updated; invalidate both identity roots either way.
+  contact_link: inv(personKeys.all, companyKeys.all),
   lead: { invalidate: [leadKeys.all] },
   opportunity: { invalidate: [opportunityKeys.all, pipelineKeys.all] },
   activity: inv(['crm', 'activities']),
-  supplier: inv(['crm', 'suppliers']),
-  customer_list: inv(['crm', 'lists']),
+  // WMS suppliers table publishes entityType `supplier`; CRM "suppliers" UI is
+  // an isSupplier filter on people/companies (covered by those topics).
+  supplier: inv(['weldstash', 'suppliers']),
+  // Primary list pages use ['lists']; customer-detail picker uses ['crm','lists'].
+  customer_list: inv(['lists'], ['crm', 'lists']),
   pipeline: inv(['crm', 'pipelines']),
   pipeline_stage: inv(['crm', 'pipeline-stages']),
   custom_field: inv(['settings', 'custom-fields'], ['settings', 'custom-fields-all']),
@@ -198,6 +220,11 @@ export const platformSyncMap: EntitySyncMap = {
   enrich_field: inv(['enrich-fields']),
   sequence: inv(['sequences']),
   call: inv(['crm', 'voip-calls'], ['crm', 'call-intelligence']),
+  transcription: inv(
+    ['crm', 'voip-calls'],
+    ['crm', 'call-recordings'],
+    ['crm', 'call-intelligence'],
+  ),
   meeting_bot_session: inv(['crm', 'call-intelligence', 'meeting-bot']),
   customer_status: inv(['weldcrm', 'customer-statuses']),
   // Shared topic name across CRM + WeldFlow analytics — invalidate both roots.
@@ -258,6 +285,17 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_review: inv(['helpdesk', 'reviews']),
   helpdesk_analytics_report: inv(['helpdesk', 'analytics', 'reports']),
   helpcenter_settings: inv(['helpdesk', 'helpcenter']),
+  // Phase 2 — remaining catalog types. `helpdesk_email` matches inline
+  // queryKeys in welddesk email settings; ticket_note / sla /
+  // satisfaction_survey reserve kebab prefixes consistent with helpdeskKeys
+  // (no dedicated list hooks yet) and bump tickets/analytics where UI surfaces them.
+  ticket_note: inv(['helpdesk', 'ticket-notes'], ['helpdesk', 'tickets']),
+  sla: inv(['helpdesk', 'slas']),
+  satisfaction_survey: inv(
+    ['helpdesk', 'satisfaction-surveys'],
+    ['helpdesk', 'analytics'],
+  ),
+  helpdesk_email: inv(['helpdesk', 'email']),
 
   // WeldDesk webchat — list + open conversation pane
   desk_conversation: {

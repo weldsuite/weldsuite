@@ -21,6 +21,7 @@ export {
   topicMatches,
   personalHubKey,
   isPersonalHubKey,
+  isBarePersonalTopic,
   PERSONAL_HUB_PREFIX,
 } from './topics';
 

@@ -16,6 +16,8 @@ import {
   ChevronUp,
   Plus,
   Archive,
+  Tag,
+  MailX,
   Info,
   Check,
   X,
@@ -271,7 +273,7 @@ export function useMailSidebarItems(isActive: boolean): {
   // Known static mail routes (not accountIds)
   const STATIC_MAIL_ROUTES = new Set([
     'inbox', 'search', 'scheduled', 'snoozed', 'settings', 'setup',
-    'domains', 'ai', 'unified', 'stats',
+    'domains', 'ai', 'unified', 'stats', 'subscriptions',
   ]);
 
   // Extract accountId from pathname (not present in unified mode or static routes)
@@ -613,6 +615,7 @@ export function useMailSidebarItems(isActive: boolean): {
     iconClassName?: string;
   }> = [
     { title: t.mail.sidebar.inbox, href: getMailUrl('/inbox'), icon: Inbox, count: folderCounts['inbox'] || 0 },
+    { title: t.mail.sidebar.promotions, href: getMailUrl('/promotions'), icon: Tag, count: folderCounts['promotions'] || 0 },
     { title: t.mail.sidebar.starred, href: getMailUrl('/starred'), icon: Star, count: folderCounts['starred'] || 0 },
     { title: t.mail.sidebar.sent, href: getMailUrl('/sent'), icon: SendHorizontal, iconClassName: 'opacity-80', count: folderCounts['sent'] || 0 },
     { title: t.mail.sidebar.drafts, href: getMailUrl('/drafts'), icon: File, count: folderCounts['drafts'] || 0 },
@@ -626,6 +629,7 @@ export function useMailSidebarItems(isActive: boolean): {
     { title: t.mail.sidebar.archive, href: getMailUrl('/archive'), icon: Archive, count: folderCounts['archive'] || 0 },
     { title: t.mail.sidebar.spam, href: getMailUrl('/spam'), icon: AlertCircle, count: folderCounts['spam'] || 0 },
     { title: t.mail.sidebar.trash, href: getMailUrl('/trash'), icon: Trash2, count: folderCounts['trash'] || 0 },
+    { title: t.mail.sidebar.subscriptions, href: '/weldmail/subscriptions', icon: MailX, count: 0 },
   ];
 
 
