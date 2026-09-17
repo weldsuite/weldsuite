@@ -37,6 +37,15 @@ Optional frontend build secrets (on both environments if used):
 | `VITE_MIXPANEL_TOKEN` | Platform Pages build |
 | `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
 
+Cloudflare Pages projects for the developer portal (create manually; Git auto-deploy off):
+
+| Project | Custom domain |
+|---|---|
+| `developer-web-test` | `developer-test.weldsuite.org` |
+| `developer-web` | `developer.weldsuite.org` |
+
+Also add both hostnames to Clerk **Allowed origins** / **Redirect URLs**.
+
 First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.yml`):
 
 | GitHub secret | Used by |

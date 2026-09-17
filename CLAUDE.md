@@ -31,6 +31,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `admin`, Next.js internal admin console
 - `api-docs`, Next.js public API documentation site
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
+- `developer`, Vite SPA — WeldApps developer portal (`developer.weldsuite.org` / `developer-test.weldsuite.org`)
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 
