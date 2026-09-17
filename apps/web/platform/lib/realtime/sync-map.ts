@@ -285,6 +285,17 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_review: inv(['helpdesk', 'reviews']),
   helpdesk_analytics_report: inv(['helpdesk', 'analytics', 'reports']),
   helpcenter_settings: inv(['helpdesk', 'helpcenter']),
+  // Phase 2 — remaining catalog types. `helpdesk_email` matches inline
+  // queryKeys in welddesk email settings; ticket_note / sla /
+  // satisfaction_survey reserve kebab prefixes consistent with helpdeskKeys
+  // (no dedicated list hooks yet) and bump tickets/analytics where UI surfaces them.
+  ticket_note: inv(['helpdesk', 'ticket-notes'], ['helpdesk', 'tickets']),
+  sla: inv(['helpdesk', 'slas']),
+  satisfaction_survey: inv(
+    ['helpdesk', 'satisfaction-surveys'],
+    ['helpdesk', 'analytics'],
+  ),
+  helpdesk_email: inv(['helpdesk', 'email']),
 
   // WeldDesk webchat — list + open conversation pane
   desk_conversation: {

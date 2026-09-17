@@ -30,6 +30,7 @@ import { ErrorState, ListSkeleton } from '@/components/data-states';
 import { ChannelBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
+import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import type {
   DeskConversation,
   DeskConversationSort,
@@ -105,6 +106,17 @@ export default function InboxScreen() {
     setRefreshing(true);
     void fetchPage();
   }, [fetchPage]);
+
+  // Live inbox: dual-listen legacy `helpdesk.*` + hub desk_/helpdesk_ topics.
+  const onInboxInvalidate = useCallback(() => {
+    void fetchPage();
+  }, [fetchPage]);
+
+  useInboxRealtime({
+    agentId: user?.id ?? '',
+    agentName: user?.fullName ?? user?.email ?? '',
+    onInboxInvalidate,
+  });
 
   const onEndReached = useCallback(() => {
     if (!hasMore || loadingMore || !cursor) return;

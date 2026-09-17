@@ -86,3 +86,37 @@ describe('platformSyncMap — WeldCRM', () => {
     expect(platformSyncMap.supplier?.invalidate).toEqual([['weldstash', 'suppliers']]);
   });
 });
+
+describe('platformSyncMap — WeldDesk', () => {
+  it('Phase 2 catalog gaps invalidate helpdesk prefixes', () => {
+    expect(platformSyncMap.ticket_note?.invalidate).toEqual([
+      ['helpdesk', 'ticket-notes'],
+      ['helpdesk', 'tickets'],
+    ]);
+    expect(platformSyncMap.sla?.invalidate).toEqual([['helpdesk', 'slas']]);
+    expect(platformSyncMap.satisfaction_survey?.invalidate).toEqual([
+      ['helpdesk', 'satisfaction-surveys'],
+      ['helpdesk', 'analytics'],
+    ]);
+    expect(platformSyncMap.helpdesk_email?.invalidate).toEqual([['helpdesk', 'email']]);
+  });
+
+  it('desk v2 topics keep conversation list + detail helpers', () => {
+    expect(platformSyncMap.desk_conversation?.invalidate).toEqual([
+      ['desk', 'conversations'],
+    ]);
+    expect(platformSyncMap.desk_conversation?.updateDetail).toBeTypeOf('function');
+    expect(platformSyncMap.desk_conversation?.remove).toBeTypeOf('function');
+    expect(platformSyncMap.desk_message?.invalidate).toEqual([['desk', 'conversations']]);
+    expect(platformSyncMap.desk_widget?.invalidate).toEqual([['desk', 'widget']]);
+  });
+
+  it('classic helpdesk ticket/conversation topics invalidate helpdesk roots', () => {
+    expect(platformSyncMap.ticket?.invalidate).toEqual([['helpdesk']]);
+    expect(platformSyncMap.helpdesk_ticket?.invalidate).toEqual([['helpdesk']]);
+    expect(platformSyncMap.helpdesk_conversation?.invalidate).toEqual([['helpdesk']]);
+    expect(platformSyncMap.conversation?.invalidate).toEqual([
+      ['helpdesk', 'conversations'],
+    ]);
+  });
+});
