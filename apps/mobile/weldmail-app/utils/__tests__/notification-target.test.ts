@@ -256,7 +256,8 @@ describe('notification inbox retry helpers', () => {
     expect(nextNotificationListRetryMs(0)).toBe(400);
     expect(nextNotificationListRetryMs(1)).toBe(1000);
     expect(nextNotificationListRetryMs(2)).toBe(2000);
-    expect(nextNotificationListRetryMs(3)).toBeNull();
+    expect(nextNotificationListRetryMs(3)).toBe(4000);
+    expect(nextNotificationListRetryMs(4)).toBeNull();
     expect(nextNotificationListRetryMs(-1)).toBeNull();
   });
 

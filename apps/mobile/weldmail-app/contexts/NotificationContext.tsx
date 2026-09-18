@@ -103,16 +103,37 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [pendingNav, setPendingNav] = useState<NotificationTarget | null>(null);
   const pendingNotifIdRef = useRef<string | undefined>(undefined);
   const handledNotifIds = useRef<Set<string>>(new Set());
+  // Seeded once from AsyncStorage before cold-start replay so a normal relaunch
+  // that still reports the same "last response" is ignored.
+  const handledIdsHydratedRef = useRef(false);
 
   // Latest org id for notification listeners (they are mounted once; ref avoids
   // stale closures when the user switches workspaces).
   const organizationIdRef = useRef(organizationId);
   organizationIdRef.current = organizationId;
 
+  // Same pattern for mail actions — the received/tap listeners are wired once.
+  const refreshMailRef = useRef(refreshMail);
+  refreshMailRef.current = refreshMail;
+  const expectNotificationEmailRef = useRef(expectNotificationEmail);
+  expectNotificationEmailRef.current = expectNotificationEmail;
+
   const markNotificationHandled = useCallback((notifId: string) => {
     if (!notifId || handledNotifIds.current.has(notifId)) return;
     handledNotifIds.current.add(notifId);
     AsyncStorage.setItem(HANDLED_NOTIF_KEY, notifId).catch(() => {});
+  }, []);
+
+  /**
+   * When a new-email push arrives (foreground banner or silent deliver), bump
+   * the inbox so the row appears without waiting for realtime or a manual pull.
+   * Also arms the short list-retry loop when we know the message id.
+   */
+  const refreshInboxFromNotification = useCallback((target: NotificationTarget | null) => {
+    if (!target) return;
+    if (!notificationMatchesWorkspace(target, organizationIdRef.current)) return;
+    if (target.emailId) expectNotificationEmailRef.current(target.emailId);
+    refreshMailRef.current();
   }, []);
 
   const queueNavigationFromResponse = useCallback((response: Notifications.NotificationResponse) => {
@@ -267,19 +288,37 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     await setBadgeCount(0);
   };
 
-  // Cold-start replay + tap listener: do this on mount, not after org hydrates.
-  // Waiting for organizationId was what left the inbox on screen first.
+  // Cold-start replay + tap/receive listeners: do this on mount, not after org
+  // hydrates. Waiting for organizationId was what left the inbox on screen first.
   useEffect(() => {
     let cancelled = false;
     const initLaunch = async () => {
       try {
+        // Hydrate the persisted "already handled" id before any cold-start
+        // replay so a normal relaunch that still reports the same last response
+        // does not reopen an old email (the freeze that led us to disable replay).
+        if (!handledIdsHydratedRef.current) {
+          handledIdsHydratedRef.current = true;
+          try {
+            const storedId = await AsyncStorage.getItem(HANDLED_NOTIF_KEY);
+            if (storedId) handledNotifIds.current.add(storedId);
+          } catch {
+            // ignore — worst case we may re-open once; markNotificationHandled
+            // will still persist after a successful nav.
+          }
+        }
+        if (cancelled) return;
+
         const cleanup = setupNotificationListeners(
           (notification) => {
             const target = parseNotificationContent(notification.request.content);
-            // Drop badge updates from pushes that belong to another workspace.
+            // Drop updates from pushes that belong to another workspace.
             if (target && !notificationMatchesWorkspace(target, organizationIdRef.current)) {
               return;
             }
+            // Foreground (and any deliver that reaches this listener): refresh
+            // the list so the new email is visible without a manual pull.
+            refreshInboxFromNotification(target);
             const data = notification.request.content.data as { unreadCount?: number };
             if (data?.unreadCount !== undefined) {
               setUnreadCount(data.unreadCount);
@@ -290,10 +329,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         );
         cleanupRef.current = cleanup;
 
-        // Do not replay getLastNotificationResponseAsync on cold start. iOS keeps
-        // the last response across relaunches; replaying it sets openingEmailId and
-        // leaves the inbox on `return null` when navigation fails — feels like a
-        // freeze on the 2nd open. Live taps still go through queueNavigationFromResponse.
+        // Safe cold-start: only act on the OS last response when we have not
+        // already handled that notification id. Live taps still go through
+        // queueNavigationFromResponse above.
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (cancelled) return;
+        if (lastResponse) {
+          queueNavigationFromResponse(lastResponse);
+        }
       } catch {
         // Launch still has to settle so the inbox isn't blocked forever.
       } finally {
@@ -308,7 +351,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         cleanupRef.current = null;
       }
     };
-  }, [queueNavigationFromResponse]);
+  }, [queueNavigationFromResponse, refreshInboxFromNotification]);
 
   // Registration needs a signed-in user. It does NOT need an org: a
   // personal-only user has no Clerk org, and gating on one left them with no
