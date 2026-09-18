@@ -161,9 +161,7 @@ export const platformSyncMap: EntitySyncMap = {
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),
   time_entry: { invalidate: [projectKeys.all] },
-  // NOTE: project_pipeline_stage intentionally omitted — the WeldFlow kanban
-  // stage page fetches imperatively (no useQuery cache slot), and the only
-  // existing stage key belongs to CRM. Wire after that page adopts useQuery.
+  // project_pipeline_stage — intentional omit (see intentional-omits.ts).
 
   task: {
     invalidate: [taskKeys.all],

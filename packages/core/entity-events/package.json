@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./events": "./src/events/index.ts",
+    "./hub-topics": "./src/hub-topics.ts",
     "./custom-objects": "./src/custom-objects.ts"
   },
   "scripts": {

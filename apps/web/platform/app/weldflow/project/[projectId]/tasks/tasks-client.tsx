@@ -5,8 +5,6 @@ import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { Button } from '@weldsuite/ui/components/button';
-import { useTaskEvents } from '@/hooks/realtime/use-entity-events';
-import type { TaskEventData, AnyPlatformEvent } from '@/lib/platform-events/types';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
@@ -680,79 +678,8 @@ export function TasksClient({
     return null;
   }, [isEntityMode, projectId, t.projects.tasks.failedToCreateLabel]);
 
-  // Real-time task event handlers - update local state directly without page refresh
-  const handleTaskCreated = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-
-    // In project mode: filter to this project only.
-    // In entity mode: accept any project's tasks (entity filter is by customerId/personId
-    // which isn't available in the event payload — a full refetch on the tab becoming
-    // visible is the safety net for entity mode).
-    if (!isEntityMode && taskData.projectId !== projectId) return;
-
-    // Look up assignee name from project members if we have an assigneeId
-    let assigneeName = taskData.assigneeName;
-    if (!assigneeName && taskData.assigneeId) {
-      const member = projectMembers.find(m => m.userId === taskData.assigneeId);
-      assigneeName = member?.user?.name;
-    }
-
-    // Convert event data to local Task format
-    const newTask: Task = {
-      id: taskData.id,
-      number: taskData.number ?? null,
-      title: taskData.title,
-      description: taskData.description,
-      status: (taskData.status as Task['status']) || 'todo',
-      priority: (taskData.priority as Task['priority']) || 'medium',
-      assigneeId: taskData.assigneeId,
-      assignee: assigneeName,
-      dueDate: taskData.dueDate ? new Date(taskData.dueDate) : undefined,
-      createdAt: taskData.createdAt ? new Date(taskData.createdAt) : new Date(),
-      tags: taskData.tags,
-    };
-
-    // Add task only if it doesn't already exist (prevents duplicates when same user has multiple tabs)
-    setTasks(prev => {
-      if (prev.some(t => t.id === newTask.id)) {
-        return prev;
-      }
-      return [newTask, ...prev];
-    });
-  }, [isEntityMode, projectId, projectMembers]);
-
-  const handleTaskUpdated = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-
-    setTasks(prev => prev.map(task => {
-      if (task.id !== taskData.id) return task;
-
-      // Merge updates into existing task
-      return {
-        ...task,
-        ...(taskData.title && { title: taskData.title }),
-        ...(taskData.description !== undefined && { description: taskData.description }),
-        ...(taskData.status && { status: taskData.status as Task['status'] }),
-        ...(taskData.priority && { priority: taskData.priority as Task['priority'] }),
-        ...(taskData.assigneeId !== undefined && { assigneeId: taskData.assigneeId }),
-        ...(taskData.assigneeName !== undefined && { assignee: taskData.assigneeName }),
-        ...(taskData.dueDate !== undefined && { dueDate: taskData.dueDate ? new Date(taskData.dueDate) : undefined }),
-        ...(taskData.tags !== undefined && { tags: taskData.tags }),
-      };
-    }));
-  }, []);
-
-  const handleTaskDeleted = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-    setTasks(prev => prev.filter(task => task.id !== taskData.id));
-  }, []);
-
-  // Subscribe to real-time task events
-  useTaskEvents({
-    onCreated: handleTaskCreated,
-    onUpdated: handleTaskUpdated,
-    onDeleted: handleTaskDeleted,
-  });
+  // Live task sync: useRealtimeSync(platformSyncMap) invalidates project/task
+  // query roots — no parallel useTaskEvents bridge (Phase 9 stub cleanup).
 
   // Fetch project members for assignee dropdown.
   // In entity mode there is no single project to query for members. Instead we
