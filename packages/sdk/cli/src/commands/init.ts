@@ -89,5 +89,6 @@ export async function run(args: ParsedArgs): Promise<void> {
   info(`  ${cyan('weld app deploy')}          build and upload a version`);
   info(`  ${cyan('weld app publish')}         submit it to the public app store (optional)`);
   info('');
+  info('Tip: .github/workflows/deploy-weld-app.yml is included — set secret WELD_API_KEY for CI deploy.');
   info(`Tip: open this directory with Claude Code — CLAUDE.md and the ${cyan('weldsuite-app')} skill are pre-installed.`);
 }

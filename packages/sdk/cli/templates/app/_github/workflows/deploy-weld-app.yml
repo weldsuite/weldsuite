@@ -1,0 +1,96 @@
+# Deploy this WeldApp to WeldSuite via `weld app deploy`.
+#
+# Secrets (repo Settings → Secrets and variables → Actions):
+#   WELD_API_KEY   required — wsk_… key with scope user-apps:manage
+#                    (Settings → API keys in WeldSuite, or a personal key from
+#                    weld login — but create a dedicated CI key, do not paste
+#                    an interactive session key into GitHub)
+#
+# Variables (optional):
+#   WELD_API_URL   default https://api.weldsuite.org (production)
+#                  set to https://api-test.weldsuite.org for the test stack
+#
+# Auth note: `weld login` is interactive (browser device code) and cannot run
+# in CI. Always use WELD_API_KEY here.
+#
+# Version: bump `version` in weldapp.json (semver, e.g. 1.2.0 → 1.2.1) in the
+# same commit/PR you want deployed. Re-uploading an existing version fails.
+#
+# Publish (public store review) is intentionally NOT on every push — see the
+# commented job at the bottom, or run `weld app publish` locally / via
+# workflow_dispatch when you are ready for review.
+
+name: Deploy WeldApp
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      changelog:
+        description: Changelog for this deploy
+        required: false
+        default: ''
+      publish:
+        description: Also submit for public store review after deploy
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: deploy-weld-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Enable once you commit a package-lock.json (then prefer `npm ci`):
+          # cache: npm
+
+      - name: Install dependencies
+        # Prefer `npm ci` after committing package-lock.json.
+        run: npm install
+
+      - name: Install Weld CLI
+        run: npm install -g @weldsuite/cli
+
+      - name: Deploy to WeldSuite
+        env:
+          WELD_API_KEY: ${{ secrets.WELD_API_KEY }}
+        run: |
+          if [ -z "$WELD_API_KEY" ]; then
+            echo "::error::Missing secret WELD_API_KEY (wsk_… with user-apps:manage)"
+            exit 1
+          fi
+          # Optional repo variable — leave unset for production api.weldsuite.org
+          if [ -n "${{ vars.WELD_API_URL }}" ]; then
+            export WELD_API_URL="${{ vars.WELD_API_URL }}"
+          fi
+          CHANGELOG="${{ github.event.inputs.changelog }}"
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="CI deploy ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
+          fi
+          weld app deploy --changelog "$CHANGELOG"
+
+      - name: Submit for public store review
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        env:
+          WELD_API_KEY: ${{ secrets.WELD_API_KEY }}
+        run: |
+          if [ -n "${{ vars.WELD_API_URL }}" ]; then
+            export WELD_API_URL="${{ vars.WELD_API_URL }}"
+          fi
+          weld app publish --notes "CI submit ${GITHUB_SHA::7}"

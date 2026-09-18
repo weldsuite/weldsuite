@@ -167,11 +167,11 @@ Request the **narrowest** scopes that work; the workspace admin sees and consent
 
 ## 6. weld CLI
 
-Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) and optional `WELD_API_URL` (default `https://api.weldsuite.org`).
+Env: `WELD_API_KEY` (a `wsk_…` workspace API key with `user-apps:manage`, from Settings → API keys) and optional `WELD_API_URL` (default `https://api.weldsuite.org`; test: `https://api-test.weldsuite.org`). `weld login` is interactive-only — CI always uses `WELD_API_KEY`.
 
 | Command | Purpose |
 | --- | --- |
-| `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill). |
+| `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill + GitHub Actions deploy workflow). |
 | `weld app create [dir]` | Scaffold if needed, then register the app from `weldapp.json`. |
 | `weld app dev [--port --tunnel --user-id]` | Live preview inside WeldSuite: Vite + per-user iframe URL at `/apps/{code}`. For bare localhost UI (no host), `npm run dev` + SDK `localDev`. |
 | `weld app deploy [--dir dist] [--changelog text] [--skip-build]` | Validate manifest → run build → upload `dist/**` as a new version. |
@@ -179,6 +179,8 @@ Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) 
 | `weld app list` | Table of your apps (code, name, visibility, review status, installs). |
 | `weld skill install [--force]` | Install this skill + CLAUDE.md snippet into another project. |
 | `weld --help` / `weld --version` | Help / version. |
+
+**CI/CD:** scaffold ships `.github/workflows/deploy-weld-app.yml`. Set secret `WELD_API_KEY`; optionally set variable `WELD_API_URL` for the test API. Bump `weldapp.json` `version` (semver) before each deploy commit. Use `publish` only for store review (workflow_dispatch input), not on every push. Other CI: same env + `npm install -g @weldsuite/cli` + `weld app deploy`.
 
 ## 7. Definition of Done for a WeldSuite app change
 
