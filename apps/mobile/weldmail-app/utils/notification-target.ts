@@ -177,7 +177,7 @@ export function firstParam(value: string | string[] | undefined): string | undef
  * message has shown up in the inbox list. First fetch is immediate (via
  * refreshMail); these delays cover a couple of follow-up tries.
  */
-export const NOTIFICATION_LIST_RETRY_DELAYS_MS = [400, 1000, 2000] as const;
+export const NOTIFICATION_LIST_RETRY_DELAYS_MS = [400, 1000, 2000, 4000] as const;
 
 /** Delay for the next inbox re-fetch, or null once retries are exhausted. */
 export function nextNotificationListRetryMs(attempt: number): number | null {
