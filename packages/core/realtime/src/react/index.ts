@@ -10,3 +10,4 @@ export { useWhiteboardRoom, type UseWhiteboardRoomConfig, type UseWhiteboardRoom
 export { useDocumentRoom, type UseDocumentRoomConfig, type UseDocumentRoomReturn } from './use-document-room';
 export { useSupportRoom } from './use-support-room';
 export { useRealtimeSync, type EntitySyncMap, type EntitySyncConfig, type RealtimeSyncConfig, type QueryClientLike } from './use-realtime-sync';
+export { inv } from './sync-map-helpers';
