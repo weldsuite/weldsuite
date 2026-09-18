@@ -179,3 +179,46 @@ export interface TicketsClient {
   list(options?: ResourceListOptions): Promise<ListResponse<TicketSummary>>;
   get(id: string): Promise<SingleResponse<TicketSummary>>;
 }
+
+/** Subset of a `/v1/products` row used by commerce WeldApps. */
+export interface ProductSummary {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  sku?: string | null;
+  status?: string | null;
+  price?: string | number | null;
+  currency?: string | null;
+  imageUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Create body for `/v1/products` (name + slug required). */
+export interface CreateProductInput {
+  name: string;
+  slug: string;
+  description?: string;
+  sku?: string;
+  status?: string;
+  price?: string | number;
+  currency?: string;
+  imageUrl?: string;
+  [key: string]: unknown;
+}
+
+export type UpdateProductInput = Partial<CreateProductInput>;
+
+export interface ProductListOptions extends ResourceListOptions {
+  /** Filter by product status (e.g. `active`, `draft`). */
+  status?: string;
+}
+
+export interface ProductsClient {
+  list(options?: ProductListOptions): Promise<ListResponse<ProductSummary>>;
+  get(id: string): Promise<SingleResponse<ProductSummary>>;
+  create(input: CreateProductInput): Promise<ProductSummary>;
+  update(id: string, input: UpdateProductInput): Promise<ProductSummary>;
+  remove(id: string): Promise<void>;
+}
