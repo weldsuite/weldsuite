@@ -1,7 +1,12 @@
 name: Publish Weld CLI
 
-# Publishes @weldsuite/cli to the public npm registry.
-# Requires repo secret NPM_TOKEN (npm Automation token with publish on @weldsuite).
+# Publishes @weldsuite/cli (and optionally @weldsuite/app-sdk) to the public npm
+# registry via Trusted Publishing (GitHub Actions OIDC). No long-lived
+# NPM_TOKEN is required for the happy path.
+#
+# One-time npm.org setup (per package): Package → Settings → Trusted Publisher
+# → GitHub Actions → org `weldsuite`, repo `weldsuite`, workflow `publish-cli.yml`
+# See packages/sdk/cli/PUBLISHING.md.
 
 on:
   workflow_dispatch:
@@ -20,12 +25,28 @@ on:
           - next
           - beta
           - alpha
+      packages:
+        description: 'Which package(s) to publish'
+        required: true
+        default: 'cli'
+        type: choice
+        options:
+          - cli
+          - app-sdk
+          - both
+      use_legacy_npm_token:
+        description: 'Legacy fallback only — authenticate with secrets.NPM_TOKEN instead of OIDC'
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'cli-v*'
 
 permissions:
   contents: read
+  # Required for npm Trusted Publishing (OIDC) + provenance attestations.
+  id-token: write
 
 jobs:
   publish:
@@ -37,20 +58,24 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
         with:
+          # Trusted Publishing needs Node >= 22.14 and npm CLI >= 11.5.1.
           node-version: '22'
 
-      - name: Resolve version
+      - name: Resolve version and package set
         id: ver
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
             TAG="${GITHUB_REF_NAME#cli-v}"
             echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "packages=cli" >> "$GITHUB_OUTPUT"
           else
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "packages=${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
           fi
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "tag=${{ inputs.dist_tag }}" >> "$GITHUB_OUTPUT"
+            echo "legacy=${{ inputs.use_legacy_npm_token }}" >> "$GITHUB_OUTPUT"
           else
             case "${GITHUB_REF_NAME}" in
               *beta*) echo "tag=beta" >> "$GITHUB_OUTPUT" ;;
@@ -58,29 +83,89 @@ jobs:
               *rc*|*next*) echo "tag=next" >> "$GITHUB_OUTPUT" ;;
               *) echo "tag=latest" >> "$GITHUB_OUTPUT" ;;
             esac
+            echo "legacy=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set package version
+      - name: Set @weldsuite/cli version
+        if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
         working-directory: packages/sdk/cli
         run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      - name: Typecheck
+      - name: Set @weldsuite/app-sdk version
+        if: steps.ver.outputs.packages == 'app-sdk' || steps.ver.outputs.packages == 'both'
+        working-directory: packages/sdk/app-sdk
+        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Typecheck CLI
+        if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
         run: pnpm --filter @weldsuite/cli typecheck
 
-      - name: Test
+      - name: Test CLI
+        if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
         run: pnpm --filter @weldsuite/cli test
 
-      - name: Build (via prepublishOnly)
+      - name: Build CLI
+        if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
         run: pnpm --filter @weldsuite/cli build
 
-      - name: Configure npm auth
+      - name: Build app-sdk
+        if: steps.ver.outputs.packages == 'app-sdk' || steps.ver.outputs.packages == 'both'
+        run: pnpm --filter @weldsuite/app-sdk build
+
+      - name: Configure npm registry
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish to npm
+      - name: Ensure npm CLI supports Trusted Publishing
+        run: npm install -g npm@latest
+
+      - name: Prepare OIDC auth (strip empty token line from setup-node)
+        if: steps.ver.outputs.legacy != 'true'
+        shell: bash
+        run: |
+          # actions/setup-node writes //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}.
+          # When NODE_AUTH_TOKEN is unset that expands empty and npm skips OIDC.
+          # See https://github.com/actions/setup-node/issues/1551
+          for f in "$HOME/.npmrc" .npmrc; do
+            if [[ -f "$f" ]]; then
+              sed -i -E '/:_authToken=\$\{NODE_AUTH_TOKEN\}/d; /:_authToken=$/d' "$f" || true
+            fi
+          done
+          npm --version
+          node --version
+
+      - name: Publish @weldsuite/cli (Trusted Publishing / OIDC)
+        if: >-
+          (steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both') &&
+          steps.ver.outputs.legacy != 'true'
         working-directory: packages/sdk/cli
+        # No NODE_AUTH_TOKEN — npm exchanges the GitHub OIDC token.
+        # Provenance is attached automatically for public repos + trusted publishing.
+        run: npm publish --access public --tag "${{ steps.ver.outputs.tag }}"
+
+      - name: Publish @weldsuite/app-sdk (Trusted Publishing / OIDC)
+        if: >-
+          (steps.ver.outputs.packages == 'app-sdk' || steps.ver.outputs.packages == 'both') &&
+          steps.ver.outputs.legacy != 'true'
+        working-directory: packages/sdk/app-sdk
+        run: npm publish --access public --tag "${{ steps.ver.outputs.tag }}"
+
+      - name: Publish @weldsuite/cli (legacy NPM_TOKEN)
+        if: >-
+          (steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both') &&
+          steps.ver.outputs.legacy == 'true'
+        working-directory: packages/sdk/cli
+        run: npm publish --access public --tag "${{ steps.ver.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @weldsuite/app-sdk (legacy NPM_TOKEN)
+        if: >-
+          (steps.ver.outputs.packages == 'app-sdk' || steps.ver.outputs.packages == 'both') &&
+          steps.ver.outputs.legacy == 'true'
+        working-directory: packages/sdk/app-sdk
         run: npm publish --access public --tag "${{ steps.ver.outputs.tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -88,10 +173,13 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "## Published @weldsuite/cli"
+            echo "## npm publish"
             echo ""
+            echo "- packages: \`${{ steps.ver.outputs.packages }}\`"
             echo "- version: \`${{ steps.ver.outputs.version }}\`"
             echo "- dist-tag: \`${{ steps.ver.outputs.tag }}\`"
+            echo "- auth: \`$([ "${{ steps.ver.outputs.legacy }}" = "true" ] && echo "legacy NPM_TOKEN" || echo "Trusted Publishing (OIDC)")\`"
+            echo "- CLI: https://www.npmjs.com/package/@weldsuite/cli"
+            echo "- app-sdk: https://www.npmjs.com/package/@weldsuite/app-sdk"
             echo "- install: \`npm install -g @weldsuite/cli\`"
-            echo "- page: https://www.npmjs.com/package/@weldsuite/cli"
           } >> "$GITHUB_STEP_SUMMARY"
