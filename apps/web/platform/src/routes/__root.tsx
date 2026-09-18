@@ -10,13 +10,11 @@ import { SettingsProvider } from '@/providers/settings-provider';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { UnifiedNotificationProvider } from '@/contexts/unified-notification-context';
 import { WorkspaceProvider } from '@/contexts/workspace-context';
-import { PlatformEventsProvider } from '@/contexts/platform-events-context';
 import { PresenceProvider } from '@/contexts/presence-context';
 import { TeamMemberPanelProvider } from '@/contexts/team-member-panel-context';
 import { AppShellClient } from '@/components/app-shell-client';
 import { PreferencesSync } from '@/components/preferences-sync';
 import { Toaster } from '@weldsuite/ui/components/sonner';
-import { useRealtimeQuerySync } from '@/hooks/use-realtime-query-sync';
 import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RealtimeProvider, useRealtimeSync } from '@weldsuite/realtime/react';
@@ -39,11 +37,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootComponent,
   errorComponent: RootErrorFallback,
 });
-
-function RealtimeQuerySync() {
-  useRealtimeQuerySync();
-  return null;
-}
 
 function DesktopAuthBridge() {
   useDesktopAuthHandler({
@@ -97,23 +90,24 @@ function RootComponent() {
                   <WorkspaceProvider>
                     <PlatformPermissionProvider>
                       <RealtimeProviderWrapper>
-                        <PlatformEventsProvider>
-                          <PresenceProvider>
-                            <TeamMemberPanelProvider>
-                              <RealtimeQuerySync />
-                              <RealtimeSyncBridge />
-                              <DesktopAuthBridge />
-                              {/* Must stay mounted for the whole session: the
-                                  shell denies screen-share requests whenever no
-                                  picker is registered. */}
-                              <DesktopSourcePicker />
-                              <AppShellClient>
-                                <Outlet />
-                              </AppShellClient>
-                              <Toaster />
-                            </TeamMemberPanelProvider>
-                          </PresenceProvider>
-                        </PlatformEventsProvider>
+                        <PresenceProvider>
+                          <TeamMemberPanelProvider>
+                            {/* Live entity sync: useRealtimeSync only.
+                                PlatformEventsProvider / useRealtimeQuerySync
+                                / dataEvents.initializeRealtimeBridge were
+                                stubs — removed in Phase 9. */}
+                            <RealtimeSyncBridge />
+                            <DesktopAuthBridge />
+                            {/* Must stay mounted for the whole session: the
+                                shell denies screen-share requests whenever no
+                                picker is registered. */}
+                            <DesktopSourcePicker />
+                            <AppShellClient>
+                              <Outlet />
+                            </AppShellClient>
+                            <Toaster />
+                          </TeamMemberPanelProvider>
+                        </PresenceProvider>
                       </RealtimeProviderWrapper>
                     </PlatformPermissionProvider>
                   </WorkspaceProvider>
