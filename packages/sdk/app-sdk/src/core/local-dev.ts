@@ -1,4 +1,13 @@
-import type { AppRecord, InitPayload, ListResponse, WeldTokenInfo } from './types';
+import type {
+  AppRecord,
+  CreateProductInput,
+  InitPayload,
+  ListResponse,
+  ProductListOptions,
+  ProductSummary,
+  UpdateProductInput,
+  WeldTokenInfo,
+} from './types';
 
 /** Query param that opts into local preview when the page is not iframed. */
 export const LOCAL_DEV_QUERY_PARAM = 'weldLocal';
@@ -114,13 +123,18 @@ function generateLocalId(): string {
   return `rec_local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function generateLocalProductId(): string {
+  return `prod_local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /**
- * In-memory stand-in for app-storage (records + kv) used only in local preview.
- * Non-storage API routes are not stubbed — callers get a clear error.
+ * In-memory stand-in for app-storage (records + kv) and `/v1/products`, used
+ * only in local preview / CLI local shell. Other `/v1/*` routes still throw.
  */
 export class LocalMemoryStore {
   private readonly collections = new Map<string, Map<string, AppRecord>>();
   private readonly kv = new Map<string, unknown>();
+  private readonly products = new Map<string, ProductSummary>();
 
   list<T extends Record<string, unknown>>(
     collection: string,
@@ -203,6 +217,81 @@ export class LocalMemoryStore {
 
   kvDelete(key: string): void {
     this.kv.delete(key);
+  }
+
+  listProducts(options: ProductListOptions = {}): ListResponse<ProductSummary> {
+    let rows = Array.from(this.products.values());
+    if (options.status) {
+      rows = rows.filter((row) => row.status === options.status);
+    }
+    if (options.search) {
+      const term = options.search.trim().toLowerCase();
+      rows = rows.filter((row) => {
+        const haystack = [row.name, row.slug, row.sku ?? ''].join(' ').toLowerCase();
+        return haystack.includes(term);
+      });
+    }
+    rows.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+
+    const limit = options.limit ?? 50;
+    let start = 0;
+    if (options.cursor) {
+      const idx = rows.findIndex((row) => row.id === options.cursor);
+      start = idx >= 0 ? idx + 1 : 0;
+    }
+    const slice = rows.slice(start, start + limit);
+    const hasMore = start + limit < rows.length;
+    return {
+      data: slice,
+      pagination: {
+        totalCount: rows.length,
+        hasMore,
+        cursor: hasMore && slice.length > 0 ? slice[slice.length - 1]!.id : null,
+      },
+    };
+  }
+
+  getProduct(id: string): ProductSummary | null {
+    return this.products.get(id) ?? null;
+  }
+
+  createProduct(input: CreateProductInput): ProductSummary {
+    const now = new Date().toISOString();
+    const product: ProductSummary = {
+      id: generateLocalProductId(),
+      name: input.name,
+      slug: input.slug,
+      description: input.description ?? null,
+      sku: input.sku ?? null,
+      status: input.status ?? 'draft',
+      price: input.price ?? null,
+      currency: input.currency ?? 'EUR',
+      imageUrl: input.imageUrl ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.products.set(product.id, product);
+    return product;
+  }
+
+  updateProduct(id: string, input: UpdateProductInput): ProductSummary | null {
+    const existing = this.products.get(id);
+    if (!existing) {
+      return null;
+    }
+    const updated: ProductSummary = {
+      ...existing,
+      ...input,
+      id: existing.id,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    this.products.set(id, updated);
+    return updated;
+  }
+
+  removeProduct(id: string): boolean {
+    return this.products.delete(id);
   }
 
   private ensureCollection(collection: string): Map<string, AppRecord> {

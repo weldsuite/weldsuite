@@ -150,6 +150,7 @@ await bridge.toast('Saved!', 'success');
 | `kv` | `get(key)` (null if missing), `set(key, value)`, `delete(key)`. |
 | `people` | `/v1/people` helpers (`list` / `get`). Requires `people:read`. |
 | `tickets` | `/v1/tickets` helpers (`list` / `get`). Requires `tickets:read`. |
+| `products` | `/v1/products` helpers (`list` / `get` / `create` / `update` / `remove`). Requires `products:read` / `products:write`. In local preview, in-memory. |
 
 List responses follow the platform envelope: `{ data: T[], pagination: { totalCount, hasMore, cursor } }`.
 
@@ -178,10 +179,10 @@ Or without changing code:
 What you get:
 
 - Mock user / theme / locale (customize via `local={{ userName, appCode, … }}`)
-- In-memory `records` + `kv` (resets on reload)
+- In-memory `records` + `kv` + `products` (resets on reload)
 - No-op `toast` / `navigate` (logged to `console.debug`)
 - A sticky banner: **Local preview — not connected to WeldSuite**
-- Other `/v1/*` routes throw `WeldApiError` (`code: local_preview`) — use the platform path below for real API calls
+- Other `/v1/*` routes (e.g. `people`, `tickets`) throw `WeldApiError` (`code: local_preview`) — use the platform path below for real API calls
 
 ```bash
 npm run dev
@@ -196,7 +197,7 @@ export WELD_API_KEY=wsk_...   # or: weld login
 weld app dev                  # opens http://localhost:4173/ by default
 ```
 
-The CLI serves a lightweight host page (app rail + content card) that iframes Vite and completes the real `weldapp:*` handshake. Init includes `localPreview: true` so app-storage stays in-memory while toast / navigate / theme use the shell. Flags: `--no-shell`, `--no-open`, `--shell-port`.
+The CLI serves a lightweight host page (app rail + content card) that iframes Vite and completes the real `weldapp:*` handshake. Init includes `localPreview: true` so app-storage and products stay in-memory while toast / navigate / theme use the shell. Flags: `--no-shell`, `--no-open`, `--shell-port`.
 
 ### 3. Platform preview (real host + real API)
 

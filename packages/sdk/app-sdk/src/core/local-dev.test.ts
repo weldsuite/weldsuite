@@ -194,4 +194,32 @@ describe('WeldApi local memory store', () => {
       status: 503,
     } satisfies Partial<WeldApiError>);
   });
+
+  it('supports products CRUD in memory', async () => {
+    const { api, bridge } = createWeldApp({ localDev: true });
+    await bridge.connect();
+
+    expect((await api.products.list()).data).toEqual([]);
+    const created = await api.products.create({
+      name: 'Demo Hoodie',
+      slug: 'demo-hoodie',
+      price: '49.00',
+      currency: 'EUR',
+      status: 'active',
+    });
+    expect(created.id).toMatch(/^prod_local_/);
+    expect(created.slug).toBe('demo-hoodie');
+
+    const listed = await api.products.list({ search: 'hoodie' });
+    expect(listed.data).toHaveLength(1);
+
+    const updated = await api.products.update(created.id, { price: '59.00' });
+    expect(updated.price).toBe('59.00');
+
+    const fetched = await api.products.get(created.id);
+    expect(fetched.data.name).toBe('Demo Hoodie');
+
+    await api.products.remove(created.id);
+    expect((await api.products.list()).data).toEqual([]);
+  });
 });
