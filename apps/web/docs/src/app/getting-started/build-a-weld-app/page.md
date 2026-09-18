@@ -70,6 +70,10 @@ This starts Vite and registers a **per-user** preview URL. Open `/apps/{code}` i
 3. `weld app versions` lists what you uploaded.
 4. Install (or re-open) the app — the sidenav routes to `/apps/{code}` and loads the R2 bundle.
 
+### CI/CD from your own Git repo
+
+New apps scaffold `.github/workflows/deploy-weld-app.yml`. Put the app in **your** GitHub repository, add secret `WELD_API_KEY` (`wsk_…` with `user-apps:manage`), and push to `main` — CI runs `weld app deploy`. `weld login` is interactive-only; CI must use the secret. Optional Actions variable `WELD_API_URL=https://api-test.weldsuite.org` targets the test API (default is production). Bump `weldapp.json` version before each deploy commit. Use `weld app publish` (or the workflow’s optional `publish` input) only when you want public store review.
+
 Manage without the portal:
 
 - `weld app update` — sync store listing fields from `weldapp.json`

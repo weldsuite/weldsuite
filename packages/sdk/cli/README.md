@@ -48,6 +48,8 @@ weld logout          # removes the local file (revoke “Weld CLI” in Settings
 export WELD_API_KEY=wsk_...   # always wins over the login session
 ```
 
+`weld login` is **interactive only** (browser device code). For GitHub Actions and other CI, use a dedicated `WELD_API_KEY` with scope `user-apps:manage`.
+
 | Variable | Required | Description |
 | --- | --- | --- |
 | `WELD_API_KEY` | for CI | Workspace or personal API key (`wsk_…`) with `user-apps:manage`. Overrides `weld login`. |
@@ -55,6 +57,28 @@ export WELD_API_KEY=wsk_...   # always wins over the login session
 | `WELD_APP_API_URL` | no | app-api host used by `weld login`. Derived from `WELD_API_URL` when unset. |
 | `WELD_LOGIN_URL` | no | Developer portal origin for the browser step. |
 | `WELD_DEV_USER_ID` | with workspace keys | Clerk user id that should see `weld app dev` previews. Personal keys infer this. |
+
+### GitHub Actions (scaffolded)
+
+`weld app init` / `weld app create` copies `.github/workflows/deploy-weld-app.yml` into new apps. On push to `main`/`master` (or `workflow_dispatch`) it installs deps, installs `@weldsuite/cli`, and runs `weld app deploy`.
+
+**Secrets checklist**
+
+| Name | Where | Notes |
+| --- | --- | --- |
+| `WELD_API_KEY` | Actions secret | `wsk_…` with `user-apps:manage`. Create under WeldSuite **Settings → API keys**. Do not reuse an interactive `weld login` session key. |
+| `WELD_API_URL` | Actions **variable** (optional) | Leave unset for production (`https://api.weldsuite.org`). Set `https://api-test.weldsuite.org` for the test stack. |
+
+**Version bump:** edit `version` in `weldapp.json` (strict semver `x.y.z`) in the same commit you want deployed. The API rejects re-uploading an existing version.
+
+**Deploy vs publish**
+
+| Command | When |
+| --- | --- |
+| `weld app deploy` | Every release to your workspace (CI default). Uploads `dist/**` as a new version. |
+| `weld app publish` | Only when you want a **public** App Store listing / review. Optional on `workflow_dispatch` (`publish: true`); do not auto-run on every push. |
+
+**Other CI (GitLab, Circle, etc.):** set `WELD_API_KEY` (+ optional `WELD_API_URL`), install Node 20+, `npm install`, `npm install -g @weldsuite/cli`, then `weld app deploy --changelog "…"`.
 
 ## Commands
 
