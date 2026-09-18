@@ -10,6 +10,7 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { PostCard } from '@/components/PostCard';
 import { toDayKey } from '@/lib/social';
 
@@ -49,7 +50,16 @@ export default function CalendarScreen() {
     return { posts: [...scheduled.data, ...published.data], accounts: accountsRes.data };
   }, []);
 
-  const { data, loading, refreshing, error, refresh } = useAsyncData(fetcher);
+  const { data, loading, refreshing, error, refresh, reload } = useAsyncData(fetcher);
+
+  useSocialRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'calendar' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   const accountsById = useMemo(
     () => new Map((data?.accounts ?? []).map((a) => [a.id, a])),

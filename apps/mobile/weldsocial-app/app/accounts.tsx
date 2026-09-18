@@ -15,6 +15,7 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import type { SocialPlatform } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { ACCOUNT_STATUS_META, PLATFORM_META, formatCompact } from '@/lib/social';
 
 const CONNECTABLE_PLATFORMS: SocialPlatform[] = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok'];
@@ -30,6 +31,15 @@ export default function AccountsScreen() {
 
   const fetcher = useCallback(async () => (await appApi.social.accounts.list({ limit: 100 })).data, []);
   const { data: accounts, loading, refreshing, error, refresh, reload } = useAsyncData(fetcher);
+
+  useSocialRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'accounts' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   const handleConnect = async (platform: SocialPlatform) => {
     setBusy(`connect:${platform}`);

@@ -466,3 +466,82 @@ describe('platformSyncMap — WeldConnect leftovers', () => {
     ]);
   });
 });
+
+describe('platformSyncMap — WeldSocial', () => {
+  const SOCIAL_CATALOG = [
+    'social_account',
+    'social_approval',
+    'social_campaign',
+    'social_media',
+    'social_post',
+    'social_settings',
+    'social_team_member',
+  ] as const;
+
+  it('covers all 7 social catalog entity types', () => {
+    for (const topic of SOCIAL_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('all social topics invalidate socialKeys root', () => {
+    for (const topic of SOCIAL_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['social']]);
+    }
+  });
+});
+
+describe('platformSyncMap — Parcels', () => {
+  const PARCEL_CATALOG = [
+    'parcel',
+    'parcel_box',
+    'parcel_carrier',
+    'parcel_order',
+    'parcel_pickup',
+    'parcel_wallet',
+    'parcel_settings',
+  ] as const;
+
+  it('covers all 7 parcel catalog entity types with provisional root', () => {
+    for (const topic of PARCEL_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['parcel']]);
+    }
+  });
+});
+
+describe('platformSyncMap — Ads', () => {
+  const ADS_CATALOG = [
+    'ad_platform_connection',
+    'ad_account',
+    'ad_campaign',
+  ] as const;
+
+  it('covers all 3 ads catalog entity types', () => {
+    for (const topic of ADS_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['weldads']]);
+    }
+  });
+});
+
+describe('platformSyncMap — WeldData', () => {
+  const WELDDATA_CATALOG = [
+    'welddata_list',
+    'welddata_lead',
+    'welddata_column',
+  ] as const;
+
+  it('covers all 3 welddata catalog entity types', () => {
+    for (const topic of WELDDATA_CATALOG) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['welddata']]);
+    }
+  });
+});
+
+describe('platformSyncMap — WeldApps', () => {
+  it('user_app invalidates user-apps and installed-apps roots', () => {
+    expect(platformSyncMap.user_app?.invalidate).toEqual([
+      ['user-apps'],
+      ['installed-apps'],
+    ]);
+  });
+});

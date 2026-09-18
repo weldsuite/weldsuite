@@ -483,4 +483,46 @@ export const platformSyncMap: EntitySyncMap = {
     updateDetail: detailUpdater(knowledgeKeys.pageDetail),
     remove: detailRemover(knowledgeKeys.pageDetail),
   },
+
+  // =========================================================================
+  // WeldSocial — socialKeys.all = ['social'] in use-social-queries.ts
+  // =========================================================================
+  social_account: inv(['social']),
+  social_approval: inv(['social']),
+  social_campaign: inv(['social']),
+  social_media: inv(['social']),
+  social_post: inv(['social']),
+  social_settings: inv(['social']),
+  social_team_member: inv(['social']),
+
+  // =========================================================================
+  // Parcels — no platform TanStack hooks yet (portals are out of scope).
+  // Provisional ['parcel'] root for catalog completeness / future UI.
+  // =========================================================================
+  parcel: inv(['parcel']),
+  parcel_box: inv(['parcel']),
+  parcel_carrier: inv(['parcel']),
+  parcel_order: inv(['parcel']),
+  parcel_pickup: inv(['parcel']),
+  parcel_wallet: inv(['parcel']),
+  parcel_settings: inv(['parcel']),
+
+  // =========================================================================
+  // WeldAds — weldadsKeys.all in use-weldads-queries.ts
+  // =========================================================================
+  ad_platform_connection: inv(['weldads']),
+  ad_account: inv(['weldads']),
+  ad_campaign: inv(['weldads']),
+
+  // =========================================================================
+  // WeldData — welddataKeys.all in use-welddata-queries.ts
+  // =========================================================================
+  welddata_list: inv(['welddata']),
+  welddata_lead: inv(['welddata']),
+  welddata_column: inv(['welddata']),
+
+  // =========================================================================
+  // WeldApps — userAppsKeys + installedAppsKeys (install mutates both)
+  // =========================================================================
+  user_app: inv(['user-apps'], ['installed-apps']),
 };

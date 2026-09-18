@@ -13,6 +13,7 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import type { SocialAccount, SocialDashboardStats, SocialPost } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { PostCard } from '@/components/PostCard';
 import { formatCompact } from '@/lib/social';
 import { hideAppSplash } from '@/utils/splash';
@@ -44,7 +45,17 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const { data, loading, refreshing, error, refresh } = useAsyncData(fetcher);
+  const { data, loading, refreshing, error, refresh, reload } = useAsyncData(fetcher);
+
+  // Cross-user / cross-device: hub social events → dashboard reload.
+  useSocialRealtime({
+    onInvalidate: useCallback(
+      (surface) => {
+        if (surface === 'dashboard' || surface === 'any') reload();
+      },
+      [reload],
+    ),
+  });
 
   useEffect(() => {
     if (!loading) {
