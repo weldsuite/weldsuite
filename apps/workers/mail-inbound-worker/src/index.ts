@@ -37,6 +37,11 @@ export interface Env {
   R2_PUBLIC_URL?: string;
   // Service bindings
   REALTIME: Fetcher;
+  /**
+   * Hub queue for entity-event fan-out (inbound `email:created`).
+   * Personal `mail:new` stays on REALTIME; this binding is workspace-only.
+   */
+  ENTITY_EVENTS?: Queue;
   ENVIRONMENT: string;
   // Encryption key for stored database connection strings
   DATABASE_ENCRYPTION_KEY?: string;

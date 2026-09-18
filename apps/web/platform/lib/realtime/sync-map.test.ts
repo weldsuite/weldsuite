@@ -25,6 +25,13 @@ describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
     expect(platformSyncMap.mail_draft?.invalidate).toEqual([['mail', 'drafts']]);
   });
 
+  it('Phase 7 leftovers invalidate mailKeys campaign/signature/rule/template prefixes', () => {
+    expect(platformSyncMap.mail_campaign?.invalidate).toEqual([['mail', 'campaigns']]);
+    expect(platformSyncMap.mail_signature?.invalidate).toEqual([['mail', 'signatures']]);
+    expect(platformSyncMap.email_rule?.invalidate).toEqual([['mail', 'rules']]);
+    expect(platformSyncMap.email_template?.invalidate).toEqual([['mail', 'templates']]);
+  });
+
   it('task topic keeps detail helpers for personal/my-tasks detail cache', () => {
     expect(platformSyncMap.task?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.task?.remove).toBeTypeOf('function');
@@ -543,5 +550,27 @@ describe('platformSyncMap — WeldApps', () => {
       ['user-apps'],
       ['installed-apps'],
     ]);
+  });
+});
+
+describe('platformSyncMap — WeldMail Phase 7 leftovers', () => {
+  const MAIL_LEFTOVERS = [
+    'mail_campaign',
+    'mail_signature',
+    'email_rule',
+    'email_template',
+  ] as const;
+
+  it('covers all Phase 7 leftover catalog types', () => {
+    for (const topic of MAIL_LEFTOVERS) {
+      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
+    }
+  });
+
+  it('covers campaign/signature/rule/template with mailKeys prefixes', () => {
+    expect(platformSyncMap.mail_campaign?.invalidate).toEqual([['mail', 'campaigns']]);
+    expect(platformSyncMap.mail_signature?.invalidate).toEqual([['mail', 'signatures']]);
+    expect(platformSyncMap.email_rule?.invalidate).toEqual([['mail', 'rules']]);
+    expect(platformSyncMap.email_template?.invalidate).toEqual([['mail', 'templates']]);
   });
 });

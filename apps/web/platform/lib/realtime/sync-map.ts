@@ -393,7 +393,8 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // WeldMail
   // (per-user inbox live-updates also flow through useMailRealtime's personal
-  //  topic; these workspace entries cover shared-mailbox / cross-user cases)
+  //  topic; these workspace entries cover shared-mailbox / cross-user cases.
+  //  Inbound also dual-publishes hub email:created — keep mail:new for toasts.)
   // =========================================================================
   email: inv(['mail']),
   mail_account: inv(['mail', 'accounts']),
@@ -402,6 +403,10 @@ export const platformSyncMap: EntitySyncMap = {
   mail_draft: inv(['mail', 'drafts']),
   mail_folder: inv(['mail']),
   mail_label: inv(['mail', 'labels']),
+  mail_campaign: inv(['mail', 'campaigns']),
+  mail_signature: inv(['mail', 'signatures']),
+  email_rule: inv(['mail', 'rules']),
+  email_template: inv(['mail', 'templates']),
 
   // =========================================================================
   // WeldMeet — Meetings & Calendar

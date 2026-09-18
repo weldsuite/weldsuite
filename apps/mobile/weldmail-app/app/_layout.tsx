@@ -34,6 +34,8 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { usePersonalMailRealtime } from '@/hooks/usePersonalMailRealtime';
+import { useMailEntityRealtime } from '@/hooks/useMailEntityRealtime';
+import { useMail } from '@/contexts/MailContext';
 import { BRAND } from '@/lib/brand';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
@@ -207,15 +209,25 @@ const installedAppsApi = {
 };
 
 /**
- * Mounts the useMailRealtime hook. Must live inside both RealtimeProvider
+ * Mounts mail realtime hooks. Must live inside both RealtimeProvider
  * (for the WorkspaceClient context) and MailProvider (for refreshMail).
  * Returns null — purely a side-effect component.
+ *
+ * Dual listen: personal `mail.{userId}` / mail:new (toast + inbox) and
+ * hub entity topics (email + campaign/signature/rule/template) for shared
+ * mailboxes. Full useRealtimeSync trails in Phase 8 (no QueryClient yet).
  */
 function MailRealtimeWatcher() {
+  const { refreshMail } = useMail();
   useMailRealtime();
   // Personal addresses publish to their own per-user hub, which the org-keyed
   // RealtimeProvider socket can't reach; this opens the second connection.
   usePersonalMailRealtime();
+  useMailEntityRealtime({
+    onInvalidate: () => {
+      refreshMail();
+    },
+  });
   return null;
 }
 

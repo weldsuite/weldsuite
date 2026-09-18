@@ -15,6 +15,7 @@ import {
 import {
   publishNewEmailToUser,
   publishNewPersonalEmail,
+  publishInboundEmailCreated,
   publishDeskInbound,
 } from './realtime';
 import {
@@ -812,6 +813,27 @@ async function finishWorkspaceDelivery(
     console.error(`[Store] Contact upsert failed for ${result.messageId}:`, contactErr);
   }
 
+  // Hub entity event once per stored message (not per member) so shared
+  // mailboxes + platformSyncMap.email refresh. Personal mail:new loop below
+  // stays for toast / useMailRealtime — intentional dual-path.
+  const inboundPayload = {
+    accountId: account.accountId,
+    messageId: result.messageId,
+    smtpMessageId: email.messageId,
+    threadId: result.threadId,
+    from: email.from,
+    subject: email.subject,
+    preview,
+    receivedAt: email.receivedAt.toISOString(),
+    isRead: false,
+    hasAttachments: email.hasAttachments,
+  };
+  try {
+    await publishInboundEmailCreated(env, account.clerkOrgId, inboundPayload);
+  } catch (hubErr) {
+    console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
+  }
+
   // Send real-time + push notifications to all workspace members.
   // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
   // by clerkOrgId on the WS-auth side, so the publish must use the same
@@ -829,18 +851,7 @@ async function finishWorkspaceDelivery(
     }
     const userId = member.userId;
     try {
-      await publishNewEmailToUser(env, account.clerkOrgId, userId, {
-        accountId: account.accountId,
-        messageId: result.messageId,
-        smtpMessageId: email.messageId,
-        threadId: result.threadId,
-        from: email.from,
-        subject: email.subject,
-        preview,
-        receivedAt: email.receivedAt.toISOString(),
-        isRead: false,
-        hasAttachments: email.hasAttachments,
-      });
+      await publishNewEmailToUser(env, account.clerkOrgId, userId, inboundPayload);
       notified++;
     } catch (notifyErr) {
       console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
