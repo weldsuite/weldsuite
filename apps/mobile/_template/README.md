@@ -2,7 +2,9 @@
 
 This folder is **not a real app**. It's the scaffold that `pnpm create:mobile-app` copies when spinning up a new Expo mobile app inside `apps/mobile/`.
 
-It is excluded from the pnpm workspace (see `pnpm-workspace.yaml`) so the `{{PLACEHOLDERS}}` in its files never cause `pnpm install` to choke.
+It ships with `QueryClientProvider` + `RealtimeSyncBridge` (`useRealtimeSync`)
+via `@weldsuite/mobile-realtime`. Add hub topics to `lib/sync-map.ts` as
+screens grow.
 
 ## Creating a new app
 

@@ -1,18 +1,17 @@
 import { RealtimeSyncBridge as SharedBridge } from '@weldsuite/mobile-realtime';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { weldstashSyncMap } from '@/lib/sync-map';
+import { weldflowSyncMap } from '@/lib/sync-map';
 
 /**
- * Bridges WorkspaceHub entity topics → TanStack Query invalidation for the
- * WMS mobile caches (products, stock, pick lists, warehouses).
+ * Bridges WorkspaceHub entity topics → TanStack Query invalidation for
+ * WeldFlow mobile caches (projects, tasks, my-tasks, labels).
  */
 export function RealtimeSyncBridge() {
   const { user } = useClerkAuth();
   return (
     <SharedBridge
-      syncMap={weldstashSyncMap}
+      syncMap={weldflowSyncMap}
       currentUserId={user?.id || ''}
-      seedKeys={false}
     />
   );
 }

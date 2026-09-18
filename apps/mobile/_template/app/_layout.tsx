@@ -21,9 +21,13 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/query-client';
+
 import appApi, { setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
+import { RealtimeSyncBridge } from '@/providers/realtime-sync-bridge';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -159,27 +163,30 @@ function AppStack() {
   };
 
   return (
-    <ToastProvider>
-      <NotificationProvider>
-        <InstalledAppsProvider api={installedAppsApi}>
-          <WorkspaceProvider api={workspaceApi}>
-            <NavigationThemeProvider value={navigationTheme}>
-              <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-              <AuthGuard>
-                <RealtimeProvider>
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Screen name="authorisation" />
-                    <Stack.Screen name="sso-callback" />
-                    <Stack.Screen name="no-workspace" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
-                    <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                  </Stack>
-                </RealtimeProvider>
-              </AuthGuard>
-            </NavigationThemeProvider>
-          </WorkspaceProvider>
-        </InstalledAppsProvider>
-      </NotificationProvider>
-    </ToastProvider>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <NotificationProvider>
+          <InstalledAppsProvider api={installedAppsApi}>
+            <WorkspaceProvider api={workspaceApi}>
+              <NavigationThemeProvider value={navigationTheme}>
+                <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+                <AuthGuard>
+                  <RealtimeProvider>
+                    <RealtimeSyncBridge />
+                    <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Screen name="authorisation" />
+                      <Stack.Screen name="sso-callback" />
+                      <Stack.Screen name="no-workspace" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
+                      <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                    </Stack>
+                  </RealtimeProvider>
+                </AuthGuard>
+              </NavigationThemeProvider>
+            </WorkspaceProvider>
+          </InstalledAppsProvider>
+        </NotificationProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
 

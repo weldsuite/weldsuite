@@ -11,10 +11,11 @@ const config = getDefaultConfig(projectRoot);
 // when switching between dev client and Expo Go).
 config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/design/mobile-ui'),
+  path.resolve(monorepoRoot, 'packages/core/realtime'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'apps/mobile/_shared'),
 ];
-
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(monorepoRoot, 'node_modules'),
