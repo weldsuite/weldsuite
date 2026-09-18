@@ -40,5 +40,5 @@ Every collection used in code must be declared in `weldapp.json` → `collection
 ## Rules
 
 - Keep TypeScript strict; no `any`, no `@ts-ignore`.
-- The bridge connects inside WeldSuite, or in **local preview** when `localDev` is opted in (scaffold uses `import.meta.env.DEV`). Open `http://localhost:5173/` for UI + in-memory storage without the host; use `weld app dev` (optional `--tunnel`) for real integration at `/apps/{code}`.
+- The bridge connects inside WeldSuite, or in **local preview** when `localDev` is opted in (scaffold uses `import.meta.env.DEV`). Open `http://localhost:5173/` for a bare tab; use `weld app dev` for the local shell (sidebar chrome + real bridge) or `--tunnel` / platform `/apps/{code}` for real API.
 - New user-visible behaviour should respect `theme` and degrade gracefully while `status !== 'ready'`.

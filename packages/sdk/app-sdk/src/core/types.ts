@@ -40,6 +40,12 @@ export interface InitPayload {
   token: string;
   tokenExpiresAt: string | number;
   user: WeldAppUser;
+  /**
+   * Set by the CLI local shell (`weld app dev`) so the SDK keeps in-memory
+   * app-storage while still using the real postMessage bridge for toast /
+   * navigate / theme. Production platform hosts never set this.
+   */
+  localPreview?: boolean;
 }
 
 /** Methods the app can invoke on the host. */

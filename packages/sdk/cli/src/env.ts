@@ -8,13 +8,15 @@ const PROD_APP_API = 'https://app-api.weldsuite.org';
 const TEST_APP_API = 'https://app-api-test.weldsuite.org';
 const PROD_LOGIN = 'https://developer.weldsuite.org';
 const TEST_LOGIN = 'https://developer-test.weldsuite.org';
+const PROD_PLATFORM = 'https://app.weldsuite.org';
+const TEST_PLATFORM = 'https://app-test.weldsuite.org';
 
 function trimSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
 function looksLikeTest(url: string): boolean {
-  return /api-test\.weldsuite\.org|app-api-test\.weldsuite\.org|developer-test\.weldsuite\.org|-test\./.test(
+  return /api-test\.weldsuite\.org|app-api-test\.weldsuite\.org|developer-test\.weldsuite\.org|app-test\.weldsuite\.org|-test\./.test(
     url,
   );
 }
@@ -35,4 +37,20 @@ export function resolveLoginUrl(externalApiUrl?: string): string {
   return looksLikeTest(external) ? TEST_LOGIN : PROD_LOGIN;
 }
 
-export { PROD_EXTERNAL, TEST_EXTERNAL, PROD_APP_API, TEST_APP_API, PROD_LOGIN, TEST_LOGIN };
+/** Platform SPA origin for `/apps/{code}` deep links. */
+export function resolvePlatformUrl(externalApiUrl?: string): string {
+  if (process.env.WELD_PLATFORM_URL) return trimSlash(process.env.WELD_PLATFORM_URL);
+  const external = externalApiUrl ?? defaultExternalApiUrl();
+  return looksLikeTest(external) ? TEST_PLATFORM : PROD_PLATFORM;
+}
+
+export {
+  PROD_EXTERNAL,
+  TEST_EXTERNAL,
+  PROD_APP_API,
+  TEST_APP_API,
+  PROD_LOGIN,
+  TEST_LOGIN,
+  PROD_PLATFORM,
+  TEST_PLATFORM,
+};

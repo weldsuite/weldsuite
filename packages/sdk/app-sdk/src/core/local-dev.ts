@@ -88,6 +88,11 @@ export function buildLocalInitPayload(local?: LocalDevOptions): InitPayload {
   };
 }
 
+/** True when a host (CLI local shell) opted the iframe into in-memory storage. */
+export function isLocalPreviewInit(payload: InitPayload | null | undefined): boolean {
+  return payload?.localPreview === true;
+}
+
 export function buildLocalTokenInfo(init: InitPayload): WeldTokenInfo {
   return {
     token: init.token,
