@@ -9,6 +9,7 @@ export {
   LOCAL_DEV_WINDOW_FLAG,
   LocalMemoryStore,
   buildLocalInitPayload,
+  isLocalPreviewInit,
   shouldUseLocalDev,
 } from './core/local-dev';
 export type { LocalDevOptions, WeldAppBridgeOptions } from './core/local-dev';

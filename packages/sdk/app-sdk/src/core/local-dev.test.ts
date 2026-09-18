@@ -83,6 +83,60 @@ describe('WeldAppBridge local preview', () => {
     expect(bridge.localStore).toBeNull();
   });
 
+  it('activates memory store + real host bridge when init.localPreview is set', async () => {
+    mockIframeWindow();
+    const bridge = new WeldAppBridge({ localDev: true });
+    const parent = window.parent as { postMessage: ReturnType<typeof vi.fn> };
+
+    const connectPromise = bridge.connect();
+    // Wait a tick so the ready listener is attached, then simulate host init.
+    await Promise.resolve();
+    const handler = (window.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === 'message',
+    )?.[1] as ((event: MessageEvent) => void) | undefined;
+    expect(handler).toBeTypeOf('function');
+
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    handler!({
+      source: window.parent,
+      data: {
+        type: 'weldapp:init',
+        payload: {
+          appCode: 'demo-app',
+          theme: 'light',
+          locale: 'en',
+          apiBaseUrl: 'http://localhost/local-preview',
+          token: 'local_preview_token',
+          tokenExpiresAt: expiresAt,
+          user: { id: 'usr_local', name: 'Shell User' },
+          localPreview: true,
+        },
+      },
+    } as MessageEvent);
+
+    const init = await connectPromise;
+    expect(init.localPreview).toBe(true);
+    expect(bridge.isLocalDev).toBe(true);
+    expect(bridge.isLocalShell).toBe(true);
+    expect(bridge.localStore).not.toBeNull();
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: 'weldapp:ready' }, '*');
+
+    // toast/navigate go to the host (not stubbed).
+    const toastPromise = bridge.toast('hi', 'success');
+    await Promise.resolve();
+    const toastCall = parent.postMessage.mock.calls.find(
+      (call) => (call[0] as { type?: string }).type === 'weldapp:request',
+    );
+    expect(toastCall).toBeTruthy();
+    const req = toastCall![0] as { id: string; method: string };
+    expect(req.method).toBe('toast');
+    handler!({
+      source: window.parent,
+      data: { type: 'weldapp:response', id: req.id, ok: true, payload: {} },
+    } as MessageEvent);
+    await toastPromise;
+  });
+
   it('stubs toast and navigate as no-ops', async () => {
     mockTopLevelWindow();
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);

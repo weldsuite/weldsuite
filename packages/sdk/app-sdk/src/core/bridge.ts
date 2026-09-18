@@ -1,6 +1,7 @@
 import {
   buildLocalInitPayload,
   buildLocalTokenInfo,
+  isLocalPreviewInit,
   LocalMemoryStore,
   shouldUseLocalDev,
   type WeldAppBridgeOptions,
@@ -59,6 +60,12 @@ export class WeldAppBridge {
   private tokenRefreshPromise: Promise<WeldTokenInfo> | null = null;
   private listening = false;
   private localDevActive = false;
+  /**
+   * When true, in-memory storage is on but toast/navigate/getToken still go
+   * through the real postMessage host (CLI local shell). Bare `localDev`
+   * stubs those methods instead.
+   */
+  private hostBridgeActive = false;
   private readonly options: WeldAppBridgeOptions;
   private memoryStore: LocalMemoryStore | null = null;
 
@@ -68,9 +75,20 @@ export class WeldAppBridge {
     this.activateLocalDevIfNeeded();
   }
 
-  /** True when running in local preview (mock host, no platform iframe). */
+  /**
+   * True when running in local preview — bare tab mock **or** CLI local shell
+   * (`init.localPreview`). App-storage is in-memory in both cases.
+   */
   get isLocalDev(): boolean {
     return this.localDevActive;
+  }
+
+  /**
+   * True when embedded in the CLI local shell: real postMessage bridge +
+   * in-memory storage. False for bare-tab `localDev` stubs.
+   */
+  get isLocalShell(): boolean {
+    return this.localDevActive && this.hostBridgeActive;
   }
 
   /** In-memory storage used only when {@link isLocalDev} is true. */
@@ -168,12 +186,13 @@ export class WeldAppBridge {
 
   /**
    * Send a correlated request to the host and await its response.
-   * Times out after 15s. In local preview, host methods are stubbed.
+   * Times out after 15s. Bare local preview stubs host methods; the CLI
+   * local shell keeps the real postMessage path.
    */
   async request<TResult = unknown>(method: BridgeRequestMethod, payload?: unknown): Promise<TResult> {
     await this.connect();
 
-    if (this.localDevActive) {
+    if (this.localDevActive && !this.hostBridgeActive) {
       return this.handleLocalRequest<TResult>(method, payload);
     }
 
@@ -232,7 +251,8 @@ export class WeldAppBridge {
       }
     }
 
-    if (this.localDevActive) {
+    // Bare localDev stubs getToken; CLI shell asks the host (which returns the mock).
+    if (this.localDevActive && !this.hostBridgeActive) {
       const info = buildLocalTokenInfo(this.initPayload ?? buildLocalInitPayload(this.options.local));
       this.tokenInfo = info;
       return info;
@@ -359,6 +379,14 @@ export class WeldAppBridge {
           tokenExpiresAt: message.payload.tokenExpiresAt,
           apiBaseUrl: message.payload.apiBaseUrl,
         };
+        // CLI local shell: keep memory store + real bridge for host methods.
+        if (isLocalPreviewInit(message.payload)) {
+          this.localDevActive = true;
+          this.hostBridgeActive = true;
+          if (!this.memoryStore) {
+            this.memoryStore = new LocalMemoryStore();
+          }
+        }
         this.initResolve?.(message.payload);
         break;
       }

@@ -155,11 +155,11 @@ List responses follow the platform envelope: `{ data: T[], pagination: { totalCo
 
 ## Local development
 
-Two ways to preview:
+Three ways to preview:
 
-### 1. Local preview (no platform host) — UI + in-memory storage
+### 1. Bare tab (no chrome) — UI + in-memory storage
 
-Opt in so `connect()` does not require an iframe. Production iframe security is unchanged: local mode **never** activates while the app is embedded.
+Opt in so `connect()` does not require an iframe. Production iframe security is unchanged: bare local mode **never** activates while the app is embedded.
 
 ```tsx
 // main.tsx — safe with Vite DEV: real host still wins when iframed via `weld app dev`
@@ -189,11 +189,21 @@ npm run dev
 # or: open http://localhost:5173/?weldLocal=1
 ```
 
-### 2. Platform preview (real host + real API)
+### 2. Local shell (`weld app dev`) — sidebar chrome + real bridge
 
 ```bash
 export WELD_API_KEY=wsk_...   # or: weld login
-weld app dev                 # platform on localhost:3000 iframes your Vite server
+weld app dev                  # opens http://localhost:4173/ by default
+```
+
+The CLI serves a lightweight host page (app rail + content card) that iframes Vite and completes the real `weldapp:*` handshake. Init includes `localPreview: true` so app-storage stays in-memory while toast / navigate / theme use the shell. Flags: `--no-shell`, `--no-open`, `--shell-port`.
+
+### 3. Platform preview (real host + real API)
+
+Same `weld app dev` also registers a per-user preview for `/apps/{code}`:
+
+```bash
+weld app dev                 # then open platform (WELD_PLATFORM_URL or app.weldsuite.org)
 weld app dev --tunnel        # hosted platform (HTTPS iframe via cloudflared)
 ```
 

@@ -49,13 +49,17 @@ npm run dev
 
 You get a mock user, in-memory app storage, and a banner (“Local preview — not connected to WeldSuite”). Real CRM/people API calls need the platform path below. Opt-in alternatives: `?weldLocal=1`, or `createWeldApp({ localDev: true })`.
 
-### Inside WeldSuite (`weld app dev`)
+### Local shell (`weld app dev`)
 
 ```bash
 weld app dev
 ```
 
-This starts Vite and registers a **per-user** preview URL. Open `/apps/{code}` in WeldSuite: you see a **Development** banner and hot reload. Other members still get the published bundle.
+Starts Vite **and** a lightweight WeldSuite-like shell (sidebar rail + content card) that iframes your app and speaks the real app-sdk postMessage bridge. Opens `http://localhost:4173/` by default. Storage stays in-memory (`localPreview`); toast / navigate / theme go through the shell. Use `--no-shell` to skip it, `--no-open` to print the URL only.
+
+### Inside the real platform
+
+The same command also registers a **per-user** preview URL. Open `/apps/{code}` in WeldSuite (or set `WELD_PLATFORM_URL=http://localhost:3000`) for the real host + API:
 
 - Platform on `localhost:3000` → no tunnel.
 - Hosted platform (`https://app-test.weldsuite.org`) cannot iframe `http://localhost`. Re-run with `weld app dev --tunnel` (Cloudflare quick tunnel).

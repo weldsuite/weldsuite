@@ -11,7 +11,7 @@ import {
 } from './credentials.js';
 import { loadConfig } from './api.js';
 import { CliError } from './errors.js';
-import { resolveAppApiUrl, resolveLoginUrl } from './env.js';
+import { resolveAppApiUrl, resolveLoginUrl, resolvePlatformUrl } from './env.js';
 
 const dirs: string[] = [];
 
@@ -24,6 +24,7 @@ afterEach(() => {
   delete process.env.WELD_API_URL;
   delete process.env.WELD_APP_API_URL;
   delete process.env.WELD_LOGIN_URL;
+  delete process.env.WELD_PLATFORM_URL;
   delete process.env.XDG_CONFIG_HOME;
 });
 
@@ -100,5 +101,11 @@ describe('env helpers', () => {
     process.env.WELD_API_URL = 'https://api-test.weldsuite.org';
     assert.equal(resolveAppApiUrl(), 'https://app-api-test.weldsuite.org');
     assert.equal(resolveLoginUrl(), 'https://developer-test.weldsuite.org');
+    assert.equal(resolvePlatformUrl(), 'https://app-test.weldsuite.org');
+  });
+
+  it('honours WELD_PLATFORM_URL override', () => {
+    process.env.WELD_PLATFORM_URL = 'http://localhost:3000';
+    assert.equal(resolvePlatformUrl(), 'http://localhost:3000');
   });
 });

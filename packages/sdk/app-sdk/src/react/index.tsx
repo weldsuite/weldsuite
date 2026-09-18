@@ -25,8 +25,13 @@ export interface WeldAppContextValue {
   bridge: WeldAppBridge;
   status: WeldAppStatus;
   error: Error | null;
-  /** True when the mock local-preview bridge is active. */
+  /** True when local preview storage is active (bare tab or CLI shell). */
   isLocalDev: boolean;
+  /**
+   * True when embedded in the CLI local shell (real postMessage + in-memory
+   * storage). False for bare-tab `localDev`.
+   */
+  isLocalShell: boolean;
 }
 
 const WeldAppContext = createContext<WeldAppContextValue | null>(null);
@@ -37,8 +42,8 @@ export interface WeldAppProviderProps {
   bridge?: WeldAppBridge;
   /**
    * Opt into local preview when the page is not iframed. Safe with
-   * `import.meta.env.DEV`: when `weld app dev` embeds the same server in the
-   * platform host, the real bridge is still used.
+   * `import.meta.env.DEV`: when `weld app dev` embeds the same server (CLI
+   * local shell or platform host), the real bridge is still used.
    */
   localDev?: boolean;
   /** Customize the mock init payload for local preview. */
@@ -155,13 +160,17 @@ export function WeldAppProvider({
       status,
       error,
       isLocalDev: bridge.isLocalDev,
+      isLocalShell: bridge.isLocalShell,
     }),
     [init, theme, locale, api, bridge, status, error],
   );
 
+  // Bare-tab localDev shows the banner; CLI shell already has chrome chrome.
+  const showBanner = bridge.isLocalDev && !bridge.isLocalShell && !hideLocalBanner;
+
   return (
     <WeldAppContext.Provider value={value}>
-      {bridge.isLocalDev && !hideLocalBanner ? <LocalPreviewBanner /> : null}
+      {showBanner ? <LocalPreviewBanner /> : null}
       {children}
     </WeldAppContext.Provider>
   );
