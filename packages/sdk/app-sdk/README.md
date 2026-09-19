@@ -210,6 +210,37 @@ weld app dev --tunnel        # hosted platform (HTTPS iframe via cloudflared)
 
 Open `/apps/{code}` in WeldSuite. Hot reload; other workspace members still see the published bundle.
 
+## Suite UI kit (`@weldsuite/app-sdk/ui`)
+
+WeldApps should look like platform modules — shared tokens and primitives, not one-off marketing CSS. The UI entry mirrors platform Button / Input / Badge / list chrome without depending on the AGPL `@weldsuite/ui` package.
+
+```tsx
+import '@weldsuite/app-sdk/ui/styles.css';
+import {
+  Page,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Badge,
+  EmptyState,
+  Toolbar,
+  Form,
+  FormField,
+  statusBadgeVariant,
+} from '@weldsuite/app-sdk/ui';
+```
+
+Import the CSS once in your app entry (`main.tsx`). Sync theme with `document.documentElement.dataset.theme = theme` from `useWeldApp()` (tokens honor both `data-theme="dark"` and `html.dark`).
+
+Components: `Page`, `PageHeader`, `Button`, `Input`, `Select`, `Textarea`, `Label`, `Badge`, `Table` (+ header/body/row/cell helpers), `Toolbar`, `EmptyState`, `Alert`, `Form` / `FormField` / `FormActions`, `DescriptionList` / `DescriptionItem`, `LoadingState`, `Code`, `Stack`, `Muted`, plus `statusBadgeVariant()` for commerce status chips.
+
 ## License
 
 MIT
