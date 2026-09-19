@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
+import { HOSTED_APP_NAV_FALLBACKS } from './user-app-sidebar';
 import { useI18n } from '@/lib/i18n/provider';
 
 export function useFallbackLabelRegistry(): Map<string, string> {
@@ -25,6 +26,14 @@ export function useFallbackLabelRegistry(): Map<string, string> {
             }
           }
         }
+      }
+    }
+    // Hosted WeldApp section paths (sidebar hrefs under /apps/{code}/…)
+    for (const [code, items] of Object.entries(HOSTED_APP_NAV_FALLBACKS)) {
+      for (const item of items) {
+        const href =
+          item.path === '/' ? `/apps/${code}` : `/apps/${code}${item.path.startsWith('/') ? item.path : `/${item.path}`}`;
+        map.set(href, item.label);
       }
     }
     return map;
