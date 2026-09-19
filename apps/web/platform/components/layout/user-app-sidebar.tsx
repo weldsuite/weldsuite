@@ -15,6 +15,20 @@ export interface UserAppNavItem {
   group?: string;
 }
 
+/**
+ * Fallback sidebar for known first-party hosted apps whose published manifest
+ * predates the `navigation` field (or when production API stripped it).
+ */
+export const HOSTED_APP_NAV_FALLBACKS: Record<string, UserAppNavItem[]> = {
+  weldcommerce: [
+    { id: 'overview', label: 'Overview', path: '/', icon: 'LayoutDashboard' },
+    { id: 'products', label: 'Products', path: '/products', icon: 'Package', permission: 'products:read' },
+    { id: 'categories', label: 'Categories', path: '/categories', icon: 'FolderTree', permission: 'categories:read' },
+    { id: 'orders', label: 'Orders', path: '/orders', icon: 'ShoppingCart', permission: 'orders:read' },
+    { id: 'customers', label: 'Customers', path: '/customers', icon: 'Building', permission: 'companies:read' },
+  ],
+};
+
 function navIcon(name?: string): ComponentType<{ className?: string }> {
   if (!name) return Puzzle;
   const iconName = name;
@@ -53,14 +67,14 @@ export function buildUserAppSidebarConfig(input: {
   const items =
     input.navigation && input.navigation.length > 0
       ? input.navigation
-      : [
+      : (HOSTED_APP_NAV_FALLBACKS[input.appCode] ?? [
           {
             id: 'home',
             label: 'Home',
             path: '/',
             icon: input.icon ?? 'LayoutDashboard',
           },
-        ];
+        ]);
   const appIcon = input.icon ? navIcon(input.icon) : getAppLucideIcon(input.appCode);
   const appLogo = getAppLogoConfig(input.appCode);
   const defaultGroup = input.defaultGroupLabel ?? 'General';

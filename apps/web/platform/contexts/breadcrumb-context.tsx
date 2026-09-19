@@ -93,6 +93,14 @@ export function useOptionalBreadcrumbs(segments: BreadcrumbSegment[]) {
 }
 
 /**
+ * Hook to get current breadcrumbs (for the header), or null outside a provider.
+ */
+export function useCurrentBreadcrumbsMaybe(): BreadcrumbSegment[] | null {
+  const context = useContext(BreadcrumbContext);
+  return context?.breadcrumbs ?? null;
+}
+
+/**
  * Hook to get current breadcrumbs (for the header)
  */
 export function useCurrentBreadcrumbs() {

@@ -4,7 +4,6 @@ import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { PageLoader } from '@/components/page-loader';
 import { Link, useParams, usePathname, useRouter } from '@/lib/router';
 import { useTheme } from '@/hooks/use-theme';
@@ -16,6 +15,9 @@ import {
 } from '@/hooks/queries/use-user-apps-queries';
 import { getAppApiUrl } from '@/lib/api/public-env';
 import { userAppRelativePath } from '@/components/layout/user-app-sidebar';
+import { AppHeader } from '@/components/layout/app-header';
+import { ModuleContent } from '@/components/layout/module-content';
+import { BreadcrumbProvider, useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { iframeSandbox, iframeTargetOrigin } from './preview';
 
 const APP_API_BASE = getAppApiUrl();
@@ -33,23 +35,22 @@ interface WeldAppRequestMessage {
 
 type IncomingWeldAppMessage = WeldAppReadyMessage | WeldAppRequestMessage;
 
+function sectionLabel(appPath: string): string | null {
+  const segment = appPath.replace(/^\/+|\/+$/g, '').split('/')[0];
+  if (!segment) return null;
+  return segment
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 /**
- * Full-page sandboxed iframe host for a WeldApp (a workspace-created app).
+ * Full-page sandboxed iframe host for a WeldApp.
  *
- * Implements the fixed postMessage bridge described in the WeldApps spec:
- *  - iframe -> host `weldapp:ready` triggers a minted session token and a
- *    `weldapp:init` reply with theme/locale/user/path context.
- *  - iframe -> host `weldapp:request` (getToken | navigate | toast) gets a
- *    matching `weldapp:response`.
- *  - host -> iframe `weldapp:event` pushes live theme/locale/route changes.
- *
- * When the signed-in developer has an active `weld app dev` session, the
- * iframe loads that preview URL instead of the R2 bundle. Everyone else
- * still sees the published bundle.
- *
- * Section navigation lives in the platform UnifiedModuleSidebar (from the
- * app's weldapp.json `navigation`). Subpaths under `/apps/{code}/…` sync to
- * the iframe via init.path + `route` events — apps do not build a sidebar.
+ * Shell chrome matches first-party modules: AppHeader (top nav) + ModuleContent
+ * around the iframe. Section nav lives in UnifiedModuleSidebar from the app's
+ * weldapp.json `navigation`.
  */
 export default function WeldAppHostPage() {
   const { appCode } = useParams<{ appCode: string }>();
@@ -75,6 +76,17 @@ export default function WeldAppHostPage() {
     [pathname, appCode],
   );
 
+  const breadcrumbs = useMemo(() => {
+    const rootHref = appCode ? `/apps/${appCode}` : '/apps';
+    const rootLabel = app?.name ?? appCode ?? wa.breadcrumb.title;
+    const crumbs = [{ label: rootLabel, href: rootHref }];
+    const section = sectionLabel(appPath);
+    if (section) {
+      crumbs.push({ label: section, href: pathname });
+    }
+    return crumbs;
+  }, [app?.name, appCode, appPath, pathname, wa.breadcrumb.title]);
+
   const mintSessionToken = useCallback(async () => {
     if (!appCode) return null;
     try {
@@ -84,9 +96,6 @@ export default function WeldAppHostPage() {
     }
   }, [appCode, sessionTokenMutation]);
 
-  // The postMessage bridge itself. Re-bound whenever anything it captures in
-  // its closure (theme, locale, user, appCode, path, targetOrigin) changes so replies
-  // always reflect the current host state.
   useEffect(() => {
     if (!appCode) return;
 
@@ -137,9 +146,6 @@ export default function WeldAppHostPage() {
             }
             case 'navigate': {
               const to = (payload as { to?: unknown } | undefined)?.to;
-              // Only platform-internal paths — never let a sandboxed app
-              // redirect the host to an external origin. '//' would be a
-              // protocol-relative external URL.
               if (typeof to !== 'string' || !to.startsWith('/') || to.startsWith('//')) {
                 throw new Error('Only platform-internal paths are allowed');
               }
@@ -179,7 +185,6 @@ export default function WeldAppHostPage() {
     return () => window.removeEventListener('message', handleMessage);
   }, [appCode, appPath, mintSessionToken, resolvedTheme, language, user, router, targetOrigin]);
 
-  // Push live theme/locale/route changes to an already-initialized iframe.
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: 'weldapp:event', event: 'theme', payload: { value: resolvedTheme } },
@@ -203,57 +208,76 @@ export default function WeldAppHostPage() {
 
   if (isLoading) {
     return (
-      <div className="w-full h-full bg-background flex flex-col overflow-hidden">
-        <BreadcrumbHeader segments={[{ label: wa.breadcrumb.title }]} />
-        <PageLoader fullScreen={false} label={wa.host.loading} />
+      <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <AppHeader />
+        <ModuleContent>
+          <PageLoader fullScreen={false} label={wa.host.loading} />
+        </ModuleContent>
       </div>
     );
   }
 
   if (!app) {
     return (
-      <div className="w-full h-full bg-background flex flex-col overflow-hidden">
-        <BreadcrumbHeader segments={[{ label: wa.breadcrumb.title }]} />
-        <div className="flex flex-1 items-center justify-center p-8">
-          <div className="flex flex-col items-center text-center max-w-md gap-4">
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-              <Puzzle className="h-6 w-6 text-muted-foreground" />
+      <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <AppHeader />
+        <ModuleContent>
+          <div className="flex flex-1 items-center justify-center p-8">
+            <div className="flex flex-col items-center text-center max-w-md gap-4">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                <Puzzle className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground mb-2">{wa.host.notInstalledTitle}</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">{wa.host.notInstalledDescription}</p>
+              </div>
+              <Button asChild>
+                <Link href="/appstore">{wa.host.browseAppStore}</Link>
+              </Button>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground mb-2">{wa.host.notInstalledTitle}</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">{wa.host.notInstalledDescription}</p>
-            </div>
-            <Button asChild>
-              <Link href="/appstore">{wa.host.browseAppStore}</Link>
-            </Button>
           </div>
-        </div>
+        </ModuleContent>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-full bg-background flex flex-col overflow-hidden">
-      {previewUrl ? (
-        <div
-          className="shrink-0 px-4 py-2 text-xs bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2"
-          role="status"
-        >
-          <span className="font-semibold uppercase tracking-wide">{wa.host.developmentBadge}</span>
-          <span className="truncate">{wa.host.developmentDescription}</span>
-          <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
-        </div>
-      ) : null}
-      <div className="flex-1 min-h-0">
-        <iframe
-          key={iframeSrc}
-          ref={iframeRef}
-          src={iframeSrc}
-          title={app.name}
-          className="w-full h-full border-0"
-          sandbox={sandbox}
-        />
+    <BreadcrumbProvider defaultBreadcrumbs={breadcrumbs}>
+      <HostBreadcrumbSync breadcrumbs={breadcrumbs} />
+      <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <AppHeader />
+        <ModuleContent>
+          {previewUrl ? (
+            <div
+              className="shrink-0 px-4 py-2 text-xs bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2"
+              role="status"
+            >
+              <span className="font-semibold uppercase tracking-wide">{wa.host.developmentBadge}</span>
+              <span className="truncate">{wa.host.developmentDescription}</span>
+              <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
+            </div>
+          ) : null}
+          <div className="flex-1 min-h-0">
+            <iframe
+              key={iframeSrc}
+              ref={iframeRef}
+              src={iframeSrc}
+              title={app.name}
+              className="w-full h-full border-0 bg-background"
+              sandbox={sandbox}
+            />
+          </div>
+        </ModuleContent>
       </div>
-    </div>
+    </BreadcrumbProvider>
   );
+}
+
+function HostBreadcrumbSync({
+  breadcrumbs,
+}: {
+  breadcrumbs: { label: string; href?: string }[];
+}) {
+  useBreadcrumbs(breadcrumbs);
+  return null;
 }

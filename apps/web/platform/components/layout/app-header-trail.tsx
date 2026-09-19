@@ -2,9 +2,12 @@
  * Reads route matches and renders the breadcrumb trail.
  * Kept separate from <AppHeader/> so re-renders are scoped to navigation,
  * not to drawer toggles or palette state.
+ *
+ * Prefer `BreadcrumbProvider` segments when a module layout supplies them
+ * (e.g. hosted WeldApps); otherwise derive from TanStack route matches.
  */
 
-import { useEffect, useMemo } from 'react';
+import { Fragment, useEffect, useMemo } from 'react';
 import { useMatches, Link } from '@tanstack/react-router';
 import {
   Breadcrumb,
@@ -19,10 +22,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import {
   buildBreadcrumbSegments,
   collapseLongTrail,
+  type BreadcrumbSegment,
   type MatchLike,
 } from '@/lib/breadcrumbs/build-segments';
 import { useFallbackLabelRegistry } from './app-header-fallback-registry';
-import { Fragment } from 'react';
+import { useCurrentBreadcrumbsMaybe } from '@/contexts/breadcrumb-context';
 
 interface AppHeaderTrailHandle {
   hideAll: boolean;
@@ -35,8 +39,19 @@ interface AppHeaderTrailProps {
 export function AppHeaderTrail({ onResolved }: AppHeaderTrailProps) {
   const matches = useMatches();
   const registry = useFallbackLabelRegistry();
+  const providerCrumbs = useCurrentBreadcrumbsMaybe();
 
   const { segments, hideAll } = useMemo(() => {
+    if (providerCrumbs && providerCrumbs.length > 0) {
+      const fromProvider: BreadcrumbSegment[] = providerCrumbs.map((seg) => ({
+        label: seg.label,
+        href: seg.href ?? '#',
+        pending: false,
+        source: 'static' as const,
+      }));
+      return { segments: fromProvider, hideAll: false };
+    }
+
     const matchLike: MatchLike[] = matches.map((m) => ({
       pathname: m.pathname,
       status: m.status as MatchLike['status'],
@@ -44,12 +59,8 @@ export function AppHeaderTrail({ onResolved }: AppHeaderTrailProps) {
       loaderData: m.loaderData as MatchLike['loaderData'],
     }));
     return buildBreadcrumbSegments(matchLike, registry);
-  }, [matches, registry]);
+  }, [matches, registry, providerCrumbs]);
 
-  // Notify parent (so the entire header can hide on full-screen routes).
-  // Deferred to an effect: calling onResolved during render runs AppHeader's
-  // setState while AppHeaderTrail is rendering, which React rejects with
-  // "Cannot update a component while rendering a different component".
   useEffect(() => {
     onResolved?.({ hideAll });
   }, [onResolved, hideAll]);
