@@ -96,6 +96,28 @@ export default function WeldAppHostPage() {
     }
   }, [appCode, sessionTokenMutation]);
 
+  const syncIframeRoute = useCallback(() => {
+    const iframeWindow = iframeRef.current?.contentWindow;
+    if (!iframeWindow) return;
+
+    const hash = appPath === '/' ? '' : appPath.replace(/^\//, '');
+    try {
+      const url = new URL(iframeWindow.location.href);
+      const nextHash = hash ? `#${hash}` : '';
+      if (url.hash !== nextHash) {
+        iframeWindow.history.replaceState(null, '', `${url.pathname}${url.search}${nextHash}`);
+        iframeWindow.dispatchEvent(new Event('hashchange'));
+      }
+    } catch {
+      // Opaque iframe or cross-origin preview — fall through to postMessage.
+    }
+
+    iframeWindow.postMessage(
+      { type: 'weldapp:event', event: 'route', payload: { value: appPath } },
+      targetOrigin,
+    );
+  }, [appPath, targetOrigin]);
+
   useEffect(() => {
     if (!appCode) return;
 
@@ -126,6 +148,9 @@ export default function WeldAppHostPage() {
           },
           targetOrigin,
         );
+        // Re-assert route after handshake so apps that miss early `route`
+        // events (or use an SDK without `path`) still land on the right section.
+        syncIframeRoute();
         return;
       }
 
@@ -183,7 +208,7 @@ export default function WeldAppHostPage() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [appCode, appPath, mintSessionToken, resolvedTheme, language, user, router, targetOrigin]);
+  }, [appCode, appPath, mintSessionToken, resolvedTheme, language, user, router, targetOrigin, syncIframeRoute]);
 
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -200,11 +225,8 @@ export default function WeldAppHostPage() {
   }, [language, targetOrigin]);
 
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'weldapp:event', event: 'route', payload: { value: appPath } },
-      targetOrigin,
-    );
-  }, [appPath, targetOrigin]);
+    syncIframeRoute();
+  }, [syncIframeRoute]);
 
   if (isLoading) {
     return (
@@ -265,6 +287,7 @@ export default function WeldAppHostPage() {
               title={app.name}
               className="w-full h-full border-0 bg-background"
               sandbox={sandbox}
+              onLoad={syncIframeRoute}
             />
           </div>
         </ModuleContent>
