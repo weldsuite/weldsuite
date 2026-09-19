@@ -7,7 +7,7 @@ import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 
 export interface ModuleInfo {
   name: string;
-  icon: LucideIcon;
+  icon: LucideIcon | React.ComponentType<{ className?: string }>;
   logo?: AppLogo;
   hideIconOnMobile?: boolean;
 }
