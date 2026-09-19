@@ -3,11 +3,8 @@
  * `weldstashKeys` in lib/query-client.ts (same roots as platform WeldStash).
  */
 
-import type { EntitySyncMap } from '@weldsuite/realtime/react';
+import { inv, type EntitySyncMap } from '@weldsuite/realtime/react';
 import { weldstashKeys } from './query-client';
-
-/** Invalidate-only entry. Each argument is a query-key prefix. */
-const inv = (...invalidate: readonly (readonly unknown[])[]) => ({ invalidate });
 
 /**
  * Topics the WMS mobile shell caches today, plus catalog twin aliases

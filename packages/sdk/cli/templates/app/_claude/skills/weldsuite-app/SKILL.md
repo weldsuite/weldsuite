@@ -61,9 +61,9 @@ The SDK implements this, you rarely touch raw messages, but knowing the lifecycl
 
 Consequences:
 
-- `connect()` **fails outside WeldSuite** unless you opt into **local preview** (`localDev: true`, `?weldLocal=1`, or `window.__WELD_LOCAL_DEV__`). Local mode never activates while iframed — production host security is unchanged.
-- Local preview: mock user/theme/locale, in-memory `records`/`kv`, no-op `toast`/`navigate`, banner “Local preview — not connected to WeldSuite”. Other `/v1/*` calls error with `local_preview`.
-- For real host + API: use `weld app dev` (optional `--tunnel`) so the platform iframes your Vite server at `/apps/{code}`.
+- `connect()` **fails outside WeldSuite** unless you opt into **local preview** (`localDev: true`, `?weldLocal=1`, or `window.__WELD_LOCAL_DEV__`). Bare local mode never activates while iframed — production host security is unchanged.
+- Bare local preview: mock user/theme/locale, in-memory `records`/`kv`, no-op `toast`/`navigate`, banner “Local preview — not connected to WeldSuite”. Other `/v1/*` calls error with `local_preview`.
+- **Local shell:** `weld app dev` opens a WeldSuite-like shell with the real postMessage bridge (`init.localPreview`) and in-memory storage. Also registers `/apps/{code}` for the real platform (`--tunnel` when hosted).
 - Tokens are short-lived. The SDK caches them and refreshes 60s before expiry; a 401 triggers one refresh + retry. Never store the token yourself.
 - Request timeout is 15s.
 
@@ -167,18 +167,20 @@ Request the **narrowest** scopes that work; the workspace admin sees and consent
 
 ## 6. weld CLI
 
-Env: `WELD_API_KEY` (a `wsk_…` workspace API key, from Settings → API keys) and optional `WELD_API_URL` (default `https://api.weldsuite.org`).
+Env: `WELD_API_KEY` (a `wsk_…` workspace API key with `user-apps:manage`, from Settings → API keys) and optional `WELD_API_URL` (default `https://api.weldsuite.org`; test: `https://api-test.weldsuite.org`). `weld login` is interactive-only — CI always uses `WELD_API_KEY`.
 
 | Command | Purpose |
 | --- | --- |
-| `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill). |
+| `weld app init [dir] [--name --code]` | Scaffold a new app (Vite + React + SDK + manifest + this skill + GitHub Actions deploy workflow). |
 | `weld app create [dir]` | Scaffold if needed, then register the app from `weldapp.json`. |
-| `weld app dev [--port --tunnel --user-id]` | Live preview inside WeldSuite: Vite + per-user iframe URL at `/apps/{code}`. For bare localhost UI (no host), `npm run dev` + SDK `localDev`. |
+| `weld app dev [--port --shell-port --no-shell --no-open --tunnel --user-id]` | Local shell (sidebar chrome + real bridge) + Vite. Also registers `/apps/{code}` for the platform. Bare tab: `npm run dev` + SDK `localDev`. |
 | `weld app deploy [--dir dist] [--changelog text] [--skip-build]` | Validate manifest → run build → upload `dist/**` as a new version. |
 | `weld app publish [--notes text]` | Submit for public app-store review. |
 | `weld app list` | Table of your apps (code, name, visibility, review status, installs). |
 | `weld skill install [--force]` | Install this skill + CLAUDE.md snippet into another project. |
 | `weld --help` / `weld --version` | Help / version. |
+
+**CI/CD:** scaffold ships `.github/workflows/deploy-weld-app.yml`. Set secret `WELD_API_KEY`; optionally set variable `WELD_API_URL` for the test API. Bump `weldapp.json` `version` (semver) before each deploy commit. Use `publish` only for store review (workflow_dispatch input), not on every push. Other CI: same env + `npm install -g @weldsuite/cli` + `weld app deploy`.
 
 ## 7. Definition of Done for a WeldSuite app change
 

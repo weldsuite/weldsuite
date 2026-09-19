@@ -2,12 +2,21 @@
  * Lockstep checks for platformSyncMap — ensure first-slice task/mail topics
  * and WeldCRM topics invalidate the canonical TanStack Query roots.
  *
- * Phase 0 member ACL ↔ catalog lockstep lives in realtime-worker /
- * `@weldsuite/entity-events` (hub-topics) so platform type-check does not
- * pull Cloudflare `Queue` types from the entity-events publisher.
+ * Phase 9 catalog ↔ sync-map ↔ ACL lockstep imports only the
+ * `@weldsuite/entity-events/events` + `/hub-topics` subpaths so platform
+ * type-check does not pull Cloudflare `Queue` types from the publisher.
  */
 import { describe, expect, it } from 'vitest';
+import { ENTITY_EVENTS } from '@weldsuite/entity-events/events';
+import {
+  PERSONAL_HUB_TOPIC_PREFIXES,
+  listMemberHubEntityTopics,
+} from '@weldsuite/entity-events/hub-topics';
 import { platformSyncMap } from './sync-map';
+import {
+  PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
+  PLATFORM_SYNC_MAP_PERSONAL_ONLY,
+} from './intentional-omits';
 
 describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
   it('project_task invalidates projects, my-tasks, and task-panel', () => {
@@ -572,5 +581,59 @@ describe('platformSyncMap — WeldMail Phase 7 leftovers', () => {
     expect(platformSyncMap.mail_signature?.invalidate).toEqual([['mail', 'signatures']]);
     expect(platformSyncMap.email_rule?.invalidate).toEqual([['mail', 'rules']]);
     expect(platformSyncMap.email_template?.invalidate).toEqual([['mail', 'templates']]);
+  });
+});
+
+describe('platformSyncMap — Phase 9 catalog ↔ map ↔ ACL lockstep', () => {
+  const catalogTypes = Object.keys(ENTITY_EVENTS);
+  const omitKeys = Object.keys(PLATFORM_SYNC_MAP_INTENTIONAL_OMITS);
+  const personalOnly = new Set<string>([
+    ...PERSONAL_HUB_TOPIC_PREFIXES,
+    ...PLATFORM_SYNC_MAP_PERSONAL_ONLY,
+  ]);
+  const memberHubTopics = new Set(listMemberHubEntityTopics());
+
+  it('documents a non-empty reason for every intentional omit', () => {
+    for (const [topic, reason] of Object.entries(PLATFORM_SYNC_MAP_INTENTIONAL_OMITS)) {
+      expect(topic.length, topic).toBeGreaterThan(0);
+      expect(reason.trim().length, topic).toBeGreaterThan(10);
+      expect(catalogTypes, `${topic} must be a catalog type`).toContain(topic);
+      expect(platformSyncMap[topic], `${topic} must stay out of sync-map`).toBeUndefined();
+    }
+  });
+
+  it('catalog − intentional omits ⊆ platformSyncMap keys', () => {
+    const omit = new Set(omitKeys);
+    const missing = catalogTypes.filter(
+      (entityType) => !omit.has(entityType) && !(entityType in platformSyncMap),
+    );
+    expect(missing, `Add sync-map entries or intentional omits: ${missing.join(', ')}`).toEqual(
+      [],
+    );
+  });
+
+  it('every sync-map key is a catalog entity type', () => {
+    const catalog = new Set(catalogTypes);
+    const orphans = Object.keys(platformSyncMap).filter((key) => !catalog.has(key));
+    expect(orphans, `Remove or catalog these sync-map keys: ${orphans.join(', ')}`).toEqual([]);
+  });
+
+  it('non-personal sync-map keys are on the member hub ACL allow-list', () => {
+    const blocked: string[] = [];
+    for (const topic of Object.keys(platformSyncMap)) {
+      if (personalOnly.has(topic)) continue;
+      if (!memberHubTopics.has(topic)) blocked.push(topic);
+    }
+    expect(
+      blocked,
+      `Member ACL missing sync-map topics: ${blocked.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('bare personal sync-map topics stay off the member hub entity allow-list', () => {
+    for (const topic of PLATFORM_SYNC_MAP_PERSONAL_ONLY) {
+      expect(topic in platformSyncMap, topic).toBe(true);
+      expect(memberHubTopics.has(topic), topic).toBe(false);
+    }
   });
 });

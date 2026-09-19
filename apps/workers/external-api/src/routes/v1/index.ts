@@ -28,6 +28,7 @@ import appStorage from './app-storage';
 import articles from './articles';
 import calendarEvents from './calendar-events';
 import calendars from './calendars';
+import categories from './categories';
 import channelMembers from './channel-members';
 import channels from './channels';
 import chatBookmarks from './chat-bookmarks';
@@ -97,6 +98,7 @@ v1.get('/', async (c) => {
       '/v1/bills',
       '/v1/calendar-events',
       '/v1/calendars',
+      '/v1/categories',
       '/v1/channel-members',
       '/v1/channels',
       '/v1/chat-bookmarks',
@@ -199,6 +201,7 @@ v1.route('/app-storage', appStorage);
 v1.route('/articles', articles);
 v1.route('/calendar-events', calendarEvents);
 v1.route('/calendars', calendars);
+v1.route('/categories', categories);
 v1.route('/channel-members', channelMembers);
 v1.route('/channels', channels);
 v1.route('/chat-bookmarks', chatBookmarks);

@@ -21,6 +21,13 @@ describe('isOfficialPublisherWorkspace', () => {
   });
 });
 
+describe('RESERVED_APP_CODES', () => {
+  it('keeps weldcommerce reserved for community squat protection', async () => {
+    const { RESERVED_APP_CODES } = await import('./user-apps');
+    expect(RESERVED_APP_CODES).toContain('weldcommerce');
+  });
+});
+
 describe('isSafeAppLifecycleWebhookUrl', () => {
   it('allows public https DNS hostnames', () => {
     expect(isSafeAppLifecycleWebhookUrl('https://example.com/hooks/apps')).toBe(true);

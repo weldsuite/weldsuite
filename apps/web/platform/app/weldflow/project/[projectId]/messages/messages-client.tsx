@@ -1,9 +1,7 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useProjectMessageEvents } from '@/hooks/realtime/use-entity-events';
-import type { ProjectMessageEventData, AnyPlatformEvent } from '@/lib/platform-events/types';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -75,54 +73,8 @@ export function MessagesClient({ projectId, initialMessages, error }: MessagesCl
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { canWrite } = useProjectPermissions();
 
-  // Real-time message event handlers
-  const handleMessageCreated = useCallback((event: AnyPlatformEvent) => {
-    const messageData = event.data as ProjectMessageEventData;
-    // Only handle messages for this project
-    if (messageData.projectId !== projectId) return;
-
-    const newMessage: ProjectMessage = {
-      id: messageData.id,
-      message: messageData.message || '',
-      createdAt: new Date().toISOString(),
-      sender: {
-        name: messageData.senderName,
-      },
-    };
-
-    setMessages(prev => {
-      if (prev.some(m => m.id === newMessage.id)) return prev;
-      return [...prev, newMessage];
-    });
-  }, [projectId]);
-
-  const handleMessageUpdated = useCallback((event: AnyPlatformEvent) => {
-    const messageData = event.data as ProjectMessageEventData;
-    if (messageData.projectId !== projectId) return;
-
-    setMessages(prev => prev.map(msg => {
-      if (msg.id !== messageData.id) return msg;
-      return {
-        ...msg,
-        ...(messageData.message && { message: messageData.message }),
-        editedAt: new Date().toISOString(),
-      };
-    }));
-  }, [projectId]);
-
-  const handleMessageDeleted = useCallback((event: AnyPlatformEvent) => {
-    const messageData = event.data as ProjectMessageEventData;
-    if (messageData.projectId !== projectId) return;
-
-    setMessages(prev => prev.filter(msg => msg.id !== messageData.id));
-  }, [projectId]);
-
-  // Subscribe to real-time message events
-  useProjectMessageEvents({
-    onCreated: handleMessageCreated,
-    onUpdated: handleMessageUpdated,
-    onDeleted: handleMessageDeleted,
-  });
+  // Live message sync: useRealtimeSync invalidates ['projects'] — no parallel
+  // useProjectMessageEvents bridge (Phase 9 stub cleanup).
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

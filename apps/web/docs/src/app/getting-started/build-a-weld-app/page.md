@@ -49,13 +49,17 @@ npm run dev
 
 You get a mock user, in-memory app storage, and a banner (“Local preview — not connected to WeldSuite”). Real CRM/people API calls need the platform path below. Opt-in alternatives: `?weldLocal=1`, or `createWeldApp({ localDev: true })`.
 
-### Inside WeldSuite (`weld app dev`)
+### Local shell (`weld app dev`)
 
 ```bash
 weld app dev
 ```
 
-This starts Vite and registers a **per-user** preview URL. Open `/apps/{code}` in WeldSuite: you see a **Development** banner and hot reload. Other members still get the published bundle.
+Starts Vite **and** a lightweight WeldSuite-like shell (sidebar rail + content card) that iframes your app and speaks the real app-sdk postMessage bridge. Opens `http://localhost:4173/` by default. Storage stays in-memory (`localPreview`); toast / navigate / theme go through the shell. Use `--no-shell` to skip it, `--no-open` to print the URL only.
+
+### Inside the real platform
+
+The same command also registers a **per-user** preview URL. Open `/apps/{code}` in WeldSuite (or set `WELD_PLATFORM_URL=http://localhost:3000`) for the real host + API:
 
 - Platform on `localhost:3000` → no tunnel.
 - Hosted platform (`https://app-test.weldsuite.org`) cannot iframe `http://localhost`. Re-run with `weld app dev --tunnel` (Cloudflare quick tunnel).
@@ -69,6 +73,10 @@ This starts Vite and registers a **per-user** preview URL. Open `/apps/{code}` i
 2. `weld app deploy` builds `dist/` and uploads it.
 3. `weld app versions` lists what you uploaded.
 4. Install (or re-open) the app — the sidenav routes to `/apps/{code}` and loads the R2 bundle.
+
+### CI/CD from your own Git repo
+
+New apps scaffold `.github/workflows/deploy-weld-app.yml`. Put the app in **your** GitHub repository, add secret `WELD_API_KEY` (`wsk_…` with `user-apps:manage`), and push to `main` — CI runs `weld app deploy`. `weld login` is interactive-only; CI must use the secret. Optional Actions variable `WELD_API_URL=https://api-test.weldsuite.org` targets the test API (default is production). Bump `weldapp.json` version before each deploy commit. Use `weld app publish` (or the workflow’s optional `publish` input) only when you want public store review.
 
 Manage without the portal:
 

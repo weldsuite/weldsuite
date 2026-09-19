@@ -32,12 +32,13 @@ Every collection used in code must be declared in `weldapp.json` → `collection
 ## Deploy flow
 
 1. `npm run build` must pass (deploy runs it for you).
-2. Bump `version` in `weldapp.json`.
-3. `weld app deploy` (needs `WELD_API_KEY`; app must be registered once via `weld app create`).
-4. `weld app publish` only when the user wants it in the public store.
+2. Bump `version` in `weldapp.json` (strict semver).
+3. `weld app deploy` (needs `WELD_API_KEY` or `weld login`; app must be registered once via `weld app create`).
+4. Or push to GitHub: scaffold includes `.github/workflows/deploy-weld-app.yml` (secret `WELD_API_KEY`). `weld login` is interactive-only — CI must use the secret.
+5. `weld app publish` only when the user wants it in the public store (not every CI push).
 
 ## Rules
 
 - Keep TypeScript strict; no `any`, no `@ts-ignore`.
-- The bridge connects inside WeldSuite, or in **local preview** when `localDev` is opted in (scaffold uses `import.meta.env.DEV`). Open `http://localhost:5173/` for UI + in-memory storage without the host; use `weld app dev` (optional `--tunnel`) for real integration at `/apps/{code}`.
+- The bridge connects inside WeldSuite, or in **local preview** when `localDev` is opted in (scaffold uses `import.meta.env.DEV`). Open `http://localhost:5173/` for a bare tab; use `weld app dev` for the local shell (sidebar chrome + real bridge) or `--tunnel` / platform `/apps/{code}` for real API.
 - New user-visible behaviour should respect `theme` and degrade gracefully while `status !== 'ready'`.

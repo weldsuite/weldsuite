@@ -47,7 +47,9 @@ function randomHex(bytes: number): string {
 
 const app = new Hono<HonoEnv>();
 
-/** Codes that collide with first-party modules / platform routes. */
+/** Codes that collide with first-party modules / platform routes.
+ * Community apps cannot claim these; official publisher workspaces can
+ * (so first-party hosted WeldApps like `weldcommerce` can register). */
 const RESERVED_CODES = new Set([
   'weldcrm',
   'weldcommerce',
@@ -219,7 +221,7 @@ app.post('/', zValidator('json', createUserAppSchema), async (c) => {
   const body = c.req.valid('json');
   const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
 
-  if (RESERVED_CODES.has(body.code)) {
+  if (RESERVED_CODES.has(body.code) && !isOfficialPublisher(c.env, session.workspaceId)) {
     return error.conflict(c, `App code '${body.code}' is reserved`);
   }
 

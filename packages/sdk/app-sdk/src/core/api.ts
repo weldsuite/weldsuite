@@ -1,16 +1,21 @@
 import type { WeldAppBridge } from './bridge';
 import type {
   AppRecord,
+  CreateProductInput,
   KvClient,
   ListResponse,
   PeopleClient,
   PersonSummary,
+  ProductListOptions,
+  ProductSummary,
+  ProductsClient,
   RecordListOptions,
   RecordsClient,
   ResourceListOptions,
   SingleResponse,
   TicketSummary,
   TicketsClient,
+  UpdateProductInput,
 } from './types';
 
 interface ApiErrorBody {
@@ -42,11 +47,12 @@ function joinUrl(base: string, path: string): string {
   return `${trimmedBase}${trimmedPath}`;
 }
 
-function withQuery(path: string, options: ResourceListOptions): string {
+function withQuery(path: string, options: ResourceListOptions & { status?: string }): string {
   const params = new URLSearchParams();
   if (options.limit !== undefined) params.set('limit', String(options.limit));
   if (options.cursor !== undefined) params.set('cursor', options.cursor);
   if (options.search !== undefined) params.set('search', options.search);
+  if (options.status !== undefined) params.set('status', options.status);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -73,9 +79,9 @@ async function toApiError(response: Response): Promise<WeldApiError> {
  * payload) with the bridge-managed `wsat_` token injected as a Bearer
  * header. A 401 triggers one forced token refresh + retry.
  *
- * In local preview (`bridge.isLocalDev`), app-storage (records + kv) is
- * backed by an in-memory store. Other `/v1/*` routes throw a clear error
- * instead of hitting the network with a fake token.
+ * In local preview (`bridge.isLocalDev`), app-storage (records + kv) and
+ * `/v1/products` are backed by an in-memory store. Other `/v1/*` routes throw
+ * a clear error instead of hitting the network with a fake token.
  */
 export class WeldApi {
   private readonly bridge: WeldAppBridge;
@@ -96,8 +102,8 @@ export class WeldApi {
       throw new WeldApiError(
         503,
         'local_preview',
-        'Local preview has no WeldSuite API connection. App-storage (records / kv) works in memory; ' +
-          'other routes need the platform host (`weld app dev` or `weld app dev --tunnel`).',
+        'Local preview has no WeldSuite API connection. App-storage (records / kv) and products ' +
+          'work in memory; other routes need the platform host (`weld app dev --tunnel` or installed app).',
       );
     }
     const first = await this.send(path, init, false);
@@ -248,6 +254,64 @@ export class WeldApi {
     list: (options: ResourceListOptions = {}) =>
       this.get<ListResponse<TicketSummary>>(withQuery('/v1/tickets', options)),
     get: (id: string) => this.get<SingleResponse<TicketSummary>>(`/v1/tickets/${encodeURIComponent(id)}`),
+  };
+
+  /**
+   * `/v1/products` — requires `products:read` / `products:write`.
+   * In local preview / CLI local shell, backed by the same in-memory store as app-storage.
+   */
+  readonly products: ProductsClient = {
+    list: async (options: ProductListOptions = {}): Promise<ListResponse<ProductSummary>> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        return this.bridge.localStore.listProducts(options);
+      }
+      return this.get<ListResponse<ProductSummary>>(withQuery('/v1/products', options));
+    },
+    get: async (id: string): Promise<SingleResponse<ProductSummary>> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        const product = this.bridge.localStore.getProduct(id);
+        if (!product) {
+          throw new WeldApiError(404, 'not_found', `Product ${id} not found.`);
+        }
+        return { data: product };
+      }
+      return this.get<SingleResponse<ProductSummary>>(`/v1/products/${encodeURIComponent(id)}`);
+    },
+    create: async (input: CreateProductInput): Promise<ProductSummary> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        return this.bridge.localStore.createProduct(input);
+      }
+      const response = await this.post<SingleResponse<ProductSummary>>('/v1/products', input);
+      return response.data;
+    },
+    update: async (id: string, input: UpdateProductInput): Promise<ProductSummary> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        const product = this.bridge.localStore.updateProduct(id, input);
+        if (!product) {
+          throw new WeldApiError(404, 'not_found', `Product ${id} not found.`);
+        }
+        return product;
+      }
+      const response = await this.patch<SingleResponse<ProductSummary>>(
+        `/v1/products/${encodeURIComponent(id)}`,
+        input,
+      );
+      return response.data;
+    },
+    remove: async (id: string): Promise<void> => {
+      await this.bridge.connect();
+      if (this.bridge.isLocalDev && this.bridge.localStore) {
+        if (!this.bridge.localStore.removeProduct(id)) {
+          throw new WeldApiError(404, 'not_found', `Product ${id} not found.`);
+        }
+        return;
+      }
+      await this.delete(`/v1/products/${encodeURIComponent(id)}`);
+    },
   };
 
   private async send(path: string, init: RequestInit, forceRefresh: boolean): Promise<Response> {

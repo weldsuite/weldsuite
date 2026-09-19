@@ -52,6 +52,30 @@ const config = [
     ],
     external,
   },
+  // Suite UI kit (ESM + CJS)
+  {
+    input: 'src/ui/index.ts',
+    output: [
+      {
+        file: 'dist/ui.js',
+        format: 'es',
+        sourcemap: true,
+      },
+      {
+        file: 'dist/ui.cjs',
+        format: 'cjs',
+        sourcemap: true,
+        exports: 'named',
+      },
+    ],
+    plugins: [
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+      }),
+    ],
+    external,
+  },
   // Type definitions — core
   {
     input: 'src/index.ts',
@@ -67,6 +91,16 @@ const config = [
     input: 'src/react/index.tsx',
     output: {
       file: 'dist/react.d.ts',
+      format: 'es',
+    },
+    plugins: [dts()],
+    external,
+  },
+  // Type definitions — ui
+  {
+    input: 'src/ui/index.ts',
+    output: {
+      file: 'dist/ui.d.ts',
       format: 'es',
     },
     plugins: [dts()],

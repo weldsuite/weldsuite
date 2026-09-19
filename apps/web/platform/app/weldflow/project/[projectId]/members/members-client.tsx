@@ -3,8 +3,6 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useUser } from '@clerk/clerk-react';
-import { useProjectMemberEvents } from '@/hooks/realtime/use-entity-events';
-import type { ProjectMemberEventData, AnyPlatformEvent } from '@/lib/platform-events/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -140,17 +138,8 @@ export function MembersClient({
     }
   }, [projectId]);
 
-  const handleMemberChange = useCallback((event: AnyPlatformEvent) => {
-    const memberData = event.data as ProjectMemberEventData;
-    if (memberData.projectId !== projectId) return;
-    loadData();
-  }, [projectId, loadData]);
-
-  useProjectMemberEvents({
-    onCreated: handleMemberChange,
-    onUpdated: handleMemberChange,
-    onDeleted: handleMemberChange,
-  });
+  // Live member sync: useRealtimeSync invalidates ['projects'] — no parallel
+  // useProjectMemberEvents bridge (Phase 9 stub cleanup).
 
   const handleAddMember = async () => {
     if (selectedUserIds.length === 0) {

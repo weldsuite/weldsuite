@@ -169,7 +169,7 @@ app.post('/', requirePermission('weldapps:develop'), zValidator('json', createUs
   const userId = c.get('userId');
   const data = c.req.valid('json');
 
-  if (RESERVED_APP_CODES.includes(data.code)) {
+  if (RESERVED_APP_CODES.includes(data.code) && !isOfficialPublisherWorkspace(c.env, workspaceId)) {
     return error.conflict(c, `App code '${data.code}' is reserved`);
   }
 

@@ -59,7 +59,7 @@ App commands:
   app list              List your workspace's apps
   app update            Patch metadata (from weldapp.json or flags)
   app versions          List uploaded versions
-  app dev               Run locally inside the WeldSuite iframe (optional --tunnel)
+  app dev               Local shell + Vite preview (optional --tunnel for hosted platform)
   app deploy            Build the app and upload a new version
   app publish           Submit the app for public-store review (sets visibility public)
   app oauth             Create, rotate, or show the app OAuth client
@@ -78,6 +78,7 @@ Environment:
   WELD_APP_API_URL      app-api base for weld login (default: derived from WELD_API_URL)
   WELD_LOGIN_URL        Developer portal origin for weld login
   WELD_DEV_USER_ID      Clerk user id for weld app dev (required with workspace keys)
+  WELD_PLATFORM_URL     Platform SPA origin for /apps/{code} deep links
 
 Auth note:
   Prefer ${cyan('weld login')} (Clerk device code → personal wsk_…).

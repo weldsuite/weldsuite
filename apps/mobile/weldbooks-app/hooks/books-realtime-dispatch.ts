@@ -2,8 +2,9 @@
  * Pure Books hub-event → surface dispatch for weldbooks-app.
  * Kept React-free so it can be unit-tested without jest-expo.
  *
- * No QueryClient on this app yet (imperative usePagedList / local state).
- * Screens pass an onInvalidate callback keyed by surface.
+ * Phase 8: the shell mounts useRealtimeSync(weldbooksSyncMap). Screens still
+ * use useBooksRealtime, which now listens to QueryClient invalidations mapped
+ * from this surface table (lockstep with lib/sync-map.ts).
  */
 
 export type BooksRealtimeSurface =
