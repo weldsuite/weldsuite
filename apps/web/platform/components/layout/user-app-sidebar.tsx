@@ -40,8 +40,8 @@ export function userAppNavHref(appCode: string, path: string): string {
 /**
  * Build a ModuleSidebarConfig from a hosted WeldApp's declared `navigation`.
  * Apps declare items only — the platform renders UnifiedModuleSidebar.
- * Always returns a config so every hosted app gets the same chrome; empty
- * navigation yields an empty menu (logo/name only) until the app redeploys.
+ * When navigation is missing (older deploys), fall back to a single Home item
+ * so the module chrome is never an empty panel.
  */
 export function buildUserAppSidebarConfig(input: {
   appCode: string;
@@ -50,7 +50,17 @@ export function buildUserAppSidebarConfig(input: {
   navigation?: UserAppNavItem[] | null;
   defaultGroupLabel?: string;
 }): ModuleSidebarConfig {
-  const items = input.navigation ?? [];
+  const items =
+    input.navigation && input.navigation.length > 0
+      ? input.navigation
+      : [
+          {
+            id: 'home',
+            label: 'Home',
+            path: '/',
+            icon: input.icon ?? 'LayoutDashboard',
+          },
+        ];
   const appIcon = input.icon ? navIcon(input.icon) : getAppLucideIcon(input.appCode);
   const appLogo = getAppLogoConfig(input.appCode);
   const defaultGroup = input.defaultGroupLabel ?? 'General';
@@ -60,7 +70,6 @@ export function buildUserAppSidebarConfig(input: {
     appIcon,
     appLogo,
     getMenuItems: () => {
-      if (items.length === 0) return [];
       const groups = new Map<string, MenuGroupProps['items']>();
       for (const item of items) {
         const group = item.group?.trim() || defaultGroup;

@@ -1,13 +1,20 @@
 /**
  * Preview URL helpers for the WeldApp iframe host (`weld app dev`).
  *
- * R2 bundles share the app-api origin, so they stay sandboxed without
- * `allow-same-origin`. A localhost / tunnel preview has its own origin, so
- * we add `allow-same-origin` and a concrete postMessage targetOrigin.
+ * Bundles are served from app-api (`/public/user-apps/…`), which is a
+ * *different origin* from the platform SPA (`app.weldsuite.org`). That means
+ * `allow-same-origin` is safe: the iframe gets a real origin (app-api) so Vite
+ * module scripts / CSS load without CORS, but it still cannot touch the parent
+ * DOM. Combining `allow-same-origin` + `allow-scripts` is only dangerous when
+ * the iframe URL is same-origin as the embedder.
+ *
+ * Localhost / tunnel previews also need `allow-same-origin` (and a concrete
+ * postMessage targetOrigin) so the real bridge works.
  */
 
-export const R2_SANDBOX = 'allow-scripts allow-forms allow-popups allow-downloads';
-export const PREVIEW_SANDBOX = `${R2_SANDBOX} allow-same-origin`;
+export const R2_SANDBOX =
+  'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin';
+export const PREVIEW_SANDBOX = R2_SANDBOX;
 
 export function isPreviewAppUrl(src: string): boolean {
   try {
@@ -29,9 +36,8 @@ export function isPreviewAppUrl(src: string): boolean {
   }
 }
 
-/** postMessage targetOrigin for the iframe. Preview URLs have a real origin. */
+/** postMessage targetOrigin for the iframe (always the iframe document origin). */
 export function iframeTargetOrigin(src: string): string {
-  if (!isPreviewAppUrl(src)) return '*';
   try {
     return new URL(src).origin;
   } catch {
@@ -40,5 +46,7 @@ export function iframeTargetOrigin(src: string): string {
 }
 
 export function iframeSandbox(src: string): string {
-  return isPreviewAppUrl(src) ? PREVIEW_SANDBOX : R2_SANDBOX;
+  // Preview and R2 both need allow-same-origin; see file header.
+  void src;
+  return R2_SANDBOX;
 }

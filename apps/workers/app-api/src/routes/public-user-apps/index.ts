@@ -8,6 +8,8 @@
  *
  * Responses deliberately carry `Content-Security-Policy: frame-ancestors *`
  * and MUST NOT set X-Frame-Options — the whole point is to be iframed.
+ * Also send `Access-Control-Allow-Origin: *` so sandboxed iframes (Origin:
+ * null) and Vite `crossorigin` module scripts can load sibling CSS/JS.
  */
 
 import { Hono } from 'hono';
@@ -61,6 +63,10 @@ async function serveAsset(env: Env, code: string, assetPath: string): Promise<Re
   headers.set('Cache-Control', isHashedAsset(servePath) ? IMMUTABLE_CACHE : 'no-cache');
   // Iframe-embedding is the point — allow any ancestor, never X-Frame-Options.
   headers.set('Content-Security-Policy', 'frame-ancestors *');
+  // Opaque-origin sandboxes (and Vite `crossorigin` module scripts) fetch
+  // sibling assets with Origin: null — allow CORS so CSS/JS are not blocked.
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
   headers.set('ETag', obj.httpEtag);
   return new Response(obj.body, { status: 200, headers });
 }
