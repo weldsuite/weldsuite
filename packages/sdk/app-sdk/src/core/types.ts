@@ -41,6 +41,12 @@ export interface InitPayload {
   tokenExpiresAt: string | number;
   user: WeldAppUser;
   /**
+   * App-relative path from the platform URL (`/` or `/products`), derived from
+   * `/apps/{code}{path}`. Apps use this (and `route` events) instead of building
+   * their own sidebar.
+   */
+  path?: string;
+  /**
    * Set by the CLI local shell (`weld app dev`) so the SDK keeps in-memory
    * app-storage while still using the real postMessage bridge for toast /
    * navigate / theme. Production platform hosts never set this.
@@ -52,7 +58,7 @@ export interface InitPayload {
 export type BridgeRequestMethod = 'getToken' | 'navigate' | 'toast';
 
 /** Push events the host can send to the app. */
-export type BridgeEventName = 'theme' | 'locale';
+export type BridgeEventName = 'theme' | 'locale' | 'route';
 
 /** App → host: sent once on boot to start the handshake. */
 export interface ReadyMessage {

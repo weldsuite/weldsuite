@@ -7,10 +7,11 @@
  * tokenPrefix keeps the first 12 chars of the full token for display.
  */
 
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { isSafeAppLifecycleWebhookUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { UserApp, UserAppManifest, UserAppVersion } from '@weldsuite/db/schema/master';
-import { masterSchema, type MasterDatabase } from '../db';
+import { masterSchema, schema, getTenantDbForWorkspace, type Database, type MasterDatabase } from '../db';
+import type { Env } from '../types';
 import { generateId } from '../lib/id';
 
 export { isSafeAppLifecycleWebhookUrl };
@@ -419,4 +420,234 @@ export async function dispatchAppLifecycleWebhook(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------------------------------------------------------------------------
+// First-party → hosted WeldApp install adoption
+// ---------------------------------------------------------------------------
+
+export type AdoptSystemInstallResult = 'adopted' | 'already' | 'none';
+
+/**
+ * If this tenant already has a first-party (`system`) install of `app.code`,
+ * convert it to a hosted WeldApp install so the workspace keeps the app
+ * without a fresh App Store install. No-op when nothing to adopt.
+ *
+ * Official (`publisherType=weldsuite`) apps only — community apps must not
+ * silently take over reserved first-party codes.
+ */
+export async function adoptSystemInstallInTenant(params: {
+  master: MasterDatabase;
+  tenantDb: Database;
+  app: UserApp;
+  workspaceId: string;
+  installedBy?: string | null;
+}): Promise<AdoptSystemInstallResult> {
+  const { master, tenantDb, app, workspaceId, installedBy } = params;
+  if (app.deletedAt || !app.isActive) return 'none';
+  if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return 'none';
+  // Official WeldSuite publishers, or reserved first-party codes being migrated
+  // from the SPA module into a hosted WeldApp.
+  if (app.publisherType !== 'weldsuite' && !RESERVED_APP_CODES.includes(app.code)) {
+    return 'none';
+  }
+
+  const { workspaceInstalledApps } = schema;
+  const { userAppInstalls, userApps } = masterSchema;
+
+  const [tenantRow] = await tenantDb
+    .select()
+    .from(workspaceInstalledApps)
+    .where(and(eq(workspaceInstalledApps.appCode, app.code), isNull(workspaceInstalledApps.deletedAt)))
+    .limit(1);
+
+  if (!tenantRow || !tenantRow.isActive) return 'none';
+
+  if (tenantRow.appType === 'user' && tenantRow.userAppId === app.id) {
+    const [install] = await master
+      .select({ id: userAppInstalls.id, status: userAppInstalls.status })
+      .from(userAppInstalls)
+      .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.workspaceId, workspaceId)))
+      .limit(1);
+    if (install?.status === 'active') return 'already';
+    // Tenant points at this app but master install is missing/revoked — heal below.
+  } else if (tenantRow.appType === 'user' && tenantRow.userAppId && tenantRow.userAppId !== app.id) {
+    // Another hosted app already owns this sidenav code.
+    return 'none';
+  } else if (tenantRow.appType !== 'system' && tenantRow.appType !== 'user') {
+    return 'none';
+  }
+
+  const scopes = app.requestedScopes ?? [];
+  const now = new Date();
+
+  const [existing] = await master
+    .select()
+    .from(userAppInstalls)
+    .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.workspaceId, workspaceId)))
+    .limit(1);
+
+  let bumpInstallCount = false;
+  if (existing) {
+    if (existing.status !== 'active') {
+      await master
+        .update(userAppInstalls)
+        .set({
+          status: 'active',
+          grantedScopes: scopes,
+          pendingScopes: null,
+          installedBy: installedBy ?? existing.installedBy,
+          installedAt: now,
+          revokedAt: null,
+          updatedAt: now,
+        })
+        .where(eq(userAppInstalls.id, existing.id));
+      bumpInstallCount = true;
+    }
+  } else {
+    await master.insert(userAppInstalls).values({
+      id: generateId('uai'),
+      appId: app.id,
+      workspaceId,
+      status: 'active',
+      grantedScopes: scopes,
+      installedBy: installedBy || 'system',
+      installedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    bumpInstallCount = true;
+  }
+
+  const alreadyLinked =
+    tenantRow.appType === 'user' && tenantRow.userAppId === app.id && existing?.status === 'active';
+
+  await tenantDb
+    .update(workspaceInstalledApps)
+    .set({
+      appType: 'user',
+      userAppId: app.id,
+      grantedScopes: scopes,
+      isActive: true,
+      deletedAt: null,
+      updatedAt: now,
+      ...(installedBy ? { installedBy } : {}),
+    })
+    .where(eq(workspaceInstalledApps.id, tenantRow.id));
+
+  if (bumpInstallCount) {
+    await master
+      .update(userApps)
+      .set({ installCount: sql`${userApps.installCount} + 1`, updatedAt: now })
+      .where(eq(userApps.id, app.id));
+  }
+
+  return alreadyLinked ? 'already' : 'adopted';
+}
+
+/** Find official public apps that could claim a first-party sidenav code. */
+export async function findOfficialAppsForCodes(
+  master: MasterDatabase,
+  codes: string[],
+): Promise<UserApp[]> {
+  if (codes.length === 0) return [];
+  const { userApps } = masterSchema;
+  const rows = await master
+    .select()
+    .from(userApps)
+    .where(
+      and(
+        eq(userApps.visibility, 'public'),
+        eq(userApps.reviewStatus, 'approved'),
+        eq(userApps.isActive, true),
+        isNull(userApps.deletedAt),
+      ),
+    );
+  const wanted = new Set(codes);
+  return rows.filter(
+    (row) =>
+      wanted.has(row.code) &&
+      (row.publisherType === 'weldsuite' || RESERVED_APP_CODES.includes(row.code)),
+  );
+}
+
+/**
+ * For the calling tenant: convert any first-party installs whose codes now
+ * have an official hosted WeldApp. Safe to call on every installed/store read.
+ */
+export async function adoptOfficialSystemInstallsForTenant(params: {
+  master: MasterDatabase;
+  tenantDb: Database;
+  workspaceId: string;
+  installedBy?: string | null;
+}): Promise<{ adopted: number }> {
+  const { master, tenantDb, workspaceId, installedBy } = params;
+  const { workspaceInstalledApps } = schema;
+
+  const rows = await tenantDb
+    .select({ appCode: workspaceInstalledApps.appCode })
+    .from(workspaceInstalledApps)
+    .where(
+      and(eq(workspaceInstalledApps.isActive, true), isNull(workspaceInstalledApps.deletedAt)),
+    );
+
+  const codes = [...new Set(rows.map((r) => r.appCode))];
+  const officialApps = await findOfficialAppsForCodes(master, codes);
+  let adopted = 0;
+  for (const app of officialApps) {
+    const result = await adoptSystemInstallInTenant({
+      master,
+      tenantDb,
+      app,
+      workspaceId,
+      installedBy,
+    });
+    if (result === 'adopted') adopted += 1;
+  }
+  return { adopted };
+}
+
+/**
+ * Sweep all provisioned workspaces and adopt system installs of this official
+ * app. Used after `weld app publish` / official auto-approve.
+ */
+export async function sweepAdoptSystemInstallsForApp(params: {
+  env: Env;
+  master: MasterDatabase;
+  app: UserApp;
+  installedBy?: string | null;
+}): Promise<{ adopted: number; failed: number }> {
+  const { env, master, app, installedBy } = params;
+  if (app.publisherType !== 'weldsuite' && !RESERVED_APP_CODES.includes(app.code)) {
+    return { adopted: 0, failed: 0 };
+  }
+
+  const workspaces = await master
+    .select({
+      id: masterSchema.workspaces.id,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
+    })
+    .from(masterSchema.workspaces)
+    .where(isNull(masterSchema.workspaces.scheduledDeletionAt));
+
+  let adopted = 0;
+  let failed = 0;
+  for (const ws of workspaces) {
+    const orgKey = ws.clerkOrgId || ws.id;
+    try {
+      const tenantDb = await getTenantDbForWorkspace(env, orgKey);
+      const result = await adoptSystemInstallInTenant({
+        master,
+        tenantDb,
+        app,
+        workspaceId: ws.id,
+        installedBy,
+      });
+      if (result === 'adopted') adopted += 1;
+    } catch (err) {
+      failed += 1;
+      console.error(`[user-apps] adopt sweep failed for workspace ${ws.id}:`, err);
+    }
+  }
+  return { adopted, failed };
 }

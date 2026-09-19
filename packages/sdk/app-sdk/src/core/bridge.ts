@@ -221,7 +221,7 @@ export class WeldAppBridge {
   }
 
   /**
-   * Subscribe to a host push event (`theme` | `locale`).
+   * Subscribe to a host push event (`theme` | `locale` | `route`).
    * Returns an unsubscribe function.
    */
   on(event: BridgeEventName, callback: EventCallback): () => void {
@@ -415,6 +415,8 @@ export class WeldAppBridge {
             this.initPayload = { ...this.initPayload, theme: value };
           } else if (message.event === 'locale') {
             this.initPayload = { ...this.initPayload, locale: value };
+          } else if (message.event === 'route') {
+            this.initPayload = { ...this.initPayload, path: value };
           }
         }
         const set = this.listeners.get(message.event);

@@ -189,8 +189,28 @@ export function useInstalledUserApps(enabled = true) {
     enabled: !!orgId && enabled,
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: InstalledUserApp[] }>('/user-apps/installed');
-      return result.data;
+      const result = await client.get<{
+        data: Array<{
+          appCode: string;
+          userAppId: string | null;
+          grantedScopes?: string[] | null;
+          app: {
+            id: string;
+            code: string;
+            name: string;
+            icon?: string | null;
+            manifest?: Record<string, unknown> | null;
+          };
+        }>;
+      }>('/user-apps/installed');
+      return (result.data ?? []).map((row) => ({
+        appCode: row.appCode || row.app.code,
+        userAppId: row.userAppId || row.app.id,
+        grantedScopes: row.grantedScopes ?? [],
+        name: row.app.name,
+        icon: row.app.icon ?? null,
+        manifest: row.app.manifest ?? null,
+      })) satisfies InstalledUserApp[];
     },
   });
 }

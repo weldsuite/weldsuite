@@ -243,7 +243,7 @@ export function findColoredSquareIconByLabel(label: string): LucideIcon | undefi
 
 export interface AppSidebarLayoutProps extends React.ComponentProps<typeof Sidebar> {
   appName: string;
-  appIcon: LucideIcon;
+  appIcon: LucideIcon | React.ComponentType<{ className?: string }>;
   appLogo?: AppLogo;
   menuItems: MenuGroupProps[];
   workspaceSwitcher?: React.ReactNode;

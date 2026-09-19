@@ -7,6 +7,8 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { MODULE_CONFIGS, getModuleKey } from './module-sidebar-configs';
+import { buildUserAppSidebarConfig, type UserAppNavItem } from './user-app-sidebar';
+import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
 import { useCrmSidebarItems } from '@/app/weldcrm/hooks/use-crm-sidebar-items';
 import { useWelddataSidebarItems } from '@/app/welddata/hooks/use-welddata-sidebar-items';
 import { useMailSidebarItems } from '@/app/weldmail/hooks/use-mail-sidebar-items';
@@ -23,6 +25,28 @@ interface UnifiedModuleSidebarProps {
   workspaces?: Workspace[];
 }
 
+function readNavigation(manifest: Record<string, unknown> | null | undefined): UserAppNavItem[] | null {
+  const raw = manifest?.navigation;
+  if (!Array.isArray(raw)) return null;
+  const items: UserAppNavItem[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.id !== 'string' || typeof row.label !== 'string' || typeof row.path !== 'string') {
+      continue;
+    }
+    items.push({
+      id: row.id,
+      label: row.label,
+      path: row.path,
+      icon: typeof row.icon === 'string' ? row.icon : undefined,
+      permission: typeof row.permission === 'string' ? row.permission : undefined,
+      group: typeof row.group === 'string' ? row.group : undefined,
+    });
+  }
+  return items.length > 0 ? items : null;
+}
+
 export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }: UnifiedModuleSidebarProps) {
   const pathname = usePathname();
   const { t } = useI18n();
@@ -31,6 +55,22 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
 
   const moduleKey = getModuleKey(pathname);
+  const userAppCode = moduleKey?.startsWith('user-app:') ? moduleKey.slice('user-app:'.length) : null;
+  const { data: installedUserApps } = useInstalledUserApps(!!userAppCode);
+  const installedUserApp = userAppCode
+    ? installedUserApps?.find((app) => app.appCode === userAppCode)
+    : undefined;
+
+  const userAppConfig = React.useMemo(() => {
+    if (!userAppCode || !installedUserApp) return null;
+    return buildUserAppSidebarConfig({
+      appCode: userAppCode,
+      name: installedUserApp.name,
+      icon: installedUserApp.icon,
+      navigation: readNavigation(installedUserApp.manifest),
+      defaultGroupLabel: t.navigation.moduleSidebar.groups.general,
+    });
+  }, [userAppCode, installedUserApp, t.navigation.moduleSidebar.groups.general]);
 
   // ALL hooks called unconditionally (React rules)
   const crmItems = useCrmSidebarItems(moduleKey === 'weldcrm');
@@ -43,7 +83,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const agentsItems = useAgentsSidebarItems(moduleKey === 'agents');
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
 
-  const config = moduleKey ? MODULE_CONFIGS[moduleKey] : null;
+  const config = userAppConfig ?? (moduleKey && !userAppCode ? MODULE_CONFIGS[moduleKey] : null);
   if (!config) return null;
 
   // Build final menu items

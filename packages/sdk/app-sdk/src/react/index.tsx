@@ -21,6 +21,11 @@ export interface WeldAppContextValue {
   theme: WeldTheme;
   locale: string;
   user: WeldAppUser | null;
+  /**
+   * App-relative path from the host (`/` or `/products`). Updated on init and
+   * when the platform sidebar navigates.
+   */
+  path: string;
   api: WeldApi;
   bridge: WeldAppBridge;
   status: WeldAppStatus;
@@ -110,6 +115,7 @@ export function WeldAppProvider({
   const [init, setInit] = useState<InitPayload | null>(null);
   const [theme, setTheme] = useState<WeldTheme>('light');
   const [locale, setLocale] = useState<string>('en');
+  const [path, setPath] = useState<string>('/');
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +129,7 @@ export function WeldAppProvider({
         setInit(payload);
         setTheme(payload.theme);
         setLocale(payload.locale);
+        setPath(payload.path && payload.path.length > 0 ? payload.path : '/');
         setStatus('ready');
       })
       .catch((cause: unknown) => {
@@ -141,11 +148,15 @@ export function WeldAppProvider({
     const offLocale = bridge.on('locale', (value) => {
       setLocale(value);
     });
+    const offRoute = bridge.on('route', (value) => {
+      setPath(value && value.length > 0 ? value : '/');
+    });
 
     return () => {
       cancelled = true;
       offTheme();
       offLocale();
+      offRoute();
     };
   }, [bridge]);
 
@@ -154,6 +165,7 @@ export function WeldAppProvider({
       app: init?.appCode ?? null,
       theme,
       locale,
+      path,
       user: init?.user ?? null,
       api,
       bridge,
@@ -162,7 +174,7 @@ export function WeldAppProvider({
       isLocalDev: bridge.isLocalDev,
       isLocalShell: bridge.isLocalShell,
     }),
-    [init, theme, locale, api, bridge, status, error],
+    [init, theme, locale, path, api, bridge, status, error],
   );
 
   // Bare-tab localDev shows the banner; CLI shell already has chrome chrome.

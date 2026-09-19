@@ -87,6 +87,7 @@ export function buildLocalInitPayload(local?: LocalDevOptions): InitPayload {
     appCode: local?.appCode ?? 'local-preview',
     theme: local?.theme ?? 'light',
     locale: local?.locale ?? 'en',
+    path: '/',
     apiBaseUrl: 'http://localhost/local-preview',
     token: 'local_preview_token',
     tokenExpiresAt,

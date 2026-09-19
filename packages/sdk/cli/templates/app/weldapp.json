@@ -6,6 +6,14 @@
   "icon": "Puzzle",
   "category": "Productivity",
   "scopes": ["people:read"],
+  "navigation": [
+    {
+      "id": "home",
+      "label": "Home",
+      "path": "/",
+      "icon": "LayoutDashboard"
+    }
+  ],
   "collections": [
     {
       "name": "items",

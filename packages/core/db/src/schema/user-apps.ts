@@ -58,6 +58,21 @@ export interface UserAppManifest {
       path?: string;
     };
   }[];
+  /**
+   * Module sidebar items. The platform host renders these in UnifiedModuleSidebar;
+   * apps declare items only — they do not build sidebar UI.
+   */
+  navigation?: {
+    id: string;
+    label: string;
+    /** App-relative path (`/` or `/products`) → `/apps/{code}{path}`. */
+    path: string;
+    /** Lucide icon name. */
+    icon?: string;
+    /** Platform permission key (`object:action`). */
+    permission?: string;
+    group?: string;
+  }[];
   pricing?: {
     type: 'free' | 'subscription';
     monthlyPrice?: number;

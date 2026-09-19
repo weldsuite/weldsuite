@@ -41,6 +41,32 @@ export const agentToolSchema = z.object({
   action: agentToolActionSchema,
 });
 
+/**
+ * Sidebar items declared by the app. The platform host renders these in the
+ * same UnifiedModuleSidebar chrome as first-party modules — apps do not build
+ * their own sidebar UI.
+ *
+ * `path` is app-relative (`/` or `/products`) and maps to `/apps/{code}{path}`.
+ */
+export const userAppNavigationItemSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z][a-z0-9_-]*$/, 'lowercase letters, digits, dashes, underscores'),
+  label: z.string().min(1).max(100),
+  path: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^\/(?:[a-z0-9][a-z0-9/_-]*)?$/i, 'app-relative path starting with /'),
+  icon: z.string().max(50).optional(),
+  /** Platform permission key (`object:action`). Omit to always show. */
+  permission: z.string().max(100).optional(),
+  /** Sidebar group label. Defaults to "General" on the host. */
+  group: z.string().max(100).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Lifecycle webhook URL safety (write-time Zod + dispatch-time fetch)
 // ---------------------------------------------------------------------------
@@ -120,6 +146,11 @@ export const userAppManifestSchema = z.object({
     .max(50)
     .optional(),
   agentTools: z.array(agentToolSchema).max(50).optional(),
+  /**
+   * Module sidebar items. The platform renders these; the app only declares
+   * them. Max 50.
+   */
+  navigation: z.array(userAppNavigationItemSchema).max(50).optional(),
   pricing: z
     .object({
       type: z.enum(['free', 'subscription']),

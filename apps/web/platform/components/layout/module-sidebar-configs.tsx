@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Home,
@@ -55,8 +56,6 @@ import {
   Link2,
   CircleCheck,
   Package,
-  FolderTree,
-  ShoppingCart,
   Warehouse,
   Boxes,
   ClipboardList,
@@ -70,7 +69,7 @@ import { getAppLogoConfig } from '@/lib/apps/app-registry';
 
 export interface ModuleSidebarConfig {
   appName: string;
-  appIcon: LucideIcon;
+  appIcon: LucideIcon | ComponentType<{ className?: string }>;
   appLogo?: AppLogo;
   getMenuItems: (t: TranslationsType) => MenuGroupProps[];
 }
@@ -101,24 +100,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
-  weldcommerce: {
-    appName: 'WeldCommerce',
-    appIcon: ShoppingCart,
-    appLogo: getAppLogoConfig('weldcommerce'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
-          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
-        ],
-      },
-    ],
-  },
+  // WeldCommerce lives as a hosted WeldApp (`/apps/weldcommerce`) — sidebar
+  // items come from weldapp.json `navigation`, not MODULE_CONFIGS.
   weldads: {
     appName: 'WeldAds',
     appIcon: Megaphone,
@@ -419,6 +402,11 @@ export function getModuleKey(pathname: string): string | null {
   }
   if (pathname === '/' || pathname === '' || pathname === '/new-chat' || pathname.startsWith('/new-chat/')) {
     return 'home';
+  }
+  // Hosted WeldApps: `/apps/{code}` (+ optional subpaths for sidebar sections).
+  const userAppMatch = pathname.match(/^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/);
+  if (userAppMatch) {
+    return `user-app:${userAppMatch[1]}`;
   }
   const segments = pathname.split('/').filter(Boolean);
   const first = segments[0];

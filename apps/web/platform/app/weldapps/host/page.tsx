@@ -6,7 +6,7 @@ import { Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { PageLoader } from '@/components/page-loader';
-import { Link, useParams, useRouter } from '@/lib/router';
+import { Link, useParams, usePathname, useRouter } from '@/lib/router';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/lib/i18n/provider';
 import {
@@ -15,6 +15,7 @@ import {
   useUserAppSessionToken,
 } from '@/hooks/queries/use-user-apps-queries';
 import { getAppApiUrl } from '@/lib/api/public-env';
+import { userAppRelativePath } from '@/components/layout/user-app-sidebar';
 import { iframeSandbox, iframeTargetOrigin } from './preview';
 
 const APP_API_BASE = getAppApiUrl();
@@ -37,17 +38,22 @@ type IncomingWeldAppMessage = WeldAppReadyMessage | WeldAppRequestMessage;
  *
  * Implements the fixed postMessage bridge described in the WeldApps spec:
  *  - iframe -> host `weldapp:ready` triggers a minted session token and a
- *    `weldapp:init` reply with theme/locale/user context.
+ *    `weldapp:init` reply with theme/locale/user/path context.
  *  - iframe -> host `weldapp:request` (getToken | navigate | toast) gets a
  *    matching `weldapp:response`.
- *  - host -> iframe `weldapp:event` pushes live theme/locale changes.
+ *  - host -> iframe `weldapp:event` pushes live theme/locale/route changes.
  *
  * When the signed-in developer has an active `weld app dev` session, the
  * iframe loads that preview URL instead of the R2 bundle. Everyone else
  * still sees the published bundle.
+ *
+ * Section navigation lives in the platform UnifiedModuleSidebar (from the
+ * app's weldapp.json `navigation`). Subpaths under `/apps/{code}/…` sync to
+ * the iframe via init.path + `route` events — apps do not build a sidebar.
  */
 export default function WeldAppHostPage() {
   const { appCode } = useParams<{ appCode: string }>();
+  const pathname = usePathname();
   const { t, language } = useI18n();
   const wa = t.weldapps;
   const router = useRouter();
@@ -64,6 +70,10 @@ export default function WeldAppHostPage() {
   const iframeSrc = previewUrl ?? bundleSrc;
   const targetOrigin = useMemo(() => iframeTargetOrigin(iframeSrc), [iframeSrc]);
   const sandbox = useMemo(() => iframeSandbox(iframeSrc), [iframeSrc]);
+  const appPath = useMemo(
+    () => (appCode ? userAppRelativePath(pathname, appCode) : '/'),
+    [pathname, appCode],
+  );
 
   const mintSessionToken = useCallback(async () => {
     if (!appCode) return null;
@@ -75,7 +85,7 @@ export default function WeldAppHostPage() {
   }, [appCode, sessionTokenMutation]);
 
   // The postMessage bridge itself. Re-bound whenever anything it captures in
-  // its closure (theme, locale, user, appCode, targetOrigin) changes so replies
+  // its closure (theme, locale, user, appCode, path, targetOrigin) changes so replies
   // always reflect the current host state.
   useEffect(() => {
     if (!appCode) return;
@@ -96,6 +106,7 @@ export default function WeldAppHostPage() {
               appCode,
               theme: resolvedTheme,
               locale: language,
+              path: appPath,
               apiBaseUrl: session?.apiBaseUrl ?? APP_API_BASE,
               token: session?.token ?? null,
               tokenExpiresAt: session?.expiresAt ?? null,
@@ -166,9 +177,9 @@ export default function WeldAppHostPage() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [appCode, mintSessionToken, resolvedTheme, language, user, router, targetOrigin]);
+  }, [appCode, appPath, mintSessionToken, resolvedTheme, language, user, router, targetOrigin]);
 
-  // Push live theme/locale changes to an already-initialized iframe.
+  // Push live theme/locale/route changes to an already-initialized iframe.
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: 'weldapp:event', event: 'theme', payload: { value: resolvedTheme } },
@@ -182,6 +193,13 @@ export default function WeldAppHostPage() {
       targetOrigin,
     );
   }, [language, targetOrigin]);
+
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'weldapp:event', event: 'route', payload: { value: appPath } },
+      targetOrigin,
+    );
+  }, [appPath, targetOrigin]);
 
   if (isLoading) {
     return (
@@ -216,7 +234,6 @@ export default function WeldAppHostPage() {
 
   return (
     <div className="w-full h-full bg-background flex flex-col overflow-hidden">
-      <BreadcrumbHeader segments={[{ label: wa.breadcrumb.title, href: '/appstore' }, { label: app.name }]} />
       {previewUrl ? (
         <div
           className="shrink-0 px-4 py-2 text-xs bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2"
