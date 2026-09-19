@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -21,6 +21,21 @@ import { BreadcrumbProvider, useBreadcrumbs } from '@/contexts/breadcrumb-contex
 import { iframeSandbox, iframeTargetOrigin } from './preview';
 
 const APP_API_BASE = getAppApiUrl();
+
+/** Decode JWT `exp` (seconds) → ISO string; fall back to ~55s for Clerk sessions. */
+function tokenExpiresAt(token: string): string {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) throw new Error('missing payload');
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+    if (typeof json.exp === 'number' && Number.isFinite(json.exp)) {
+      return new Date(json.exp * 1000).toISOString();
+    }
+  } catch {
+    // fall through
+  }
+  return new Date(Date.now() + 55_000).toISOString();
+}
 
 interface WeldAppReadyMessage {
   type: 'weldapp:ready';
@@ -51,6 +66,11 @@ function sectionLabel(appPath: string): string | null {
  * Shell chrome matches first-party modules: AppHeader (top nav) + ModuleContent
  * around the iframe. Section nav lives in UnifiedModuleSidebar from the app's
  * weldapp.json `navigation`.
+ *
+ * Auth:
+ * - Official (`publisherType: weldsuite`) apps receive the member's Clerk
+ *   session token and call app-api (`/api/*`) — same session as platform modules.
+ * - Community apps receive a scoped `wsat_` session token for the external API.
  */
 export default function WeldAppHostPage() {
   const { appCode } = useParams<{ appCode: string }>();
@@ -59,6 +79,7 @@ export default function WeldAppHostPage() {
   const wa = t.weldapps;
   const router = useRouter();
   const { user } = useUser();
+  const { getToken } = useAuth();
   const { resolvedTheme } = useTheme();
   const { data: installedApps, isLoading } = useInstalledUserApps();
   const { data: devSession } = useUserAppDevSession(appCode);
@@ -66,6 +87,7 @@ export default function WeldAppHostPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const app = installedApps?.find((a) => a.appCode === appCode);
+  const usesPlatformSession = app?.publisherType === 'weldsuite' || appCode === 'weldcommerce';
   const bundleSrc = appCode ? `${APP_API_BASE}/public/user-apps/${appCode}/index.html` : '';
   const previewUrl = devSession?.url ?? null;
   const iframeSrc = previewUrl ?? bundleSrc;
@@ -75,6 +97,26 @@ export default function WeldAppHostPage() {
     () => (appCode ? userAppRelativePath(pathname, appCode) : '/'),
     [pathname, appCode],
   );
+
+  // Bootstrap theme + section into the iframe URL once per bundle so first paint
+  // matches the platform (no white "Connecting…" flash). Do not depend on
+  // appPath/theme after that — changing `src` would reload the iframe on nav.
+  const bootstrappedSrcRef = useRef<{ base: string; src: string } | null>(null);
+  if (iframeSrc && bootstrappedSrcRef.current?.base !== iframeSrc) {
+    try {
+      const url = new URL(iframeSrc);
+      url.searchParams.set('theme', resolvedTheme === 'dark' ? 'dark' : 'light');
+      if (appPath && appPath !== '/') {
+        url.hash = appPath.replace(/^\//, '');
+      } else {
+        url.hash = '';
+      }
+      bootstrappedSrcRef.current = { base: iframeSrc, src: url.toString() };
+    } catch {
+      bootstrappedSrcRef.current = { base: iframeSrc, src: iframeSrc };
+    }
+  }
+  const bootstrappedSrc = bootstrappedSrcRef.current?.src ?? iframeSrc;
 
   const breadcrumbs = useMemo(() => {
     const rootHref = appCode ? `/apps/${appCode}` : '/apps';
@@ -89,12 +131,27 @@ export default function WeldAppHostPage() {
 
   const mintSessionToken = useCallback(async () => {
     if (!appCode) return null;
+
+    if (usesPlatformSession) {
+      try {
+        const token = await getToken();
+        if (!token) return null;
+        return {
+          token,
+          expiresAt: tokenExpiresAt(token),
+          apiBaseUrl: APP_API_BASE,
+        };
+      } catch {
+        return null;
+      }
+    }
+
     try {
       return await sessionTokenMutation.mutateAsync(appCode);
     } catch {
       return null;
     }
-  }, [appCode, sessionTokenMutation]);
+  }, [appCode, getToken, sessionTokenMutation, usesPlatformSession]);
 
   const syncIframeRoute = useCallback(() => {
     const iframeWindow = iframeRef.current?.contentWindow;
@@ -279,11 +336,11 @@ export default function WeldAppHostPage() {
               <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
             </div>
           ) : null}
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 bg-background">
             <iframe
               key={iframeSrc}
               ref={iframeRef}
-              src={iframeSrc}
+              src={bootstrappedSrc}
               title={app.name}
               className="w-full h-full border-0 bg-background"
               sandbox={sandbox}
