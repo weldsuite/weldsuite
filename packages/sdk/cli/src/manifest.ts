@@ -45,6 +45,29 @@ export const agentToolSchema = z.object({
   action: agentToolActionSchema,
 });
 
+/**
+ * Sidebar items declared by the app. The platform host renders these in the
+ * same module sidebar chrome as first-party apps — do not build a sidebar UI.
+ *
+ * `path` is app-relative (`/` or `/products`) and maps to `/apps/{code}{path}`.
+ */
+export const navigationItemSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z][a-z0-9_-]*$/, 'lowercase letters, digits, dashes, underscores'),
+  label: z.string().min(1).max(100),
+  path: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^\/(?:[a-z0-9][a-z0-9/_-]*)?$/i, 'app-relative path starting with /'),
+  icon: z.string().max(50).optional(),
+  permission: z.string().max(100).optional(),
+  group: z.string().max(100).optional(),
+});
+
 /** Mirror of `isSafeAppLifecycleWebhookUrl` in app-api-client schemas/user-apps. */
 function isSafeAppLifecycleWebhookUrl(raw: string): boolean {
   try {
@@ -100,6 +123,8 @@ export const manifestSchema = z.object({
     .max(50)
     .optional(),
   agentTools: z.array(agentToolSchema).max(50).optional(),
+  /** Module sidebar items rendered by the platform host. Max 50. */
+  navigation: z.array(navigationItemSchema).max(50).optional(),
   pricing: z
     .object({
       type: z.enum(['free', 'subscription']),

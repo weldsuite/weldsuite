@@ -32,6 +32,13 @@ const APP_NAMES: Record<string, string> = {
   weldpass: 'WeldPass',
 };
 
+/**
+ * First-party codes that now ship only as hosted WeldApps (`/apps/{code}`).
+ * Skip them in the system installed-apps list so they only appear when installed
+ * as a custom/hosted app (after adopt or App Store install).
+ */
+const HOSTED_ONLY_APP_CODES = new Set(['weldcommerce']);
+
 export const installedAppsKeys = {
   // Prefix used by mutation hooks to invalidate every workspace's list.
   all: ['installed-apps'] as const,
@@ -113,8 +120,11 @@ export function useInstalledApps() {
     // actually resolved once.
     if (!systemAppsQuery.data) return systemAppsQuery.data;
 
-    const merged = [...systemAppsQuery.data];
-    const seenCodes = new Set(merged.map((a) => a.appCode));
+    // Prefer hosted WeldApps over first-party system rows when the same
+    // sidenav code exists in both (e.g. weldcommerce after hosted migration).
+    const merged: InstalledApp[] = [];
+    const seenCodes = new Set<string>();
+
     for (const userApp of userAppsQuery.data ?? []) {
       if (seenCodes.has(userApp.appCode)) continue;
       seenCodes.add(userApp.appCode);
@@ -129,6 +139,15 @@ export function useInstalledApps() {
         displayOrder: merged.length,
         appType: 'user',
       });
+    }
+
+    for (const systemApp of systemAppsQuery.data) {
+      if (seenCodes.has(systemApp.appCode)) continue;
+      // Migrated first-party modules must not keep a system sidenav entry —
+      // only the hosted WeldApp install should surface them.
+      if (HOSTED_ONLY_APP_CODES.has(systemApp.appCode)) continue;
+      seenCodes.add(systemApp.appCode);
+      merged.push(systemApp);
     }
 
     // Custom objects are keyed by slug in the same `appCode` namespace, so a

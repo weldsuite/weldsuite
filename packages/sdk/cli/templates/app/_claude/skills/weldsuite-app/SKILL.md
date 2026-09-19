@@ -24,6 +24,7 @@ Lives at the project root. Validated by the CLI on deploy and again server-side.
 | `entrypoint` | string | no | Bundle entry HTML, defaults to `index.html`. Max 255 chars. |
 | `scopes` | string[] | no (default `[]`) | API scopes the app needs beyond its own storage. Format `resource:action`, `resource:*`, or `*`. Max 50. See §5. |
 | `collections` | array | no | Document-storage collections the app uses. Each: `name` (`^[a-z][a-z0-9_-]*$`, 1–100 chars, required) + optional `description` (≤500). Max 50. Declare every collection referenced in code. |
+| `navigation` | array | no | **Module sidebar items.** The platform renders the same sidebar chrome as first-party apps — you declare items only, you do not build a sidebar UI. Each: `id` (kebab/snake, ≤50), `label` (≤100), `path` (app-relative, `/` or `/products`), optional `icon` (Lucide name), optional `permission` (`object:action`), optional `group` (defaults to “General”). Max 50. Host URL is `/apps/{code}{path}`; the host sends `init.path` and `route` events so your app can switch views. |
 | `agentTools` | array | no | Tools the app exposes to WeldAgent (AI). Each: `name` (snake_case, ≤64), `description` (1–1000), optional `parameters` (JSON Schema object), and `action`: `{ type: 'storage.list' \| 'storage.create' \| 'storage.update' \| 'storage.delete' \| 'api.request', collection?, method?, path? }`. `collection` for `storage.*` actions; `method` + `path` for `api.request`. Max 50. |
 | `pricing` | object | no | `{ type: 'free' \| 'subscription', monthlyPrice?: 0–10000, currency?: 3-letter code }`. |
 | `websiteUrl` | string | no | Public https URL shown on the store listing. |
@@ -42,6 +43,10 @@ Example:
   "version": "1.1.0",
   "icon": "Receipt",
   "scopes": ["crm:read"],
+  "navigation": [
+    { "id": "home", "label": "Home", "path": "/", "icon": "LayoutDashboard" },
+    { "id": "notes", "label": "Notes", "path": "/notes", "icon": "StickyNote" }
+  ],
   "collections": [
     { "name": "notes", "description": "Expense notes" }
   ]
@@ -55,9 +60,9 @@ The canonical schema is `userAppManifestSchema` in the WeldSuite monorepo (`pack
 The SDK implements this, you rarely touch raw messages, but knowing the lifecycle explains behaviour:
 
 1. **App boots** inside the sandboxed iframe and posts `{ type: 'weldapp:ready' }` to `window.parent`.
-2. **Host replies** with `{ type: 'weldapp:init', payload: { appCode, theme: 'light' | 'dark', locale, apiBaseUrl, token, tokenExpiresAt, user: { id, name, imageUrl } } }`.
+2. **Host replies** with `{ type: 'weldapp:init', payload: { appCode, theme: 'light' | 'dark', locale, path, apiBaseUrl, token, tokenExpiresAt, user: { id, name, imageUrl } } }`. `path` is the app-relative section from the platform URL (`/` or `/products`).
 3. **Requests**: the app sends `{ type: 'weldapp:request', id, method: 'getToken' | 'navigate' | 'toast', payload? }`; the host answers `{ type: 'weldapp:response', id, ok, payload?, error?: { message } }`. `getToken` returns `{ token, tokenExpiresAt, apiBaseUrl }`.
-4. **Push events**: the host sends `{ type: 'weldapp:event', event: 'theme' | 'locale', payload: { value } }` when the platform theme or locale changes.
+4. **Push events**: the host sends `{ type: 'weldapp:event', event: 'theme' | 'locale' | 'route', payload: { value } }` when the platform theme, locale, or sidebar section changes.
 
 Consequences:
 

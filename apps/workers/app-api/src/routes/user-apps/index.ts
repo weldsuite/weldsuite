@@ -33,6 +33,8 @@ import { cursorPagination, error, list, noContent, success } from '../../lib/res
 import { generateId } from '../../lib/id';
 import { getMasterDb, masterSchema, schema, type MasterDatabase } from '../../db';
 import {
+  adoptOfficialSystemInstallsForTenant,
+  sweepAdoptSystemInstallsForApp,
   RESERVED_APP_CODES,
   assetCacheKey,
   contentTypeFor,
@@ -238,6 +240,13 @@ app.get('/store', requirePermission('weldapps:read'), async (c) => {
   const workspaceId = c.get('workspaceId');
 
   try {
+    await adoptOfficialSystemInstallsForTenant({
+      master,
+      tenantDb: db,
+      workspaceId,
+      installedBy: c.get('userId'),
+    });
+
     const apps = await master
       .select()
       .from(uApps)
@@ -324,8 +333,18 @@ app.get('/store/:code', requirePermission('weldapps:read'), async (c) => {
 app.get('/installed', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
+  const workspaceId = c.get('workspaceId');
 
   try {
+    // Convert first-party installs to hosted WeldApps when an official
+    // public app now owns the same sidenav code (e.g. weldcommerce).
+    await adoptOfficialSystemInstallsForTenant({
+      master,
+      tenantDb: db,
+      workspaceId,
+      installedBy: c.get('userId'),
+    });
+
     const tenantRows = await db
       .select()
       .from(wsApps)
@@ -852,6 +871,24 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
       entityId: id,
       data: updated as unknown as Record<string, unknown>,
     });
+
+    // Official apps that go straight to approved: adopt existing first-party
+    // installs across all workspaces so nobody has to reinstall.
+    if (official && updated) {
+      c.executionCtx.waitUntil(
+        sweepAdoptSystemInstallsForApp({
+          env: c.env,
+          master,
+          app: updated,
+          installedBy: c.get('userId'),
+        }).then((result) => {
+          console.log(
+            `[app-api/user-apps] adopt sweep for ${updated.code}: adopted=${result.adopted} failed=${result.failed}`,
+          );
+        }),
+      );
+    }
+
     return success(c, updated);
   } catch (err) {
     console.error('[app-api/user-apps] submit failed:', err);
@@ -932,6 +969,22 @@ app.post('/:id/review', zValidator('json', reviewUserAppSchema), async (c) => {
       entityId: id,
       data: updated as unknown as Record<string, unknown>,
     });
+
+    if (decision === 'approved' && updated?.publisherType === 'weldsuite') {
+      c.executionCtx.waitUntil(
+        sweepAdoptSystemInstallsForApp({
+          env: c.env,
+          master,
+          app: updated,
+          installedBy: userId,
+        }).then((result) => {
+          console.log(
+            `[app-api/user-apps] adopt sweep after review for ${updated.code}: adopted=${result.adopted} failed=${result.failed}`,
+          );
+        }),
+      );
+    }
+
     return success(c, updated);
   } catch (err) {
     console.error('[app-api/user-apps] review failed:', err);

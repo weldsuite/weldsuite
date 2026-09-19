@@ -47,7 +47,6 @@ const DEFAULT_APP_PREFERENCE = [
   "weldflow",
   "welddesk",
   "weldmail",
-  "weldcommerce",
 ];
 
 /** Pick the best available app to start with, or none if the catalog is empty. */

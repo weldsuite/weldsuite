@@ -188,8 +188,8 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  // WeldCommerce. Icon-only logo like welddata/weldknow — wordmark variants
-  // need the brand typeface and can be added later.
+  // WeldCommerce ships only as a hosted WeldApp (`/apps/weldcommerce`).
+  // Keep assets for branding; hide from first-party onboarding picker.
   weldcommerce: {
     lucideIcon: ShoppingBag,
     shortName: 'Commerce',
@@ -198,6 +198,7 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconLight: '/assets/images/weldcommerce/logo-light.svg',
       iconDark: '/assets/images/weldcommerce/logo-dark.svg',
     },
+    hideFromOnboarding: true,
   },
   weldads: {
     lucideIcon: Megaphone,

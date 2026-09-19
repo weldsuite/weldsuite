@@ -23,6 +23,12 @@ import { generateId } from '../lib/id';
 const { workspaceInstalledApps } = schema;
 const { appCatalog } = masterSchema;
 
+/**
+ * First-party catalog codes that now ship only as hosted WeldApps.
+ * Hidden from the first-party App Store list; install via user-apps instead.
+ */
+export const HOSTED_ONLY_CATALOG_CODES = new Set(['weldcommerce']);
+
 export interface CatalogAppItem {
   id: string;
   code: string;
@@ -124,7 +130,9 @@ export async function listCatalogApps(
     .orderBy(appCatalog.sortOrder);
 
   const installedCodes = await getInstalledCodes(tenantDb);
-  return catalogApps.map((app) => toCatalogItem(app, installedCodes));
+  return catalogApps
+    .filter((app) => !HOSTED_ONLY_CATALOG_CODES.has(app.code))
+    .map((app) => toCatalogItem(app, installedCodes));
 }
 
 /** Distinct categories across published catalog apps, sorted. */
@@ -162,6 +170,7 @@ export async function getCatalogApp(
 
   if (apps.length === 0) return null;
   const app = apps[0];
+  if (HOSTED_ONLY_CATALOG_CODES.has(app.code)) return null;
 
   const installedApps = await tenantDb
     .select({
@@ -209,6 +218,10 @@ export async function installCatalogApp(params: {
   settings?: Record<string, unknown>;
 }): Promise<InstallCatalogAppResult> {
   const { masterDb, tenantDb, userId, appCode, settings } = params;
+
+  if (HOSTED_ONLY_CATALOG_CODES.has(appCode)) {
+    return { ok: false, reason: 'app_not_found' };
+  }
 
   // Validate app exists in catalog and is published.
   const catalogApps = await masterDb

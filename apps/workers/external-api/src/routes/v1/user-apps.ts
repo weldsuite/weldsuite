@@ -29,6 +29,7 @@ import { generateId } from '../../lib/id';
 import { createMasterDb, masterSchema, type MasterDatabase } from '../../lib/master-db';
 import { schema as tenantSchema } from '../../db';
 import { error, list, noContent, success, cursorPagination } from '../../lib/response';
+import { sweepAdoptSystemInstallsForApp } from '../../services/adopt-system-install';
 
 /** SHA-256 hex digest via Web Crypto (native to Workers). */
 async function sha256Hex(input: string): Promise<string> {
@@ -621,6 +622,21 @@ app.post('/:id/submit', zValidator('json', submitUserAppSchema), async (c) => {
     .where(eq(masterSchema.userApps.id, appRow.id))
     .returning();
   if (!row) return error.internal(c, 'Failed to submit app');
+
+  if (official) {
+    c.executionCtx.waitUntil(
+      sweepAdoptSystemInstallsForApp({
+        env: c.env,
+        app: row,
+        installedBy: session.userId ?? session.keyId,
+      }).then((result) => {
+        console.log(
+          `[external-api/user-apps] adopt sweep for ${row.code}: adopted=${result.adopted} failed=${result.failed}`,
+        );
+      }),
+    );
+  }
+
   return success(c, row);
 });
 
