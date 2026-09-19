@@ -66,6 +66,8 @@ export interface InstalledUserApp {
   name: string;
   icon?: string | null;
   manifest?: Record<string, unknown> | null;
+  /** Official first-party apps use the platform Clerk session + app-api. */
+  publisherType?: 'community' | 'weldsuite';
 }
 
 export interface UserAppVersion {
@@ -200,6 +202,7 @@ export function useInstalledUserApps(enabled = true) {
             name: string;
             icon?: string | null;
             manifest?: Record<string, unknown> | null;
+            publisherType?: 'community' | 'weldsuite' | null;
           };
         }>;
       }>('/user-apps/installed');
@@ -210,6 +213,7 @@ export function useInstalledUserApps(enabled = true) {
         name: row.app.name,
         icon: row.app.icon ?? null,
         manifest: row.app.manifest ?? null,
+        publisherType: row.app.publisherType === 'weldsuite' ? 'weldsuite' : 'community',
       })) satisfies InstalledUserApp[];
     },
   });

@@ -1,7 +1,13 @@
 import typescript from '@rollup/plugin-typescript';
 import dts from 'rollup-plugin-dts';
 
-const external = ['react', 'react/jsx-runtime', 'react-dom'];
+const external = [
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  'lucide-react',
+];
 
 const config = [
   // Core build (ESM + CJS)

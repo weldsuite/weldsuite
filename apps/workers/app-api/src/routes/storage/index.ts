@@ -206,6 +206,9 @@ app.post(
       } else if (data.entityType === 'contact-avatar' && data.entityId) {
         const ext = data.fileName.split('.').pop()?.toLowerCase() || 'png';
         fileKey = `workspaces/${workspaceId}/avatars/contacts/${data.entityId}/logo.${ext}`;
+      } else if (data.entityType === 'user-app-logo' && data.entityId) {
+        const ext = data.fileName.split('.').pop()?.toLowerCase() || 'png';
+        fileKey = `workspaces/${workspaceId}/user-apps/${data.entityId}/logo.${ext}`;
       } else {
         const timestamp = Date.now();
         const sanitizedName = data.fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');

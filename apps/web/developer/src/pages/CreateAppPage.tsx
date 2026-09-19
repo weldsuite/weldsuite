@@ -16,7 +16,6 @@ export function CreateAppPage() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [icon, setIcon] = useState('');
   const [category, setCategory] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +47,6 @@ export function CreateAppPage() {
         code,
         name: name.trim(),
         description: description.trim() || undefined,
-        icon: icon.trim() || undefined,
         category: category.trim() || undefined,
       });
       navigate(`/apps/${app.id}`);
@@ -110,26 +108,17 @@ export function CreateAppPage() {
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-4">
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">{t.create.iconLabel}</span>
-              <input
-                className={fieldClass}
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                placeholder={t.create.iconPlaceholder}
-              />
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">{t.create.categoryLabel}</span>
-              <input
-                className={fieldClass}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder={t.create.categoryPlaceholder}
-              />
-            </label>
-          </div>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t.create.categoryLabel}</span>
+            <input
+              className={fieldClass}
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder={t.create.categoryPlaceholder}
+            />
+          </label>
+
+          <p className="text-xs text-muted-foreground">{t.create.logoAfterCreateHint}</p>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

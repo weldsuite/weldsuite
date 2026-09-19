@@ -221,25 +221,23 @@ import {
   PageHeader,
   Button,
   Input,
-  Select,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
   Badge,
-  EmptyState,
-  Toolbar,
-  Form,
-  FormField,
+  PanelEntityList,
+  EntityGrid,
+  EmptyStateIllustration,
   statusBadgeVariant,
+  type ColumnDef,
+  type GridColumnDef,
 } from '@weldsuite/app-sdk/ui';
 ```
 
-Import the CSS once in your app entry (`main.tsx`). Sync theme with `document.documentElement.dataset.theme = theme` from `useWeldApp()` (tokens honor both `data-theme="dark"` and `html.dark`).
+Import the CSS once in your app entry (`main.tsx`). Sync theme with `document.documentElement.dataset.theme = theme` from `useWeldApp()` (tokens honor both `data-theme="dark"` and `html.dark`). Peer: `lucide-react`.
 
-Components: `Page`, `PageHeader`, `Button`, `Input`, `Select`, `Textarea`, `Label`, `Badge`, `Table` (+ header/body/row/cell helpers), `Toolbar`, `EmptyState`, `Alert`, `Form` / `FormField` / `FormActions`, `DescriptionList` / `DescriptionItem`, `LoadingState`, `Code`, `Stack`, `Muted`, plus `statusBadgeVariant()` for commerce status chips.
+**Primitives:** `Page`, `PageHeader`, `Button`, `Input`, `Select`, `Textarea`, `Label`, `Badge`, `Table` (+ helpers), `Toolbar`, `EmptyState`, `Alert`, `Form` / `FormField` / `FormActions`, `DescriptionList`, `LoadingState`, `DropdownMenu`, `Popover`, `statusBadgeVariant()`.
+
+**Entity list (panel chrome):** `EntityList`, `PanelEntityList`, `FilterPills`, `EmptyStateIllustration` — searchable rows with optional edit/delete menu, filters, groups, infinite scroll. Controlled `searchQuery` / `onSearchChange` skips client-side filtering when you already filter on the server.
+
+**Entity grid (spreadsheet):** `EntityGrid` — sortable columns, optional row selection + bulk delete, inline edit (text/number/select/checkbox), CSV export, infinite scroll. No router/URL coupling: pass `searchValue` / `onSearchChange`, set `serverSearch` when the host already filtered. Injectable `labels` for i18n.
 
 ## License
 

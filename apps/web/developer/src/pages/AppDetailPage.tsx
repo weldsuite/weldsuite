@@ -14,6 +14,7 @@ import {
   useUserAppOauthClient,
   useUserAppVersions,
 } from '@/hooks/use-user-apps';
+import { AppLogoField } from '@/components/app-logo-field';
 
 function CodeBlock({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
@@ -232,24 +233,33 @@ export function AppDetailPage() {
                 onChange={(e) => setDescription(e.target.value)}
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1">
-                <span className="text-sm font-medium">{t.create.iconLabel}</span>
-                <input
-                  className={fieldClass}
-                  value={displayIcon}
-                  onChange={(e) => setIcon(e.target.value)}
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium">{t.create.categoryLabel}</span>
-                <input
-                  className={fieldClass}
-                  value={displayCategory}
-                  onChange={(e) => setCategory(e.target.value)}
-                />
-              </label>
-            </div>
+            <label className="block space-y-1">
+              <span className="text-sm font-medium">{t.create.categoryLabel}</span>
+              <input
+                className={fieldClass}
+                value={displayCategory}
+                onChange={(e) => setCategory(e.target.value)}
+              />
+            </label>
+            <AppLogoField
+              appId={app.id}
+              value={displayIcon}
+              onChange={async (next) => {
+                setIcon(next);
+                setError(null);
+                setMessage(null);
+                try {
+                  await updateMutation.mutateAsync({
+                    id: app.id,
+                    data: { icon: next.trim() || 'Puzzle' },
+                  });
+                  setMessage(t.detail.saveSuccess);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : t.detail.saveError);
+                }
+              }}
+              disabled={updateMutation.isPending}
+            />
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>
                 {app.visibility === 'public' ? t.apps.visibilityPublic : t.apps.visibilityPrivate}

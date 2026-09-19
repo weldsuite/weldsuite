@@ -14,6 +14,34 @@ export const userAppCodeSchema = z
   .max(50)
   .regex(/^[a-z][a-z0-9-]*$/, 'lowercase letters, digits and dashes, starting with a letter');
 
+/** True when `icon` stores a public logo image URL (vs a Lucide name / emoji). */
+export function isUserAppLogoUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return (
+    /^https?:\/\//i.test(trimmed) ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('data:image/')
+  );
+}
+
+/**
+ * App mark: short Lucide name / emoji, or a public logo URL from the developer portal.
+ */
+export const userAppIconSchema = z
+  .string()
+  .max(2000)
+  .refine(
+    (value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      if (isUserAppLogoUrl(trimmed)) return true;
+      // Lucide / emoji-style marks stay short.
+      return trimmed.length <= 50;
+    },
+    { message: 'icon must be a short Lucide name or a public logo URL' },
+  );
+
 const scopeSchema = z
   .string()
   .min(1)
@@ -124,7 +152,7 @@ export const userAppManifestSchema = z.object({
   code: userAppCodeSchema,
   name: z.string().min(1).max(100),
   description: z.string().max(2000).optional(),
-  icon: z.string().max(50).optional(),
+  icon: userAppIconSchema.optional(),
   category: z.string().max(50).optional(),
   version: z
     .string()
@@ -176,7 +204,7 @@ export const createUserAppSchema = z.object({
   code: userAppCodeSchema,
   name: z.string().min(1).max(100),
   description: z.string().max(2000).optional(),
-  icon: z.string().max(50).optional(),
+  icon: userAppIconSchema.optional(),
   category: z.string().max(50).optional(),
   websiteUrl: z.string().url().max(2000).optional(),
   privacyUrl: z.string().url().max(2000).optional(),
@@ -187,7 +215,7 @@ export const createUserAppSchema = z.object({
 export const updateUserAppSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(2000).optional(),
-  icon: z.string().max(50).optional(),
+  icon: userAppIconSchema.optional(),
   category: z.string().max(50).optional(),
   isActive: z.boolean().optional(),
   websiteUrl: z.string().url().max(2000).nullable().optional(),

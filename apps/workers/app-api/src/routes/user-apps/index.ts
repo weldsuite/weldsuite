@@ -389,6 +389,7 @@ app.get('/installed', requirePermission('weldapps:read'), async (c) => {
             category: appRow.category,
             manifest: appRow.manifest,
             currentVersionId: appRow.currentVersionId,
+            publisherType: appRow.publisherType,
           },
         },
       ];

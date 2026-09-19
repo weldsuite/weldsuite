@@ -155,7 +155,9 @@ export function appFieldsFromManifest(manifest: UserAppManifest): Partial<typeof
   return {
     name: manifest.name,
     description: manifest.description ?? null,
-    ...(manifest.icon ? { icon: manifest.icon } : {}),
+    // Do not apply manifest.icon — store / sidenav marks are uploaded logos
+    // (or Lucide fallbacks) managed in the developer portal. Redeploys must
+    // not wipe a custom logo with a Lucide name from weldapp.json.
     ...(manifest.category ? { category: manifest.category } : {}),
     manifest,
     requestedScopes: manifest.scopes ?? [],

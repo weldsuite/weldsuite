@@ -47,14 +47,13 @@ export function CreateAppDialog({ open, onOpenChange, onCreated }: CreateAppDial
       .regex(CODE_PATTERN, wa.createDialog.codeInvalid),
     name: z.string().min(1, wa.createDialog.nameLabel),
     description: z.string().optional(),
-    icon: z.string().optional(),
     category: z.string().optional(),
   });
   type FormValues = z.infer<typeof schema>;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { code: '', name: '', description: '', icon: '', category: '' },
+    defaultValues: { code: '', name: '', description: '', category: '' },
   });
 
   const createMutation = useCreateUserApp();
@@ -70,7 +69,6 @@ export function CreateAppDialog({ open, onOpenChange, onCreated }: CreateAppDial
         code: values.code,
         name: values.name,
         description: values.description || undefined,
-        icon: values.icon || undefined,
         category: values.category || undefined,
       });
       toast.success(wa.createDialog.createSuccess);
@@ -130,34 +128,19 @@ export function CreateAppDialog({ open, onOpenChange, onCreated }: CreateAppDial
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="icon"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{wa.createDialog.iconLabel}</FormLabel>
-                    <FormControl>
-                      <Input placeholder={wa.createDialog.iconPlaceholder} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{wa.createDialog.categoryLabel}</FormLabel>
-                    <FormControl>
-                      <Input placeholder={wa.createDialog.categoryPlaceholder} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="category"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{wa.createDialog.categoryLabel}</FormLabel>
+                  <FormControl>
+                    <Input placeholder={wa.createDialog.categoryPlaceholder} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleClose(false)} disabled={form.formState.isSubmitting}>
                 {wa.consent.cancel}
