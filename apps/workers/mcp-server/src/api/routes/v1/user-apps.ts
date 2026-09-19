@@ -27,7 +27,8 @@ import { error, list, noContent, success, cursorPagination } from '../../lib/res
 
 const app = new Hono<HonoEnv>();
 
-/** Codes that collide with first-party modules / platform routes. */
+/** Codes that collide with first-party modules / platform routes.
+ * Community apps cannot claim these; official publisher workspaces can. */
 const RESERVED_CODES = new Set([
   'weldcrm',
   'weldcommerce',
@@ -46,6 +47,18 @@ const RESERVED_CODES = new Set([
   'settings',
   'apps',
 ]);
+
+function isOfficialPublisher(
+  env: { WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string },
+  workspaceId: string,
+): boolean {
+  const raw = env.WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS ?? '';
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .includes(workspaceId);
+}
 
 const MAX_BUNDLE_FILES = 500;
 const MAX_BUNDLE_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -190,7 +203,7 @@ app.post('/', zValidator('json', createUserAppSchema), async (c) => {
   const body = c.req.valid('json');
   const masterDb = createMasterDb(c.env.HYPERDRIVE_MASTER);
 
-  if (RESERVED_CODES.has(body.code)) {
+  if (RESERVED_CODES.has(body.code) && !isOfficialPublisher(c.env, session.workspaceId)) {
     return error.conflict(c, `App code '${body.code}' is reserved`);
   }
 

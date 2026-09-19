@@ -51,12 +51,21 @@ app.get('/:id', requireScope('products:read'), async (c) => {
 
 app.post('/', requireScope('products:write'), zValidator('json', createProductSchema), async (c) => {
   const db = c.get('tenantDb');
-  const body = c.req.valid('json');
+  const body = c.req.valid('json') as Record<string, unknown>;
   const now = new Date();
   const id = generateId('prod');
+  const name = String(body.name ?? '');
+  const slug =
+    (typeof body.slug === 'string' && body.slug) ||
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 255) ||
+    `product-${Date.now().toString(36)}`;
   const [row] = await db
     .insert(table)
-    .values({ id, createdAt: now, updatedAt: now, ...(body as Record<string, unknown>) } as typeof table.$inferInsert)
+    .values({ id, createdAt: now, updatedAt: now, ...body, slug } as typeof table.$inferInsert)
     .returning();
   if (!row) return error.internal(c, 'Failed to create product');
   publishEntityEvent({

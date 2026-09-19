@@ -33,6 +33,9 @@ export interface Env {
   // Environment
   ENVIRONMENT: 'test' | 'preview' | 'production';
 
+  /** Comma-separated workspace ids that may claim reserved first-party app codes. */
+  WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS?: string;
+
   // Public origin this worker is served on (e.g. https://mcp.weldsuite.org).
   // Used to build the RFC 9728 protected-resource metadata `resource` value,
   // which MUST match the URL clients used to reach the MCP endpoint.

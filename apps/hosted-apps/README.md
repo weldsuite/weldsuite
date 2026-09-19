@@ -52,3 +52,5 @@ pnpm exec weld app publish           # auto-approves for official publishers
 Bump `version` in `weldapp.json` before merging a change you want shipped — duplicate versions are rejected.
 
 Existing first-party **SPA modules** (WeldCRM, WeldDesk, …) stay in `apps/web/platform`. Do not migrate them here unless that is an explicit follow-up.
+
+Sibling folder outside this monorepo: `../weldsuite-apps/` holds independently versioned first-party apps (e.g. WeldCommerce) that publish via the CLI / developer portal the same way.
