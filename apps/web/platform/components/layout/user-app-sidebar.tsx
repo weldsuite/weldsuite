@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import { Puzzle } from 'lucide-react';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
+import type { AppLogo } from '@/components/app-sidebar-layout';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { getAppLogoConfig, getAppLucideIcon } from '@/lib/apps/app-registry';
 import type { ModuleSidebarConfig } from './module-sidebar-configs';
@@ -29,6 +30,15 @@ export const HOSTED_APP_NAV_FALLBACKS: Record<string, UserAppNavItem[]> = {
   ],
 };
 
+function isAppLogoUrl(value?: string | null): boolean {
+  if (!value) return false;
+  return (
+    /^https?:\/\//i.test(value) ||
+    value.startsWith('/') ||
+    value.startsWith('data:image/')
+  );
+}
+
 function navIcon(name?: string): ComponentType<{ className?: string }> {
   if (!name) return Puzzle;
   const iconName = name;
@@ -41,6 +51,30 @@ function navIcon(name?: string): ComponentType<{ className?: string }> {
       />
     );
   };
+}
+
+function appMarkIcon(icon?: string | null, appCode?: string): ComponentType<{ className?: string }> {
+  if (icon && isAppLogoUrl(icon)) {
+    const src = icon;
+    return function UserAppLogoIcon({ className }: { className?: string }) {
+      return (
+        <img
+          src={src}
+          alt=""
+          className={className ? `${className} object-contain` : 'h-5 w-5 object-contain'}
+        />
+      );
+    };
+  }
+  if (icon) return navIcon(icon);
+  return appCode ? getAppLucideIcon(appCode) : Puzzle;
+}
+
+function appMarkLogo(icon?: string | null, appCode?: string): AppLogo | undefined {
+  if (icon && isAppLogoUrl(icon)) {
+    return { iconLight: icon, iconDark: icon };
+  }
+  return appCode ? getAppLogoConfig(appCode) : undefined;
 }
 
 /** Normalize manifest path to a platform href under `/apps/{code}`. */
@@ -72,11 +106,11 @@ export function buildUserAppSidebarConfig(input: {
             id: 'home',
             label: 'Home',
             path: '/',
-            icon: input.icon ?? 'LayoutDashboard',
+            icon: isAppLogoUrl(input.icon) ? 'LayoutDashboard' : (input.icon ?? 'LayoutDashboard'),
           },
         ]);
-  const appIcon = input.icon ? navIcon(input.icon) : getAppLucideIcon(input.appCode);
-  const appLogo = getAppLogoConfig(input.appCode);
+  const appIcon = appMarkIcon(input.icon, input.appCode);
+  const appLogo = appMarkLogo(input.icon, input.appCode);
   const defaultGroup = input.defaultGroupLabel ?? 'General';
 
   return {

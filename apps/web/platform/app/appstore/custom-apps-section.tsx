@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { UserAppConsentDialog } from '@/components/weldapps/user-app-consent-dialog';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { cn } from '@/lib/utils';
 import {
   useUserAppStore,
   useInstallUserApp,
@@ -21,6 +22,9 @@ import {
 } from '@/hooks/queries/use-user-apps-queries';
 
 function CustomAppIcon({ icon, className = 'h-5 w-5' }: { icon?: string | null; className?: string }) {
+  if (icon && (/^https?:\/\//i.test(icon) || icon.startsWith('/') || icon.startsWith('data:image/'))) {
+    return <img src={icon} alt="" className={cn(className, 'object-contain')} />;
+  }
   if (!icon) return <Puzzle className={className} />;
   return <LucideDynamicIcon name={icon} className={className} fallback={() => <Puzzle className={className} />} />;
 }

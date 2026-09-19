@@ -30,7 +30,7 @@ export interface UserAppManifest {
   code: string;
   name: string;
   description?: string;
-  /** Lucide icon name or emoji shown in the sidenav / app store. */
+  /** Lucide icon name, emoji, or public logo image URL (store / sidenav). */
   icon?: string;
   category?: string;
   version: string;
@@ -110,7 +110,11 @@ export const userApps = pgTable('user_apps', {
   code: varchar('code', { length: 50 }).notNull().unique(),
   name: varchar('name', { length: 100 }).notNull(),
   description: text('description'),
-  icon: varchar('icon', { length: 50 }).notNull().default('Puzzle'),
+  /**
+   * App mark shown in the sidenav / store. Prefer a public image URL (uploaded
+   * logo). Short Lucide names (e.g. `Puzzle`) remain valid as a fallback.
+   */
+  icon: text('icon').notNull().default('Puzzle'),
   category: varchar('category', { length: 50 }).notNull().default('Productivity'),
 
   // Authorship (workspaces.id in master — no FK to avoid an import cycle with master.ts)
