@@ -4,19 +4,25 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { deleteDevSession, loadConfig, putDevSession, resolveAppId, CliError } from '../api.js';
 import { flagBool, flagString, type ParsedArgs } from '../args.js';
+import { resolvePlatformUrl } from '../env.js';
+import { startLocalShellServer, type LocalShellServer } from '../local-shell/server.js';
 import { bold, cyan, dim, info, success, warn } from '../log.js';
 import { loadManifest } from '../manifest.js';
+import { openBrowser } from '../open-browser.js';
 
-export const help = `${bold('weld app dev')} — run the app locally inside WeldSuite
+export const help = `${bold('weld app dev')} — run the app in a local WeldSuite shell
 
-Starts the Vite dev server and registers a per-user preview URL so the
-platform iframe at /apps/{code} loads your local build (hot reload). Other
-workspace members keep seeing the published bundle.
+Starts the Vite dev server and a lightweight ${cyan('local shell')} page that
+mirrors the platform chrome (sidebar rail + content card) and speaks the real
+app-sdk postMessage bridge. Opens the shell URL in your browser by default.
 
-For UI-only work without the platform shell, run ${cyan('npm run dev')} and
-open localhost in a bare tab — the scaffold enables SDK ${cyan('localDev')}
-in Vite DEV (mock host + in-memory storage). Use this command (or
-${cyan('--tunnel')}) when you need the real host bridge and API.
+Also registers a per-user preview session so ${cyan('/apps/{code}')} on the
+real platform (localhost:3000 or hosted + ${cyan('--tunnel')}) can iframe the
+same Vite server.
+
+For UI-only work without any shell, run ${cyan('npm run dev')} and open the
+Vite URL in a bare tab — the scaffold enables SDK ${cyan('localDev')}
+(mock host + in-memory storage).
 
 HTTPS mixed content: the hosted platform cannot iframe http://localhost.
 Use ${cyan('--tunnel')} (Cloudflare quick tunnel) when developing against
@@ -25,11 +31,15 @@ platform itself is on localhost:3000.
 
 Options:
   --port <n>         Vite port (default: 5173)
+  --shell-port <n>   Local shell port (default: 4173; picks a free port if busy)
+  --no-shell         Skip the local shell (platform preview registration only)
+  --no-open          Do not open a browser automatically
   --tunnel           Expose Vite over HTTPS via cloudflared
   --user-id <id>     Clerk user id that should see the preview (required
                      with a workspace API key; personal keys infer it)
 
 Requires weld login or WELD_API_KEY. Optional WELD_DEV_USER_ID is equivalent to --user-id.
+Optional WELD_PLATFORM_URL overrides the platform deep-link host.
 `;
 
 const HEARTBEAT_MS = 30_000;
@@ -40,11 +50,11 @@ function detectRunner(cwd: string): string {
   return 'npm';
 }
 
-function parsePort(raw: string | undefined): number {
-  if (!raw) return 5173;
+function parsePort(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
   const value = Number.parseInt(raw, 10);
   if (!Number.isFinite(value) || value < 1 || value > 65535) {
-    throw new CliError(`Invalid --port "${raw}"`);
+    throw new CliError(`Invalid port "${raw}"`);
   }
   return value;
 }
@@ -74,7 +84,10 @@ function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 30_000): Prom
 
 function startVite(cwd: string, port: number): ChildProcess {
   const runner = detectRunner(cwd);
-  const args = runner === 'npm' ? ['run', 'dev', '--', '--port', String(port), '--host', '--strictPort'] : ['run', 'dev', '--port', String(port), '--host', '--strictPort'];
+  const args =
+    runner === 'npm'
+      ? ['run', 'dev', '--', '--port', String(port), '--host', '--strictPort']
+      : ['run', 'dev', '--port', String(port), '--host', '--strictPort'];
   const child = spawn(runner, args, {
     cwd,
     stdio: 'inherit',
@@ -134,12 +147,16 @@ export async function run(args: ParsedArgs): Promise<void> {
   const config = loadConfig();
   const manifest = await loadManifest(cwd);
   const appId = await resolveAppId(config, manifest.code);
-  const port = parsePort(flagString(args.flags, 'port'));
+  const port = parsePort(flagString(args.flags, 'port'), 5173);
+  const shellPort = parsePort(flagString(args.flags, 'shell-port'), 4173);
   const useTunnel = flagBool(args.flags, 'tunnel');
+  const noShell = flagBool(args.flags, 'no-shell');
+  const noOpen = flagBool(args.flags, 'no-open');
   const userId = flagString(args.flags, 'user-id') ?? process.env.WELD_DEV_USER_ID;
 
   const vite = startVite(cwd, port);
   let tunnel: ChildProcess | undefined;
+  let shell: LocalShellServer | undefined;
   let stopped = false;
 
   const cleanup = async () => {
@@ -147,6 +164,13 @@ export async function run(args: ParsedArgs): Promise<void> {
     stopped = true;
     killProcess(vite);
     killProcess(tunnel);
+    if (shell) {
+      try {
+        await shell.close();
+      } catch {
+        // ignore
+      }
+    }
     try {
       await deleteDevSession(config, appId, userId);
     } catch {
@@ -174,11 +198,35 @@ export async function run(args: ParsedArgs): Promise<void> {
 
     await putDevSession(config, appId, previewUrl, userId);
     success(`Preview registered for ${bold(manifest.name)} (${manifest.code})`);
-    info(`Open ${cyan(`/apps/${manifest.code}`)} in WeldSuite to load this server.`);
-    if (!useTunnel) {
-      info(dim('Developing against the hosted platform? Re-run with --tunnel so the iframe is HTTPS.'));
+
+    const platformBase = resolvePlatformUrl(config.apiUrl);
+    const platformAppUrl = `${platformBase}/apps/${manifest.code}`;
+
+    if (!noShell) {
+      shell = await startLocalShellServer({
+        port: shellPort,
+        appUrl: localUrl,
+        appCode: manifest.code,
+        appName: manifest.name,
+      });
+      success(`Local shell: ${cyan(shell.url)}`);
+      info(dim('Sidebar chrome + real SDK bridge (in-memory storage).'));
+      if (!noOpen) {
+        openBrowser(shell.url);
+      }
+    } else if (!noOpen) {
+      openBrowser(platformAppUrl);
     }
-    info(dim('Ctrl+C stops Vite and clears the preview session.'));
+
+    info(`Platform host: ${cyan(platformAppUrl)}`);
+    if (!useTunnel) {
+      info(
+        dim(
+          'Developing against the hosted platform? Re-run with --tunnel so the iframe is HTTPS.',
+        ),
+      );
+    }
+    info(dim('Ctrl+C stops Vite, the local shell, and clears the preview session.'));
 
     const beat = async () => {
       if (stopped) return;

@@ -11,8 +11,10 @@ const config = getDefaultConfig(projectRoot);
 // when switching between dev client and Expo Go).
 config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/design/mobile-ui'),
+  path.resolve(monorepoRoot, 'packages/core/realtime'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'apps/mobile/_shared'),
 ];
 
 config.resolver.nodeModulesPaths = [
@@ -56,5 +58,27 @@ const singletons = [
 config.resolver.extraNodeModules = Object.fromEntries(
   singletons.map((pkg) => [pkg, resolvePackageDir(pkg)])
 );
+
+// @tanstack/query-core's `exports` field only whitelists "." and "./package.json".
+// With unstable_enablePackageExports on, Metro can miss sibling modules. Resolve
+// the TS source directly (same fix as weldflow-app / weldstash-app).
+const queryCoreSrc = path.resolve(
+  monorepoRoot,
+  'node_modules/@tanstack/query-core/src/index.ts'
+);
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === '@tanstack/query-core' && fs.existsSync(queryCoreSrc)) {
+    return context.resolveRequest(
+      { ...context, resolveRequest: undefined },
+      queryCoreSrc,
+      platform
+    );
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 module.exports = config;

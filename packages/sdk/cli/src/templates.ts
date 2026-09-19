@@ -18,6 +18,8 @@ export function templatesRoot(): string {
 const RENAMES: Record<string, string> = {
   _gitignore: '.gitignore',
   _claude: '.claude',
+  // npm can omit `.github` from published tarballs; scaffold as `_github`.
+  _github: '.github',
 };
 
 /** Replace `{{KEY}}` placeholders; unknown placeholders are left untouched. */

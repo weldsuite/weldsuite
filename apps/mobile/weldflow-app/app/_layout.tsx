@@ -23,6 +23,8 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 
 import { setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
+import { RealtimeProvider } from '@/providers/realtime-provider';
+import { RealtimeSyncBridge } from '@/providers/realtime-sync-bridge';
 import { BRAND } from '@/lib/brand';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
@@ -163,17 +165,20 @@ function AppStack() {
           <NavigationThemeProvider value={navigationTheme}>
             <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
             <AuthGuard>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="authorisation" />
-                <Stack.Screen name="sso-callback" />
-                <Stack.Screen name="no-workspace" options={{ animation: 'fade' }} />
-                <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                <Stack.Screen name="settings" />
-                <Stack.Screen name="project/[projectId]" />
-                <Stack.Screen name="task/[projectId]/[taskId]" />
-                <Stack.Screen name="task/new/[projectId]" />
-                <Stack.Screen name="task/edit/[projectId]/[taskId]" />
-              </Stack>
+              <RealtimeProvider>
+                <RealtimeSyncBridge />
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="authorisation" />
+                  <Stack.Screen name="sso-callback" />
+                  <Stack.Screen name="no-workspace" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                  <Stack.Screen name="settings" />
+                  <Stack.Screen name="project/[projectId]" />
+                  <Stack.Screen name="task/[projectId]/[taskId]" />
+                  <Stack.Screen name="task/new/[projectId]" />
+                  <Stack.Screen name="task/edit/[projectId]/[taskId]" />
+                </Stack>
+              </RealtimeProvider>
             </AuthGuard>
           </NavigationThemeProvider>
         </NotificationProvider>

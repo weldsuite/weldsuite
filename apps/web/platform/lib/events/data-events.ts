@@ -1,5 +1,9 @@
-// Global event system for data mutations
-// Used to notify components when data changes (e.g., from WeldAgent tools or @weldsuite/realtime events)
+// Local same-tab event bus for imperative UI refresh (e.g. WeldAgent tools,
+// workflow editor sidebar). NOT the live multi-user sync path — that is
+// exclusively `useRealtimeSync(platformSyncMap)` via RealtimeSyncBridge.
+//
+// The former `initializeRealtimeBridge` stub is gone (Phase 9). Do not
+// reinstate a parallel realtime → dataEvents bridge.
 
 type DataEventType =
   | 'projects:changed'
@@ -23,7 +27,6 @@ type DataEventListener = () => void;
 
 class DataEventEmitter {
   private listeners: Map<DataEventType, Set<DataEventListener>> = new Map();
-  private realtimeBridgeInitialized = false;
 
   on(event: DataEventType, listener: DataEventListener): () => void {
     if (!this.listeners.has(event)) {
@@ -31,7 +34,6 @@ class DataEventEmitter {
     }
     this.listeners.get(event)!.add(listener);
 
-    // Return unsubscribe function
     return () => {
       this.listeners.get(event)?.delete(listener);
     };
@@ -47,7 +49,6 @@ class DataEventEmitter {
     });
   }
 
-  // Convenience methods for common events
   emitProjectsChanged(): void {
     this.emit('projects:changed');
   }
@@ -111,23 +112,10 @@ class DataEventEmitter {
   emitWorkflowsChanged(): void {
     this.emit('workflows:changed');
   }
-
-  /**
-   * Bridge from platform realtime → local data events. Stubbed after
-   * @weldsuite/realtime integration; wire up to @weldsuite/realtime when
-   * reinstating cross-tab cache invalidation.
-   */
-   
-  initializeRealtimeBridge(_currentUserId?: string): void {
-    if (this.realtimeBridgeInitialized) return;
-    this.realtimeBridgeInitialized = true;
-  }
 }
 
-// Singleton instance
 export const dataEvents = new DataEventEmitter();
 
-// React hook for subscribing to data events
 import { useEffect } from 'react';
 
 export function useDataEvent(event: DataEventType, callback: DataEventListener): void {
@@ -136,5 +124,4 @@ export function useDataEvent(event: DataEventType, callback: DataEventListener):
   }, [event, callback]);
 }
 
-// Export the DataEventType for use elsewhere
 export type { DataEventType };

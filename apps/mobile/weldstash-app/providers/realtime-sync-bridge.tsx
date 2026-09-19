@@ -1,5 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { useRealtimeSync } from '@weldsuite/realtime/react';
+import { RealtimeSyncBridge as SharedBridge } from '@weldsuite/mobile-realtime';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { weldstashSyncMap } from '@/lib/sync-map';
 
@@ -8,12 +7,12 @@ import { weldstashSyncMap } from '@/lib/sync-map';
  * WMS mobile caches (products, stock, pick lists, warehouses).
  */
 export function RealtimeSyncBridge() {
-  const queryClient = useQueryClient();
   const { user } = useClerkAuth();
-  useRealtimeSync({
-    queryClient,
-    syncMap: weldstashSyncMap,
-    currentUserId: user?.id || '',
-  });
-  return null;
+  return (
+    <SharedBridge
+      syncMap={weldstashSyncMap}
+      currentUserId={user?.id || ''}
+      seedKeys={false}
+    />
+  );
 }

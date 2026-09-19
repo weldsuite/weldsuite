@@ -3,8 +3,6 @@ import React, { useState, useMemo, useTransition, useCallback, useEffect, useLay
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Button } from '@weldsuite/ui/components/button';
-import { useTaskEvents } from '@/hooks/realtime/use-entity-events';
-import type { TaskEventData, AnyPlatformEvent } from '@/lib/platform-events/types';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
@@ -497,71 +495,8 @@ export function MyTasksClient({
     if (projects.length > 0) loadMembers();
   }, [projects]);
 
-  // Real-time task event handlers
-  const handleTaskCreated = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-    const newTask: Task = {
-      id: taskData.id,
-      number: taskData.number ?? null,
-      title: taskData.title,
-      description: taskData.description,
-      status: (taskData.status as Task['status']) || 'todo',
-      priority: (taskData.priority as Task['priority']) || 'medium',
-      assigneeId: taskData.assigneeId,
-      assignee: taskData.assigneeName,
-      dueDate: taskData.dueDate ? new Date(taskData.dueDate) : undefined,
-      createdAt: taskData.createdAt ? new Date(taskData.createdAt) : new Date(),
-      projectId: taskData.projectId,
-      project: taskData.projectName,
-      tags: taskData.tags,
-      labels: (taskData as TaskEventData & { labels?: string[] }).labels,
-    };
-    setTasks(prev => {
-      if (prev.some(t => t.id === newTask.id)) return prev;
-      return [newTask, ...prev];
-    });
-  }, []);
-
-  const handleTaskUpdated = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-    setTasks(prev => prev.map(task => {
-      if (task.id !== taskData.id) return task;
-      return {
-        ...task,
-        ...(taskData.title && { title: taskData.title }),
-        ...(taskData.description !== undefined && { description: taskData.description }),
-        ...(taskData.status && { status: taskData.status as Task['status'] }),
-        ...(taskData.priority && { priority: taskData.priority as Task['priority'] }),
-        ...(taskData.assigneeId !== undefined && { assigneeId: taskData.assigneeId }),
-        ...(taskData.assigneeName !== undefined && { assignee: taskData.assigneeName }),
-        ...(taskData.dueDate !== undefined && { dueDate: taskData.dueDate ? new Date(taskData.dueDate) : undefined }),
-        ...(taskData.tags !== undefined && { tags: taskData.tags }),
-      };
-    }));
-    setSelectedTask(prev => {
-      if (!prev || prev.id !== taskData.id) return prev;
-      return {
-        ...prev,
-        ...(taskData.title && { title: taskData.title }),
-        ...(taskData.description !== undefined && { description: taskData.description }),
-        ...(taskData.status && { status: taskData.status as Task['status'] }),
-        ...(taskData.priority && { priority: taskData.priority as Task['priority'] }),
-        ...(taskData.dueDate !== undefined && { dueDate: taskData.dueDate ? new Date(taskData.dueDate) : undefined }),
-      };
-    });
-  }, []);
-
-  const handleTaskDeleted = useCallback((event: AnyPlatformEvent) => {
-    const taskData = event.data as TaskEventData;
-    setTasks(prev => prev.filter(t => t.id !== taskData.id));
-    setSelectedTask(prev => prev?.id === taskData.id ? null : prev);
-  }, []);
-
-  useTaskEvents({
-    onCreated: handleTaskCreated,
-    onUpdated: handleTaskUpdated,
-    onDeleted: handleTaskDeleted,
-  });
+  // Live task sync: useRealtimeSync(platformSyncMap) invalidates ['task'] /
+  // ['projects'] — no parallel PlatformEvents / useTaskEvents bridge.
 
   const projectOptions = projects.map(p => ({ id: p.id, name: p.name }));
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));

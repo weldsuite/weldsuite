@@ -9,6 +9,7 @@ export {
   LOCAL_DEV_WINDOW_FLAG,
   LocalMemoryStore,
   buildLocalInitPayload,
+  isLocalPreviewInit,
   shouldUseLocalDev,
 } from './core/local-dev';
 export type { LocalDevOptions, WeldAppBridgeOptions } from './core/local-dev';
@@ -17,6 +18,7 @@ export type {
   AppRecord,
   BridgeEventName,
   BridgeRequestMethod,
+  CreateProductInput,
   EventMessage,
   HostMessage,
   InitMessage,
@@ -25,6 +27,9 @@ export type {
   ListPagination,
   ListResponse,
   PersonSummary,
+  ProductListOptions,
+  ProductSummary,
+  ProductsClient,
   ReadyMessage,
   RecordListOptions,
   RecordsClient,
@@ -36,6 +41,7 @@ export type {
   TicketsClient,
   PeopleClient,
   ToastVariant,
+  UpdateProductInput,
   WeldAppUser,
   WeldLocale,
   WeldTheme,

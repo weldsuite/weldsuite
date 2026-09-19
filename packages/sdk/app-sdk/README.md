@@ -150,16 +150,17 @@ await bridge.toast('Saved!', 'success');
 | `kv` | `get(key)` (null if missing), `set(key, value)`, `delete(key)`. |
 | `people` | `/v1/people` helpers (`list` / `get`). Requires `people:read`. |
 | `tickets` | `/v1/tickets` helpers (`list` / `get`). Requires `tickets:read`. |
+| `products` | `/v1/products` helpers (`list` / `get` / `create` / `update` / `remove`). Requires `products:read` / `products:write`. In local preview, in-memory. |
 
 List responses follow the platform envelope: `{ data: T[], pagination: { totalCount, hasMore, cursor } }`.
 
 ## Local development
 
-Two ways to preview:
+Three ways to preview:
 
-### 1. Local preview (no platform host) — UI + in-memory storage
+### 1. Bare tab (no chrome) — UI + in-memory storage
 
-Opt in so `connect()` does not require an iframe. Production iframe security is unchanged: local mode **never** activates while the app is embedded.
+Opt in so `connect()` does not require an iframe. Production iframe security is unchanged: bare local mode **never** activates while the app is embedded.
 
 ```tsx
 // main.tsx — safe with Vite DEV: real host still wins when iframed via `weld app dev`
@@ -178,10 +179,10 @@ Or without changing code:
 What you get:
 
 - Mock user / theme / locale (customize via `local={{ userName, appCode, … }}`)
-- In-memory `records` + `kv` (resets on reload)
+- In-memory `records` + `kv` + `products` (resets on reload)
 - No-op `toast` / `navigate` (logged to `console.debug`)
 - A sticky banner: **Local preview — not connected to WeldSuite**
-- Other `/v1/*` routes throw `WeldApiError` (`code: local_preview`) — use the platform path below for real API calls
+- Other `/v1/*` routes (e.g. `people`, `tickets`) throw `WeldApiError` (`code: local_preview`) — use the platform path below for real API calls
 
 ```bash
 npm run dev
@@ -189,15 +190,56 @@ npm run dev
 # or: open http://localhost:5173/?weldLocal=1
 ```
 
-### 2. Platform preview (real host + real API)
+### 2. Local shell (`weld app dev`) — sidebar chrome + real bridge
 
 ```bash
 export WELD_API_KEY=wsk_...   # or: weld login
-weld app dev                 # platform on localhost:3000 iframes your Vite server
+weld app dev                  # opens http://localhost:4173/ by default
+```
+
+The CLI serves a lightweight host page (app rail + content card) that iframes Vite and completes the real `weldapp:*` handshake. Init includes `localPreview: true` so app-storage and products stay in-memory while toast / navigate / theme use the shell. Flags: `--no-shell`, `--no-open`, `--shell-port`.
+
+### 3. Platform preview (real host + real API)
+
+Same `weld app dev` also registers a per-user preview for `/apps/{code}`:
+
+```bash
+weld app dev                 # then open platform (WELD_PLATFORM_URL or app.weldsuite.org)
 weld app dev --tunnel        # hosted platform (HTTPS iframe via cloudflared)
 ```
 
 Open `/apps/{code}` in WeldSuite. Hot reload; other workspace members still see the published bundle.
+
+## Suite UI kit (`@weldsuite/app-sdk/ui`)
+
+WeldApps should look like platform modules — shared tokens and primitives, not one-off marketing CSS. The UI entry mirrors platform Button / Input / Badge / list chrome without depending on the AGPL `@weldsuite/ui` package.
+
+```tsx
+import '@weldsuite/app-sdk/ui/styles.css';
+import {
+  Page,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Badge,
+  EmptyState,
+  Toolbar,
+  Form,
+  FormField,
+  statusBadgeVariant,
+} from '@weldsuite/app-sdk/ui';
+```
+
+Import the CSS once in your app entry (`main.tsx`). Sync theme with `document.documentElement.dataset.theme = theme` from `useWeldApp()` (tokens honor both `data-theme="dark"` and `html.dark`).
+
+Components: `Page`, `PageHeader`, `Button`, `Input`, `Select`, `Textarea`, `Label`, `Badge`, `Table` (+ header/body/row/cell helpers), `Toolbar`, `EmptyState`, `Alert`, `Form` / `FormField` / `FormActions`, `DescriptionList` / `DescriptionItem`, `LoadingState`, `Code`, `Stack`, `Muted`, plus `statusBadgeVariant()` for commerce status chips.
 
 ## License
 

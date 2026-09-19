@@ -104,7 +104,7 @@ async function listSiblingMobileApps(excludeSlug) {
   return entries
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
-    .filter((n) => n !== '_template' && n !== excludeSlug);
+    .filter((n) => n !== '_template' && n !== '_shared' && n !== excludeSlug);
 }
 
 async function appendEasignoreEntries(slug, siblings) {
