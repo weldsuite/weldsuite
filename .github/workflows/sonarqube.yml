@@ -72,13 +72,17 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm test:coverage
 
-      # The JS/TS bridge runs as its own Node process and sizes its heap from
-      # sonar.javascript.node.maxspace in sonar-project.properties, not from
-      # NODE_OPTIONS. It OOM'd here at the default heap on ~6200 files.
+      # Two heaps share this runner: the scanner JVM, and the "bridge" Node
+      # process that analyses JS/TS. The bridge is the hungry one and takes
+      # its size from sonar.javascript.node.maxspace (11 GB), not NODE_OPTIONS.
+      # Cap the JVM so the two together stay under the runner's ~16 GB — its
+      # heaviest sensors peak well under 1 GB, and an uncapped Java 21 would
+      # otherwise help itself to a quarter of RAM and trigger an OS-level kill.
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_SCANNER_JAVA_OPTS: -Xmx2g
 
       # Reports the gate result without failing the job. Remove
       # continue-on-error (and add this job to branch protection) to start
