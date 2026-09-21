@@ -33,13 +33,11 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     # Forked PRs cannot read SONAR_TOKEN, so the scan would fail on a secret
     # that is structurally unavailable. Skip rather than fail red on every
     # outside contribution.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    env:
-      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,18 +54,27 @@ jobs:
       - name: Coverage · app-api
         continue-on-error: true
         working-directory: apps/workers/app-api
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm test:coverage
 
       - name: Coverage · personal-api
         continue-on-error: true
         working-directory: apps/workers/personal-api
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm test:coverage
 
       - name: Coverage · platform
         continue-on-error: true
         working-directory: apps/web/platform
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm test:coverage
 
+      # The JS/TS bridge runs as its own Node process and sizes its heap from
+      # sonar.javascript.node.maxspace in sonar-project.properties, not from
+      # NODE_OPTIONS. It OOM'd here at the default heap on ~6200 files.
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:
