@@ -28,6 +28,7 @@ import {
   softDeleteExternalWebhook,
   updateExternalWebhook,
 } from '../../services/external-webhooks';
+import { scheduleWebhookRetryIndex } from '../../lib/tenant-work-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -257,6 +258,9 @@ app.post('/:id/test', requirePermission('webhooks:update'), async (c) => {
   try {
     const result = await sendTestWebhook(db, id, workspaceId);
     if (!result) return error.notFound(c, 'Webhook', id);
+    if (!result.delivered && workspaceId) {
+      await scheduleWebhookRetryIndex(c.env, workspaceId);
+    }
     return success(c, result);
   } catch (err) {
     console.error('[app-api/external-webhooks] test failed:', err);

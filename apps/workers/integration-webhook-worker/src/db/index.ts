@@ -55,6 +55,7 @@ const KV_TTL_SECONDS = 300; // 5 minutes
 interface CachedWorkspace {
   id: string;
   databaseUrl: string;
+  clerkOrgId?: string;
 }
 
 async function getCachedWorkspaceUrlById(
@@ -63,12 +64,13 @@ async function getCachedWorkspaceUrlById(
 ): Promise<CachedWorkspace> {
   const cacheKey = `wsid:${workspaceId}`;
   const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as CachedWorkspace | null;
-  if (cached) return cached;
+  if (cached?.databaseUrl) return cached;
 
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
     .select({
       id: masterSchema.workspaces.id,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
       neonProjectId: masterSchema.workspaces.neonProjectId,
       neonBranchId: masterSchema.workspaces.neonBranchId,
       neonRoleName: masterSchema.workspaces.neonRoleName,
@@ -90,7 +92,11 @@ async function getCachedWorkspaceUrlById(
     { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 
-  const entry: CachedWorkspace = { id: workspace.id, databaseUrl };
+  const entry: CachedWorkspace = {
+    id: workspace.id,
+    databaseUrl,
+    clerkOrgId: workspace.clerkOrgId ?? undefined,
+  };
   await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), { expirationTtl: KV_TTL_SECONDS });
 
   return entry;
@@ -121,12 +127,13 @@ async function getCachedWorkspaceUrlByClerkOrg(
 ): Promise<CachedWorkspace> {
   const cacheKey = `ws:${clerkOrgId}`;
   const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as CachedWorkspace | null;
-  if (cached) return cached;
+  if (cached?.databaseUrl) return cached;
 
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
     .select({
       id: masterSchema.workspaces.id,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
       neonProjectId: masterSchema.workspaces.neonProjectId,
       neonBranchId: masterSchema.workspaces.neonBranchId,
       neonRoleName: masterSchema.workspaces.neonRoleName,
@@ -148,7 +155,11 @@ async function getCachedWorkspaceUrlByClerkOrg(
     { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 
-  const entry: CachedWorkspace = { id: workspace.id, databaseUrl };
+  const entry: CachedWorkspace = {
+    id: workspace.id,
+    databaseUrl,
+    clerkOrgId: workspace.clerkOrgId ?? clerkOrgId,
+  };
   await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), { expirationTtl: KV_TTL_SECONDS });
 
   return entry;
@@ -164,6 +175,44 @@ export async function getTenantDbForWorkspace(
 ): Promise<TenantDatabase> {
   const workspace = await getCachedWorkspaceUrlByClerkOrg(env, clerkOrgId);
   return createNeonTenantDb(workspace.databaseUrl);
+}
+
+/**
+ * Resolve workspace id + DB by Clerk org id. Used by the entity-webhooks
+ * consumer (event metadata carries the org id from app-api middleware).
+ */
+export async function resolveWorkspaceByClerkOrg(
+  env: Env,
+  clerkOrgId: string,
+): Promise<{ id: string; db: TenantDatabase }> {
+  const workspace = await getCachedWorkspaceUrlByClerkOrg(env, clerkOrgId);
+  return { id: workspace.id, db: createNeonTenantDb(workspace.databaseUrl) };
+}
+
+/**
+ * Resolve Clerk org id + DB by internal workspace id.
+ */
+export async function resolveWorkspaceById(
+  env: Env,
+  workspaceId: string,
+): Promise<{ clerkOrgId: string; db: TenantDatabase }> {
+  const workspace = await getCachedWorkspaceUrlById(env, workspaceId);
+  if (!workspace.clerkOrgId) {
+    // Stale KV entries from before clerkOrgId was cached — refresh once.
+    await env.WORKSPACE_CACHE.delete(`wsid:${workspaceId}`);
+    const refreshed = await getCachedWorkspaceUrlById(env, workspaceId);
+    if (!refreshed.clerkOrgId) {
+      throw new Error(`Workspace missing clerkOrgId: ${workspaceId}`);
+    }
+    return {
+      clerkOrgId: refreshed.clerkOrgId,
+      db: createNeonTenantDb(refreshed.databaseUrl),
+    };
+  }
+  return {
+    clerkOrgId: workspace.clerkOrgId,
+    db: createNeonTenantDb(workspace.databaseUrl),
+  };
 }
 
 export type TenantDatabase = NeonHttpDatabase<typeof tenantSchema>;

@@ -75,7 +75,9 @@ binding = "GITHUB_PROJECT_OUTBOUND"
 class_name = "GithubProjectOutboundSyncWorkflow"
 
 # Cron: */10 polls Sheets/Gmail/Calendar/Airtable + outbound webhook retries
-# via D1 tenant_work_index (due workspaces only after cold-start seed).
+# via D1 tenant_work_index (due workspaces only). Idle tenants are dropped from
+# the index after a no-op tick so Neon can autosuspend; write paths re-upsert
+# when a poll trigger is activated or a delivery fails.
 # CRM auto-sync lives on integration-sync-worker. Inbound webhooks unaffected.
 [triggers]
 crons = ["*/10 * * * *"]
