@@ -1,0 +1,84 @@
+name: SonarQube
+
+# Static analysis + coverage upload to SonarQube Cloud (sonarcloud.io).
+# Project configuration lives in sonar-project.properties at the repo root.
+#
+# NON-BLOCKING for now. This job is deliberately NOT a required status check in
+# branch protection, so the initial backlog of issues can be worked down without
+# freezing merges — the same way lint and platform type-check were introduced.
+# To make it block: add "SonarQube" to the required checks in branch protection
+# and drop the `continue-on-error` on the quality-gate step below.
+#
+# Setup this workflow depends on (one-time, in SonarQube Cloud):
+#   1. Import weldsuite/weldsuite into the "weldsuite" organization.
+#   2. Administration → Analysis Method → turn OFF "Automatic Analysis".
+#      CI-based analysis is rejected while Automatic Analysis is on.
+#   3. Generate a token and store it as the SONAR_TOKEN repository secret.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: sonar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonarqube:
+    name: SonarQube
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Forked PRs cannot read SONAR_TOKEN, so the scan would fail on a secret
+    # that is structurally unavailable. Skip rather than fail red on every
+    # outside contribution.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sonar reads git history to attribute issues to authors and to work
+          # out which code is "new". A shallow clone breaks both.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-monorepo
+
+      # Coverage is generated per workspace rather than via `turbo test` so a
+      # failing test in one workspace still lets the others report. The unit
+      # tests themselves are gated by ci.yml — this job is about coverage data,
+      # so it must not go red when a test fails.
+      - name: Coverage · app-api
+        continue-on-error: true
+        working-directory: apps/workers/app-api
+        run: pnpm test:coverage
+
+      - name: Coverage · personal-api
+        continue-on-error: true
+        working-directory: apps/workers/personal-api
+        run: pnpm test:coverage
+
+      - name: Coverage · platform
+        continue-on-error: true
+        working-directory: apps/web/platform
+        run: pnpm test:coverage
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Reports the gate result without failing the job. Remove
+      # continue-on-error (and add this job to branch protection) to start
+      # blocking on the gate.
+      - name: Quality Gate
+        continue-on-error: true
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 10
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
