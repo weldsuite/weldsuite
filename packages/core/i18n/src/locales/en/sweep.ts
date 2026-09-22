@@ -145,7 +145,9 @@ export const sweep = {
       "doneToggle": "Done"
     },
     "messageDetail": {
-      "emailContentFrameTitle": "Email content"
+      "emailContentFrameTitle": "Email content",
+      "showDarkColors": "Show in dark mode",
+      "showOriginalColors": "Show original colors"
     },
     "quickActions": {
       "email": "Email",

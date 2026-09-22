@@ -1,5 +1,6 @@
 
 import React, { useRef, useEffect, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -104,16 +105,181 @@ function normalizeEmailHtml(html: string): NormalizedEmail {
   }
 }
 
+interface Rgba { r: number; g: number; b: number; a: number }
+interface Hsla { h: number; s: number; l: number; a: number }
+
+let colorProbe: CanvasRenderingContext2D | null = null;
+
+/**
+ * Parses a computed CSS color. Computed colors are almost always `rgb()`/`rgba()`;
+ * anything else (e.g. the app's own `oklch()` theme tokens) is resolved by
+ * painting one pixel on a canvas.
+ */
+function parseColor(value: string): Rgba | null {
+  const m = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/);
+  if (m) {
+    const alpha = m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1);
+    return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: alpha };
+  }
+  try {
+    colorProbe ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (!colorProbe) return null;
+    colorProbe.clearRect(0, 0, 1, 1);
+    colorProbe.fillStyle = value;
+    colorProbe.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = colorProbe.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
+  } catch {
+    return null;
+  }
+}
+
+function toHsla({ r, g, b, a }: Rgba): Hsla {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l, a };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  return { h: h * 60, s, l, a };
+}
+
+function hslaString({ h, s, l, a }: Hsla): string {
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  return `hsl(${h.toFixed(1)} ${(clamp(s) * 100).toFixed(1)}% ${(clamp(l) * 100).toFixed(1)}% / ${a})`;
+}
+
+/** Backgrounds at or above this lightness are "the light canvas" the email was written against. */
+const LIGHT_BACKGROUND = 0.75;
+/** Text below this lightness would be unreadable on a dark canvas. */
+const DARK_TEXT = 0.6;
+
+/**
+ * Adapts an already-rendered email to dark mode, the way Outlook and Apple Mail
+ * do: light backgrounds become dark (white maps exactly onto the app's own
+ * surface so the message blends in), and dark text on those backgrounds becomes
+ * light. Hue is preserved, so a red warning stays red and a link stays blue.
+ *
+ * Anything the sender deliberately colored — a dark or saturated block, a
+ * button, a background image — is left exactly as authored, along with the text
+ * inside it, because those colors were chosen for that block rather than for
+ * the page. Runs from the parent window (the iframe has no scripting), reading
+ * every computed style before writing so the walk doesn't thrash layout.
+ */
+function adaptEmailToDarkMode(doc: Document, surface: Hsla) {
+  const view = doc.defaultView;
+  if (!view || !doc.body) return;
+
+  const neutral = (hsla: Hsla) => hsla.s < 0.15;
+  const darkBackground = (bg: Hsla): Hsla => {
+    // Keep the distance from white: white → the app surface, a light grey
+    // wrapper → a step above it, so nested "cards" stay distinguishable.
+    const l = Math.min(surface.l + (1 - bg.l) * 0.9, 0.35);
+    return neutral(bg)
+      ? { h: surface.h, s: surface.s, l, a: bg.a }
+      : { h: bg.h, s: bg.s * 0.5, l, a: bg.a };
+  };
+  const lightText = (fg: Hsla): Hsla => ({
+    h: fg.h,
+    s: fg.s,
+    l: Math.min(Math.max(1 - fg.l, 0.7), 0.9),
+    a: fg.a,
+  });
+  const dimBorder = (border: Hsla): Hsla =>
+    neutral(border)
+      ? { h: surface.h, s: surface.s, l: surface.l + 0.14, a: border.a }
+      : { h: border.h, s: border.s * 0.6, l: border.l >= LIGHT_BACKGROUND ? surface.l + 0.2 : 0.45, a: border.a };
+
+  const elements: Element[] = [doc.documentElement, doc.body, ...Array.from(doc.body.querySelectorAll('*'))];
+  const onDarkCanvas = new Map<Element, boolean>();
+  const writes: Array<[ElementCSSInlineStyle, string, string]> = [];
+  const sides = ['top', 'right', 'bottom', 'left'] as const;
+
+  for (const el of elements) {
+    const cs = view.getComputedStyle(el);
+    let dark = el.parentElement ? onDarkCanvas.get(el.parentElement) ?? true : true;
+
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+      dark = false;
+    } else {
+      const bg = parseColor(cs.backgroundColor);
+      if (bg && bg.a > 0.5) {
+        const hsla = toHsla(bg);
+        dark = hsla.l >= LIGHT_BACKGROUND;
+        if (dark) writes.push([el as unknown as ElementCSSInlineStyle, 'background-color', hslaString(darkBackground(hsla))]);
+      }
+    }
+    onDarkCanvas.set(el, dark);
+    if (!dark || !('style' in el)) continue;
+
+    const target = el as unknown as ElementCSSInlineStyle;
+    const fg = parseColor(cs.color);
+    if (fg) {
+      const hsla = toHsla(fg);
+      if (hsla.l < DARK_TEXT) writes.push([target, 'color', hslaString(lightText(hsla))]);
+    }
+
+    for (const side of sides) {
+      if (cs.getPropertyValue(`border-${side}-style`) === 'none') continue;
+      if (parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
+      const border = parseColor(cs.getPropertyValue(`border-${side}-color`));
+      if (!border || border.a === 0) continue;
+      const hsla = toHsla(border);
+      if (hsla.l >= LIGHT_BACKGROUND || hsla.l < 0.3) {
+        writes.push([target, `border-${side}-color`, hslaString(dimBorder(hsla))]);
+      }
+    }
+  }
+
+  // Inline !important beats the email's own stylesheet rules, even !important ones.
+  for (const [target, property, value] of writes) {
+    target.style.setProperty(property, value, 'important');
+  }
+}
+
+/** The first opaque background behind `el` in the app, i.e. the surface the email sits on. */
+function readSurfaceColor(el: Element | null): Hsla {
+  const fallback: Hsla = { h: 0, s: 0, l: 0.09, a: 1 };
+  for (let node = el; node; node = node.parentElement) {
+    const bg = parseColor(getComputedStyle(node).backgroundColor);
+    if (bg && bg.a > 0.9) {
+      const hsla = toHsla(bg);
+      return hsla.l < 0.5 ? { ...hsla, a: 1 } : fallback;
+    }
+  }
+  return fallback;
+}
+
+/** Tracks the app theme (the `dark` class on <html>), including live switches. */
+function useAppDarkMode(): boolean {
+  const [isDark, setIsDark] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  );
+  useEffect(() => {
+    const root = document.documentElement;
+    const update = () => setIsDark(root.classList.contains('dark'));
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
+
 /**
  * Renders email HTML inside an iframe, isolating its styles from the app.
  *
- * Rendering model mirrors Outlook.com / Gmail on the web:
- *   - The message always renders on a WHITE background with the sender's own
- *     styling intact — even when the app is in dark mode. Web mail clients
- *     deliberately do NOT invert email colors, because emails are authored for
- *     a light background and forcing a dark palette breaks their design (colored
- *     text on colored backgrounds, logos, buttons, etc.). In dark mode the frame
- *     reads as a light "card" sitting on the dark UI.
+ * Rendering model:
+ *   - Light mode: the message renders on white with the sender's styling intact.
+ *   - Dark mode: the email is adapted to the dark UI (see adaptEmailToDarkMode),
+ *     so plain emails no longer show up as a glaring white slab. Deliberately
+ *     colored blocks keep their design. A per-message toggle switches back to
+ *     the original colors for the rare email the adaptation doesn't suit
+ *     (e.g. a dark logo on a transparent background).
  *   - Fixed-width emails (the ubiquitous ~600px table layout) that are wider
  *     than the reading pane SCROLL horizontally inside the frame instead of
  *     being clipped, again matching Outlook's reading pane.
@@ -124,6 +290,9 @@ export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProp
   const t = useTranslations();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(40);
+  const isDark = useAppDarkMode();
+  const [showOriginalColors, setShowOriginalColors] = useState(false);
+  const adaptToDark = isDark && !showOriginalColors;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -246,6 +415,10 @@ export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProp
     applyAttributes(doc.documentElement, normalized.htmlAttributes);
     applyAttributes(doc.body, normalized.bodyAttributes);
 
+    if (adaptToDark) {
+      adaptEmailToDarkMode(doc, readSurfaceColor(iframe.parentElement));
+    }
+
     // Size the frame to its content. When the email overflows horizontally the
     // root shows a scrollbar; add its thickness so the last row isn't clipped.
     const adjustHeight = () => {
@@ -318,13 +491,37 @@ export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProp
       resizeObserver.disconnect();
       timers.forEach(clearTimeout);
     };
-  }, [html]);
+  }, [html, adaptToDark]);
 
-  // In dark mode the white email sits on a dark UI; the rounded border makes it
-  // read as an intentional "card" (like Outlook/Gmail) rather than a glitch. In
-  // light mode the white-on-white frame is seamless.
+  // When the original (light) colors are shown in dark mode, the rounded border
+  // makes the white email read as an intentional "card" rather than a glitch.
   return (
-    <div className={cn('overflow-hidden rounded-lg dark:border dark:border-border', className)}>
+    <div
+      className={cn(
+        'group/email-frame relative overflow-hidden rounded-lg',
+        isDark && !adaptToDark && 'border border-border',
+        className,
+      )}
+    >
+      {isDark && (
+        <button
+          type="button"
+          onClick={() => setShowOriginalColors((value) => !value)}
+          title={
+            adaptToDark
+              ? t('sweep.weldmail.messageDetail.showOriginalColors')
+              : t('sweep.weldmail.messageDetail.showDarkColors')
+          }
+          aria-label={
+            adaptToDark
+              ? t('sweep.weldmail.messageDetail.showOriginalColors')
+              : t('sweep.weldmail.messageDetail.showDarkColors')
+          }
+          className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/email-frame:opacity-100"
+        >
+          {adaptToDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </button>
+      )}
       {/*
         SECURITY: the email HTML is NOT sanitized — the iframe sandbox below is
         the only thing stopping script execution, so `allow-scripts` MUST NOT be
@@ -340,7 +537,9 @@ export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProp
           height: `${height}px`,
           border: 'none',
           display: 'block',
-          background: '#ffffff',
+          // Transparent while adapting, so the frame never flashes white before
+          // the adapted content (painted in the app's surface color) is written.
+          background: adaptToDark ? 'transparent' : '#ffffff',
         }}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         title={t('sweep.weldmail.messageDetail.emailContentFrameTitle')}
