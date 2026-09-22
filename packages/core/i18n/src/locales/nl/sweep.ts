@@ -145,7 +145,9 @@ export const sweep = {
       "doneToggle": "Klaar"
     },
     "messageDetail": {
-      "emailContentFrameTitle": "E-mailinhoud"
+      "emailContentFrameTitle": "E-mailinhoud",
+      "showDarkColors": "Tonen in donkere modus",
+      "showOriginalColors": "Originele kleuren tonen"
     },
     "quickActions": {
       "email": "E-mail",
