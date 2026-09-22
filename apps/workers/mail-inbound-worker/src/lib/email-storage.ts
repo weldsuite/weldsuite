@@ -30,6 +30,19 @@ import {
   expandCatchAllCandidates,
   isCatchAllRegistryEmail,
 } from './catch-all';
+import {
+  buildMailAutoLabelQuestions,
+  buildMailAutoLabelState,
+  matchedLabelsFromJevAnswers,
+  type AiLabelCandidate,
+} from './mail-auto-label';
+import {
+  evaluate,
+  isGatewayConfigured,
+  JEV_MODEL_ID,
+  providerCostUsd,
+} from '@weldsuite/ai';
+import { nanoUsd, recordProviderUsage } from '@weldsuite/credits/gateway-costs';
 import type { Env } from '../index';
 
 export type StoreEmailResult = {
@@ -689,13 +702,6 @@ export async function storeEmail(
 
     console.log(`[Store] Saved email ${dbMessageId} (thread ${threadId}) for account ${account.accountId}`);
 
-    // Apply keyword-based AI labels (synchronous, free)
-    try {
-      await applyKeywordLabels(tenantDb, account.accountId, dbMessageId, email);
-    } catch (labelErr) {
-      console.error(`[Store] Failed to apply keyword labels for ${dbMessageId}:`, labelErr);
-    }
-
     // Track the mailing list behind this message for the Subscriptions page.
     if (!spam.isSpam) {
       try {
@@ -793,7 +799,7 @@ async function finishWorkspaceDelivery(
     }
   }
 
-  // Run AI semantic classification + mail rules (non-blocking)
+  // Run Jev multi-label auto-labeling + mail rules (non-blocking)
   try {
     await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
   } catch (classifyErr) {
@@ -1078,117 +1084,12 @@ function subscriptionConflictSet(
 }
 
 /**
- * Apply keyword-based AI labels to a newly stored inbound message.
- * Fetches all AI-enabled labels with keywords for the account and checks
- * for case-insensitive keyword matches in subject, sender, and body.
- */
-async function applyKeywordLabels(
-  tenantDb: Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>,
-  accountId: string,
-  messageId: string,
-  email: ParsedEmail,
-): Promise<void> {
-  const { mailLabels, mailMessages } = tenantSchema;
-
-  // Get AI-enabled labels with keywords
-  const aiLabels = await tenantDb
-    .select()
-    .from(mailLabels)
-    .where(
-      and(
-        eq(mailLabels.accountId, accountId),
-        eq(mailLabels.aiEnabled, true),
-        isNull(mailLabels.deletedAt)
-      )
-    );
-
-  if (aiLabels.length === 0) return;
-
-  const senderEmail = email.from?.email || '';
-  const senderName = email.from?.name || '';
-  const subject = email.subject || '';
-  const textBody = (email.textBody || '').substring(0, 500);
-  const searchText = `${subject} ${senderEmail} ${senderName} ${textBody}`.toLowerCase();
-
-  const matchedLabelNames: string[] = [];
-  const matchedLabelIds: string[] = [];
-
-  for (const label of aiLabels) {
-    const keywords = label.aiKeywords as string[] | null;
-    if (!keywords || keywords.length === 0) continue;
-
-    const matched = keywords.some((kw: string) =>
-      searchText.includes(kw.toLowerCase())
-    );
-
-    if (matched) {
-      matchedLabelNames.push(label.name);
-      matchedLabelIds.push(label.id);
-    }
-  }
-
-  if (matchedLabelNames.length === 0) return;
-
-  // Update message labels (add matched labels alongside INBOX)
-  const [message] = await tenantDb
-    .select({ labels: mailMessages.labels })
-    .from(mailMessages)
-    .where(eq(mailMessages.id, messageId))
-    .limit(1);
-
-  const currentLabels = (message?.labels as string[]) || ['INBOX'];
-  const newLabels = [...new Set([...currentLabels, ...matchedLabelNames])];
-
-  await tenantDb
-    .update(mailMessages)
-    .set({ labels: newLabels, updatedAt: new Date() })
-    .where(eq(mailMessages.id, messageId));
-
-  // Increment messageCount on matched labels
-  for (const labelId of matchedLabelIds) {
-    await tenantDb
-      .update(mailLabels)
-      .set({
-        messageCount: sql`${mailLabels.messageCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(mailLabels.id, labelId));
-  }
-
-  console.log(`[Store] Applied keyword labels [${matchedLabelNames.join(', ')}] to message ${messageId}`);
-}
-
-// ============================================================================
-// AI Semantic Classification + Rule Execution
-// ============================================================================
-
-/**
- * AI is currently unavailable. Previously ran a semantic classification
- * prompt through the shared AI provider; keyword labels already ran before
- * this is called, so skipping it is not fatal — callers already tolerate a
- * `null` return (see `classifyAndRunRules` below).
- */
-async function callAiClassifier(
-  _env: Env,
-  _ctx: {
-    workspaceId: string;
-    agentId: string;
-    userId: string;
-    tenantDb: unknown;
-  },
-  _messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  _opts: { temperature?: number; maxTokens?: number } = {},
-): Promise<string | null> {
-  console.warn('[ai] AI is currently unavailable — skipping mail-inbound semantic classification');
-  return null;
-}
-
-/**
- * Run AI semantic classification + mail rules on a newly stored inbound message.
- * Called after keyword labels have been applied.
+ * Apply Jev multi-label auto-labeling, then run user mail rules.
  *
- * Phase 1: AI classification for labels that have aiDescription (but weren't keyword-matched)
- * Phase 2: Execute user-defined mail rules
+ * Keywords are no longer used — every AI-enabled label with an `aiDescription`
+ * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
+ * the Cloudflare AI Gateway. Ops infra cost is recorded; customer credits
+ * are not charged for this path.
  */
 async function classifyAndRunRules(
   env: Env,
@@ -1200,9 +1101,8 @@ async function classifyAndRunRules(
   const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
   const { mailMessages, mailLabels, mailRules } = tenantSchema;
 
-  // ---- Phase 1: AI Semantic Classification ----
+  // ---- Phase 1: Jev multi-label classification ----
 
-  // Get AI-enabled labels with descriptions
   const aiLabels = await tenantDb
     .select()
     .from(mailLabels)
@@ -1214,7 +1114,6 @@ async function classifyAndRunRules(
       )
     );
 
-  // Get the current message labels (may have keyword labels already)
   const [message] = await tenantDb
     .select()
     .from(mailMessages)
@@ -1224,71 +1123,71 @@ async function classifyAndRunRules(
   if (!message) return;
 
   const currentLabels = (message.labels as string[]) || [];
-  const candidates = aiLabels.filter(
-    (l) => l.aiDescription && !currentLabels.includes(l.name)
-  );
+  const candidates: AiLabelCandidate[] = aiLabels
+    .filter((l) => l.aiDescription && !currentLabels.includes(l.name))
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      aiDescription: l.aiDescription as string,
+      aiConfidence: l.aiConfidence,
+    }));
 
   if (candidates.length > 0) {
-    try {
-      const senderEmail = email.from?.email || '';
-      const senderName = email.from?.name || '';
-      const subject = email.subject || '';
-      const emailPreview = (email.textBody || '').substring(0, 1000);
-
-      const labelDescriptions = candidates
-        .map(
-          (l, i) =>
-            `${i + 1}. "${l.name}" (threshold: ${l.aiConfidence ?? 70}%) — ${l.aiDescription}`
-        )
-        .join('\n');
-
-      const prompt = `You are an email classifier. Determine which labels apply to this email.
-
-Email:
-- Subject: ${subject}
-- From: ${senderName} <${senderEmail}>
-- Preview: ${emailPreview}
-
-Labels to evaluate:
-${labelDescriptions}
-
-Return JSON: { "labels": [{ "name": "label name", "confidence": 85 }] }
-Only include labels where confidence >= the label's threshold.
-If no labels match, return { "labels": [] }.`;
-
-      const agentId = 'system';
-      const aiContent = await callAiClassifier(
-        env,
-        {
-          workspaceId,
-          agentId,
-          userId: account.members[0]?.userId ?? 'system',
-          tenantDb,
-        },
-        [
-          { role: 'system', content: 'You are an email classifier. Always respond with valid JSON.' },
-          { role: 'user', content: prompt },
-        ],
+    if (!isGatewayConfigured(env)) {
+      console.warn(
+        `[Store] AI gateway not configured — skipping Jev auto-label for ${messageId}`,
       );
+    } else {
+      try {
+        const state = buildMailAutoLabelState({
+          subject: email.subject,
+          from: email.from,
+          to: email.to,
+          textBody: email.textBody,
+        });
+        const questions = buildMailAutoLabelQuestions(candidates);
 
-      if (aiContent) {
-        const response = JSON.parse(aiContent);
-        const matchedLabels: string[] = [];
+        const result = await evaluate(
+          env,
+          { state, questions, modelId: JEV_MODEL_ID },
+          {
+            op: 'mail_auto_label',
+            onUsage: async (rec) => {
+              try {
+                const masterDb = getMasterDb(env);
+                await recordProviderUsage(masterDb, {
+                  gateway: rec.gateway,
+                  modelId: rec.modelId,
+                  usage: {
+                    inputTokens: rec.usage?.inputTokens,
+                    outputTokens: rec.usage?.outputTokens,
+                  },
+                  op: rec.op,
+                  providerCostNanoUsd: nanoUsd(
+                    rec.providerCostUsd ??
+                      providerCostUsd(rec.modelId, rec.usage ?? {}),
+                  ),
+                  // Infra cost only — do not charge the workspace wallet.
+                  creditsCharged: 0,
+                  coveredByServiceCredit: rec.coveredByServiceCredit,
+                  workspaceId,
+                  referenceType: 'mail_message',
+                  referenceId: messageId,
+                  idempotencyKey: `mail_auto_label:${messageId}`,
+                });
+              } catch (usageErr) {
+                console.error(
+                  `[Store] Failed to record Jev infra cost for ${messageId}:`,
+                  usageErr,
+                );
+              }
+            },
+          },
+        );
 
-        for (const match of response.labels || []) {
-          const candidate = candidates.find(
-            (l) => l.name.toLowerCase() === match.name?.toLowerCase()
-          );
-          if (candidate) {
-            const threshold = candidate.aiConfidence ?? 70;
-            if ((match.confidence ?? 0) >= threshold) {
-              matchedLabels.push(candidate.name);
-            }
-          }
-        }
+        const matchedLabels = matchedLabelsFromJevAnswers(candidates, result.answers);
 
         if (matchedLabels.length > 0) {
-          // Re-read to get fresh labels
           const [fresh] = await tenantDb
             .select({ labels: mailMessages.labels })
             .from(mailMessages)
@@ -1313,11 +1212,13 @@ If no labels match, return { "labels": [] }.`;
               .where(eq(mailLabels.id, label.id));
           }
 
-          console.log(`[Store] Applied AI labels [${matchedLabels.join(', ')}] to message ${messageId}`);
+          console.log(
+            `[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`,
+          );
         }
+      } catch (aiErr) {
+        console.error(`[Store] Jev auto-label failed for ${messageId}:`, aiErr);
       }
-    } catch (aiErr) {
-      console.error(`[Store] AI classification failed for ${messageId}:`, aiErr);
     }
   }
 

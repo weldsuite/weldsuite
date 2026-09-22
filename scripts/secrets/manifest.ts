@@ -63,7 +63,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_URL_PERSONAL",
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
-    // Semantic label classification for inbound workspace mail.
+    // Jev multi-label auto-labeling via Cloudflare AI Gateway / Workers AI.
+    // CF_AI_GATEWAY is optional at runtime (defaults to `default`).
+    // AI_GATEWAY_API_TOKEN is optional (enables direct /ai/run fallback).
     "CF_ACCOUNT_ID",
     "CF_AIG_TOKEN",
     ["BETTERSTACK_TOKEN_MAIL_INBOUND_WORKER", "BETTERSTACK_TOKEN"],

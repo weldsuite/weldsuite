@@ -32,6 +32,8 @@ const KNOWN_CANONICAL_IDS: readonly string[] = [
   // Embeddings
   'openai/text-embedding-3-small',
   'openai/text-embedding-3-large',
+  // Structured evaluation (TypeSafe Jev)
+  'typesafe/jev',
 ];
 
 /**
