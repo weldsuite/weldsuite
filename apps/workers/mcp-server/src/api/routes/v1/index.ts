@@ -24,6 +24,10 @@ import goals from './goals';
 import knowledgePages from './knowledge-pages';
 import knowledgeSpaces from './knowledge-spaces';
 import leads from './leads';
+import mailAccounts from './mail-accounts';
+import mailDrafts from './mail-drafts';
+import mailLabels from './mail-labels';
+import mailMessages from './mail-messages';
 import milestones from './milestones';
 import opportunities from './opportunities';
 import orders from './orders';
@@ -88,6 +92,10 @@ v1.get('/', async (c) => {
       '/v1/knowledge-pages',
       '/v1/knowledge-spaces',
       '/v1/leads',
+      '/v1/mail-accounts',
+      '/v1/mail-drafts',
+      '/v1/mail-labels',
+      '/v1/mail-messages',
       '/v1/milestones',
       '/v1/opportunities',
       '/v1/orders',
@@ -161,6 +169,10 @@ v1.route('/goals', goals);
 v1.route('/knowledge-pages', knowledgePages);
 v1.route('/knowledge-spaces', knowledgeSpaces);
 v1.route('/leads', leads);
+v1.route('/mail-accounts', mailAccounts);
+v1.route('/mail-drafts', mailDrafts);
+v1.route('/mail-labels', mailLabels);
+v1.route('/mail-messages', mailMessages);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
 v1.route('/orders', orders);

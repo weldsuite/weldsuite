@@ -89,7 +89,7 @@ export function MessagePage() {
   }, []);
 
   async function onSend() {
-    if (!id || !mode) return;
+    if (!id || !mode || sending) return;
     setSending(true);
     setSendError(null);
     try {
@@ -239,7 +239,14 @@ export function MessagePage() {
         )}
 
         {mode && (
-          <div className="mt-6 rounded-lg border border-border p-4">
+          <div
+            className="mt-6 rounded-lg border border-border p-4"
+            onKeyDown={(e) => {
+              if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              void onSend();
+            }}
+          >
             <p className="mb-3 text-sm font-medium text-foreground">
               {mode === 'forward'
                 ? 'Forward'
@@ -277,6 +284,7 @@ export function MessagePage() {
                 type="button"
                 onClick={() => void onSend()}
                 disabled={sending}
+                title="Ctrl+Enter"
                 className={cn(
                   'inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90',
                   sending && 'opacity-50',

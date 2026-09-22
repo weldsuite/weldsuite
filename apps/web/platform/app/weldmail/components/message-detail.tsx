@@ -732,6 +732,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   };
 
   const handleSendReply = async () => {
+    if (isSending) return;
     const htmlContent = editorRef.current?.innerHTML || '';
     const textContent = editorRef.current?.textContent || '';
     if (!textContent.trim()) {
@@ -763,6 +764,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   };
 
   const handleSendForward = async () => {
+    if (isSending) return;
     const toAddresses = composeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
     if (toAddresses.length === 0) {
       toast.error(t.mail.composePage.atLeastOneRecipient);
@@ -1033,7 +1035,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
 
     return (
-      <div className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}>
+      <div
+        className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}
+        onKeyDown={(e) => {
+          if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          if (!sendDisabled) onSend();
+        }}
+      >
         {/* To field */}
         <div className="flex items-center gap-2 px-3 py-2.5">
           <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
@@ -1148,7 +1157,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   e.target.style.height = e.target.scrollHeight + 'px';
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                     e.preventDefault();
                     if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
                     setIsInlineAiGenerating(true);
@@ -1293,7 +1302,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <Button variant="outline" size="sm" onClick={onCancel}>
                 {t.mail.messageDetail.cancelButton}
               </Button>
-              <Button size="sm" onClick={onSend} disabled={sendDisabled}>
+              <Button size="sm" onClick={onSend} disabled={sendDisabled} title="Ctrl+Enter">
                 {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : t.mail.compose.send}
               </Button>
             </div>

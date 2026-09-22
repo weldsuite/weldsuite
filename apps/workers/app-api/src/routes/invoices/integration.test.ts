@@ -95,4 +95,64 @@ describe('/api/invoices · entity base currency', () => {
       .limit(1);
     expect(row?.currency).toBe('USD');
   });
+
+  it('POST / stores paid, sent, and overdue instead of forcing draft', async () => {
+    await db.insert(schema.entities).values({
+      id: 'ent_status_inv',
+      name: 'Status Invoice Co',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      locale: 'nl-NL',
+      timezone: 'Europe/Amsterdam',
+    });
+
+    const { request } = createTestApp('/api/invoices', invoicesRoutes, {
+      context: { permissions: permissions('invoices:create'), tenantDb: db },
+    });
+
+    for (const status of ['paid', 'sent', 'overdue'] as const) {
+      const res = await request('/api/invoices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Accounting-Entity-Id': 'ent_status_inv',
+        },
+        body: JSON.stringify({
+          contactId: 'ctt_status',
+          issueDate: '2026-04-01',
+          dueDate: '2026-10-04',
+          status,
+          items: [{ description: 'Work', quantity: '1', unitPrice: '10.00' }],
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { data: { id: string; status: string } };
+      expect(body.data.status).toBe(status);
+
+      const [row] = await db
+        .select()
+        .from(schema.invoices)
+        .where(eq(schema.invoices.id, body.data.id))
+        .limit(1);
+      expect(row?.status).toBe(status);
+    }
+
+    const omitted = await request('/api/invoices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Accounting-Entity-Id': 'ent_status_inv',
+      },
+      body: JSON.stringify({
+        contactId: 'ctt_status',
+        issueDate: '2026-04-01',
+        dueDate: '2026-10-04',
+        items: [{ description: 'Work', quantity: '1', unitPrice: '10.00' }],
+      }),
+    });
+    expect(omitted.status).toBe(201);
+    const omittedBody = (await omitted.json()) as { data: { status: string } };
+    expect(omittedBody.data.status).toBe('draft');
+  });
 });

@@ -14,9 +14,10 @@ import {
 import { KpiCards } from './components/kpi-cards';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { formatIsoDate } from '@/lib/utils';
 
 export default function AccountingDashboardPage() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const td = t.accounting.dashboard;
   const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { data, isLoading } = useAccountingDashboard();
@@ -91,7 +92,7 @@ export default function AccountingDashboardPage() {
                         </Link>
                       </TableCell>
                       <TableCell className="text-sm">{inv.contactName}</TableCell>
-                      <TableCell className="text-sm">{inv.dueDate}</TableCell>
+                      <TableCell className="text-sm">{formatIsoDate(inv.dueDate, language)}</TableCell>
                       <TableCell className="text-sm text-right">{fmt(inv.balanceDue)}</TableCell>
                     </TableRow>
                   ))}
@@ -123,7 +124,7 @@ export default function AccountingDashboardPage() {
                 <TableBody>
                   {dashboard.recentPayments.slice(0, 10).map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="text-sm">{p.date}</TableCell>
+                      <TableCell className="text-sm">{formatIsoDate(p.date, language)}</TableCell>
                       <TableCell>
                         <Badge variant={p.type === 'received' ? 'default' : 'secondary'} className="text-xs">
                           {p.type}

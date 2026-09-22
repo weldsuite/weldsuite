@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import { DynamicIcon as LucideDynamic } from 'lucide-react/dynamic';
+import dynamicIconImports from 'lucide-react/dynamicIconImports';
 import { Hash } from 'lucide-react';
 
 function toKebab(name: string): string {
@@ -13,6 +14,15 @@ function toKebab(name: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
+}
+
+function lucideKey(name: string): string {
+  return (name.includes('-') ? name : toKebab(name)).toLowerCase();
+}
+
+/** True when `name` is a real Lucide icon (PascalCase or kebab-case). */
+export function isKnownLucideIcon(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(dynamicIconImports, lucideKey(name));
 }
 
 export function LucideDynamicIcon({
@@ -27,7 +37,7 @@ export function LucideDynamicIcon({
   /** Rendered for an unknown icon name. Defaults to a `Hash` icon. */
   fallback?: () => ReactNode;
 }) {
-  const kebab = name.includes('-') ? name : toKebab(name);
+  const kebab = lucideKey(name);
   // `name` is loosely typed here — lucide's DynamicIcon throws on unknown
   // names. We use a Hash fallback (by default) to keep the UI rendering
   // instead of surfacing a console error during sidebar resolution.

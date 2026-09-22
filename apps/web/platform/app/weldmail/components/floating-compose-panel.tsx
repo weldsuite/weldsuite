@@ -355,6 +355,7 @@ export function FloatingComposePanel() {
   };
 
   const handleSend = async () => {
+    if (isSending) return;
     // Get body content directly from the ref (may not be synced to context yet)
     const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
 
@@ -556,7 +557,15 @@ export function FloatingComposePanel() {
   }
 
   return (
-    <div className="fixed bottom-3 z-50 w-[560px] min-h-[450px] max-h-[80vh] bg-background rounded-xl border border-border shadow-[0_0_20px_rgba(0,0,0,0.06)] dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] flex flex-col" style={{ right: agentRight }}>
+    <div
+      className="fixed bottom-3 z-50 w-[560px] min-h-[450px] max-h-[80vh] bg-background rounded-xl border border-border shadow-[0_0_20px_rgba(0,0,0,0.06)] dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] flex flex-col"
+      style={{ right: agentRight }}
+      onKeyDown={(e) => {
+        if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        void handleSend();
+      }}
+    >
       {/* Header - Same as compose page */}
       <div className="px-4 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between">
@@ -704,7 +713,7 @@ export function FloatingComposePanel() {
               </PopoverContent>
             </Popover>
 
-            <Button type="button" onClick={handleSend} disabled={isSending} size="sm" className="!px-3">
+            <Button type="button" onClick={handleSend} disabled={isSending} size="sm" className="!px-3" title="Ctrl+Enter">
               {isSending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               {scheduledTime ? t.mail.floatingCompose.schedule : t.mail.compose.send}
             </Button>
@@ -939,7 +948,7 @@ export function FloatingComposePanel() {
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && aiPrompt.trim()) {
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && aiPrompt.trim()) {
                   e.preventDefault();
                   handleAiGenerate();
                 }
