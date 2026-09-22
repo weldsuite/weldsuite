@@ -33,7 +33,10 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Taint analysis is the long pole: the run that OOM'd was 29 minutes in and
+    # only 56% of the way through it. Give a completing scan room rather than
+    # trading an out-of-memory for a timeout.
+    timeout-minutes: 60
     # Forked PRs cannot read SONAR_TOKEN, so the scan would fail on a secret
     # that is structurally unavailable. Skip rather than fail red on every
     # outside contribution.
@@ -73,16 +76,26 @@ jobs:
         run: pnpm test:coverage
 
       # Two heaps share this runner: the scanner JVM, and the "bridge" Node
-      # process that analyses JS/TS. The bridge is the hungry one and takes
-      # its size from sonar.javascript.node.maxspace (11 GB), not NODE_OPTIONS.
-      # Cap the JVM so the two together stay under the runner's ~16 GB — its
-      # heaviest sensors peak well under 1 GB, and an uncapped Java 21 would
-      # otherwise help itself to a quarter of RAM and trigger an OS-level kill.
+      # process that analyses JS/TS. Both need a deliberate size, and they have
+      # to be sized against each other.
+      #
+      # The JVM is the hungry one — not for the ordinary sensors, which do peak
+      # well under 1 GB, but for JsSecuritySensorV2, the JS/TS taint analysis.
+      # That sensor holds a whole-program graph and died with
+      # "OutOfMemoryError: Java heap space" partway through the file set at
+      # -Xmx2g. The bridge, meanwhile, stopped being a problem once the
+      # TypeScript programs were split per workspace, so the 11 GB it used to
+      # reserve was buying nothing while starving the JVM.
+      #
+      # 8 GB here + 4 GB for the bridge (sonar-project.properties) + JVM
+      # overhead leaves the runner's ~16 GB enough slack for the OS. Move the
+      # two together, never one alone: an uncapped Java 21 helps itself to a
+      # quarter of RAM and the pair trips an OS-level kill instead.
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_SCANNER_JAVA_OPTS: -Xmx2g
+          SONAR_SCANNER_JAVA_OPTS: -Xmx8g
 
       # Reports the gate result without failing the job. Remove
       # continue-on-error (and add this job to branch protection) to start
