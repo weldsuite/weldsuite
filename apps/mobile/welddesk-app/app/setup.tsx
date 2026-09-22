@@ -18,6 +18,7 @@ import storage from '@weldsuite/mobile-ui/utils/storage';
 import api from '@/services/api';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { hideAppSplash } from '@/utils/splash';
+import { useI18n } from '@/lib/i18n';
 import {
   type SetupMode, type SetupFormData, type ProfileData, type WorkspaceData,
   COUNTRIES, STEP_COUNT_NEW, STEP_COUNT_EXISTING,
@@ -29,6 +30,7 @@ import {
 // ============================================================================
 
 function ProgressDots({ current, total, colors }: { current: number; total: number; colors: any }) {
+  const { t, format } = useI18n();
   return (
     <View style={progressStyles.container}>
       <View style={progressStyles.dotsRow}>
@@ -46,7 +48,7 @@ function ProgressDots({ current, total, colors }: { current: number; total: numb
         ))}
       </View>
       <Text style={[progressStyles.counter, { color: colors.muted }]}>
-        {current} of {total}
+        {format(t.setup.stepCounter, { current, total })}
       </Text>
     </View>
   );
@@ -66,13 +68,14 @@ const progressStyles = StyleSheet.create({
 function StepHeader({ onBack, showBack, current, total, colors }: {
   onBack: () => void; showBack: boolean; current: number; total: number; colors: any;
 }) {
+  const { t } = useI18n();
   return (
     <View style={headerStyles.container}>
       <View style={headerStyles.backArea}>
         {showBack && (
           <TouchableOpacity onPress={onBack} hitSlop={10} style={headerStyles.backButton}>
             <ArrowLeft size={20} color={colors.text} />
-            <Text style={[headerStyles.backText, { color: colors.text }]}>Back</Text>
+            <Text style={[headerStyles.backText, { color: colors.text }]}>{t.setup.back}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -100,58 +103,59 @@ function ProfileStep({ data, onNext, isLoading, colors }: {
   const [phone, setPhone] = useState(data.phone);
   const [jobTitle, setJobTitle] = useState(data.jobTitle);
   const [error, setError] = useState('');
+  const { t } = useI18n();
 
   const handleNext = () => {
-    if (!firstName.trim()) { setError('First name is required'); return; }
-    if (!lastName.trim()) { setError('Last name is required'); return; }
+    if (!firstName.trim()) { setError(t.setup.firstNameRequired); return; }
+    if (!lastName.trim()) { setError(t.setup.lastNameRequired); return; }
     setError('');
     onNext({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone.trim(), jobTitle: jobTitle.trim() });
   };
 
   return (
     <ScrollView style={stepStyles.scroll} contentContainerStyle={stepStyles.scrollContent} keyboardShouldPersistTaps="handled">
-      <Text style={[stepStyles.title, { color: colors.text }]}>Set up your profile</Text>
+      <Text style={[stepStyles.title, { color: colors.text }]}>{t.setup.profileTitle}</Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted }]}>
-        Tell us a bit about yourself so your team knows who you are.
+        {t.setup.profileSubtitle}
       </Text>
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>First name</Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.firstName}</Text>
       <TextInput
         style={[stepStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
         value={firstName}
         onChangeText={setFirstName}
-        placeholder="Your first name"
+        placeholder={t.setup.firstNamePlaceholder}
         placeholderTextColor={colors.muted}
         autoCapitalize="words"
         autoFocus
       />
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>Last name</Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.lastName}</Text>
       <TextInput
         style={[stepStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
         value={lastName}
         onChangeText={setLastName}
-        placeholder="Your last name"
+        placeholder={t.setup.lastNamePlaceholder}
         placeholderTextColor={colors.muted}
         autoCapitalize="words"
       />
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>Phone number <Text style={{ color: colors.muted, fontWeight: '400' }}>(optional)</Text></Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.phone} <Text style={{ color: colors.muted, fontWeight: '400' }}>{t.setup.optional}</Text></Text>
       <TextInput
         style={[stepStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
         value={phone}
         onChangeText={setPhone}
-        placeholder="+1 234 567 8900"
+        placeholder={t.setup.phonePlaceholder}
         placeholderTextColor={colors.muted}
         keyboardType="phone-pad"
       />
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>Job title <Text style={{ color: colors.muted, fontWeight: '400' }}>(optional)</Text></Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.jobTitle} <Text style={{ color: colors.muted, fontWeight: '400' }}>{t.setup.optional}</Text></Text>
       <TextInput
         style={[stepStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
         value={jobTitle}
         onChangeText={setJobTitle}
-        placeholder="e.g. Support Agent"
+        placeholder={t.setup.jobTitlePlaceholder}
         placeholderTextColor={colors.muted}
         autoCapitalize="words"
       />
@@ -163,7 +167,7 @@ function ProfileStep({ data, onNext, isLoading, colors }: {
         onPress={handleNext}
         disabled={isLoading}
       >
-        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>Continue</Text>}
+        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>{t.setup.continue}</Text>}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -181,6 +185,7 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
   const [country, setCountry] = useState(data.country);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [error, setError] = useState('');
+  const { t } = useI18n();
 
   const handleNameChange = (val: string) => {
     setName(val);
@@ -188,8 +193,8 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
   };
 
   const handleNext = () => {
-    if (!name.trim()) { setError('Workspace name is required'); return; }
-    if (!country) { setError('Please select a country'); return; }
+    if (!name.trim()) { setError(t.setup.workspaceNameRequired); return; }
+    if (!country) { setError(t.setup.countryRequired); return; }
     setError('');
     onNext({ name: name.trim(), slug: slug || generateSlug(name.trim()), country });
   };
@@ -198,17 +203,17 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
 
   return (
     <ScrollView style={stepStyles.scroll} contentContainerStyle={stepStyles.scrollContent} keyboardShouldPersistTaps="handled">
-      <Text style={[stepStyles.title, { color: colors.text }]}>Create your workspace</Text>
+      <Text style={[stepStyles.title, { color: colors.text }]}>{t.setup.workspaceTitle}</Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted }]}>
-        This is where your team will manage support tickets and customer conversations.
+        {t.setup.workspaceSubtitle}
       </Text>
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>Workspace name</Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.workspaceName}</Text>
       <TextInput
         style={[stepStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
         value={name}
         onChangeText={handleNameChange}
-        placeholder="e.g. Acme Support"
+        placeholder={t.setup.workspaceNamePlaceholder}
         placeholderTextColor={colors.muted}
         autoFocus
       />
@@ -219,13 +224,13 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
         </Text>
       ) : null}
 
-      <Text style={[stepStyles.label, { color: colors.text }]}>Country</Text>
+      <Text style={[stepStyles.label, { color: colors.text }]}>{t.setup.country}</Text>
       <TouchableOpacity
         style={[stepStyles.input, stepStyles.selectButton, { borderColor: colors.border, backgroundColor: colors.card }]}
         onPress={() => setShowCountryPicker(true)}
       >
         <Text style={[stepStyles.selectText, { color: selectedCountry ? colors.text : colors.muted }]}>
-          {selectedCountry ? selectedCountry.name : 'Select country'}
+          {selectedCountry ? selectedCountry.name : t.setup.selectCountry}
         </Text>
         <ChevronDown size={16} color={colors.muted} />
       </TouchableOpacity>
@@ -233,9 +238,9 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
       <Modal visible={showCountryPicker} animationType="slide" presentationStyle="pageSheet">
         <View style={[stepStyles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[stepStyles.modalHeader, { borderBottomColor: colors.divider }]}>
-            <Text style={[stepStyles.modalTitle, { color: colors.text }]}>Select Country</Text>
+            <Text style={[stepStyles.modalTitle, { color: colors.text }]}>{t.setup.selectCountry}</Text>
             <TouchableOpacity onPress={() => setShowCountryPicker(false)}>
-              <Text style={{ color: '#3B82F6', fontSize: 16, fontWeight: '600' }}>Done</Text>
+              <Text style={{ color: '#3B82F6', fontSize: 16, fontWeight: '600' }}>{t.setup.done}</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -261,7 +266,7 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
         onPress={handleNext}
         disabled={isLoading}
       >
-        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>Create Workspace</Text>}
+        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>{t.setup.createWorkspace}</Text>}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -278,11 +283,12 @@ function ProvisioningStep({ onComplete, colors }: {
   const [, setPollCount] = useState(0);
   const [failed, setFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { t } = useI18n();
 
   const phases = [
-    { label: 'Creating your database', icon: Database },
-    { label: 'Setting up security', icon: Shield },
-    { label: 'Enabling features', icon: Zap },
+    { label: t.setup.phaseDatabase, icon: Database },
+    { label: t.setup.phaseSecurity, icon: Shield },
+    { label: t.setup.phaseFeatures, icon: Zap },
   ];
 
   const poll = useCallback(async () => {
@@ -340,10 +346,10 @@ function ProvisioningStep({ onComplete, colors }: {
   return (
     <View style={provisionStyles.container}>
       <Text style={[stepStyles.title, { color: colors.text, textAlign: 'center' }]}>
-        Setting up your workspace
+        {t.setup.provisioningTitle}
       </Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted, textAlign: 'center', marginBottom: 40 }]}>
-        This usually takes less than a minute.
+        {t.setup.provisioningSubtitle}
       </Text>
 
       {phases.map((phase, index) => {
@@ -381,10 +387,10 @@ function ProvisioningStep({ onComplete, colors }: {
       {failed && (
         <View style={provisionStyles.failedContainer}>
           <Text style={[provisionStyles.failedText, { color: colors.muted }]}>
-            Taking longer than expected.
+            {t.setup.provisioningSlow}
           </Text>
           <TouchableOpacity style={stepStyles.primaryButton} onPress={handleRetry}>
-            <Text style={stepStyles.primaryButtonText}>Retry</Text>
+            <Text style={stepStyles.primaryButtonText}>{t.setup.retry}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -409,6 +415,7 @@ function NotificationStep({ onNext, colors }: {
   onNext: () => void; colors: any;
 }) {
   const { requestPermissions } = useNotifications();
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
 
   const handleEnable = async () => {
@@ -429,24 +436,24 @@ function NotificationStep({ onNext, colors }: {
       </View>
 
       <Text style={[stepStyles.title, { color: colors.text, textAlign: 'center' }]}>
-        Never miss a ticket
+        {t.setup.notificationsTitle}
       </Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted, textAlign: 'center', marginBottom: 32 }]}>
-        Get notified when customers need your help. Push notifications keep you in the loop even when the app is closed.
+        {t.setup.notificationsSubtitle}
       </Text>
 
       <View style={notifStyles.benefitList}>
         <View style={notifStyles.benefitRow}>
           <Inbox size={18} color="#3B82F6" />
-          <Text style={[notifStyles.benefitText, { color: colors.text }]}>New conversations assigned to you</Text>
+          <Text style={[notifStyles.benefitText, { color: colors.text }]}>{t.setup.benefitNew}</Text>
         </View>
         <View style={notifStyles.benefitRow}>
           <Bell size={18} color="#3B82F6" />
-          <Text style={[notifStyles.benefitText, { color: colors.text }]}>Customer replies to your tickets</Text>
+          <Text style={[notifStyles.benefitText, { color: colors.text }]}>{t.setup.benefitReplies}</Text>
         </View>
         <View style={notifStyles.benefitRow}>
           <Zap size={18} color="#3B82F6" />
-          <Text style={[notifStyles.benefitText, { color: colors.text }]}>Urgent tickets that need attention</Text>
+          <Text style={[notifStyles.benefitText, { color: colors.text }]}>{t.setup.benefitWaiting}</Text>
         </View>
       </View>
 
@@ -455,11 +462,11 @@ function NotificationStep({ onNext, colors }: {
         onPress={handleEnable}
         disabled={loading}
       >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>Enable Notifications</Text>}
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>{t.setup.enableNotifications}</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity style={notifStyles.skipButton} onPress={onNext}>
-        <Text style={[notifStyles.skipText, { color: colors.muted }]}>Skip for now</Text>
+        <Text style={[notifStyles.skipText, { color: colors.muted }]}>{t.setup.skip}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -482,6 +489,7 @@ const notifStyles = StyleSheet.create({
 function WelcomeStep({ onFinish, isLoading, colors }: {
   onFinish: () => void; isLoading: boolean; colors: any;
 }) {
+  const { t } = useI18n();
   return (
     <View style={welcomeStyles.container}>
       <View style={welcomeStyles.iconContainer}>
@@ -491,24 +499,24 @@ function WelcomeStep({ onFinish, isLoading, colors }: {
       </View>
 
       <Text style={[stepStyles.title, { color: colors.text, textAlign: 'center' }]}>
-        You&apos;re all set!
+        {t.setup.welcomeTitle}
       </Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted, textAlign: 'center', marginBottom: 32 }]}>
-        Your helpdesk is ready to go. Start managing your customer conversations from anywhere.
+        {t.setup.welcomeSubtitle}
       </Text>
 
       <View style={welcomeStyles.tipList}>
         <View style={welcomeStyles.tipRow}>
           <Text style={welcomeStyles.tipEmoji}>{'📥'}</Text>
-          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>Your inbox shows all conversations</Text>
+          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>{t.setup.tipInbox}</Text>
         </View>
         <View style={welcomeStyles.tipRow}>
           <Text style={welcomeStyles.tipEmoji}>{'💬'}</Text>
-          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>Reply to customers in real-time</Text>
+          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>{t.setup.tipReply}</Text>
         </View>
         <View style={welcomeStyles.tipRow}>
           <Text style={welcomeStyles.tipEmoji}>{'👥'}</Text>
-          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>Look up contacts for quick info</Text>
+          <Text style={[welcomeStyles.tipText, { color: colors.text }]}>{t.setup.tipNotes}</Text>
         </View>
       </View>
 
@@ -517,7 +525,7 @@ function WelcomeStep({ onFinish, isLoading, colors }: {
         onPress={onFinish}
         disabled={isLoading}
       >
-        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>Go to Inbox</Text>}
+        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={stepStyles.primaryButtonText}>{t.setup.goToInbox}</Text>}
       </TouchableOpacity>
     </View>
   );
@@ -545,6 +553,7 @@ export default function SetupScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
   const { user } = useClerkAuth();
   const { setActive } = useOrganizationList();
+  const { t } = useI18n();
 
   const mode: SetupMode = (params.mode === 'new' || params.mode === 'existing') ? params.mode : 'new';
   const totalSteps = mode === 'new' ? STEP_COUNT_NEW : STEP_COUNT_EXISTING;
@@ -674,7 +683,7 @@ export default function SetupScreen() {
       });
 
       if (!response.success || !response.data?.organizationId) {
-        const msg = (response as any).error?.message || 'Failed to create workspace. Please try again.';
+        const msg = (response as any).error?.message || t.setup.createWorkspaceError;
         setGlobalError(msg);
         setIsLoading(false);
         return;
@@ -691,7 +700,7 @@ export default function SetupScreen() {
       setFormData((prev) => ({ ...prev, workspace: workspaceData }));
       goToStep(3); // Provisioning
     } catch (err) {
-      setGlobalError(err instanceof Error ? err.message : 'An unexpected error occurred');
+      setGlobalError(err instanceof Error ? err.message : t.setup.unexpectedError);
     }
     setIsLoading(false);
   };

@@ -1,5 +1,6 @@
 /**
  * Conversation thread — reply / note / close, same actions as the platform pane.
+ * Kept live by `useDeskConversationLive` (hub records + visitor typing/presence).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 import { Send, CheckCircle2, RotateCcw } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 
 import api from '@/services/api';
@@ -29,7 +31,8 @@ import { ErrorState, LoadingState } from '@/components/data-states';
 import { ChannelBadge, ConversationStateBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
-import type { DeskConversationWithMessages, DeskMessage } from '@/types/desk';
+import { mergeDeskMessage, useDeskConversationLive } from '@/hooks/useDeskConversationLive';
+import type { DeskConversation, DeskConversationWithMessages, DeskMessage } from '@/types/desk';
 
 type ComposerMode = 'message' | 'note';
 
@@ -38,7 +41,8 @@ export default function ConversationScreen() {
   const router = useRouter();
   const { markInteractive } = useObserve();
   const { colors } = useTheme();
-  const { t } = useI18n();
+  const { t, format } = useI18n();
+  const toast = useToast();
   const listRef = useRef<FlatList<DeskMessage>>(null);
 
   const [data, setData] = useState<DeskConversationWithMessages | null>(null);
@@ -78,25 +82,42 @@ export default function ConversationScreen() {
     }
   }, [loading, markInteractive]);
 
+  const applyMessage = useCallback((message: DeskMessage) => {
+    setData((prev) => (prev ? { ...prev, messages: mergeDeskMessage(prev.messages ?? [], message) } : prev));
+  }, []);
+
+  const applyConversation = useCallback((conversation: DeskConversation) => {
+    setData((prev) => (prev ? { ...prev, ...conversation, messages: prev.messages } : prev));
+  }, []);
+
+  const live = useDeskConversationLive({
+    conversationId: id,
+    onMessage: applyMessage,
+    onConversation: applyConversation,
+    onResume: () => void load(),
+  });
+
   const send = useCallback(async () => {
     if (!id || !body.trim() || sending) return;
     setSending(true);
+    live.stopTyping();
     try {
       const res = await api.replyToConversation(id, { kind: mode, body: body.trim() });
-      if (!res.success) {
-        setError(true);
+      if (!res.success || !res.data) {
+        // Keep the draft so the agent can retry.
+        toast.error(t.conversation.sendError);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
       setBody('');
+      applyConversation(res.data.conversation);
+      applyMessage(res.data.message);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await load();
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-    } catch {
-      setError(true);
     } finally {
       setSending(false);
     }
-  }, [id, body, mode, sending, load]);
+  }, [id, body, mode, sending, live, toast, t, applyConversation, applyMessage]);
 
   const toggleState = useCallback(async () => {
     if (!id || !data || managing) return;
@@ -104,13 +125,18 @@ export default function ConversationScreen() {
     try {
       const action = data.state === 'open' ? 'close' : 'open';
       const res = await api.manageConversation(id, { action });
-      if (!res.success) return;
+      if (!res.success || !res.data) {
+        toast.error(t.conversation.manageError);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+      applyConversation(res.data.conversation);
+      applyMessage(res.data.message);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      await load();
     } finally {
       setManaging(false);
     }
-  }, [id, data, managing, load]);
+  }, [id, data, managing, toast, t, applyConversation, applyMessage]);
 
   const title =
     data?.name || data?.email || (data ? `#${data.conversationNumber}` : t.conversation.title);
@@ -146,6 +172,14 @@ export default function ConversationScreen() {
             <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
               #{data.conversationNumber}
             </Text>
+            {live.visitorOnline ? (
+              <View style={styles.online}>
+                <View style={styles.onlineDot} />
+                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+                  {t.conversation.visitorOnline}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null
       }
@@ -191,6 +225,12 @@ export default function ConversationScreen() {
           renderItem={({ item }) => <MessageBubble message={item} />}
         />
 
+        {live.typing.length > 0 ? (
+          <Text style={[styles.typing, { color: colors.mutedForeground }]}>
+            {format(t.conversation.typing, { name: live.typing[0] || t.conversation.typingFallback })}
+          </Text>
+        ) : null}
+
         <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
           <View style={styles.modeRow}>
             {(['message', 'note'] as const).map((m) => {
@@ -220,7 +260,10 @@ export default function ConversationScreen() {
           <View style={[styles.inputRow, { backgroundColor: colors.secondary }]}>
             <TextInput
               value={body}
-              onChangeText={setBody}
+              onChangeText={(text) => {
+                setBody(text);
+                if (mode === 'message' && text.trim()) live.notifyTyping();
+              }}
               placeholder={
                 mode === 'message'
                   ? t.conversation.replyPlaceholder
@@ -346,6 +389,9 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metaText: { fontSize: 13, fontWeight: '500' },
+  online: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10B981' },
+  typing: { fontSize: 12, fontStyle: 'italic', paddingHorizontal: 16, paddingBottom: 4 },
   thread: { paddingHorizontal: 16, paddingVertical: 12, gap: 10, flexGrow: 1 },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 14 },
   bubbleWrap: { maxWidth: '85%' },
