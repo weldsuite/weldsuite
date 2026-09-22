@@ -82,6 +82,28 @@ await generateText({ model: ai.model(recommended.summarize.quality), prompt });
 Streaming, `generateObject` (Zod), `tool` calling, and `embed` all work exactly
 as in the AI SDK docs, just get the model from `ai.model()` / `ai.embedding()`.
 
+## Structured evaluation (TypeSafe Jev)
+
+Jev (`typesafe/jev`) is **not** a chat model — it answers typed Noul / Choice /
+Score questions. Use `evaluate()` (Workers AI `run` via AI Gateway), not
+`generateText`:
+
+```ts
+import { evaluate, JEV_MODEL_ID } from '@weldsuite/ai';
+
+const { answers, usage } = await evaluate(env, {
+  state: { subject, from, preview },
+  questions: {
+    billing: {
+      type: 'noul',
+      instructions: 'Is this about billing?',
+      criteria: { true: 'Invoices/payments', false: 'Anything else' },
+    },
+  },
+}, { op: 'mail_auto_label', onUsage });
+// answers.billing.noul ∈ [0, 1]
+```
+
 ## Verifying the gateway
 
 Unit tests never hit the network. To prove the gateway actually answers:

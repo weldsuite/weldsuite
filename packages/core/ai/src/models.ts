@@ -35,6 +35,11 @@ export const workersAi = {
   reranker: '@cf/baai/bge-reranker-base',
   /** Whisper large v3 turbo — speech-to-text (transcription). */
   whisper: '@cf/openai/whisper-large-v3-turbo',
+  /**
+   * TypeSafe Jev — structured evaluation (noul / choice / score). Not a chat
+   * model; call via {@link evaluate} in `evaluate.ts`, not `generateText`.
+   */
+  jev: 'typesafe/jev',
 } as const;
 
 /** Premium third-party models (`provider/model`), via Unified Billing / BYOK. */
@@ -71,8 +76,14 @@ export const thirdParty = {
  * ```
  */
 export const recommended = {
-  /** WeldDesk/WeldMail: ticket & email triage/classification. */
+  /**
+   * WeldDesk/WeldMail: ticket & email triage/classification.
+   * Prefer {@link workersAi.jev} via `evaluate()` for multi-label inbound
+   * auto-labeling; `free`/`quality` remain for chat-style classify paths.
+   */
   classify: { free: workersAi.llama8bFast, quality: thirdParty.anthropic.haiku },
+  /** Structured yes/no / choice / score decisions (TypeSafe Jev). */
+  evaluate: { free: workersAi.jev, quality: workersAi.jev },
   /** Sentiment scoring on conversations. */
   sentiment: { free: workersAi.llama8bFast, quality: thirdParty.anthropic.haiku },
   /** Summarise threads/tickets/meetings (long context on the free tier). */
