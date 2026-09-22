@@ -585,7 +585,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
     <div
       className="h-full flex flex-col bg-white dark:bg-background"
       onKeyDown={(e) => {
-        if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+        if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
         e.preventDefault();
         void handleSend();
       }}

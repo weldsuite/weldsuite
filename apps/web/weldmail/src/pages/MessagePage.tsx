@@ -242,7 +242,7 @@ export function MessagePage() {
           <div
             className="mt-6 rounded-lg border border-border p-4"
             onKeyDown={(e) => {
-              if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+              if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
               e.preventDefault();
               void onSend();
             }}

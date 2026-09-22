@@ -1038,7 +1038,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       <div
         className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}
         onKeyDown={(e) => {
-          if (e.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+          if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
           e.preventDefault();
           if (!sendDisabled) onSend();
         }}
