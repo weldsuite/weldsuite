@@ -1,28 +1,16 @@
-export interface MessageAttachment {
-  id?: string;
-  name?: string;
-  fileName?: string;
-  size?: string;
-  fileSize?: number;
-  mimeType?: string;
-  type?: 'image' | 'file';
-  url?: string;
-}
+/**
+ * Wire types for helpdesk-widget-api. Mirrors `PublicDeskMessage` /
+ * `PublicDeskConversation` in `@weldsuite/db/lib/desk` — keep in sync.
+ */
 
-export interface Message {
-  id: string;
-  conversationId: string;
-  content: string;
-  sender: 'user' | 'agent';
-  timestamp: Date;
-  senderId?: string;
-  senderName?: string;
-  attachments?: MessageAttachment[];
-  metadata?: Record<string, unknown>;
+export interface TeamMember {
+  name: string;
+  avatar: string | null;
 }
 
 export interface WidgetConfigResponse {
   widgetId: string;
+  name: string | null;
   enabled: boolean;
   greeting: string;
   branding: {
@@ -31,31 +19,47 @@ export interface WidgetConfigResponse {
     position: 'right' | 'left';
   };
   showBranding: boolean;
+  /** wss:// origin of realtime-worker; null when the API doesn't advertise one. */
+  realtimeUrl: string | null;
+  team: TeamMember[];
 }
 
-export interface DeskApiMessage {
+export type AuthorType = 'visitor' | 'agent' | 'bot' | 'system';
+
+export interface MessageAttachment {
+  name: string;
+  url: string;
+  contentType: string;
+  filesize: number;
+}
+
+export interface PublicMessage {
   id: string;
   conversationId: string;
-  kind: 'message' | 'note' | 'event';
+  kind: 'message' | 'event';
   body: string | null;
-  authorType: 'visitor' | 'agent' | 'bot' | 'system';
-  authorId: string | null;
+  authorType: AuthorType;
+  authorName: string | null;
+  authorAvatar: string | null;
+  attachments: MessageAttachment[] | null;
+  eventType: string | null;
+  clientId: string | null;
   createdAt: string;
-  attachments?: Array<{
-    name: string;
-    url: string;
-    contentType: string;
-    filesize: number;
-  }> | null;
 }
 
-export interface DeskApiConversation {
+export interface PublicConversation {
   id: string;
   conversationNumber: number;
   title: string | null;
   state: 'open' | 'closed';
-  visitorId: string | null;
-  name: string | null;
-  email: string | null;
-  messages?: DeskApiMessage[];
+  createdAt: string;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  lastMessageFromTeam: boolean;
+  assignee: TeamMember | null;
+}
+
+/** A message as the widget holds it: server copy or optimistic local send. */
+export interface ThreadMessage extends PublicMessage {
+  status?: 'sending' | 'failed';
 }

@@ -236,8 +236,9 @@ export async function verifyWidgetToken(
     throw new Error('Widget token signature verification failed');
   }
 
-  // Decode payload only after signature is confirmed.
-  const payload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+  // Decode payload only after signature is confirmed. UTF-8 aware so visitor
+  // names outside Latin-1 survive the round trip.
+  const payload = JSON.parse(new TextDecoder().decode(base64UrlToBuffer(jwtParts[1])));
 
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
     throw new Error('Widget token expired');

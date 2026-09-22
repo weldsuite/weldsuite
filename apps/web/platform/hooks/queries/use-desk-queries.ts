@@ -57,6 +57,10 @@ export interface DeskMessage {
     role?: string;
     [key: string]: unknown;
   } | null;
+  /** Client-only: optimistic send state (absent once the server confirms). */
+  pending?: 'sending' | 'failed';
+  /** Client-only: correlates an optimistic message with its server copy. */
+  clientId?: string;
 }
 
 export interface DeskWidgetBranding {
@@ -152,20 +156,75 @@ export interface DeskReplyInput {
   attachments?: DeskMessageAttachment[];
 }
 
+type DeskDetailData = { data: DeskConversation & { messages: DeskMessage[] } };
+
+function patchDetailMessages(
+  qc: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+  patch: (messages: DeskMessage[]) => DeskMessage[],
+) {
+  qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(conversationId), (old) =>
+    old?.data ? { ...old, data: { ...old.data, messages: patch(old.data.messages ?? []) } } : old,
+  );
+}
+
+/**
+ * Send a reply or note. The message shows up in the thread immediately with a
+ * `sending` state and is swapped for the server copy on success (or marked
+ * `failed` so the agent can retry) — no refetch round-trip.
+ */
 export function useReplyToDeskConversation() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: DeskReplyInput }) => {
+    mutationFn: async ({ id, data }: { id: string; data: DeskReplyInput; authorId?: string; clientId?: string }) => {
       const client = await getClient();
       return client.post<{ data: { conversation: DeskConversation; message: DeskMessage } }>(
         `/desk/conversations/${id}/reply`,
         data,
       );
     },
-    onSuccess: (_result, variables) => {
-      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(variables.id) });
-      qc.invalidateQueries({ queryKey: deskKeys.conversations() });
+    onMutate: ({ id, data, authorId, clientId }) => {
+      if (!clientId) return;
+      const optimistic: DeskMessage = {
+        id: clientId,
+        clientId,
+        createdAt: new Date().toISOString(),
+        conversationId: id,
+        kind: data.kind,
+        body: data.body,
+        authorType: 'agent',
+        authorId: authorId ?? null,
+        attachments: data.attachments ?? null,
+        metadata: null,
+        pending: 'sending',
+      };
+      patchDetailMessages(qc, id, (messages) => [
+        ...messages.filter((m) => m.clientId !== clientId),
+        optimistic,
+      ]);
+    },
+    onSuccess: (result, { id, clientId }) => {
+      const { conversation, message } = result.data;
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(id), (old) => {
+        if (!old?.data) return old;
+        const messages = old.data.messages ?? [];
+        const withoutDupes = messages.filter((m) => m.id !== message.id);
+        const index = clientId ? withoutDupes.findIndex((m) => m.clientId === clientId) : -1;
+        const confirmed: DeskMessage = { ...message, clientId };
+        const next =
+          index >= 0
+            ? withoutDupes.map((m, i) => (i === index ? confirmed : m))
+            : [...withoutDupes, confirmed];
+        return { ...old, data: { ...old.data, ...conversation, messages: next } };
+      });
+      qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
+    },
+    onError: (_err, { id, clientId }) => {
+      if (!clientId) return;
+      patchDetailMessages(qc, id, (messages) =>
+        messages.map((m) => (m.clientId === clientId ? { ...m, pending: 'failed' as const } : m)),
+      );
     },
   });
 }
@@ -186,9 +245,14 @@ export function useManageDeskConversation() {
         data,
       );
     },
-    onSuccess: (_result, variables) => {
-      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(variables.id) });
-      qc.invalidateQueries({ queryKey: deskKeys.conversations() });
+    onSuccess: (result, variables) => {
+      const { conversation, message } = result.data;
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(variables.id), (old) => {
+        if (!old?.data) return old;
+        const messages = (old.data.messages ?? []).filter((m) => m.id !== message.id);
+        return { ...old, data: { ...old.data, ...conversation, messages: [...messages, message] } };
+      });
+      qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
     },
   });
 }

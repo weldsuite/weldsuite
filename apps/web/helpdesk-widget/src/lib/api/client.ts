@@ -1,101 +1,95 @@
-import type { DeskApiConversation, DeskApiMessage, Message, WidgetConfigResponse } from './types';
-import { getOrCreateVisitorId } from '../utils/customer-storage';
+import type { PublicConversation, PublicMessage, WidgetConfigResponse } from './types';
 
 const API_URL = import.meta.env.VITE_WIDGET_API_URL || 'http://localhost:8787';
 
-function headers(widgetId: string): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'x-widget-id': widgetId,
-  };
+export class WidgetApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'WidgetApiError';
+  }
 }
 
-export function mapApiMessage(row: DeskApiMessage): Message {
-  return {
-    id: row.id,
-    conversationId: row.conversationId,
-    content: row.body ?? '',
-    sender: row.authorType === 'visitor' ? 'user' : 'agent',
-    timestamp: new Date(row.createdAt),
-    senderId: row.authorId ?? undefined,
-    senderName: row.authorType === 'visitor' ? 'You' : row.authorType === 'bot' ? 'Bot' : 'Agent',
-    attachments: (row.attachments ?? []).map((a) => ({
-      name: a.name,
-      url: a.url,
-      mimeType: a.contentType,
-      fileSize: a.filesize,
-    })),
-    metadata: row.kind === 'event' ? { systemEvent: true } : undefined,
-  };
-}
-
-async function parse<T>(res: Response): Promise<T> {
-  const json = await res.json();
+async function request<T>(widgetId: string, path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-widget-id': widgetId,
+      ...(init?.headers ?? {}),
+    },
+  });
+  let json: { success?: boolean; data?: T; error?: { message?: string } } = {};
+  try {
+    json = await res.json();
+  } catch {
+    // non-JSON error page
+  }
   if (!res.ok || json.success === false) {
-    throw new Error(json.error?.message || `Request failed (${res.status})`);
+    throw new WidgetApiError(json.error?.message || `Request failed (${res.status})`, res.status);
   }
   return json.data as T;
 }
 
+const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+
 export const widgetApi = {
-  async getConfig(widgetId: string): Promise<WidgetConfigResponse> {
-    const res = await fetch(`${API_URL}/api/config`, { headers: headers(widgetId) });
-    return parse<WidgetConfigResponse>(res);
+  getConfig(widgetId: string) {
+    return request<WidgetConfigResponse>(widgetId, '/api/config');
   },
 
-  async identify(widgetId: string, visitor: { visitorId: string; name?: string; email?: string }) {
-    const res = await fetch(`${API_URL}/api/conversations/identify`, {
-      method: 'POST',
-      headers: headers(widgetId),
-      body: JSON.stringify(visitor),
-    });
-    return parse<{ visitor: { id: string; name: string | null; email: string | null }; conversationId: string | null }>(res);
-  },
-
-  async startConversation(widgetId: string, input: { visitorId: string; name?: string; email?: string; body: string }) {
-    const res = await fetch(`${API_URL}/api/conversations`, {
-      method: 'POST',
-      headers: headers(widgetId),
-      body: JSON.stringify(input),
-    });
-    return parse<{ conversation: DeskApiConversation; messages: DeskApiMessage[] }>(res);
-  },
-
-  async getConversation(widgetId: string, conversationId: string, visitorId: string) {
-    const res = await fetch(
-      `${API_URL}/api/conversations/${conversationId}?visitorId=${encodeURIComponent(visitorId)}`,
-      { headers: headers(widgetId) },
+  identify(widgetId: string, visitor: { visitorId: string; name?: string; email?: string }) {
+    return request<{ visitor: { id: string; name: string | null; email: string | null } }>(
+      widgetId,
+      '/api/conversations/identify',
+      post(visitor),
     );
-    return parse<DeskApiConversation>(res);
   },
 
-  async sendMessage(widgetId: string, conversationId: string, visitorId: string, body: string) {
-    const res = await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      headers: headers(widgetId),
-      body: JSON.stringify({ visitorId, body }),
-    });
-    return parse<{ conversation: DeskApiConversation; message: DeskApiMessage }>(res);
+  listConversations(widgetId: string, visitorId: string) {
+    return request<PublicConversation[]>(
+      widgetId,
+      `/api/conversations?visitorId=${encodeURIComponent(visitorId)}`,
+    );
   },
 
-  async realtimeToken(widgetId: string, visitorId: string, conversationId?: string) {
-    const res = await fetch(`${API_URL}/api/realtime/token`, {
-      method: 'POST',
-      headers: headers(widgetId),
-      body: JSON.stringify({ visitorId, conversationId }),
-    });
-    return parse<{ token: string }>(res);
+  getConversation(widgetId: string, conversationId: string, visitorId: string) {
+    return request<{ conversation: PublicConversation; messages: PublicMessage[] }>(
+      widgetId,
+      `/api/conversations/${encodeURIComponent(conversationId)}?visitorId=${encodeURIComponent(visitorId)}`,
+    );
   },
 
-  async typing(widgetId: string, conversationId: string, isTyping: boolean, visitorName?: string) {
-    await fetch(`${API_URL}/api/realtime/typing`, {
-      method: 'POST',
-      headers: headers(widgetId),
-      body: JSON.stringify({ conversationId, isTyping, visitorName }),
-    });
+  startConversation(
+    widgetId: string,
+    input: { visitorId: string; name?: string; email?: string; body: string; clientId?: string },
+  ) {
+    return request<{ conversation: PublicConversation; message: PublicMessage }>(
+      widgetId,
+      '/api/conversations',
+      post(input),
+    );
   },
 
-  visitorId(): string {
-    return getOrCreateVisitorId();
+  sendMessage(
+    widgetId: string,
+    conversationId: string,
+    input: { visitorId: string; body: string; clientId?: string },
+  ) {
+    return request<{ conversation: PublicConversation; message: PublicMessage }>(
+      widgetId,
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
+      post(input),
+    );
+  },
+
+  realtimeToken(widgetId: string, visitorId: string, conversationId: string) {
+    return request<{ token: string; expiresIn: number }>(
+      widgetId,
+      '/api/realtime/token',
+      post({ visitorId, conversationId }),
+    );
   },
 };
