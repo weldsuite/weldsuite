@@ -357,7 +357,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   };
 
   const handleToInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === 'Tab') {
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.ctrlKey && !e.metaKey) {
       const trimmed = toInput.trim();
       // When the user has typed a partial name/email and a suggestion is shown,
       // Enter/Tab should resolve to the highlighted (first) contact's email —
@@ -414,6 +414,9 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   };
 
   const handleSend = async () => {
+    if (isSending) return;
+    // Read the editor directly so Ctrl+Enter sends text that has not blurred yet.
+    const liveBody = textareaRef.current?.innerHTML || body;
     // Commit any pending input
     const allRecipients = [...toRecipients];
     if (toInput.trim()) {
@@ -423,7 +426,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
       toast.error(t.mail.composePage.atLeastOneRecipient);
       return;
     }
-    if (!body.trim()) {
+    if (!liveBody.trim()) {
       toast.error(t.mail.composePage.enterMessage);
       return;
     }
@@ -440,8 +443,8 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
         const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
 
-        const trimmedBodyScheduled = body.trim();
-        const htmlBodyScheduled = body.includes('<') ? body : body.replace(/\n/g, '<br>');
+        const trimmedBodyScheduled = liveBody.trim();
+        const htmlBodyScheduled = liveBody.includes('<') ? liveBody : liveBody.replace(/\n/g, '<br>');
         if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
           toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
           setIsSending(false);
@@ -486,8 +489,8 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
 
     setIsSending(true);
     try {
-      const trimmedBody = body.trim();
-      const htmlBody = body.includes('<') ? body : body.replace(/\n/g, '<br>');
+      const trimmedBody = liveBody.trim();
+      const htmlBody = liveBody.includes('<') ? liveBody : liveBody.replace(/\n/g, '<br>');
       if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
         toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
         setIsSending(false);
@@ -579,7 +582,14 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   const hasContent = toRecipients.length > 0 || toInput || subject || body;
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-background">
+    <div
+      className="h-full flex flex-col bg-white dark:bg-background"
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        void handleSend();
+      }}
+    >
       {/* Header */}
       <div className="px-4 h-[53px] flex items-center border-b border-gray-200 dark:border-border flex-shrink-0">
         <div className="flex items-center justify-between w-full">
@@ -744,7 +754,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
               </PopoverContent>
             </Popover>
 
-            <Button type="button" data-testid="compose-send-btn" onClick={handleSend} disabled={isSending} size="sm" className="px-3">
+            <Button type="button" data-testid="compose-send-btn" onClick={handleSend} disabled={isSending} size="sm" className="px-3" title="Ctrl+Enter">
               {isSending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               {scheduledTime ? t.mail.composePage.schedule : t.mail.composePage.send}
             </Button>
@@ -1059,7 +1069,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && aiPrompt.trim()) {
+                    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && aiPrompt.trim()) {
                       e.preventDefault();
                       generateAiDraft(aiPrompt.trim());
                     }

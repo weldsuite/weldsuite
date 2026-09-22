@@ -61,8 +61,20 @@ const lineItemSchema = z.object({
   sortOrder: z.number().optional(),
 });
 
+const invoiceStatusSchema = z.enum([
+  'draft',
+  'sent',
+  'paid',
+  'overdue',
+  'partial',
+  'cancelled',
+  'uncollectible',
+  'finalized',
+]);
+
 const createInvoiceSchema = z.object({
   type: z.enum(['standard', 'credit_note', 'proforma', 'correction']).optional().default('standard'),
+  status: invoiceStatusSchema.optional(),
   contactId: z.string().min(1),
   contactName: z.string().optional(),
   contactEmail: z.string().optional(),
@@ -86,7 +98,9 @@ const createInvoiceSchema = z.object({
   items: z.array(lineItemSchema).min(1),
 });
 
-const updateInvoiceSchema = createInvoiceSchema.partial();
+// Status changes go through the dedicated send / finalize / payment routes.
+// Omit it here so a PATCH body cannot silently drop a requested status.
+const updateInvoiceSchema = createInvoiceSchema.omit({ status: true }).partial();
 
 const recordPaymentSchema = z.object({
   amount: z.string(),
@@ -377,12 +391,13 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     const totals = await buildTaxTotalsWithRates(db, data.items, place);
 
     const invoiceId = generateId('inv');
+    const status = data.status ?? 'draft';
     const newInvoice = {
       id: invoiceId,
       entityId,
       invoiceNumber,
       type: data.type || 'standard',
-      status: 'draft' as const,
+      status,
       contactId: data.contactId,
       contactName: data.contactName || null,
       contactEmail: data.contactEmail || null,
@@ -455,7 +470,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       data: {
         id: invoiceId,
         invoiceNumber,
-        status: 'draft',
+        status,
         total: totals.total,
         currency: newInvoice.currency,
         contactId: data.contactId,

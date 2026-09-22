@@ -298,7 +298,7 @@ function ActivityRow({ activity, userMap, isFirst }: { activity: ActivityItem; u
 
       <div
         className={cn(
-          'w-[calc(100%+32px)] -ml-4 transition-colors',
+          'w-[calc(100%+32px)] -ml-4 min-w-0 transition-colors',
           hasChanges && 'group-hover:bg-muted/60',
         )}
       >
@@ -308,12 +308,14 @@ function ActivityRow({ activity, userMap, isFirst }: { activity: ActivityItem; u
           disabled={!hasChanges}
           onClick={() => setExpanded((v) => !v)}
           className={cn(
-            'text-left w-full pl-11 pr-6 py-2.5 cursor-default',
+            // Ghost buttons are a nowrap centered row. In the docked panel that
+            // row overflows and the left edge of the sentence is clipped.
+            'h-auto w-full min-w-0 max-w-full shrink flex-col items-stretch justify-start gap-0 whitespace-normal text-left pl-11 pr-6 py-2.5 cursor-default',
             isFirst && 'pt-0',
             hasChanges && 'cursor-pointer',
           )}
         >
-          <p className="text-[13px] leading-snug text-foreground flex flex-wrap items-center gap-x-1">
+          <p className="min-w-0 whitespace-normal break-words text-[13px] leading-snug text-foreground flex flex-wrap items-center gap-x-1">
             <span className="font-medium">{userName}</span>
             <span>{meta.verb}</span>
             {subject && !hasChanges && (

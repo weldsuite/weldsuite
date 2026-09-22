@@ -4,6 +4,7 @@ import {
   formatCurrency,
   formatPercentage,
   formatDate,
+  formatIsoDate,
   formatDateTime,
   formatNumber,
   calculateDaysOverdue,
@@ -60,6 +61,19 @@ describe('formatDate / formatDateTime', () => {
 
   it('formats an ISO string the same way', () => {
     expect(formatDate('2025-03-15T12:00:00Z')).toMatch(/Mar 15, 2025/);
+  });
+
+  it('formatIsoDate renders a UTC midnight timestamp as that calendar day', () => {
+    expect(formatIsoDate('2026-10-04T00:00:00.000Z')).toBe('Oct 4, 2026');
+  });
+
+  it('formatIsoDate follows a language code', () => {
+    expect(formatIsoDate('2026-10-04T00:00:00.000Z', 'nl')).toMatch(/4 okt\.? 2026/i);
+  });
+
+  it('formatIsoDate renders an empty value as an em dash', () => {
+    expect(formatIsoDate(null)).toBe('—');
+    expect(formatIsoDate('')).toBe('—');
   });
 
   it('formatDateTime includes hour + minute', () => {

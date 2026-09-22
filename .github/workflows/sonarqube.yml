@@ -87,15 +87,25 @@ jobs:
       # TypeScript programs were split per workspace, so the 11 GB it used to
       # reserve was buying nothing while starving the JVM.
       #
-      # 8 GB here + 4 GB for the bridge (sonar-project.properties) + JVM
-      # overhead leaves the runner's ~16 GB enough slack for the OS. Move the
-      # two together, never one alone: an uncapped Java 21 helps itself to a
-      # quarter of RAM and the pair trips an OS-level kill instead.
+      # The bridge is not negotiable, though: 8 GB failed it even after the
+      # TypeScript programs were split per workspace, and 4 GB failed it during
+      # tsconfig resolution alone. 11 GB is the only value that has ever got
+      # past it, so that side is fixed and the JVM takes what is left.
+      #
+      # The two peaks are sequential — the bridge's during the JS/TS sensor,
+      # the JVM's during taint analysis after it — so the caps may sum past the
+      # runner's ~16 GB. They must not sum far past it: the bridge does not
+      # hand its heap back, and an uncapped Java 21 would take a quarter of RAM
+      # on top and trip an OS-level kill rather than a clean Java OOM.
+      #
+      # 4 GB is double what the taint analysis died on. If it dies again, the
+      # repo has outgrown a 16 GB runner for full type-aware + taint analysis
+      # and the fix is a larger runner or a narrower scope, not another GB.
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_SCANNER_JAVA_OPTS: -Xmx8g
+          SONAR_SCANNER_JAVA_OPTS: -Xmx4g
 
       # Reports the gate result without failing the job. Remove
       # continue-on-error (and add this job to branch protection) to start

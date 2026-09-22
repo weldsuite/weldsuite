@@ -8,6 +8,7 @@ import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-li
 import { InvoiceDialog } from './components/invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { formatIsoDate } from '@/lib/utils';
 
 interface InvoiceRow {
   id: string;
@@ -41,7 +42,7 @@ export default function InvoicesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { data, isLoading } = useAccountingInvoices({ search });
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { formatMoney } = useCurrentEntityCurrency();
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
@@ -77,13 +78,13 @@ export default function InvoicesPage() {
       id: 'issueDate',
       header: tip.colDate,
       width: 'w-[140px]',
-      render: (inv) => <span className="text-muted-foreground">{inv.issueDate ?? '—'}</span>,
+      render: (inv) => <span className="text-muted-foreground">{formatIsoDate(inv.issueDate, language)}</span>,
     },
     {
       id: 'dueDate',
       header: tip.colDueDate,
       width: 'w-[140px]',
-      render: (inv) => <span className="text-muted-foreground">{inv.dueDate ?? '—'}</span>,
+      render: (inv) => <span className="text-muted-foreground">{formatIsoDate(inv.dueDate, language)}</span>,
     },
     {
       id: 'total',

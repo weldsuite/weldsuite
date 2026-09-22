@@ -27,6 +27,29 @@ export function formatDate(date: string | Date): string {
   }).format(d)
 }
 
+const ISO_DATE_LOCALES: Record<string, string> = {
+  en: "en-US",
+  nl: "nl-NL",
+  fr: "fr-FR",
+  es: "es-ES",
+}
+
+/** Calendar date for an ISO timestamp, pinned to UTC so a midnight `Z` value stays on that day. */
+export function formatIsoDate(
+  date: string | Date | null | undefined,
+  locale = "en-US",
+): string {
+  if (date == null || date === "") return "—"
+  const d = typeof date === "string" ? new Date(date) : date
+  if (Number.isNaN(d.getTime())) return "—"
+  return new Intl.DateTimeFormat(ISO_DATE_LOCALES[locale] ?? locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(d)
+}
+
 export function formatDateTime(date: string | Date): string {
   const d = typeof date === "string" ? new Date(date) : date
   return new Intl.DateTimeFormat("en-US", {

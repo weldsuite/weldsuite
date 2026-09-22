@@ -66,6 +66,7 @@ export function toolError(message: string): CallToolResult {
 import { crmTools } from './crm';
 import { helpdeskTools } from './helpdesk';
 import { knowledgeTools } from './knowledge';
+import { mailTools } from './mail';
 import { projectsTools } from './projects';
 import { weldflowTools } from './weldflow';
 import { chatTools } from './chat';
@@ -80,6 +81,7 @@ export const allTools: ToolDefinition[] = [
   ...crmTools,
   ...helpdeskTools,
   ...knowledgeTools,
+  ...mailTools,
   ...projectsTools,
   ...weldflowTools,
   ...chatTools,

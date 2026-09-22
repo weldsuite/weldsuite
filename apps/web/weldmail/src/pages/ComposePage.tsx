@@ -68,7 +68,16 @@ export function ComposePage() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="max-w-xl space-y-4">
+        <form
+          onSubmit={onSubmit}
+          className="max-w-xl space-y-4"
+          onKeyDown={(e) => {
+            if (sending || !accountId) return;
+            if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            e.currentTarget.requestSubmit();
+          }}
+        >
           {accounts.length > 1 && (
             <div>
               <label htmlFor="from" className={labelClass}>
@@ -137,6 +146,7 @@ export function ComposePage() {
           <button
             type="submit"
             disabled={sending || !accountId}
+            title="Ctrl+Enter"
             className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {sending ? 'Sending…' : 'Send'}
