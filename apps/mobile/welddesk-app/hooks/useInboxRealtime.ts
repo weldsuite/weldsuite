@@ -13,7 +13,7 @@
  * `event.event`) — never `client.on('helpdesk.conversation_new')`, which
  * does not match hub topic `helpdesk`.
  *
- * Per-thread messages/typing stay on ConversationRoom (`useHelpdeskRealtime`).
+ * The open thread is kept live by `useDeskConversationLive`.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
