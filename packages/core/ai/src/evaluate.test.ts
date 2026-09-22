@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   evaluate,
+  isEvaluateConfigured,
   parseEvaluateResponse,
   resolveEvaluateRequest,
   JEV_MODEL_ID,
@@ -16,39 +17,52 @@ const baseConfig = (overrides: Partial<CloudflareGatewayConfig> = {}): Cloudflar
 });
 
 describe('resolveEvaluateRequest', () => {
-  it('uses the AI Gateway workers-ai route when a gateway id is set', () => {
+  it('uses the unified /ai/run endpoint for third-party models when an API token is set', () => {
     const req = resolveEvaluateRequest(
-      baseConfig({ gateway: 'default', gatewayToken: 'aig_tok', apiKey: 'should-not-use' }),
+      baseConfig({ apiKey: 'cf_token', gateway: 'weld', gatewayToken: 'aig_tok' }),
       JEV_MODEL_ID,
     );
+    expect(req.url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_test/ai/run');
+    expect(req.wrapInModelInput).toBe(true);
+    expect(req.headers.Authorization).toBe('Bearer cf_token');
+    expect(req.headers['cf-aig-gateway-id']).toBe('weld');
+  });
+
+  it('refuses a gateway token alone for third-party models (the workers-ai route 401s)', () => {
+    expect(() =>
+      resolveEvaluateRequest(baseConfig({ gatewayToken: 'aig_tok' }), JEV_MODEL_ID),
+    ).toThrow(/not configured/i);
+  });
+
+  it('uses the gateway workers-ai route for @cf/ models with only a gateway token', () => {
+    const req = resolveEvaluateRequest(
+      baseConfig({ gatewayToken: 'aig_tok' }),
+      '@cf/meta/llama-3.1-8b-instruct',
+    );
     expect(req.url).toBe(
-      'https://gateway.ai.cloudflare.com/v1/acct_test/default/workers-ai/typesafe/jev',
+      'https://gateway.ai.cloudflare.com/v1/acct_test/default/workers-ai/@cf/meta/llama-3.1-8b-instruct',
     );
     expect(req.wrapInModelInput).toBe(false);
     expect(req.headers['cf-aig-authorization']).toBe('Bearer aig_tok');
     expect(req.headers.Authorization).toBeUndefined();
   });
 
-  it('falls back to direct Workers AI /ai/run when no gateway is configured', () => {
-    const req = resolveEvaluateRequest(baseConfig({ apiKey: 'cf_token' }), JEV_MODEL_ID);
-    expect(req.url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_test/ai/run');
-    expect(req.wrapInModelInput).toBe(true);
-    expect(req.headers.Authorization).toBe('Bearer cf_token');
-  });
-
-  it('defaults to the account `default` gateway when only CF_AIG_TOKEN is set', () => {
-    const req = resolveEvaluateRequest(
-      baseConfig({ gatewayToken: 'aig_tok' }),
-      JEV_MODEL_ID,
-    );
-    expect(req.url).toBe(
-      'https://gateway.ai.cloudflare.com/v1/acct_test/default/workers-ai/typesafe/jev',
-    );
-    expect(req.headers['cf-aig-authorization']).toBe('Bearer aig_tok');
-  });
-
-  it('throws when neither gateway-auth nor api key is available for direct mode', () => {
+  it('throws when no credentials are available', () => {
     expect(() => resolveEvaluateRequest(baseConfig(), JEV_MODEL_ID)).toThrow(/not configured/i);
+  });
+});
+
+describe('isEvaluateConfigured', () => {
+  it('is true with an AI binding and no tokens', () => {
+    expect(isEvaluateConfigured({ AI: { run: vi.fn() } })).toBe(true);
+  });
+
+  it('is false for Jev with only a gateway token', () => {
+    expect(isEvaluateConfigured({ CF_ACCOUNT_ID: 'acct', CF_AIG_TOKEN: 'aig' })).toBe(false);
+  });
+
+  it('is true for Jev with an API token', () => {
+    expect(isEvaluateConfigured({ CF_ACCOUNT_ID: 'acct', AI_GATEWAY_API_TOKEN: 'tok' })).toBe(true);
   });
 });
 
@@ -74,6 +88,22 @@ describe('parseEvaluateResponse', () => {
     expect(parsed.answers.other).toEqual({ type: 'noul', noul: 0.12 });
   });
 
+  it('unwraps the nested unified /ai/run envelope for third-party models', () => {
+    const parsed = parseEvaluateResponse({
+      success: true,
+      errors: [],
+      result: { state: 'Completed', result: sample, gatewayMetadata: { keySource: 'Unified' } },
+    });
+    expect(parsed.answers.billing).toEqual({ type: 'noul', noul: 0.91 });
+    expect(parsed.usage.totalTokens).toBe(440);
+  });
+
+  it('throws when the async job has not completed', () => {
+    expect(() =>
+      parseEvaluateResponse({ success: true, result: { state: 'Queued', result: null } }),
+    ).toThrow(/did not complete/i);
+  });
+
   it('throws on success:false envelopes', () => {
     expect(() =>
       parseEvaluateResponse({ success: false, result: null, errors: [{ message: 'nope' }] }),
@@ -87,52 +117,38 @@ describe('evaluate', () => {
     vi.restoreAllMocks();
   });
 
-  it('POSTs state+questions through the gateway and records ops usage', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        model: 'jev-1.13.0',
-        answers: { urgent: { type: 'noul', noul: 0.88 } },
-        usage: { input_tokens: 100, output_tokens: 10 },
-      }),
-    });
+  const questions = {
+    urgent: {
+      type: 'noul' as const,
+      instructions: 'Is this urgent?',
+      criteria: { true: 'Time-sensitive', false: 'Not urgent' },
+    },
+  };
+
+  it('runs through the AI binding via the configured gateway and records ops usage', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
+    const run = vi.fn().mockResolvedValue({
+      model: 'jev-1.13.0',
+      answers: { urgent: { type: 'noul', noul: 0.88 } },
+      usage: { input_tokens: 100, output_tokens: 10 },
+    });
 
     const onUsage = vi.fn();
     const result = await evaluate(
-      {
-        CF_ACCOUNT_ID: 'acct_test',
-        CF_AI_GATEWAY: 'default',
-        CF_AIG_TOKEN: 'aig',
-      },
-      {
-        state: { subject: 'Invoice overdue' },
-        questions: {
-          urgent: {
-            type: 'noul',
-            instructions: 'Is this urgent?',
-            criteria: { true: 'Time-sensitive', false: 'Not urgent' },
-          },
-        },
-      },
+      { AI: { run }, CF_AI_GATEWAY: 'weld' },
+      { state: { subject: 'Invoice overdue' }, questions },
       { op: 'mail_auto_label', onUsage },
     );
 
     expect(result.answers.urgent).toEqual({ type: 'noul', noul: 0.88 });
     expect(result.modelId).toBe(JEV_MODEL_ID);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toContain('/workers-ai/typesafe/jev');
-    expect(JSON.parse(init.body as string)).toEqual({
-      state: { subject: 'Invoice overdue' },
-      questions: {
-        urgent: {
-          type: 'noul',
-          instructions: 'Is this urgent?',
-          criteria: { true: 'Time-sensitive', false: 'Not urgent' },
-        },
-      },
-    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith(
+      JEV_MODEL_ID,
+      { state: { subject: 'Invoice overdue' }, questions },
+      { gateway: { id: 'weld' } },
+    );
     expect(onUsage).toHaveBeenCalledWith(
       expect.objectContaining({
         gateway: 'cloudflare',
@@ -143,32 +159,40 @@ describe('evaluate', () => {
     );
   });
 
-  it('wraps the body in { model, input } for direct Workers AI calls', async () => {
+  it('defaults the binding gateway to `default`', async () => {
+    const run = vi.fn().mockResolvedValue({ answers: {} });
+    await evaluate({ AI: { run } }, { state: 'hi', questions });
+    expect(run.mock.calls[0]![2]).toEqual({ gateway: { id: 'default' } });
+  });
+
+  it('falls back to REST /ai/run with { model, input } when there is no binding', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         success: true,
         result: {
-          model: 'jev-1.13.0',
-          answers: {},
-          usage: { input_tokens: 1, output_tokens: 1 },
+          state: 'Completed',
+          result: {
+            model: 'jev-1.13.0',
+            answers: { urgent: { type: 'noul', noul: 0.5 } },
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
         },
       }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await evaluate(
+    const result = await evaluate(
       { CF_ACCOUNT_ID: 'acct_test', AI_GATEWAY_API_TOKEN: 'cf_tok' },
-      { state: 'hello', questions: { q: { type: 'noul', instructions: 'yes?' } } },
+      { state: 'hello', questions },
     );
 
-    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
-    expect(body).toEqual({
+    expect(result.answers.urgent).toEqual({ type: 'noul', noul: 0.5 });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_test/ai/run');
+    expect(JSON.parse(init.body as string)).toEqual({
       model: JEV_MODEL_ID,
-      input: {
-        state: 'hello',
-        questions: { q: { type: 'noul', instructions: 'yes?' } },
-      },
+      input: { state: 'hello', questions },
     });
   });
 });

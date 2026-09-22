@@ -46,10 +46,12 @@ export interface Env {
   // Encryption key for stored database connection strings
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
-  // AI Gateway — TypeSafe Jev multi-label auto-labeling for inbound workspace mail.
-  // CF_ACCOUNT_ID + CF_AIG_TOKEN are enough (gateway id defaults to `default`).
-  // Optionally set CF_AI_GATEWAY (named gateway) and/or AI_GATEWAY_API_TOKEN
-  // (direct Workers AI fallback).
+  // TypeSafe Jev multi-label auto-labeling for inbound workspace mail.
+  // Jev is a third-party model, so it runs through the Workers AI binding
+  // (routed via AI Gateway `CF_AI_GATEWAY`, default `default`). A gateway token
+  // alone cannot reach it; without the binding, the REST fallback needs
+  // CF_ACCOUNT_ID + an API token with Workers AI Read (AI_GATEWAY_API_TOKEN).
+  AI?: Ai;
   CF_ACCOUNT_ID?: string;
   CF_AI_GATEWAY?: string;
   CF_AIG_TOKEN?: string;
