@@ -18,7 +18,7 @@
  * backoff. After 20 consecutive failures a webhook is auto-disabled.
  */
 
-import { and, eq, isNull, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { externalWebhooks, webhookDeliveries } from '@weldsuite/db/schema';
 import type { TenantDb } from './internal-types';
 
@@ -268,6 +268,11 @@ export interface DispatchWebhookDeliveriesInput {
   data: Record<string, unknown>;
 }
 
+export interface DispatchWebhookDeliveriesResult {
+  matched: number;
+  failed: number;
+}
+
 /**
  * Fan-out entry point for outbound customer webhooks. Looks up active
  * `external_webhooks` subscribed to `<entityType>.<action>` and delivers to
@@ -276,8 +281,12 @@ export interface DispatchWebhookDeliveriesInput {
  * so there is no separate pre-check to maintain.
  *
  * Phase 3: invoked from the entity-webhooks queue consumer (not the publish path).
+ * Returns how many deliveries failed so the consumer can upsert D1
+ * `webhook_retry` work without scanning every tenant on a timer.
  */
-export async function dispatchWebhookDeliveries(input: DispatchWebhookDeliveriesInput): Promise<void> {
+export async function dispatchWebhookDeliveries(
+  input: DispatchWebhookDeliveriesInput,
+): Promise<DispatchWebhookDeliveriesResult> {
   const { db, workspaceId, entityType, action, eventId, data } = input;
   const eventType = `${entityType}.${action}`;
 
@@ -295,22 +304,55 @@ export async function dispatchWebhookDeliveries(input: DispatchWebhookDeliveries
       );
   } catch (err) {
     console.error('[WebhookDelivery] Failed to look up subscriptions:', err);
-    return;
+    return { matched: 0, failed: 0 };
   }
-  if (matches.length === 0) return;
+  if (matches.length === 0) return { matched: 0, failed: 0 };
 
-  await Promise.allSettled(
+  const outcomes = await Promise.allSettled(
     matches.map((webhook) =>
-      deliverWebhookEvent({ db, webhook, eventId, eventType, workspaceId, data }).catch((err) =>
-        console.error(`[WebhookDelivery] Delivery failed for webhook ${webhook.id}:`, err),
-      ),
+      deliverWebhookEvent({ db, webhook, eventId, eventType, workspaceId, data }),
     ),
   );
+
+  let failed = 0;
+  for (const outcome of outcomes) {
+    if (outcome.status === 'rejected') {
+      failed += 1;
+      console.error('[WebhookDelivery] Delivery failed:', outcome.reason);
+      continue;
+    }
+    if (!outcome.value.delivered) failed += 1;
+  }
+
+  return { matched: matches.length, failed };
 }
 
 export interface RetryFailedWebhookDeliveriesResult {
   attempted: number;
   succeeded: number;
+}
+
+/**
+ * True when this tenant still has failed deliveries waiting for a cron retry
+ * (active webhook, attempts remaining, `nextRetryAt` set). Used so the D1
+ * tenant_work_index can drop idle workspaces instead of pulsing every Neon.
+ */
+export async function hasPendingWebhookRetries(db: TenantDb): Promise<boolean> {
+  const [row] = await db
+    .select({ id: webhookDeliveries.id })
+    .from(webhookDeliveries)
+    .innerJoin(externalWebhooks, eq(webhookDeliveries.webhookId, externalWebhooks.id))
+    .where(
+      and(
+        inArray(webhookDeliveries.status, ['failed', 'retrying']),
+        isNull(externalWebhooks.deletedAt),
+        eq(externalWebhooks.status, 'active'),
+        sql`${webhookDeliveries.nextRetryAt} IS NOT NULL`,
+        sql`${webhookDeliveries.attemptNumber} < ${webhookDeliveries.maxRetries}`,
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }
 
 /**
@@ -330,7 +372,7 @@ export async function retryFailedWebhookDeliveries(
     .innerJoin(externalWebhooks, eq(webhookDeliveries.webhookId, externalWebhooks.id))
     .where(
       and(
-        eq(webhookDeliveries.status, 'failed'),
+        inArray(webhookDeliveries.status, ['failed', 'retrying']),
         isNull(externalWebhooks.deletedAt),
         eq(externalWebhooks.status, 'active'),
         lte(webhookDeliveries.nextRetryAt, now),

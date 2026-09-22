@@ -1,8 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
-const dispatchWebhookDeliveries = vi.fn(async () => undefined);
-const getTenantDbForWorkspaceById = vi.fn(async () => ({ mocked: true }));
+const dispatchWebhookDeliveries = vi.fn(async () => ({ matched: 0, failed: 0 }));
+const resolveWorkspaceById = vi.fn(async () => ({
+  clerkOrgId: 'org_1',
+  db: { mocked: true },
+}));
+const resolveWorkspaceByClerkOrg = vi.fn(async () => ({
+  id: 'ws_internal',
+  db: { mocked: true },
+}));
+const upsertTenantWorkIndex = vi.fn(async () => undefined);
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
@@ -14,13 +22,24 @@ vi.mock('@weldsuite/entity-events', async () => {
   };
 });
 
+vi.mock('@weldsuite/connectors', async () => {
+  const actual = await vi.importActual<typeof import('@weldsuite/connectors')>(
+    '@weldsuite/connectors',
+  );
+  return {
+    ...actual,
+    upsertTenantWorkIndex: (...args: unknown[]) => upsertTenantWorkIndex(...args),
+  };
+});
+
 vi.mock('./db', () => ({
-  getTenantDbForWorkspaceById: (...args: unknown[]) => getTenantDbForWorkspaceById(...args),
+  resolveWorkspaceById: (...args: unknown[]) => resolveWorkspaceById(...args),
+  resolveWorkspaceByClerkOrg: (...args: unknown[]) => resolveWorkspaceByClerkOrg(...args),
 }));
 
 import { handleEntityWebhookMessage, handleEntityWebhookBatch } from './entity-webhooks-consumer';
 
-function sampleEvent(id = 'evt_1'): EntityEventMessage {
+function sampleEvent(id = 'evt_1', workspaceId = 'ws_1'): EntityEventMessage {
   return {
     id,
     eventType: 'customer:created',
@@ -29,7 +48,7 @@ function sampleEvent(id = 'evt_1'): EntityEventMessage {
     action: 'created',
     data: { id: 'cus_1' },
     metadata: {
-      workspaceId: 'ws_1',
+      workspaceId,
       userId: 'usr_1',
       timestamp: '2026-03-15T12:00:00.000Z',
       source: 'api',
@@ -40,31 +59,56 @@ function sampleEvent(id = 'evt_1'): EntityEventMessage {
 describe('handleEntityWebhookMessage', () => {
   beforeEach(() => {
     dispatchWebhookDeliveries.mockClear();
-    getTenantDbForWorkspaceById.mockClear();
+    dispatchWebhookDeliveries.mockResolvedValue({ matched: 0, failed: 0 });
+    resolveWorkspaceById.mockClear();
+    resolveWorkspaceByClerkOrg.mockClear();
+    upsertTenantWorkIndex.mockClear();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
-  it('resolves tenant DB and dispatches with evt_ id and dotted event matching fields', async () => {
-    await handleEntityWebhookMessage(sampleEvent('evt_abc'), {} as never);
+  it('resolves tenant DB by internal id and dispatches with dotted event fields', async () => {
+    await handleEntityWebhookMessage(sampleEvent('evt_abc', 'ws_1'), {} as never);
 
-    expect(getTenantDbForWorkspaceById).toHaveBeenCalledWith({}, 'ws_1');
+    expect(resolveWorkspaceById).toHaveBeenCalledWith({}, 'ws_1');
     expect(dispatchWebhookDeliveries).toHaveBeenCalledWith({
       db: { mocked: true },
-      workspaceId: 'ws_1',
+      workspaceId: 'org_1',
       entityType: 'customer',
       action: 'created',
       eventId: 'evt_abc',
       data: { id: 'cus_1' },
     });
+    expect(upsertTenantWorkIndex).not.toHaveBeenCalled();
+  });
+
+  it('resolves Clerk org ids and schedules webhook_retry when a delivery fails', async () => {
+    dispatchWebhookDeliveries.mockResolvedValueOnce({ matched: 1, failed: 1 });
+
+    await handleEntityWebhookMessage(sampleEvent('evt_fail', 'org_abc'), {
+      CONNECTOR_SYNC_INDEX: {},
+    } as never);
+
+    expect(resolveWorkspaceByClerkOrg).toHaveBeenCalledWith(
+      expect.objectContaining({ CONNECTOR_SYNC_INDEX: {} }),
+      'org_abc',
+    );
+    expect(upsertTenantWorkIndex).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        workspaceId: 'ws_internal',
+        clerkOrgId: 'org_abc',
+        kind: 'webhook_retry',
+      }),
+    );
   });
 
   it('skips when workspaceId is missing', async () => {
     const event = sampleEvent();
     (event.metadata as { workspaceId: string }).workspaceId = '';
     await handleEntityWebhookMessage(event, {} as never);
-    expect(getTenantDbForWorkspaceById).not.toHaveBeenCalled();
+    expect(resolveWorkspaceById).not.toHaveBeenCalled();
     expect(dispatchWebhookDeliveries).not.toHaveBeenCalled();
   });
 });
@@ -72,15 +116,16 @@ describe('handleEntityWebhookMessage', () => {
 describe('handleEntityWebhookBatch', () => {
   beforeEach(() => {
     dispatchWebhookDeliveries.mockClear();
-    getTenantDbForWorkspaceById.mockReset();
-    getTenantDbForWorkspaceById.mockResolvedValue({ mocked: true });
+    dispatchWebhookDeliveries.mockResolvedValue({ matched: 0, failed: 0 });
+    resolveWorkspaceById.mockReset();
+    resolveWorkspaceById.mockResolvedValue({ clerkOrgId: 'org_1', db: { mocked: true } });
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   it('acks successful messages and retries failures', async () => {
-    getTenantDbForWorkspaceById
-      .mockResolvedValueOnce({ mocked: true })
+    resolveWorkspaceById
+      .mockResolvedValueOnce({ clerkOrgId: 'org_1', db: { mocked: true } })
       .mockRejectedValueOnce(new Error('db down'));
 
     const ack1 = vi.fn();

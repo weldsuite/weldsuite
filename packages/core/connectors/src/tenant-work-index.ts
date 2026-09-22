@@ -1,9 +1,51 @@
 /**
  * D1 tenant_work_index — schedule per-workspace jobs (webhook retry, workflow poll)
  * without opening every tenant Neon on each cron tick.
+ *
+ * Idle workspaces must leave the index (`nextDueAt: null` / `enabled = 0`). A
+ * perpetual 10-minute "pulse" that re-opens every Neon defeats autosuspend.
+ * Re-enter only from write paths (failed webhook delivery, active poll trigger).
  */
 
 export type TenantWorkKind = 'webhook_retry' | 'workflow_poll';
+
+/** Cadence for workspaces that still have real poll/retry work. */
+export const TENANT_WORK_INTERVAL_MS = 10 * 60_000;
+
+/** Integration poll triggers that require the workflow_poll D1 pulse. */
+export const WORKFLOW_POLL_TRIGGER_EVENTS = [
+  { provider: 'google_sheets', event: 'google_sheets.new_row' },
+  { provider: 'gmail', event: 'gmail.new_email' },
+  { provider: 'google_calendar', event: 'google_calendar.new_event' },
+  { provider: 'airtable', event: 'airtable.new_record' },
+] as const;
+
+/**
+ * True when `triggers` JSON includes at least one enabled integration_event
+ * that the integration-webhook-worker polls on a timer.
+ */
+export function triggersIncludeWorkflowPoll(triggers: unknown): boolean {
+  if (!Array.isArray(triggers)) return false;
+  for (const raw of triggers) {
+    if (!raw || typeof raw !== 'object') continue;
+    const t = raw as Record<string, unknown>;
+    if (t.isEnabled === false) continue;
+    const cfg = (t.config && typeof t.config === 'object' ? t.config : {}) as Record<
+      string,
+      unknown
+    >;
+    const type = t.type ?? cfg.type;
+    if (type !== 'integration_event') continue;
+    const provider = String(t.provider ?? cfg.provider ?? '');
+    const event = String(t.event ?? cfg.event ?? '');
+    if (
+      WORKFLOW_POLL_TRIGGER_EVENTS.some((p) => p.provider === provider && p.event === event)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export interface TenantWorkIndexRow {
   id: string;
