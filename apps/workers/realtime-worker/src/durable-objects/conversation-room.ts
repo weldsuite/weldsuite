@@ -57,6 +57,19 @@ export class ConversationRoom extends DurableObject<Env> {
 
     switch (msg.type) {
       case 'message': {
+        // Visitor messages must go through helpdesk-widget-api so they are
+        // persisted and visible after a reload; a relay-only frame from a
+        // widget socket would show agents text that doesn't exist.
+        if (role === 'customer') {
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              code: 'forbidden',
+              message: 'Send messages through the widget API',
+            }),
+          );
+          break;
+        }
         const outMsg = JSON.stringify({
           type: 'message',
           id: crypto.randomUUID(),

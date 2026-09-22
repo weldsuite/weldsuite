@@ -64,7 +64,7 @@ export interface RoomMessage {
 
 /** Discriminated union of all room event types */
 export type RoomEvent =
-  | { type: 'message'; id: string; content: string; htmlContent?: string; senderId: string; senderName: string; senderAvatar?: string; senderType: string; authorType?: string; ts: number; seq?: number; threadId?: string; attachments?: Attachment[]; forwardedFrom?: unknown }
+  | { type: 'message'; id: string; content: string; htmlContent?: string; senderId: string; senderName: string; senderAvatar?: string; senderType: string; authorType?: string; ts: number; seq?: number; threadId?: string; attachments?: Attachment[]; forwardedFrom?: unknown; record?: Record<string, unknown> }
   | { type: 'message:updated'; id: string; data: Record<string, unknown> }
   | { type: 'message:deleted'; id: string }
   | { type: 'system'; event: string; data: unknown; ts: number }

@@ -108,9 +108,11 @@ export {
 } from './models.js';
 export {
   evaluate,
+  isEvaluateConfigured,
   parseEvaluateResponse,
   resolveEvaluateRequest,
   JEV_MODEL_ID,
+  type AiBindingLike,
   type EvaluateInput,
   type EvaluateOptions,
   type EvaluateResult,

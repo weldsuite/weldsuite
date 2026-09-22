@@ -85,11 +85,15 @@ function RootComponent() {
           <I18nProvider>
             <PreferencesSync />
             <SettingsProvider>
-              <NotificationProvider>
-                <UnifiedNotificationProvider>
-                  <WorkspaceProvider>
-                    <PlatformPermissionProvider>
-                      <RealtimeProviderWrapper>
+              {/* Realtime must wrap the notification providers: the bell's
+                  live `notification.<userId>` subscription (useTopic) reads
+                  the workspace client from this context and silently gets
+                  null when mounted above it. */}
+              <RealtimeProviderWrapper>
+                <NotificationProvider>
+                  <UnifiedNotificationProvider>
+                    <WorkspaceProvider>
+                      <PlatformPermissionProvider>
                         <PresenceProvider>
                           <TeamMemberPanelProvider>
                             {/* Live entity sync: useRealtimeSync only.
@@ -108,11 +112,11 @@ function RootComponent() {
                             <Toaster />
                           </TeamMemberPanelProvider>
                         </PresenceProvider>
-                      </RealtimeProviderWrapper>
-                    </PlatformPermissionProvider>
-                  </WorkspaceProvider>
-                </UnifiedNotificationProvider>
-              </NotificationProvider>
+                      </PlatformPermissionProvider>
+                    </WorkspaceProvider>
+                  </UnifiedNotificationProvider>
+                </NotificationProvider>
+              </RealtimeProviderWrapper>
             </SettingsProvider>
           </I18nProvider>
         </ThemeProvider>

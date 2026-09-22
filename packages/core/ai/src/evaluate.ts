@@ -96,13 +96,38 @@ export interface EvaluateOptions {
 }
 
 /**
- * Build the Workers AI / AI Gateway URL + auth headers for a Jev `run` call.
+ * Minimal shape of the Workers AI binding (`[ai] binding = "AI"`). Typed
+ * structurally so this package does not depend on `@cloudflare/workers-types`.
+ */
+export interface AiBindingLike {
+  run(model: string, inputs: unknown, options?: unknown): Promise<unknown>;
+}
+
+/** The Workers AI binding on `env.AI`, when the worker declares one. */
+function aiBinding(env: unknown): AiBindingLike | undefined {
+  if (!env || typeof env !== 'object') return undefined;
+  const ai = (env as { AI?: unknown }).AI;
+  return ai && typeof (ai as AiBindingLike).run === 'function'
+    ? (ai as AiBindingLike)
+    : undefined;
+}
+
+/** Workers AI-hosted models use the `@cf/` prefix; everything else is third-party. */
+function isWorkersAiModel(modelId: string): boolean {
+  return modelId.startsWith('@cf/');
+}
+
+/**
+ * Build the REST URL + auth headers for a Jev `run` call (used when the worker
+ * has no `AI` binding).
  *
- * - Gateway mode: `gateway.ai.cloudflare.com/.../workers-ai/{model}` with
- *   `cf-aig-authorization` (provider Authorization is omitted — same rule as
- *   the chat adapter).
- * - Direct mode: `api.cloudflare.com/.../ai/run` with `Authorization` bearer
- *   and `{ model, input }` body wrapping.
+ * - With a Cloudflare API token: the unified `/ai/run` endpoint. This is the
+ *   only REST path that serves third-party models such as `typesafe/jev`; the
+ *   token needs Account > Workers AI > Read.
+ * - `@cf/` models with only a gateway token:
+ *   `gateway.ai.cloudflare.com/.../workers-ai/{model}` with `cf-aig-authorization`.
+ *   The `workers-ai/` route cannot reach third-party models, so a gateway token
+ *   alone is not enough for Jev.
  */
 export function resolveEvaluateRequest(
   config: CloudflareGatewayConfig,
@@ -117,47 +142,52 @@ export function resolveEvaluateRequest(
     'Content-Type': 'application/json',
   };
 
-  if (config.gateway) {
-    if (config.gatewayToken) {
-      headers['cf-aig-authorization'] = `Bearer ${config.gatewayToken}`;
-    } else if (config.apiKey) {
-      // Unauthenticated gateway still needs a CF token for Workers AI billing.
-      headers.Authorization = `Bearer ${config.apiKey}`;
-    }
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+    if (config.gateway) headers['cf-aig-gateway-id'] = config.gateway;
     return {
-      url: `https://gateway.ai.cloudflare.com/v1/${config.accountId}/${config.gateway}/workers-ai/${modelId}`,
+      url: `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run`,
       headers,
-      wrapInModelInput: false,
+      wrapInModelInput: true,
     };
   }
 
-  // Authenticated-gateway token without an explicit id → Cloudflare's `default`
-  // gateway (common for workers that only set CF_AIG_TOKEN + CF_ACCOUNT_ID).
-  if (config.gatewayToken) {
+  if (config.gatewayToken && isWorkersAiModel(modelId)) {
     headers['cf-aig-authorization'] = `Bearer ${config.gatewayToken}`;
     return {
-      url: `https://gateway.ai.cloudflare.com/v1/${config.accountId}/default/workers-ai/${modelId}`,
+      url: `https://gateway.ai.cloudflare.com/v1/${config.accountId}/${config.gateway ?? 'default'}/workers-ai/${modelId}`,
       headers,
       wrapInModelInput: false,
     };
   }
 
-  if (!config.apiKey) {
-    throw new GatewayConfigError(
-      'cloudflare',
-      'AI_GATEWAY_API_TOKEN / CLOUDFLARE_API_TOKEN / CF_API_TOKEN (or CF_AI_GATEWAY + CF_AIG_TOKEN)',
-    );
-  }
-  headers.Authorization = `Bearer ${config.apiKey}`;
-  return {
-    url: `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run`,
-    headers,
-    wrapInModelInput: true,
-  };
+  throw new GatewayConfigError(
+    'cloudflare',
+    isWorkersAiModel(modelId)
+      ? 'AI_GATEWAY_API_TOKEN / CLOUDFLARE_API_TOKEN / CF_API_TOKEN (or CF_AIG_TOKEN)'
+      : 'an AI binding, or AI_GATEWAY_API_TOKEN / CLOUDFLARE_API_TOKEN / CF_API_TOKEN with Workers AI Read',
+  );
 }
 
 /**
- * Run a Jev evaluation against the configured Cloudflare AI Gateway / Workers AI.
+ * Whether {@link evaluate} can run `modelId` with this env: the worker has an
+ * `AI` binding, or the REST config resolves.
+ */
+export function isEvaluateConfigured(env?: object, modelId: string = JEV_MODEL_ID): boolean {
+  if (aiBinding(env)) return true;
+  try {
+    resolveEvaluateRequest(resolveEvaluateConfig(env), modelId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run a Jev evaluation through Workers AI / AI Gateway.
+ *
+ * Prefers the worker's `AI` binding (no tokens needed; routed through the
+ * `CF_AI_GATEWAY` gateway, or `default`), and falls back to the REST API.
  *
  * @example
  * ```ts
@@ -178,29 +208,35 @@ export async function evaluate(
   input: EvaluateInput,
   opts: EvaluateOptions = {},
 ): Promise<EvaluateResult> {
-  const config = resolveEvaluateConfig(envOrConfig);
   const modelId = input.modelId ?? JEV_MODEL_ID;
-  const { url, headers, wrapInModelInput } = resolveEvaluateRequest(config, modelId);
-
-  const payload = wrapInModelInput
-    ? { model: modelId, input: { state: input.state, questions: input.questions } }
-    : { state: input.state, questions: input.questions };
-
+  const modelInput = { state: input.state, questions: input.questions };
   const startedAt = Date.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `[@weldsuite/ai] Jev evaluate failed (${res.status}) on cloudflare: ${body.slice(0, 500)}`,
-    );
+  const binding = isCloudflareConfig(envOrConfig) ? undefined : aiBinding(envOrConfig);
+  let raw: unknown;
+  if (binding) {
+    const gateway = (envOrConfig as { CF_AI_GATEWAY?: unknown }).CF_AI_GATEWAY;
+    raw = await binding.run(modelId, modelInput, {
+      gateway: { id: typeof gateway === 'string' && gateway ? gateway : 'default' },
+    });
+  } else {
+    const config = resolveEvaluateConfig(envOrConfig);
+    const { url, headers, wrapInModelInput } = resolveEvaluateRequest(config, modelId);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(wrapInModelInput ? { model: modelId, input: modelInput } : modelInput),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(
+        `[@weldsuite/ai] Jev evaluate failed (${res.status}) on cloudflare: ${body.slice(0, 500)}`,
+      );
+    }
+    raw = (await res.json()) as unknown;
   }
 
-  const raw = (await res.json()) as unknown;
   const parsed = parseEvaluateResponse(raw);
 
   const result: EvaluateResult = {
@@ -235,8 +271,9 @@ function isCloudflareConfig(value: unknown): value is CloudflareGatewayConfig {
 }
 
 /**
- * Accept both the bare Workers AI binding shape and the REST `{ result, success }`
- * envelope.
+ * Accept the bare Jev response, the REST `{ result, success }` envelope, and
+ * the unified `/ai/run` shape for third-party models, which nests once more:
+ * `{ result: { state: 'Completed', result: { model, answers, usage } } }`.
  */
 export function parseEvaluateResponse(raw: unknown): {
   model: string;
@@ -269,17 +306,23 @@ export function parseEvaluateResponse(raw: unknown): {
 }
 
 function unwrapResult(raw: unknown): unknown {
-  if (!raw || typeof raw !== 'object') return raw;
-  const obj = raw as Record<string, unknown>;
-  // Cloudflare REST envelope
-  if ('result' in obj && obj.result !== undefined) {
+  let current = raw;
+  // Peel `{ result }` envelopes until we reach the object carrying `answers`.
+  for (let depth = 0; depth < 3; depth++) {
+    if (!current || typeof current !== 'object') return current;
+    const obj = current as Record<string, unknown>;
+    if ('answers' in obj) return obj;
     if (obj.success === false) {
       const errors = Array.isArray(obj.errors) ? JSON.stringify(obj.errors) : 'unknown error';
       throw new Error(`[@weldsuite/ai] Jev evaluate API error: ${errors}`);
     }
-    return obj.result;
+    if (!('result' in obj) || obj.result === undefined) return current;
+    if (typeof obj.state === 'string' && obj.state !== 'Completed') {
+      throw new Error(`[@weldsuite/ai] Jev evaluate did not complete (state: ${obj.state})`);
+    }
+    current = obj.result;
   }
-  return raw;
+  return current;
 }
 
 function num(value: unknown): number | undefined {

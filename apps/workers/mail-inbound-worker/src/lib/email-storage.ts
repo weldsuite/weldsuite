@@ -38,7 +38,7 @@ import {
 } from './mail-auto-label';
 import {
   evaluate,
-  isGatewayConfigured,
+  isEvaluateConfigured,
   JEV_MODEL_ID,
   providerCostUsd,
 } from '@weldsuite/ai';
@@ -1133,9 +1133,9 @@ async function classifyAndRunRules(
     }));
 
   if (candidates.length > 0) {
-    if (!isGatewayConfigured(env)) {
+    if (!isEvaluateConfigured(env, JEV_MODEL_ID)) {
       console.warn(
-        `[Store] AI gateway not configured — skipping Jev auto-label for ${messageId}`,
+        `[Store] Workers AI not configured — skipping Jev auto-label for ${messageId}`,
       );
     } else {
       try {
@@ -1217,7 +1217,10 @@ async function classifyAndRunRules(
           );
         }
       } catch (aiErr) {
-        console.error(`[Store] Jev auto-label failed for ${messageId}:`, aiErr);
+        console.error(
+          `[Store] Jev auto-label failed for ${messageId}: ${aiErr instanceof Error ? aiErr.message : String(aiErr)}`,
+          aiErr,
+        );
       }
     }
   }

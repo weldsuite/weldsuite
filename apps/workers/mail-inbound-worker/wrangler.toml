@@ -13,8 +13,11 @@ head_sampling_rate = 1
 
 # Required secrets (add via wrangler secret put):
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
-# - CF_ACCOUNT_ID / CF_AIG_TOKEN (+ optional CF_AI_GATEWAY, AI_GATEWAY_API_TOKEN):
-#   Cloudflare AI Gateway for TypeSafe Jev inbound auto-labeling.
+# TypeSafe Jev inbound auto-labeling runs through the Workers AI binding below
+# (routed via AI Gateway `default`, or CF_AI_GATEWAY if set). No AI token needed.
+
+[ai]
+binding = "AI"
 
 [vars]
 ENVIRONMENT = "development"
@@ -52,6 +55,9 @@ routes = [
 ENVIRONMENT = "test"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 
+[env.test.ai]
+binding = "AI"
+
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
@@ -83,6 +89,9 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[env.production.ai]
+binding = "AI"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

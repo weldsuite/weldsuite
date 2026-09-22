@@ -20,9 +20,11 @@ import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-memb
 interface ConversationHeaderProps {
   conversation: DeskConversation;
   liveCall?: boolean;
+  /** The visitor currently has the widget open on this conversation. */
+  visitorOnline?: boolean;
 }
 
-export function ConversationHeader({ conversation, liveCall = false }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation, liveCall = false, visitorOnline = false }: ConversationHeaderProps) {
   const t = getTranslations('deskInbox2');
   const router = useRouter();
   const { user } = useUser();
@@ -97,6 +99,15 @@ export function ConversationHeader({ conversation, liveCall = false }: Conversat
         <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">
           {displayTitle}
         </h1>
+        {visitorOnline && (
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 flex-shrink-0"
+            data-testid="desk-inbox-visitor-online"
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            {t.pane.online}
+          </span>
+        )}
         {liveCall && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 flex-shrink-0">
             <span className="relative flex h-1.5 w-1.5">

@@ -18,11 +18,20 @@ import {
 } from '@weldsuite/core-api-client/schemas/desk-conversations';
 import {
   appendDeskMessage,
+  deskAuthorFromMember,
   getDeskConversation,
+  isPublicDeskMessage,
   listDeskConversations,
+  toPublicDeskConversation,
+  toPublicDeskMessage,
   DeskConversationNotFoundError,
   isDeskSchemaMissing,
+  type DeskAuthorInfo,
+  type DeskConversation,
+  type DeskMessage,
 } from '@weldsuite/db/lib/desk';
+import * as schema from '@weldsuite/db/schema';
+import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -30,17 +39,82 @@ import { sendDeskEmailReply } from '../../lib/desk-email';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-async function publishRealtime(
-  c: { env: Env },
-  conversationId: string,
-  payload: Record<string, unknown>,
+async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
+  const authors = new Map<string, DeskAuthorInfo>();
+  if (!userId) return authors;
+  try {
+    const [member] = await db
+      .select({ name: schema.workspaceMembers.name, picture: schema.workspaceMembers.picture })
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, userId))
+      .limit(1);
+    if (member) authors.set(userId, deskAuthorFromMember(member));
+  } catch (err) {
+    console.error('[app-api/desk-conversations] author lookup failed:', err);
+  }
+  return authors;
+}
+
+/**
+ * Fan a change out live:
+ *   - ConversationRoom: the visitor's widget (and other agents viewing the
+ *     thread). Visitors are connected to this room, so internal notes are
+ *     NEVER published here.
+ *   - WorkspaceHub desk_conversation / desk_message: every agent's inbox list
+ *     and open thread, including notes. Published directly (not only via the
+ *     entity-event queue) so the inbox updates in the same second.
+ */
+async function publishDeskChange(
+  c: { env: Env; get: (key: 'workspaceId') => string },
+  conversation: DeskConversation,
+  message: DeskMessage,
+  authors: Map<string, DeskAuthorInfo>,
 ) {
   if (!c.env.REALTIME) return;
-  try {
-    const rt = new RealtimePublisher(c.env.REALTIME);
-    await rt.conversationPublish(conversationId, { ...payload, ts: Date.now() });
-  } catch (err) {
-    console.error('[app-api/desk-conversations] realtime publish failed:', err);
+  const rt = new RealtimePublisher(c.env.REALTIME);
+  const orgId = c.get('workspaceId');
+  const jobs: Promise<unknown>[] = [
+    rt.publish(orgId, 'desk_conversation', 'updated', conversation, message.authorId ?? 'system'),
+    rt.publish(orgId, 'desk_message', 'created', message, message.authorId ?? 'system'),
+  ];
+
+  if (isPublicDeskMessage(message)) {
+    const record = toPublicDeskMessage(message, authors);
+    if (message.kind === 'message') {
+      jobs.push(
+        rt.conversationPublish(conversation.id, {
+          type: 'message',
+          id: message.id,
+          content: message.body ?? '',
+          senderId: message.authorId ?? '',
+          senderName: record.authorName ?? 'Support',
+          senderAvatar: record.authorAvatar ?? undefined,
+          senderType: message.authorType,
+          ts: Date.now(),
+          record,
+        }),
+      );
+    } else {
+      jobs.push(
+        rt.conversationPublish(conversation.id, {
+          type: 'system',
+          event: record.eventType ?? 'event',
+          data: {
+            state: conversation.state,
+            conversation: toPublicDeskConversation(conversation, authors),
+            record,
+          },
+          ts: Date.now(),
+        }),
+      );
+    }
+  }
+
+  const results = await Promise.allSettled(jobs);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('[app-api/desk-conversations] realtime publish failed:', result.reason);
+    }
   }
 }
 
@@ -102,14 +176,8 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
-    await publishRealtime(c, conversation.id, {
-      type: 'message',
-      id: message.id,
-      content: message.body ?? '',
-      senderId: userId,
-      senderType: 'agent',
-      kind: message.kind,
-    });
+    const authors = await loadAuthor(db, userId);
+    c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (conversation.channel === 'email' && data.kind === 'message') {
       try {
         await sendDeskEmailReply(c.env, db, conversation, message);
@@ -168,11 +236,8 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
-    await publishRealtime(c, conversation.id, {
-      type: 'system',
-      event: eventType,
-      data: { assigneeId: conversation.assigneeId, state: conversation.state },
-    });
+    const authors = await loadAuthor(db, conversation.assigneeId);
+    c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     return success(c, { conversation, message });
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
