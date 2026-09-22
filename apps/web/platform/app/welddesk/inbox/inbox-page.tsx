@@ -6,6 +6,7 @@ import { DeskSplitLayout, InboxLayout } from './inbox-layout';
 import { ConversationList, type InboxAssigneeFilter } from './conversation-list';
 import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
+import { useDeskInboxLive } from '@/hooks/welddesk/use-desk-live';
 
 const RESERVED_INBOX_SEGMENTS = new Set([
   'all',
@@ -32,6 +33,9 @@ export function InboxPage({ conversationId, channel }: InboxPageProps) {
   const [state, setState] = useState<DeskConversationState>('open');
   const [sort, setSort] = useState<DeskConversationSort>('newest');
   const [assigneeFilter, setAssigneeFilter] = useState<InboxAssigneeFilter>('all');
+
+  // One hub subscription for the whole inbox: list + open thread stay live.
+  useDeskInboxLive();
 
   const channelFromSegment =
     conversationId && RESERVED_INBOX_SEGMENTS.has(conversationId)

@@ -1,10 +1,18 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
+import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
-import { deskKeys, useDeskConversation } from '@/hooks/queries/use-desk-queries';
+import {
+  deskKeys,
+  useDeskConversation,
+  useReplyToDeskConversation,
+  type DeskMessage,
+} from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
-import { useWeldDeskRealtime } from '@/hooks/welddesk/use-welddesk-realtime';
+import { useDeskConversationRoom } from '@/hooks/welddesk/use-desk-live';
+import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { ConversationHeader } from './conversation-header';
 import { MessagesTimeline } from './messages-timeline';
 import { Composer } from './composer';
@@ -13,25 +21,18 @@ interface ConversationPaneProps {
   conversationId: string;
 }
 
+function newClientId(): string {
+  return `tmp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function ConversationPane({ conversationId }: ConversationPaneProps) {
   const t = getTranslations('deskInbox2');
   const qc = useQueryClient();
+  const { user } = useUser();
   const { data, isLoading, isError } = useDeskConversation(conversationId);
   const { data: membersData } = useDeskWorkspaceMembers();
-
-  useWeldDeskRealtime({
-    conversationId,
-    role: 'agent',
-    enabled: true,
-    onMessage: () => {
-      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(conversationId) });
-      qc.invalidateQueries({ queryKey: deskKeys.conversations() });
-    },
-    onEvent: () => {
-      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(conversationId) });
-      qc.invalidateQueries({ queryKey: deskKeys.conversations() });
-    },
-  });
+  const room = useDeskConversationRoom(conversationId);
+  const reply = useReplyToDeskConversation();
 
   const conversation = data?.data;
   const messages = conversation?.messages ?? [];
@@ -43,6 +44,8 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
       events.includes('call_started')) &&
     !events.includes('call_ended');
 
+  // Phone transcripts are written by the voice agent without a realtime
+  // publish, so a live call still polls.
   useEffect(() => {
     if (!liveCall) return;
     const timer = setInterval(() => {
@@ -50,6 +53,36 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
     }, 2000);
     return () => clearInterval(timer);
   }, [liveCall, conversationId, qc]);
+
+  // The agent is looking at this thread — its bell notifications are read.
+  const { notifications, markAsRead } = useUnifiedNotifications();
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    for (const n of notifications) {
+      if (!n.isRead && n.entityType === 'desk_conversation' && n.entityId === conversationId) {
+        void markAsRead(n.id);
+      }
+    }
+  }, [notifications, conversationId, markAsRead]);
+
+  const send = useCallback(
+    (kind: 'message' | 'note', body: string, clientId: string = newClientId()) => {
+      room.stopTyping();
+      reply.mutate(
+        { id: conversationId, data: { kind, body }, authorId: user?.id, clientId },
+        { onError: () => toast.error(t.composer.replyError) },
+      );
+    },
+    [conversationId, reply, room, t.composer.replyError, user?.id],
+  );
+
+  const retry = useCallback(
+    (message: DeskMessage) => {
+      if (!message.body || message.kind === 'event') return;
+      send(message.kind, message.body, message.clientId);
+    },
+    [send],
+  );
 
   if (isLoading) {
     return (
@@ -59,7 +92,7 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
     );
   }
 
-  if (isError || !data?.data) {
+  if (isError || !conversation) {
     return (
       <div className="h-full flex items-center justify-center bg-white dark:bg-background text-sm text-destructive">
         {t.pane.loadError}
@@ -67,16 +100,26 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
     );
   }
 
-  const members = membersData ?? [];
-  const current = data.data;
-
   return (
     <div className="h-full flex flex-col bg-white dark:bg-background overflow-hidden">
-      <ConversationHeader conversation={current} liveCall={Boolean(liveCall)} />
-      <div className="flex-1 overflow-y-auto">
-        <MessagesTimeline messages={current.messages ?? []} members={members} />
-      </div>
-      <Composer conversationId={conversationId} />
+      <ConversationHeader
+        conversation={conversation}
+        liveCall={Boolean(liveCall)}
+        visitorOnline={room.visitorOnline}
+      />
+      <MessagesTimeline
+        conversation={conversation}
+        messages={messages}
+        members={membersData ?? []}
+        typing={room.typing}
+        onRetry={retry}
+      />
+      <Composer
+        conversationId={conversationId}
+        onSend={send}
+        onTyping={room.notifyTyping}
+        onStopTyping={room.stopTyping}
+      />
     </div>
   );
 }

@@ -33,6 +33,10 @@ export interface Env {
   WIDGET_TOKEN_SECRET?: string;
   /** Shared with discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret. */
   DISCORD_BOT_SECRET?: string;
+  /** Public realtime-worker origin (wss://…) handed to the widget via /api/config. */
+  REALTIME_PUBLIC_URL?: string;
+  /** Platform origin used for absolute links in push notifications. */
+  PUBLIC_APP_URL?: string;
 }
 
 export type Variables = {

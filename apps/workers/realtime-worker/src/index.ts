@@ -5,6 +5,7 @@ import { AUTH_HEADERS } from './lib/protocol';
 import {
   verifyClerkJwt,
   verifyPersonalClerkJwt,
+  verifyWidgetToken,
   verifyAuth,
   pemToBuffer,
   base64UrlToBuffer,
@@ -86,6 +87,36 @@ async function assertResourceInWorkspace(
   } catch (dbErr) {
     console.error(`[realtime] ${label} access check failed:`, (dbErr as Error).message);
     return c.text(`Internal error checking ${label} access`, 500);
+  }
+}
+
+/**
+ * Conversation ownership check across both helpdesk models. Returns `null`
+ * when the conversation exists in the caller's tenant DB.
+ */
+async function assertConversationInWorkspace(
+  c: Context<{ Bindings: Env }>,
+  workspaceId: string,
+  conversationId: string,
+): Promise<Response | null> {
+  try {
+    const db = await getTenantDbForWorkspace(c.env, workspaceId);
+    const [desk] = await db
+      .select({ id: schema.deskConversations.id })
+      .from(schema.deskConversations)
+      .where(eq(schema.deskConversations.id, conversationId))
+      .limit(1);
+    if (desk) return null;
+    const [legacy] = await db
+      .select({ id: schema.helpdeskConversations.id })
+      .from(schema.helpdeskConversations)
+      .where(eq(schema.helpdeskConversations.id, conversationId))
+      .limit(1);
+    if (legacy) return null;
+    return c.text('Forbidden: conversation not found', 403);
+  } catch (dbErr) {
+    console.error('[realtime] conversation access check failed:', (dbErr as Error).message);
+    return c.text('Internal error checking conversation access', 500);
   }
 }
 
@@ -199,7 +230,6 @@ app.get('/ws/conversation/:conversationId', async (c) => {
   }
 
   const conversationId = c.req.param('conversationId');
-  const url = new URL(c.req.url);
 
   let userId: string;
   let userName: string;
@@ -207,33 +237,44 @@ app.get('/ws/conversation/:conversationId', async (c) => {
   let userType: string;
   let canPublish: boolean;
 
-  // Try Clerk JWT first (agents), fall back to query params (widget customers)
+  let agentAuth: Awaited<ReturnType<typeof verifyClerkJwt>> | null = null;
   try {
-    const auth = await verifyClerkJwt(c);
+    agentAuth = await verifyClerkJwt(c);
+  } catch {
+    agentAuth = null;
+  }
 
+  if (agentAuth) {
     // Cross-tenant gate: the conversation must exist in the agent's own tenant
     // DB. Without this, any authenticated user could join another workspace's
-    // helpdesk conversation stream by id. (The widget-customer path below is
-    // intentionally capability-based — the random conversation id is the bearer.)
-    const denied = await assertResourceInWorkspace(
-      c,
-      auth.workspaceId,
-      schema.helpdeskConversations,
-      conversationId,
-      'conversation',
-    );
+    // helpdesk conversation stream by id. WeldDesk webchat lives in
+    // desk_conversations; the legacy helpdesk_conversations table is still
+    // checked for the older mobile inbox.
+    const denied = await assertConversationInWorkspace(c, agentAuth.workspaceId, conversationId);
     if (denied) return denied;
 
-    const permissions = getConversationPermissions(auth, conversationId);
-    userId = auth.userId;
-    userName = auth.userName;
+    const permissions = getConversationPermissions(agentAuth, conversationId);
+    userId = agentAuth.userId;
+    userName = agentAuth.userName;
     role = permissions.role;
     userType = 'agent';
     canPublish = permissions.canPublish;
-  } catch {
-    // No valid JWT — treat as widget customer.
-    userId = url.searchParams.get('customerId') || `anon_${Date.now()}`;
-    userName = url.searchParams.get('customerName') || 'Customer';
+  } else {
+    // Widget visitor: must present a widget token (minted by
+    // helpdesk-widget-api after it checked the visitor owns the conversation)
+    // that is bound to THIS conversation. Knowing a conversation id alone is
+    // not enough to listen in.
+    let widgetAuth;
+    try {
+      widgetAuth = await verifyWidgetToken(c);
+    } catch (err) {
+      return c.text(`Unauthorized: ${(err as Error).message}`, 401);
+    }
+    if (!widgetAuth.conversationId || widgetAuth.conversationId !== conversationId) {
+      return c.text('Forbidden: token is not valid for this conversation', 403);
+    }
+    userId = `visitor:${widgetAuth.userId}`;
+    userName = widgetAuth.userName;
     role = 'customer';
     userType = 'customer';
     canPublish = true;

@@ -1,111 +1,126 @@
 /**
  * Visitor-facing conversation + message routes.
+ *
+ * Every route that touches a conversation checks that it belongs to the
+ * calling visitor. Visitors never see internal notes, and message payloads
+ * carry the teammate's display name/avatar so the widget never has to guess.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { RealtimePublisher } from '@weldsuite/realtime/server';
 import {
   appendDeskMessage,
+  attachDeskVisitorContact,
   createDeskConversation,
-  findOpenConversationForVisitor,
   getDeskConversation,
-  listDeskMessages,
+  listDeskConversationsForVisitor,
   upsertDeskVisitor,
   DeskConversationNotFoundError,
+  type DeskConversation,
 } from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
+import {
+  isPublicMessage,
+  notifyTeamOfVisitorMessage,
+  publishConversationUpdated,
+  publishVisitorMessage,
+  resolveAuthors,
+  toPublicConversation,
+  toPublicMessage,
+  visitorDisplayName,
+} from '../lib/desk-live';
 
 export const conversationsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const visitorIdSchema = z.string().min(1).max(64);
+
 const identifySchema = z.object({
-  visitorId: z.string().min(1).max(64),
-  name: z.string().max(255).optional(),
-  email: z.string().email().max(255).optional(),
+  visitorId: visitorIdSchema,
+  name: z.string().trim().max(255).optional(),
+  email: z.string().trim().email().max(255).optional(),
 });
 
-const startSchema = identifySchema.extend({
-  body: z.string().min(1),
+const clientIdSchema = z.string().max(64).optional();
+
+const startSchema = z.object({
+  visitorId: visitorIdSchema,
+  name: z.string().trim().max(255).optional(),
+  email: z.string().trim().email().max(255).optional(),
+  body: z.string().trim().min(1).max(10_000),
+  clientId: clientIdSchema,
 });
 
 const sendSchema = z.object({
-  visitorId: z.string().min(1).max(64),
-  body: z.string().min(1),
+  visitorId: visitorIdSchema,
+  body: z.string().trim().min(1).max(10_000),
+  clientId: clientIdSchema,
 });
 
-async function publishRealtime(
-  env: Env,
-  conversationId: string,
-  payload: Record<string, unknown>,
-) {
-  if (!env.REALTIME) return;
-  try {
-    const rt = new RealtimePublisher(env.REALTIME);
-    await rt.conversationPublish(conversationId, { ...payload, ts: Date.now() });
-    await rt.helpdeskEvent(payload.workspaceId as string, 'conversation_updated', {
-      conversationId,
-    });
-  } catch (err) {
-    console.error('[widget-api] realtime publish failed:', err);
-  }
+const visitorQuerySchema = z.object({ visitorId: visitorIdSchema });
+
+function ownedBy(conversation: DeskConversation, visitorId: string): boolean {
+  return conversation.visitorId === visitorId;
 }
 
+/** Register / update the visitor and attach their contact details to their conversations. */
 conversationsRoutes.post('/identify', zValidator('json', identifySchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.get('widgetId');
+  const orgId = c.get('workspaceId');
   const data = c.req.valid('json');
   try {
     const visitor = await upsertDeskVisitor(db, {
       id: data.visitorId,
-      name: data.name,
-      email: data.email,
+      name: data.name || undefined,
+      email: data.email?.toLowerCase() || undefined,
       widgetId,
     });
-    const open = await findOpenConversationForVisitor(db, visitor.id);
-    return success(c, { visitor, conversationId: open?.id ?? null });
+    const updated = await attachDeskVisitorContact(db, visitor.id, {
+      name: data.name,
+      email: data.email,
+    });
+    c.executionCtx.waitUntil(
+      Promise.all(updated.map((conversation) => publishConversationUpdated(c.env, orgId, conversation))),
+    );
+    return success(c, {
+      visitor: { id: visitor.id, name: visitor.name, email: visitor.email },
+    });
   } catch (err) {
     console.error('[widget-api] identify failed:', err);
     return error.internal(c, 'Failed to identify visitor');
   }
 });
 
+/** The visitor's conversation history (messenger "Messages" tab). */
+conversationsRoutes.get('/', zValidator('query', visitorQuerySchema), async (c) => {
+  const db = c.get('tenantDb');
+  const { visitorId } = c.req.valid('query');
+  try {
+    const rows = await listDeskConversationsForVisitor(db, visitorId);
+    const authors = await resolveAuthors(db, rows.map((r) => r.assigneeId));
+    return success(c, rows.map((row) => toPublicConversation(row, authors)));
+  } catch (err) {
+    console.error('[widget-api] list conversations failed:', err);
+    return error.internal(c, 'Failed to list conversations');
+  }
+});
+
+/** Start a new conversation with the visitor's first message. */
 conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.get('widgetId');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('workspaceId');
   const data = c.req.valid('json');
   try {
     const visitor = await upsertDeskVisitor(db, {
       id: data.visitorId,
-      name: data.name,
-      email: data.email,
+      name: data.name || undefined,
+      email: data.email?.toLowerCase() || undefined,
       widgetId,
     });
-
-    const existing = await findOpenConversationForVisitor(db, visitor.id);
-    if (existing) {
-      const { conversation, message } = await appendDeskMessage(db, {
-        generateId,
-        conversationId: existing.id,
-        kind: 'message',
-        authorType: 'visitor',
-        authorId: visitor.id,
-        body: data.body,
-      });
-      await publishRealtime(c.env, conversation.id, {
-        type: 'message',
-        id: message.id,
-        content: message.body ?? '',
-        senderId: visitor.id,
-        senderType: 'visitor',
-        workspaceId,
-      });
-      const messages = await listDeskMessages(db, conversation.id);
-      return success(c, { conversation, messages, message }, 201);
-    }
 
     const { conversation, message } = await createDeskConversation(db, {
       generateId,
@@ -115,66 +130,74 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
       body: data.body,
       authorType: 'visitor',
       authorId: visitor.id,
+      metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
-    await publishRealtime(c.env, conversation.id, {
-      type: 'message',
-      id: message.id,
-      content: message.body ?? '',
-      senderId: visitor.id,
-      senderType: 'visitor',
-      workspaceId,
-    });
-    const messages = await listDeskMessages(db, conversation.id);
-    return success(c, { conversation, messages, message }, 201);
+
+    const visitorName = await visitorDisplayName(db, visitor.id, visitor);
+    c.executionCtx.waitUntil(
+      Promise.all([
+        publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'created'),
+        notifyTeamOfVisitorMessage({
+          env: c.env,
+          db,
+          orgId,
+          conversation,
+          message,
+          visitorName,
+          isNewConversation: true,
+        }),
+      ]),
+    );
+
+    const authors = new Map();
+    return success(
+      c,
+      {
+        conversation: toPublicConversation(conversation, authors),
+        messages: [toPublicMessage(message, authors)],
+        message: toPublicMessage(message, authors),
+      },
+      201,
+    );
   } catch (err) {
     console.error('[widget-api] start conversation failed:', err);
     return error.internal(c, 'Failed to start conversation');
   }
 });
 
-conversationsRoutes.get('/:id', async (c) => {
+conversationsRoutes.get('/:id', zValidator('query', visitorQuerySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const visitorId = c.req.query('visitorId');
+  const { visitorId } = c.req.valid('query');
   try {
     const result = await getDeskConversation(db, id, { includeMessages: true });
-    if (!result) return error.notFound(c, 'Conversation', id);
-    if (visitorId && result.conversation.visitorId && result.conversation.visitorId !== visitorId) {
-      return error.forbidden(c, 'Not your conversation');
+    if (!result || !ownedBy(result.conversation, visitorId)) {
+      return error.notFound(c, 'Conversation', id);
     }
-    const publicMessages = result.messages.filter((m) => m.kind !== 'note');
-    return success(c, { ...result.conversation, messages: publicMessages });
+    const visible = result.messages.filter(isPublicMessage);
+    const authors = await resolveAuthors(db, [
+      result.conversation.assigneeId,
+      ...visible.filter((m) => m.authorType === 'agent').map((m) => m.authorId),
+    ]);
+    return success(c, {
+      conversation: toPublicConversation(result.conversation, authors),
+      messages: visible.map((m) => toPublicMessage(m, authors)),
+    });
   } catch (err) {
     console.error('[widget-api] get conversation failed:', err);
     return error.internal(c, 'Failed to fetch conversation');
   }
 });
 
-conversationsRoutes.get('/:id/messages', async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  try {
-    const result = await getDeskConversation(db, id);
-    if (!result) return error.notFound(c, 'Conversation', id);
-    const rows = await listDeskMessages(db, id);
-    const publicRows = rows.filter((m) => m.kind !== 'note');
-    return success(c, publicRows);
-  } catch (err) {
-    console.error('[widget-api] list messages failed:', err);
-    return error.internal(c, 'Failed to list messages');
-  }
-});
-
 conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('workspaceId');
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
     const existing = await getDeskConversation(db, id);
-    if (!existing) return error.notFound(c, 'Conversation', id);
-    if (existing.conversation.visitorId && existing.conversation.visitorId !== data.visitorId) {
-      return error.forbidden(c, 'Not your conversation');
+    if (!existing || !ownedBy(existing.conversation, data.visitorId)) {
+      return error.notFound(c, 'Conversation', id);
     }
 
     const { conversation, message } = await appendDeskMessage(db, {
@@ -184,16 +207,40 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       authorType: 'visitor',
       authorId: data.visitorId,
       body: data.body,
+      metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
-    await publishRealtime(c.env, conversation.id, {
-      type: 'message',
-      id: message.id,
-      content: message.body ?? '',
-      senderId: data.visitorId,
-      senderType: 'visitor',
-      workspaceId,
-    });
-    return success(c, { conversation, message }, 201);
+
+    const visitorName = await visitorDisplayName(db, data.visitorId, existing.conversation);
+    // The ball was already in the team's court → they've been told.
+    const teamAlreadyWaiting =
+      existing.conversation.state === 'open' && existing.conversation.waitingSince !== null;
+
+    c.executionCtx.waitUntil(
+      Promise.all([
+        publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'updated'),
+        teamAlreadyWaiting
+          ? Promise.resolve()
+          : notifyTeamOfVisitorMessage({
+              env: c.env,
+              db,
+              orgId,
+              conversation,
+              message,
+              visitorName,
+              isNewConversation: false,
+            }),
+      ]),
+    );
+
+    const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    return success(
+      c,
+      {
+        conversation: toPublicConversation(conversation, authors),
+        message: toPublicMessage(message, authors),
+      },
+      201,
+    );
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
     console.error('[widget-api] send message failed:', err);

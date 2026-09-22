@@ -3977,6 +3977,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime

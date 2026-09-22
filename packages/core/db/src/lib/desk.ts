@@ -50,6 +50,16 @@ export function isDeskSchemaMissing(err: unknown): boolean {
   return /column .+ does not exist/i.test(msg) || /relation .+ does not exist/i.test(msg);
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : '';
+  if (code === '23505') return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /duplicate key value/i.test(msg);
+}
+
 function previewOf(body: string | null | undefined): string | null {
   if (!body) return null;
   const trimmed = body.replace(/\s+/g, ' ').trim();
@@ -135,27 +145,37 @@ export async function createDeskConversation(
 ): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
   const id = input.generateId('dconv');
   const now = new Date();
-  const conversationNumber = await nextConversationNumber(db);
   const authorType: DeskAuthorType = input.authorType ?? 'visitor';
   const title = input.title ?? previewOf(input.body);
 
-  await db.insert(conversations).values({
-    id,
-    createdAt: now,
-    updatedAt: now,
-    conversationNumber,
-    title,
-    state: 'open',
-    channel: input.channel ?? 'messenger',
-    visitorId: input.visitorId,
-    name: input.name ?? null,
-    email: input.email ?? null,
-    contactId: input.contactId ?? null,
-    assigneeId: null,
-    waitingSince: authorType === 'visitor' ? now : null,
-    lastMessageAt: now,
-    lastMessagePreview: previewOf(input.body),
-  });
+  // conversation_number is MAX+1 under a unique index, so two conversations
+  // started in the same instant collide. Retry with a fresh number instead of
+  // failing the visitor's first message.
+  for (let attempt = 0; ; attempt++) {
+    const conversationNumber = await nextConversationNumber(db);
+    try {
+      await db.insert(conversations).values({
+        id,
+        createdAt: now,
+        updatedAt: now,
+        conversationNumber,
+        title,
+        state: 'open',
+        channel: input.channel ?? 'messenger',
+        visitorId: input.visitorId,
+        name: input.name ?? null,
+        email: input.email ?? null,
+        contactId: input.contactId ?? null,
+        assigneeId: null,
+        waitingSince: authorType === 'visitor' ? now : null,
+        lastMessageAt: now,
+        lastMessagePreview: previewOf(input.body),
+      });
+      break;
+    } catch (err) {
+      if (attempt >= 4 || !isUniqueViolation(err)) throw err;
+    }
+  }
 
   return appendDeskMessage(db, {
     generateId: input.generateId,
@@ -280,6 +300,55 @@ export async function findOpenConversationForVisitor(
     .orderBy(desc(conversations.lastMessageAt))
     .limit(1);
   return row ?? null;
+}
+
+/** A visitor's conversations, most recent activity first (messenger history). */
+export async function listDeskConversationsForVisitor(
+  db: AnyDb,
+  visitorId: string,
+  limit = 25,
+): Promise<DeskConversation[]> {
+  return db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.visitorId, visitorId))
+    .orderBy(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`)
+    .limit(Math.min(limit, 100));
+}
+
+/**
+ * Copy contact details a visitor supplied mid-conversation onto their
+ * conversations that don't have them yet, so the inbox stops showing
+ * "Visitor" once they leave an email. Never overwrites existing values.
+ */
+export async function attachDeskVisitorContact(
+  db: AnyDb,
+  visitorId: string,
+  contact: { name?: string | null; email?: string | null },
+): Promise<DeskConversation[]> {
+  const updated: DeskConversation[] = [];
+  const email = contact.email?.trim().toLowerCase() || null;
+  const name = contact.name?.trim() || null;
+  if (!email && !name) return updated;
+
+  const rows = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.visitorId, visitorId));
+
+  for (const row of rows) {
+    const patch: Partial<DeskConversation> = {};
+    if (email && !row.email) patch.email = email;
+    if (name && !row.name) patch.name = name;
+    if (Object.keys(patch).length === 0) continue;
+    const [next] = await db
+      .update(conversations)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(conversations.id, row.id))
+      .returning();
+    if (next) updated.push(next);
+  }
+  return updated;
 }
 
 export interface ListDeskConversationsQuery {
@@ -705,4 +774,107 @@ export async function ingestDeskEmail(
     metadata: emailMeta,
   });
   return { ...result, created: true };
+}
+
+// ---------------------------------------------------------------------------
+// Visitor-facing wire format
+//
+// The messenger widget and the realtime ConversationRoom (which visitors are
+// connected to) only ever see these shapes. Both helpdesk-widget-api and
+// app-api build them here so the two writers can't drift apart. Internal
+// notes are never converted — callers must filter them out first.
+// ---------------------------------------------------------------------------
+
+export interface DeskAuthorInfo {
+  name: string;
+  avatar: string | null;
+}
+
+export interface PublicDeskMessage {
+  id: string;
+  conversationId: string;
+  kind: 'message' | 'event';
+  body: string | null;
+  authorType: DeskAuthorType;
+  authorName: string | null;
+  authorAvatar: string | null;
+  attachments: DeskMessageAttachment[] | null;
+  eventType: string | null;
+  clientId: string | null;
+  createdAt: string;
+}
+
+export interface PublicDeskConversation {
+  id: string;
+  conversationNumber: number;
+  title: string | null;
+  state: DeskConversationState;
+  createdAt: string;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  /** True when the last public message came from the team (ball in the visitor's court). */
+  lastMessageFromTeam: boolean;
+  assignee: DeskAuthorInfo | null;
+}
+
+function toIso(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/** Teammates are shown to visitors by first name only — never by email. */
+export function deskAuthorFromMember(member: {
+  name: string | null;
+  picture: string | null;
+}): DeskAuthorInfo {
+  const firstName = member.name?.trim().split(/\s+/)[0];
+  return { name: firstName || 'Support', avatar: member.picture ?? null };
+}
+
+export function isPublicDeskMessage(message: DeskMessage): boolean {
+  return message.kind !== 'note';
+}
+
+export function toPublicDeskMessage(
+  message: DeskMessage,
+  authors: Map<string, DeskAuthorInfo>,
+): PublicDeskMessage {
+  const author =
+    message.authorType === 'agent' && message.authorId ? authors.get(message.authorId) : undefined;
+  const metadata = message.metadata ?? {};
+  return {
+    id: message.id,
+    conversationId: message.conversationId,
+    kind: message.kind === 'event' ? 'event' : 'message',
+    body: message.body,
+    authorType: message.authorType,
+    authorName:
+      message.authorType === 'agent'
+        ? author?.name ?? 'Support'
+        : message.authorType === 'bot'
+          ? 'Bot'
+          : null,
+    authorAvatar: author?.avatar ?? null,
+    attachments: message.attachments,
+    eventType: typeof metadata.eventType === 'string' ? metadata.eventType : null,
+    clientId: typeof metadata.clientId === 'string' ? metadata.clientId : null,
+    createdAt: toIso(message.createdAt) ?? new Date().toISOString(),
+  };
+}
+
+export function toPublicDeskConversation(
+  conversation: DeskConversation,
+  authors: Map<string, DeskAuthorInfo>,
+): PublicDeskConversation {
+  return {
+    id: conversation.id,
+    conversationNumber: conversation.conversationNumber,
+    title: conversation.title,
+    state: conversation.state,
+    createdAt: toIso(conversation.createdAt) ?? new Date().toISOString(),
+    lastMessageAt: toIso(conversation.lastMessageAt),
+    lastMessagePreview: conversation.lastMessagePreview,
+    lastMessageFromTeam: conversation.waitingSince === null && conversation.lastMessageAt !== null,
+    assignee: conversation.assigneeId ? authors.get(conversation.assigneeId) ?? null : null,
+  };
 }
