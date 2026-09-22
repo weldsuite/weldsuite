@@ -5,14 +5,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8789",
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
-    "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
-    "type-check": "tsc --noEmit",
+    "deploy:test": "wrangler deploy --env test",
+    "dev": "wrangler dev --port 8789",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@clerk/backend": "^2.33.3",
@@ -49,6 +50,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^3.2.6",
     "typescript": "^5.7",
     "vitest": "^3.2.6",
     "wrangler": "^4.95.0"

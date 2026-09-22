@@ -106,6 +106,23 @@ export {
   recommended,
   type ModelId,
 } from './models.js';
+export {
+  evaluate,
+  parseEvaluateResponse,
+  resolveEvaluateRequest,
+  JEV_MODEL_ID,
+  type EvaluateInput,
+  type EvaluateOptions,
+  type EvaluateResult,
+  type JevAnswer,
+  type JevChoiceAnswer,
+  type JevChoiceQuestion,
+  type JevNoulAnswer,
+  type JevNoulQuestion,
+  type JevQuestion,
+  type JevScoreAnswer,
+  type JevScoreQuestion,
+} from './evaluate.js';
 
 // Shared AI credit pricing (rate table + pure cost math) — see billing-rates.ts
 // header for why this lives here instead of duplicated in every consumer.

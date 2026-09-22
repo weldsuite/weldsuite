@@ -46,9 +46,16 @@ export interface Env {
   // Encryption key for stored database connection strings
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
-  // AI Gateway (for semantic email classification)
+  // AI Gateway — TypeSafe Jev multi-label auto-labeling for inbound workspace mail.
+  // CF_ACCOUNT_ID + CF_AIG_TOKEN are enough (gateway id defaults to `default`).
+  // Optionally set CF_AI_GATEWAY (named gateway) and/or AI_GATEWAY_API_TOKEN
+  // (direct Workers AI fallback).
   CF_ACCOUNT_ID?: string;
+  CF_AI_GATEWAY?: string;
   CF_AIG_TOKEN?: string;
+  AI_GATEWAY_API_TOKEN?: string;
+  CLOUDFLARE_API_TOKEN?: string;
+  CF_API_TOKEN?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();

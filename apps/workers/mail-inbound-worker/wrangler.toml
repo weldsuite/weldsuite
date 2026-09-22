@@ -13,6 +13,8 @@ head_sampling_rate = 1
 
 # Required secrets (add via wrangler secret put):
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
+# - CF_ACCOUNT_ID / CF_AIG_TOKEN (+ optional CF_AI_GATEWAY, AI_GATEWAY_API_TOKEN):
+#   Cloudflare AI Gateway for TypeSafe Jev inbound auto-labeling.
 
 [vars]
 ENVIRONMENT = "development"

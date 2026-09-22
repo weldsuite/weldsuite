@@ -17,6 +17,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as workflowsService from '../../services/workflows';
+import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
 import { registerGenerateWorkflowRoute } from './generate';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -103,6 +104,7 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
   const data = c.req.valid('json');
   try {
     const result = await workflowsService.createWorkflow(db, data, userId);
+    await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,
       entityType: 'workflow',
@@ -125,6 +127,7 @@ for (const method of ['put', 'patch'] as const) {
     try {
       const result = await workflowsService.updateWorkflow(db, id, data);
       if (!result) return error.notFound(c, 'Workflow', id);
+      await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
       publishEntityEvent({
         c,
@@ -152,6 +155,7 @@ app.patch(
     try {
       const result = await workflowsService.updateWorkflowStatus(db, id, status);
       if (!result) return error.notFound(c, 'Workflow', id);
+      await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
       publishEntityEvent({
         c,
@@ -198,6 +202,7 @@ app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
     const existing = await workflowsService.getWorkflow(db, id);
     if (!existing) return error.notFound(c, 'Workflow', id);
     await workflowsService.deleteWorkflow(db, id);
+    await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,
       entityType: 'workflow',

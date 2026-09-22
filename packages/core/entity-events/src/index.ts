@@ -107,11 +107,13 @@ export {
   deliverWebhookEvent,
   dispatchWebhookDeliveries,
   hasExistingWebhookDelivery,
+  hasPendingWebhookRetries,
   retryFailedWebhookDeliveries,
   signWebhookPayload,
   type WebhookRow,
   type DeliverWebhookEventInput,
   type DeliverWebhookEventResult,
   type DispatchWebhookDeliveriesInput,
+  type DispatchWebhookDeliveriesResult,
   type RetryFailedWebhookDeliveriesResult,
 } from './webhook-delivery';

@@ -60,6 +60,10 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   '@cf/meta/llama-4-scout-17b-16e-instruct': { inputPerM: 0.27, outputPerM: 0.85 },
   '@cf/qwen/qwen3-30b-a3b-fp8': { inputPerM: 0.051, outputPerM: 0.335 },
   '@cf/meta/llama-3.1-8b-instruct-fast': { inputPerM: 0.045, outputPerM: 0.384 },
+  // TypeSafe Jev (Workers AI third-party). Rate is approximate — reconcile
+  // against the Cloudflare dashboard pricing page; ops ledger is the source
+  // of truth for infra spend, not customer billing.
+  'typesafe/jev': { inputPerM: 0.15, outputPerM: 0.6 },
 };
 
 /** Fallback for other Workers AI models (typical small @cf model). */

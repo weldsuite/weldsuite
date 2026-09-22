@@ -16,13 +16,20 @@ import { getProvider } from './lib/integrations/registry';
 import { upsertCompany, upsertPerson, softDeleteByMapping, resolveCompanyByExternalId, resolveEntityByExternalId, upsertNote, softDeleteNote, upsertTask, softDeleteTask, upsertListAndEntry, softDeleteListEntry } from './lib/sync';
 import { getValidAccessToken } from './lib/token';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
-import { publishEntityEventRaw, matchAndDispatchIntegrationTriggers, retryFailedWebhookDeliveries } from '@weldsuite/entity-events';
+import {
+  publishEntityEventRaw,
+  matchAndDispatchIntegrationTriggers,
+  retryFailedWebhookDeliveries,
+  hasPendingWebhookRetries,
+} from '@weldsuite/entity-events';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 import { handleEntityWebhookBatch } from './entity-webhooks-consumer';
 import {
   listDueTenantWorkIndex,
   markTenantWorkIndexRan,
   upsertTenantWorkIndex,
+  TENANT_WORK_INTERVAL_MS,
+  triggersIncludeWorkflowPoll,
   type TenantWorkIndexDb,
 } from '@weldsuite/connectors';
 import {
@@ -36,8 +43,8 @@ import { verifyGithubSignature, parseGithubEvent } from './lib/workflow-events/g
 import { githubAppWebhookRoutes } from './github/webhook';
 import type { OAuthTokens } from '@weldsuite/db/schema';
 
-const WORKFLOW_POLL_INTERVAL_MS = 10 * 60_000;
-const WEBHOOK_RETRY_INTERVAL_MS = 10 * 60_000;
+const WORKFLOW_POLL_INTERVAL_MS = TENANT_WORK_INTERVAL_MS;
+const WEBHOOK_RETRY_INTERVAL_MS = TENANT_WORK_INTERVAL_MS;
 
 // ============ Env interface ============
 
@@ -1274,6 +1281,12 @@ interface IntegrationRow {
  * active workflows' `*.new_*` triggers so a resource is only polled while a
  * workflow listens.
  */
+/**
+ * Cold-start seed: if the D1 kind has never been written, enqueue every
+ * workspace once. The next cron tick opens each Neon, then drops idle ones
+ * (`nextDueAt: null`) so only real poll/retry work stays. Subsequent deploys
+ * skip this because disabled rows still satisfy the existence check.
+ */
 async function seedTenantWorkKindIfEmpty(
   d1: TenantWorkIndexDb,
   env: Env,
@@ -1308,6 +1321,9 @@ async function seedTenantWorkKindIfEmpty(
 
 /**
  * Poll Google Workspace / Airtable triggers for due workspaces only.
+ * Workspaces without active poll triggers are dropped from the D1 index so
+ * their Neon can autosuspend; write paths re-upsert when a poll trigger is
+ * activated.
  */
 async function runIntegrationPolls(env: Env): Promise<void> {
   if (!env.EXECUTE_WORKFLOW) {
@@ -1325,22 +1341,35 @@ async function runIntegrationPolls(env: Env): Promise<void> {
 
   const due = await listDueTenantWorkIndex(d1, 'workflow_poll');
   let dispatched = 0;
+  let kept = 0;
+  let dropped = 0;
 
   for (const row of due) {
     const now = Date.now();
     try {
-      const count = await pollWorkspaceIntegrations(env, row.workspace_id, row.clerk_org_id);
-      dispatched += count;
-      await markTenantWorkIndexRan(d1, {
-        workspaceId: row.workspace_id,
-        kind: 'workflow_poll',
-        // Keep polling workspaces that may gain triggers later on a slower cadence
-        // when none fired; active pollers stay on the 10-minute interval.
-        nextDueAt: now + WORKFLOW_POLL_INTERVAL_MS,
-        now,
-      });
+      const result = await pollWorkspaceIntegrations(env, row.workspace_id, row.clerk_org_id);
+      dispatched += result.dispatched;
+      if (result.hasPollTriggers) {
+        kept += 1;
+        await markTenantWorkIndexRan(d1, {
+          workspaceId: row.workspace_id,
+          kind: 'workflow_poll',
+          nextDueAt: now + WORKFLOW_POLL_INTERVAL_MS,
+          now,
+        });
+      } else {
+        dropped += 1;
+        await markTenantWorkIndexRan(d1, {
+          workspaceId: row.workspace_id,
+          kind: 'workflow_poll',
+          nextDueAt: null,
+          now,
+        });
+      }
     } catch (err) {
       console.error(`[Poll] Failed for workspace ${row.workspace_id}:`, err);
+      // Keep a short backoff so a transient Neon error does not permanently
+      // drop a workspace that may still need polling.
       await markTenantWorkIndexRan(d1, {
         workspaceId: row.workspace_id,
         kind: 'workflow_poll',
@@ -1351,14 +1380,16 @@ async function runIntegrationPolls(env: Env): Promise<void> {
     }
   }
 
-  console.log(`[Poll] Done. Workspaces: ${due.length}, Dispatched: ${dispatched}`);
+  console.log(
+    `[Poll] Done. Workspaces: ${due.length}, Dispatched: ${dispatched}, Kept: ${kept}, Dropped idle: ${dropped}`,
+  );
 }
 
 async function pollWorkspaceIntegrations(
   env: Env,
   workspaceId: string,
   clerkOrgId: string,
-): Promise<number> {
+): Promise<{ dispatched: number; hasPollTriggers: boolean }> {
   const db = await getTenantDbForWorkspaceById(env, workspaceId);
   const activeWorkflows = await db
     .select({ triggers: tenantSchema.workflows.triggers })
@@ -1366,7 +1397,7 @@ async function pollWorkspaceIntegrations(
     .where(and(eq(tenantSchema.workflows.status, 'active'), isNull(tenantSchema.workflows.deletedAt)));
 
   const triggers = activeWorkflows.flatMap((wf) => (wf.triggers as any[]) || []);
-  if (triggers.length === 0) return 0;
+  if (triggers.length === 0) return { dispatched: 0, hasPollTriggers: false };
 
   const polls = {
     google_sheets: triggers.filter((t) => isPollTrigger(t, 'google_sheets', 'google_sheets.new_row')),
@@ -1374,7 +1405,10 @@ async function pollWorkspaceIntegrations(
     google_calendar: triggers.filter((t) => isPollTrigger(t, 'google_calendar', 'google_calendar.new_event')),
     airtable: triggers.filter((t) => isPollTrigger(t, 'airtable', 'airtable.new_record')),
   };
-  if (Object.values(polls).every((arr) => arr.length === 0)) return 0;
+  const hasPollTriggers =
+    triggersIncludeWorkflowPoll(triggers) ||
+    Object.values(polls).some((arr) => arr.length > 0);
+  if (!hasPollTriggers) return { dispatched: 0, hasPollTriggers: false };
 
   const connected = (await db
     .select()
@@ -1616,7 +1650,7 @@ async function pollGmailCalendarAirtable(
     }
   }
 
-  return dispatched;
+  return { dispatched, hasPollTriggers: true };
 }
 
 // ============ Outbound webhook delivery retry sweep (cron) ============
@@ -1632,6 +1666,8 @@ async function runWebhookRetrySweep(env: Env): Promise<void> {
   const due = await listDueTenantWorkIndex(d1, 'webhook_retry');
   let attempted = 0;
   let succeeded = 0;
+  let kept = 0;
+  let dropped = 0;
 
   for (const row of due) {
     const now = Date.now();
@@ -1640,14 +1676,26 @@ async function runWebhookRetrySweep(env: Env): Promise<void> {
       const result = await retryFailedWebhookDeliveries(db);
       attempted += result.attempted;
       succeeded += result.succeeded;
-      await markTenantWorkIndexRan(d1, {
-        workspaceId: row.workspace_id,
-        kind: 'webhook_retry',
-        // Keep a slow pulse so newly failed deliveries are picked up without
-        // requiring a write-path upsert from every delivery failure.
-        nextDueAt: now + WEBHOOK_RETRY_INTERVAL_MS,
-        now,
-      });
+      const pending = await hasPendingWebhookRetries(db);
+      if (pending) {
+        kept += 1;
+        await markTenantWorkIndexRan(d1, {
+          workspaceId: row.workspace_id,
+          kind: 'webhook_retry',
+          nextDueAt: now + WEBHOOK_RETRY_INTERVAL_MS,
+          now,
+        });
+      } else {
+        dropped += 1;
+        await markTenantWorkIndexRan(d1, {
+          workspaceId: row.workspace_id,
+          kind: 'webhook_retry',
+          // No remaining failed deliveries — drop so idle Neons autosuspend.
+          // deliverWebhookEvent / test-webhook write paths re-upsert on failure.
+          nextDueAt: null,
+          now,
+        });
+      }
     } catch (err) {
       console.error(`[WebhookRetrySweep] Failed for workspace ${row.workspace_id}:`, err);
       await markTenantWorkIndexRan(d1, {
@@ -1662,7 +1710,7 @@ async function runWebhookRetrySweep(env: Env): Promise<void> {
 
   if (attempted > 0 || due.length > 0) {
     console.log(
-      `[WebhookRetrySweep] Done. Workspaces: ${due.length}, Attempted: ${attempted}, Succeeded: ${succeeded}`,
+      `[WebhookRetrySweep] Done. Workspaces: ${due.length}, Attempted: ${attempted}, Succeeded: ${succeeded}, Kept: ${kept}, Dropped idle: ${dropped}`,
     );
   }
 }
