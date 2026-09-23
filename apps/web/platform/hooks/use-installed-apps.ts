@@ -30,6 +30,7 @@ const APP_NAMES: Record<string, string> = {
   weldcommerce: 'WeldCommerce',
   weldads: 'WeldAds',
   weldpass: 'WeldPass',
+  weldhr: 'WeldHR',
 };
 
 /**

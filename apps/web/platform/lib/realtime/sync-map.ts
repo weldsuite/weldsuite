@@ -518,6 +518,20 @@ export const platformSyncMap: EntitySyncMap = {
   ad_campaign: inv(['weldads']),
 
   // =========================================================================
+  // WeldHR — weldhrKeys.all in use-weldhr-queries.ts. Payloads carry ids
+  // only, so every hr_* topic simply refetches the mounted WeldHR queries.
+  // =========================================================================
+  hr_employee: inv(['weldhr']),
+  hr_client_assignment: inv(['weldhr']),
+  hr_checklist: inv(['weldhr']),
+  hr_attendance: inv(['weldhr']),
+  hr_leave_request: inv(['weldhr']),
+  hr_coaching_log: inv(['weldhr']),
+  hr_evaluation: inv(['weldhr']),
+  hr_kpi_value: inv(['weldhr']),
+  hr_milestone: inv(['weldhr']),
+
+  // =========================================================================
   // WeldData — welddataKeys.all in use-welddata-queries.ts
   // =========================================================================
   welddata_list: inv(['welddata']),

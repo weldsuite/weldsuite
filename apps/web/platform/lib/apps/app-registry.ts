@@ -21,6 +21,7 @@ import {
   Zap,
   Megaphone,
   KeyRound,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -120,6 +121,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldpass/logo-light.svg',
       iconDark: '/assets/images/weldpass/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldHR. Icon-only logo, same as WeldPass.
+  weldhr: {
+    lucideIcon: UsersRound,
+    shortName: 'People',
+    icon: '/assets/images/weldhr/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldhr/logo-light.svg',
+      iconDark: '/assets/images/weldhr/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

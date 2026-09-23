@@ -60,6 +60,7 @@ import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifi
 import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
+import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { getAppApiUrl } from '@/lib/api/public-env';
 
 const APP_API_URL = getAppApiUrl();
@@ -178,6 +179,7 @@ export function useAppApi() {
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
+      weldhr: createWeldHrApi(lazyClient),
     }),
     [lazyClient],
   );

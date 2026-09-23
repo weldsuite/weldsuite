@@ -66,6 +66,7 @@
     "./schemas/workspace-settings": "./src/schemas/workspace-settings.ts",
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
+    "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
@@ -128,7 +129,8 @@
     "./domains/sendcloud": "./src/domains/sendcloud.ts",
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts",
-    "./domains/weldpass": "./src/domains/weldpass.ts"
+    "./domains/weldpass": "./src/domains/weldpass.ts",
+    "./domains/weldhr": "./src/domains/weldhr.ts"
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",

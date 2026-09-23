@@ -406,28 +406,8 @@ const getAvatarColor = (name: string) => {
   return avatarColors[Math.abs(hash) % avatarColors.length];
 };
 
-const getDefaultWidthForFieldType = (type: FieldType): number => {
-  switch (type) {
-    case "checkbox": return 200;
-    case "text": return 200;
-    case "email": return 200;
-    case "phone": return 200;
-    case "number": return 200;
-    case "currency": return 200;
-    case "date": return 200;
-    case "single-select": return 200;
-    case "multi-select": return 200;
-    case "people":
-    case "assignee":
-    case "created-by": return 200;
-    case "tags":
-    case "categories": return 200;
-    case "timer":
-    case "time-tracking": return 200;
-    case "collaborators": return 200;
-    default: return 200;
-  }
-};
+// Every field type starts at the same column width.
+const DEFAULT_FIELD_WIDTH = 200;
 
 const getDefaultValueForFieldType = (type: FieldType) => {
   switch (type) {
@@ -1700,12 +1680,12 @@ export default function TablePage() {
                                   id: `field_${Date.now()}`,
                                   name: option.label,
                                   type: option.value as FieldType,
-                                  width: getDefaultWidthForFieldType(option.value as FieldType),
+                                  width: DEFAULT_FIELD_WIDTH,
                                   icon: option.icon,
                                   visible: true,
                                 };
                                 setFields([...fields, newField]);
-                                setColumnWidths(prev => ({ ...prev, [newField.id]: getDefaultWidthForFieldType(option.value as FieldType) }));
+                                setColumnWidths(prev => ({ ...prev, [newField.id]: DEFAULT_FIELD_WIDTH }));
 
                                 // Add default value to all existing rows
                                 setRows(rows.map(row => ({

@@ -61,6 +61,15 @@ import {
   ClipboardList,
   PackageCheck,
   KeyRound,
+  UsersRound,
+  Network,
+  UserPlus,
+  CalendarCheck,
+  Plane,
+  MessageSquareHeart,
+  ClipboardCheck,
+  Target,
+  AppWindow,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -160,6 +169,45 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.navigation.moduleSidebar.weldpass.projects, href: '/weldpass', icon: KeyRound, permission: 'secrets:read' },
+        ],
+      },
+    ],
+  },
+  weldhr: {
+    appName: 'WeldHR',
+    appIcon: UsersRound,
+    appLogo: getAppLogoConfig('weldhr'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.weldhr.groups.people,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: UsersRound, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building2, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.orgChart, href: '/weldhr/org-chart', icon: Network, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.lifecycle, href: '/weldhr/lifecycle', icon: UserPlus, permission: 'employees:read' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.weldhr.groups.time,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.attendance, href: '/weldhr/attendance', icon: CalendarCheck, permission: 'attendance:read' },
+          { title: t.navigation.moduleSidebar.weldhr.leave, href: '/weldhr/leave', icon: Plane, permission: 'leave:read' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.weldhr.groups.performance,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.coaching, href: '/weldhr/coaching', icon: MessageSquareHeart, permission: 'coaching:read' },
+          { title: t.navigation.moduleSidebar.weldhr.evaluations, href: '/weldhr/evaluations', icon: ClipboardCheck, permission: 'evaluations:read' },
+          { title: t.navigation.moduleSidebar.weldhr.performance, href: '/weldhr/performance', icon: Target, permission: 'evaluations:read' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.groups.settings,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.portal, href: '/weldhr/portal', icon: AppWindow, permission: 'employees:manage' },
+          { title: t.navigation.moduleSidebar.weldhr.settings, href: '/weldhr/settings', icon: Settings, permission: 'employees:manage' },
         ],
       },
     ],
