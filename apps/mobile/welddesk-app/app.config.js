@@ -1,6 +1,28 @@
 const fs = require('fs');
 const path = require('path');
-const { withAppBuildGradle } = require('@expo/config-plugins');
+const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
+
+// Match weldflow/weldchat. Fresh prebuild defaults to 2 GiB heap / 512 MiB
+// Metaspace, which OOMs mid-lintVital on GitHub runners
+// (`:react-native-keyboard-controller:lintVitalAnalyzeRelease FAILED`) and then
+// leaves Gradle hanging until the job's 2h timeout.
+const GRADLE_JVMARGS =
+  '-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+
+const withIncreasedGradleMemory = (config) => {
+  return withGradleProperties(config, (config) => {
+    const items = config.modResults;
+    const existing = items.find(
+      (item) => item.type === 'property' && item.key === 'org.gradle.jvmargs',
+    );
+    if (existing) {
+      existing.value = GRADLE_JVMARGS;
+    } else {
+      items.push({ type: 'property', key: 'org.gradle.jvmargs', value: GRADLE_JVMARGS });
+    }
+    return config;
+  });
+};
 
 const androidGoogleServicesFile = path.join(__dirname, 'google-services.json');
 const iosGoogleServicesFile = path.join(__dirname, 'GoogleService-Info.plist');
@@ -72,6 +94,7 @@ module.exports = ({ config }) => {
   config = withGoogleServices(config);
   config = withCleartextPolicy(config);
   config = withAndroidPackagingExcludes(config);
+  config = withIncreasedGradleMemory(config);
 
   return config;
 };

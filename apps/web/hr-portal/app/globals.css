@@ -1,0 +1,16 @@
+@import "@weldsuite/ui/globals.css";
+
+:root {
+  --portal-primary: #111827;
+  --portal-accent: #111827;
+}
+
+.portal-btn-primary {
+  background-color: var(--portal-primary);
+  border-color: var(--portal-primary);
+}
+
+.portal-link,
+.portal-accent {
+  color: var(--portal-accent);
+}

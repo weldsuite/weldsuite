@@ -26,6 +26,8 @@ import { workspaceDbMiddleware } from './middleware/workspace-db';
 import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { resolveCorsOrigin } from './lib/cors-origins';
 import { weldpassRoutes } from './routes/weldpass';
+import { weldhrRoutes } from './routes/weldhr';
+import { publicHrPortalRoutes } from './routes/public-hr-portal';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
 import { accountingDocumentsRoutes } from './routes/accounting-documents';
@@ -401,6 +403,11 @@ app.route('/public/helpcenter', publicHelpcenterRoutes);
 // a hashed KV session. Must stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/public/commerce-portal', publicCommercePortalRoutes);
 
+// Public WeldHR workforce portal consumed by apps/web/hr-portal. Same model as
+// the commerce portal: tenant from slug, email-OTP sign-in, hashed KV session.
+// Must stay ABOVE the app.use('/api/*', ...) guard below.
+app.route('/public/hr-portal', publicHrPortalRoutes);
+
 // Public WeldApps bundle host — PUBLIC (no Clerk). Serves the live R2 bundle
 // of a user-created app so the platform can iframe it at /apps/{code}. Must
 // stay ABOVE the app.use('/api/*', ...) guard below.
@@ -758,6 +765,8 @@ app.route('/api/weldagent', weldagentRoutes);
 app.route('/api/welddata', welddataRoutes);
 // Workspace-scoped secret vaults — needs Clerk + tenant DB from the /api/* guard.
 app.route('/api/weldpass', weldpassRoutes);
+// WeldHR — employee operations; Clerk + tenant DB from the /api/* guard.
+app.route('/api/weldhr', weldhrRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
 app.route('/api/workflow-builder', workflowBuilderRoutes);
 app.route('/api/workflow-dashboard', workflowDashboardRoutes);

@@ -1345,6 +1345,13 @@
       "when": 1788100000000,
       "tag": "0191_mail_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1788200000000,
+      "tag": "0192_weldhr_employee_operations",
+      "breakpoints": true
     }
   ]
 }

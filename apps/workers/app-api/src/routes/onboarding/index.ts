@@ -144,6 +144,16 @@ const FALLBACK_CATALOG = [
     category: 'Infrastructure',
     path: '/weldpass',
   },
+  // Opt-in like WeldPass: HR data is sensitive, so nobody gets it by default.
+  {
+    code: 'weldhr',
+    name: 'WeldHR',
+    description:
+      'Employee records, onboarding, attendance, leave, coaching and evaluations, with a branded portal for your employees and clients',
+    icon: 'UsersRound',
+    category: 'Operations',
+    path: '/weldhr',
+  },
 ];
 
 const createWorkspaceInput = z.object({

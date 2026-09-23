@@ -539,6 +539,16 @@ describe('platformSyncMap — Ads', () => {
   });
 });
 
+describe('platformSyncMap — WeldHR', () => {
+  it('covers every hr_* catalog entity type with the weldhr root', () => {
+    const hrTopics = Object.keys(ENTITY_EVENTS).filter((topic) => topic.startsWith('hr_'));
+    expect(hrTopics.length).toBeGreaterThan(0);
+    for (const topic of hrTopics) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['weldhr']]);
+    }
+  });
+});
+
 describe('platformSyncMap — WeldData', () => {
   const WELDDATA_CATALOG = [
     'welddata_list',

@@ -376,5 +376,8 @@ export type { RuleAction, RuleCondition } from './return-rules';
 // WeldPass (secret management) — workspace vaults
 export * from './weldpass';
 
+// WeldHR (employee operations + workforce portal)
+export * from './weldhr';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'
