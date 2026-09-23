@@ -83,6 +83,8 @@ export function WidgetPage() {
         payload: { iframe: 'widget', ready: true },
       });
     const onMessage = (event: MessageEvent) => {
+      // The SDK passes its own origin as `parentOrigin`; only trust that sender.
+      if (parentOrigin !== '*' && event.origin !== parentOrigin) return;
       const type = (event.data as { type?: string } | null)?.type;
       if (type === 'weld:open') setIsOpen(true);
       else if (type === 'weld:close') setIsOpen(false);
@@ -91,7 +93,7 @@ export function WidgetPage() {
     window.addEventListener('message', onMessage);
     sendReady();
     return () => window.removeEventListener('message', onMessage);
-  }, [embedded, postToParent]);
+  }, [embedded, parentOrigin, postToParent]);
 
   const [unread, setUnread] = useState(0);
   const handleUnread = useCallback(
