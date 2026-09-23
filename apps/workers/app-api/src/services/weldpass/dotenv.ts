@@ -80,7 +80,8 @@ function unquote(value: string): string {
 export function renderDotenv(values: Record<string, string>): string {
   return (
     Object.keys(values)
-      .sort()
+      // Code-unit order (keys are unique), same as the default sort.
+      .sort((a, b) => (a < b ? -1 : 1))
       .map((key) => `${key}=${quoteIfNeeded(values[key])}`)
       .join('\n') + '\n'
   );

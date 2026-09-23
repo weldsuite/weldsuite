@@ -326,12 +326,14 @@ export function MessageInput({
     }
   }, [editingMessage?.messageId, setReplyTo]);
 
-  const tryHandleCreateTaskCommand = useCallback(
-    (text: string): boolean => {
+  // "/createtask" is always swallowed (never posted), even without a title,
+  // so the palette can guide the user.
+  const handleCreateTaskCommand = useCallback(
+    (text: string): void => {
       const match = text.match(/^\/createtask\s+([\s\S]+)$/i);
-      if (!match) return true; // "/createtask" alone — swallow, let the palette guide
+      if (!match) return;
       const title = match[1].trim();
-      if (!title) return true;
+      if (!title) return;
       const t2 = t.weldchat.slashCommandPalette;
       void createTask({ title })
         .then(() => {
@@ -348,7 +350,6 @@ export function MessageInput({
         .catch(() => {
           toast.error(t2.taskCreateFailed);
         });
-      return true;
     },
     [createTask, t],
   );
@@ -360,10 +361,9 @@ export function MessageInput({
 
     // Intercept slash commands that should never be posted as a message.
     if (trimmed.startsWith('/createtask')) {
-      if (tryHandleCreateTaskCommand(trimmed)) {
-        clearInput();
-        return;
-      }
+      handleCreateTaskCommand(trimmed);
+      clearInput();
+      return;
     }
 
     onTypingSend();
@@ -398,7 +398,7 @@ export function MessageInput({
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     });
     clearInput();
-  }, [content, channelId, parentId, mentions, attachments, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, tryHandleCreateTaskCommand, clearInput, onSubmitOverride, t]);
+  }, [content, channelId, parentId, mentions, attachments, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     const replyParentId = replyTo?.messageId || parentId;

@@ -28,7 +28,7 @@ const EMPTY: readonly string[] = Object.freeze([]);
 let snapshot: readonly string[] = EMPTY;
 
 function emit() {
-  const next = Array.from(hidden).sort();
+  const next = Array.from(hidden).sort((a, b) => a.localeCompare(b));
   snapshot = next.length === 0 ? EMPTY : Object.freeze(next);
   for (const listener of listeners) listener();
 }

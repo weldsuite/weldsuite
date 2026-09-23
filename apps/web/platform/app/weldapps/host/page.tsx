@@ -181,6 +181,7 @@ export default function WeldAppHostPage() {
     const handleMessage = async (event: MessageEvent) => {
       const iframeWindow = iframeRef.current?.contentWindow;
       if (!iframeWindow || event.source !== iframeWindow) return;
+      if (targetOrigin !== '*' && event.origin !== targetOrigin) return;
 
       const data = event.data as IncomingWeldAppMessage | undefined;
       if (!data || typeof data !== 'object' || !('type' in data)) return;

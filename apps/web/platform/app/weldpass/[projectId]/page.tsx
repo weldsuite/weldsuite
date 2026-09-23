@@ -115,7 +115,7 @@ export default function WeldPassProjectPage() {
     try {
       const values = await exportEnvironment.mutateAsync();
       const body = Object.keys(values)
-        .sort()
+        .sort((a, b) => (a < b ? -1 : 1))
         .map((key) => `${key}=${JSON.stringify(values[key])}`)
         .join('\n');
       const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
