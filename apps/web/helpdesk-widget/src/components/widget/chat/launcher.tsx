@@ -67,6 +67,8 @@ export function Launcher({
     if (!isEmbedded) return;
 
     const handleMessage = (event: MessageEvent) => {
+      // The SDK passes its own origin as `parentOrigin`; only trust that sender.
+      if (parentOrigin && event.origin !== parentOrigin) return;
       if (event.data?.type === 'weld:widget-opened') {
         setSdkWidgetOpen(true);
       }
@@ -80,7 +82,7 @@ export function Launcher({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isEmbedded]);
+  }, [isEmbedded, parentOrigin]);
 
   const handleClick = () => {
     // Standalone mode - use onClick handler if provided
