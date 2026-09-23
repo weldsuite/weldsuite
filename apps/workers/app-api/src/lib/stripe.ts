@@ -436,7 +436,7 @@ export async function createDomainRenewalInvoice(
   return (await stripeRequest(
     secretKey,
     'POST',
-    `/v1/invoices/${invoice.id}/finalize`,
+    `/v1/invoices/${encodeURIComponent(invoice.id)}/finalize`,
     undefined,
     { 'Idempotency-Key': `${params.idempotencyKey}:finalize` },
   )) as StripeInvoice;
