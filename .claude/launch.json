@@ -87,6 +87,16 @@
       "port": 3017
     },
     {
+      "name": "hr-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "hr-portal",
+        "dev"
+      ],
+      "port": 3022
+    },
+    {
       "name": "parcel-tracking-portal",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

@@ -396,6 +396,35 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       },
     ],
   },
+  // ── WeldHR (employee operations + workforce portal) ───────────────────
+  // HR data is need-to-know: MEMBER and VIEWER get none of these by default.
+  // `employees:sensitive` is kept apart from `employees:read` (same idea as
+  // secrets:read vs secrets:reveal) so a team lead can coach and schedule
+  // without seeing pay, national ids or home addresses.
+  {
+    key: 'employees',
+    label: 'Employees (WeldHR)',
+    permissions: [
+      { key: 'employees:read', label: 'View employees, teams and client assignments' },
+      { key: 'employees:create', label: 'Add employees' },
+      { key: 'employees:update', label: 'Edit employees, assignments and onboarding' },
+      { key: 'employees:delete', label: 'Delete employees' },
+      {
+        key: 'employees:sensitive',
+        label: 'View and edit sensitive employee data',
+        description: 'Date of birth, national and tax ids, home address, emergency contact, bank details and pay. Every read is written to the WeldHR audit trail.',
+      },
+      {
+        key: 'employees:manage',
+        label: 'Manage WeldHR settings and the workforce portal',
+        description: 'Departments, checklist templates, evaluation forms, KPI definitions, leave types, portal branding and who can sign in to the portal.',
+      },
+    ],
+  },
+  objectPermissions('attendance', 'Attendance', ['read', 'create', 'update', 'delete', 'approve']),
+  objectPermissions('leave', 'Leave', ['read', 'create', 'update', 'delete', 'approve']),
+  objectPermissions('coaching', 'Coaching logs'),
+  objectPermissions('evaluations', 'Evaluations and KPIs'),
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
   // Only the MODULE-level keys live here. The per-object keys
   // (`weldobjects:<slug>:read` etc.) are generated at runtime from the
@@ -465,6 +494,13 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // WeldPass (secret management) — admins run the vaults
   'secrets:read', 'secrets:reveal', 'secrets:create', 'secrets:update',
   'secrets:delete', 'secrets:sync', 'secrets:manage',
+  // WeldHR — admins run HR, including the sensitive block
+  'employees:read', 'employees:create', 'employees:update', 'employees:delete',
+  'employees:sensitive', 'employees:manage',
+  'attendance:read', 'attendance:create', 'attendance:update', 'attendance:delete', 'attendance:approve',
+  'leave:read', 'leave:create', 'leave:update', 'leave:delete', 'leave:approve',
+  'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
+  'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [

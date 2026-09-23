@@ -103,6 +103,25 @@ export const navigation = {
       weldpass: {
         projects: 'Projecten',
       },
+      weldhr: {
+        dashboard: 'Dashboard',
+        employees: 'Medewerkers',
+        clients: 'Klantaccounts',
+        orgChart: 'Organigram',
+        lifecycle: 'In- & uitdiensttreding',
+        attendance: 'Aanwezigheid',
+        leave: 'Verlof',
+        coaching: 'Coaching',
+        evaluations: 'Beoordelingen',
+        performance: "KPI's & mijlpalen",
+        portal: 'Medewerkersportaal',
+        settings: 'Instellingen',
+        groups: {
+          people: 'Mensen',
+          time: 'Tijd',
+          performance: 'Prestaties',
+        },
+      },
       weldhost: {
         myDomains: 'Mijn domeinen',
         registerDomain: 'Domein registreren',

@@ -32,6 +32,7 @@ import { WELDDATA_ENTITY_EVENTS } from './welddata';
 import { KNOWLEDGE_ENTITY_EVENTS } from './knowledge';
 import { USER_APPS_ENTITY_EVENTS } from './user-apps';
 import { ADS_ENTITY_EVENTS } from './ads';
+import { HR_ENTITY_EVENTS } from './hr';
 
 export const ENTITY_EVENTS = {
   ...CRM_ENTITY_EVENTS,
@@ -52,6 +53,7 @@ export const ENTITY_EVENTS = {
   ...KNOWLEDGE_ENTITY_EVENTS,
   ...USER_APPS_ENTITY_EVENTS,
   ...ADS_ENTITY_EVENTS,
+  ...HR_ENTITY_EVENTS,
 } as const;
 
 export type EntityType = keyof typeof ENTITY_EVENTS;

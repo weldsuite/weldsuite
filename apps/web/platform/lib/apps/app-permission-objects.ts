@@ -37,6 +37,8 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   // a status-flag projection on companies, not a separate object.
   weldcommerce: ['products', 'categories', 'orders', 'companies'],
   weldads: ['ad_accounts', 'ad_campaigns'],
+  // WeldHR spans the five HR objects its app-api routes enforce.
+  weldhr: ['employees', 'attendance', 'leave', 'coaching', 'evaluations'],
 };
 
 /**
