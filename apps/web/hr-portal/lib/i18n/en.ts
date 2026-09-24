@@ -236,6 +236,13 @@ export const en = {
     network: 'Couldn’t reach the server. Check your connection and try again.',
     sessionExpired: 'Your session expired. Please sign in again.',
   },
+  live: {
+    leaveApproved: 'Your leave request was approved.',
+    leaveRejected: 'Your leave request was declined.',
+    newCoaching: 'A new coaching session was added.',
+    newEvaluation: 'You have a new evaluation to review.',
+    newTasks: 'You have new tasks to complete.',
+  },
 };
 
 export type Dictionary = typeof en;

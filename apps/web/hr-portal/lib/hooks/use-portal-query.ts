@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { portalGet } from '@/lib/client';
+import { portalQueryKey } from '@/lib/query-client';
 
 interface UsePortalQueryOptions {
   query?: Record<string, string | undefined>;
@@ -11,43 +13,36 @@ interface UsePortalQueryOptions {
 interface UsePortalQueryResult<T> {
   data: T | null;
   error: Error | null;
+  /** True only while there is nothing to show yet — cached data renders immediately and revalidates in the background. */
   loading: boolean;
+  /** A background revalidation is in flight (cached data is on screen). */
+  refreshing: boolean;
   refetch: () => void;
 }
 
-/** Minimal client-side data fetching for a GET endpoint behind the portal proxy. */
+/**
+ * Cached GET through the portal proxy. Keyed by `['portal', slug, path, query]`
+ * (see lib/query-client.ts), so pages share entries — `/employee/overview`
+ * fetched on the home page is instant when the user comes back to it.
+ */
 export function usePortalQuery<T>(slug: string, path: string, opts?: UsePortalQueryOptions): UsePortalQueryResult<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [loading, setLoading] = useState(opts?.enabled !== false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const queryKey = JSON.stringify(opts?.query ?? {});
+  const enabled = opts?.enabled !== false && Boolean(slug);
+  const query = useQuery({
+    queryKey: portalQueryKey(slug, path, opts?.query),
+    queryFn: () => portalGet<T>(slug, path, opts?.query),
+    enabled,
+  });
 
-  useEffect(() => {
-    if (opts?.enabled === false) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    portalGet<T>(slug, path, opts?.query)
-      .then((result) => {
-        if (!cancelled) {
-          setData(result);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err : new Error('Request failed'));
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, path, queryKey, opts?.enabled, reloadKey]);
+  const { refetch: refetchQuery } = query;
+  const refetch = useCallback(() => {
+    void refetchQuery();
+  }, [refetchQuery]);
 
-  const refetch = useCallback(() => setReloadKey((k) => k + 1), []);
-
-  return { data, error, loading, refetch };
+  return {
+    data: query.data ?? null,
+    error: query.data === undefined && query.error ? query.error : null,
+    loading: enabled && query.isPending,
+    refreshing: query.isFetching && !query.isPending,
+    refetch,
+  };
 }

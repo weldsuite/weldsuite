@@ -1,18 +1,28 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import type { PortalConfig } from '@/lib/types';
 
-/** Applies branding from `/config` to the document: title, favicon, CSS vars. */
+/**
+ * Brand colours as CSS custom properties for a wrapper element. Rendered on
+ * the server as an inline style, so the first paint is already on-brand (no
+ * flash of the default colours).
+ */
+export function brandingStyle(config: PortalConfig | null | undefined): CSSProperties {
+  const style: Record<string, string> = {};
+  if (config?.primaryColor) style['--portal-primary'] = config.primaryColor;
+  if (config?.accentColor) style['--portal-accent'] = config.accentColor;
+  return style as CSSProperties;
+}
+
+/**
+ * Keeps the tab title and favicon in step with the branding after a live
+ * config change. The initial values come from generateMetadata on the server.
+ */
 export function useBranding(config: PortalConfig | null | undefined) {
   useEffect(() => {
     if (!config) return;
     document.title = config.displayName || 'Portal';
-
-    const root = document.documentElement;
-    if (config.primaryColor) root.style.setProperty('--portal-primary', config.primaryColor);
-    if (config.accentColor) root.style.setProperty('--portal-accent', config.accentColor);
-
     if (config.faviconUrl) {
       let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
       if (!link) {

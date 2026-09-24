@@ -8,7 +8,7 @@
  */
 
 import type { Context } from 'hono';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import type { HrPortalAccess, HrPortalSettings } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema } from '../../db';
@@ -29,11 +29,17 @@ export function hrPortalUrl(env: Env, settings: Pick<HrPortalSettings, 'customDo
   return `${hrPortalOrigin(env)}/${encodeURIComponent(workspaceSlug)}`;
 }
 
-export async function workspaceSlugFor(env: Env, workspaceId: string): Promise<string | null> {
+/**
+ * Workspace slug for a workspace key. Clerk-authenticated routes carry the
+ * Clerk org id in `workspaceId` (see middleware/workspace-db.ts), not the
+ * master workspace id, so match either.
+ */
+export async function workspaceSlugFor(env: Env, workspaceKey: string): Promise<string | null> {
+  const w = masterSchema.workspaces;
   const [row] = await getMasterDb(env)
-    .select({ slug: masterSchema.workspaces.slug })
-    .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.id, workspaceId))
+    .select({ slug: w.slug })
+    .from(w)
+    .where(or(eq(w.clerkOrgId, workspaceKey), eq(w.id, workspaceKey)))
     .limit(1);
   return row?.slug ?? null;
 }

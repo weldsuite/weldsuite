@@ -55,6 +55,46 @@ lookups are cached in-memory per middleware instance for 5 minutes; this is a
 best-effort optimization only (Edge instances recycle often) and nothing
 relies on it for correctness.
 
+## Rendering, caching and live updates
+
+**Server-rendered.** Every page under `app/[workspace]/` is a server
+component. `page.tsx` loads that page's data from app-api with the session
+cookie (`lib/server/portal.ts`) and hands it to the client view (`view.tsx`)
+through TanStack Query's `HydrationBoundary`. The HTML already contains the
+data, and the browser doesn't refetch it on hydration. The signed-in layout
+loads `/me` the same way, so an expired session gets a real HTTP redirect to
+`/<slug>/login`. The workspace layout sets the title and favicon from the
+branding in `generateMetadata`, and brand colours are inline CSS variables, so
+the first paint is already on-brand.
+
+Times are rendered in the time zone stored in the `hrportal_tz` cookie, on the
+server and in the browser alike, so hydration matches. On a first visit both
+render in UTC, then `TimeZoneSync` stores the browser's zone and refreshes once.
+
+**Caching.**
+- Client side, reads are cached in memory under `['portal', slug, path, query]`
+  (`lib/query-client.ts`). Moving between pages is instant and entries
+  revalidate in the background after 30 seconds.
+- Server side, the public branding config (`/config`) is cached for 60 seconds.
+- Nothing is written to browser storage. This is personal HR data on possibly
+  shared devices. The cache is dropped on sign-in, on sign-out and on a 401.
+- On the server a fresh QueryClient is made per request. Never share one: it
+  would leak one user's data into another user's render.
+
+**Live updates.** `usePortalRealtime` (mounted by `PortalShell`) opens a
+WebSocket to the realtime worker's `/ws/hr-portal`. It authenticates with a
+single-use ticket from `GET /public/hr-portal/realtime/ticket`, which app-api
+stores in the shared KV. The socket joins the workspace's separate
+`hrportal:<orgId>` hub, never the staff hub. It can subscribe only to
+`hrportal.workspace` plus the user's own `hrportal.employee.<id>` or
+`hrportal.client.<companyId>` topic.
+
+app-api publishes a `{ entity, id }` signal there on every WeldHR change. The
+portal invalidates the matching cached queries, and mounted pages refetch
+through the normal API. Some changes also show a toast, for example "Your leave
+request was approved". Internal coaching logs, draft evaluations and records
+not shared with the client are never signalled to the portal.
+
 ## Deployment
 
 Vercel project **`weldsuite-hr-portal`** (team `weldsuite`), Git-connected to

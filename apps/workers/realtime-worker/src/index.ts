@@ -21,6 +21,12 @@ import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { handleEntityRealtimeBatch } from './entity-realtime-consumer';
+import {
+  hrPortalAllowedTopics,
+  hrPortalHubKey,
+  hrPortalTicketKvKey,
+  type HrPortalRealtimeTicket,
+} from '@weldsuite/realtime/topics';
 
 // Re-export DO classes for wrangler
 export { WorkspaceHub } from './durable-objects/workspace-hub';
@@ -191,6 +197,48 @@ app.get('/ws/personal', async (c) => {
 
   return stub.fetch(new Request(c.req.url, { headers, method: 'GET' }));
 });
+
+/**
+ * WebSocket upgrade for the WeldHR workforce portal (employees and client
+ * contacts — not workspace members, no Clerk token).
+ *
+ * Auth is a single-use ticket app-api minted after checking the portal
+ * session (`GET /public/hr-portal/realtime/ticket`), stored in the shared
+ * WORKSPACE_CACHE KV under its SHA-256. The connection joins the separate
+ * `hrportal:<orgId>` hub and may subscribe only to its own topics, so it
+ * never sees workspace-wide events or presence.
+ */
+app.get('/ws/hr-portal', async (c) => {
+  if (c.req.header('Upgrade') !== 'websocket') {
+    return c.text('Expected WebSocket upgrade', 426);
+  }
+
+  const raw = new URL(c.req.url).searchParams.get('token');
+  if (!raw || !c.env.WORKSPACE_CACHE) return c.text('Unauthorized', 401);
+
+  const key = hrPortalTicketKvKey(await sha256Hex(raw));
+  const ticket = await c.env.WORKSPACE_CACHE.get<HrPortalRealtimeTicket>(key, 'json');
+  if (!ticket?.orgId || !ticket.accessId) return c.text('Unauthorized: invalid or expired ticket', 401);
+  // Single use: a leaked URL can't be replayed once the socket is open.
+  c.executionCtx.waitUntil(c.env.WORKSPACE_CACHE.delete(key));
+
+  const hubKey = hrPortalHubKey(ticket.orgId);
+  const stub = c.env.WORKSPACE_HUB.get(c.env.WORKSPACE_HUB.idFromName(hubKey));
+
+  const headers = new Headers(c.req.raw.headers);
+  headers.set(AUTH_HEADERS.USER_ID, `hrportal:${ticket.accessId}`);
+  headers.set(AUTH_HEADERS.USER_NAME, 'Portal');
+  headers.set(AUTH_HEADERS.ROLE, 'portal');
+  headers.set(AUTH_HEADERS.SUBSCRIBE_TOPICS, hrPortalAllowedTopics(ticket).join(','));
+  headers.set(AUTH_HEADERS.WORKSPACE_ID, hubKey);
+
+  return stub.fetch(new Request(c.req.url, { headers, method: 'GET' }));
+});
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 /** Workers publish events to a workspace */
 app.post('/publish/workspace', async (c) => {

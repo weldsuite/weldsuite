@@ -57,6 +57,26 @@ import {
 import { actor, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Portal audience of a coaching log: internal logs are never signalled to the
+ * employee; only logs shared with the client reach client views. Pass the row
+ * before and after an update so a visibility change reaches whoever lost it.
+ */
+function coachingAudience(...rows: Array<{ visibility: string }>) {
+  return {
+    portal: rows.some((r) => r.visibility !== 'internal'),
+    client: rows.some((r) => r.visibility === 'client'),
+  };
+}
+
+/** Drafts stay invisible to the employee; only shared, non-draft evaluations reach clients. */
+function evaluationAudience(...rows: Array<{ status: string; sharedWithClient: boolean }>) {
+  return {
+    portal: rows.some((r) => r.status !== 'draft'),
+    client: rows.some((r) => r.status !== 'draft' && r.sharedWithClient),
+  };
+}
 const dateParam = (value: string | undefined) => (value && isoDate.test(value) ? value : undefined);
 
 // ---------------------------------------------------------------------------
@@ -87,20 +107,21 @@ coachingRoutes.get('/:coachingId', requirePermission('coaching:read'), async (c)
 
 coachingRoutes.post('/', requirePermission('coaching:create'), zValidator('json', createHrCoachingLogSchema), async (c) => {
   const row = await createCoachingLog(db(c), c.req.valid('json'), actor(c));
-  emit(c, 'hr_coaching_log', 'created', row.id, { employeeId: row.employeeId, status: row.status });
+  emit(c, 'hr_coaching_log', 'created', row.id, { employeeId: row.employeeId, status: row.status }, coachingAudience(row));
   return success(c, row, 201);
 });
 
 coachingRoutes.patch('/:coachingId', requirePermission('coaching:update'), zValidator('json', updateHrCoachingLogSchema), async (c) => {
-  const row = await updateCoachingLog(db(c), param(c, 'coachingId'), c.req.valid('json'));
-  emit(c, 'hr_coaching_log', 'updated', row.id, { employeeId: row.employeeId, status: row.status });
+  const before = await requireCoachingLog(db(c), param(c, 'coachingId'));
+  const row = await updateCoachingLog(db(c), before.id, c.req.valid('json'));
+  emit(c, 'hr_coaching_log', 'updated', row.id, { employeeId: row.employeeId, status: row.status }, coachingAudience(before, row));
   return success(c, row);
 });
 
 coachingRoutes.delete('/:coachingId', requirePermission('coaching:delete'), async (c) => {
   const row = await requireCoachingLog(db(c), param(c, 'coachingId'));
   await deleteCoachingLog(db(c), row.id);
-  emit(c, 'hr_coaching_log', 'deleted', row.id, { employeeId: row.employeeId });
+  emit(c, 'hr_coaching_log', 'deleted', row.id, { employeeId: row.employeeId }, coachingAudience(row));
   return noContent(c);
 });
 
@@ -154,10 +175,14 @@ evaluationsRoutes.get('/:evaluationId', requirePermission('evaluations:read'), a
 
 evaluationsRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrEvaluationSchema), async (c) => {
   const row = await createEvaluation(db(c), c.req.valid('json'), actor(c));
-  emit(c, 'hr_evaluation', row.status === 'submitted' ? 'submitted' : 'created', row.id, {
-    employeeId: row.employeeId,
-    status: row.status,
-  });
+  emit(
+    c,
+    'hr_evaluation',
+    row.status === 'submitted' ? 'submitted' : 'created',
+    row.id,
+    { employeeId: row.employeeId, status: row.status },
+    evaluationAudience(row),
+  );
   return success(c, row, 201);
 });
 
@@ -165,14 +190,14 @@ evaluationsRoutes.patch('/:evaluationId', requirePermission('evaluations:update'
   const before = await requireEvaluation(db(c), param(c, 'evaluationId'));
   const row = await updateEvaluation(db(c), before.id, c.req.valid('json'));
   const justSubmitted = before.status === 'draft' && row.status === 'submitted';
-  emit(c, 'hr_evaluation', justSubmitted ? 'submitted' : 'updated', row.id, { employeeId: row.employeeId, status: row.status });
+  emit(c, 'hr_evaluation', justSubmitted ? 'submitted' : 'updated', row.id, { employeeId: row.employeeId, status: row.status }, evaluationAudience(before, row));
   return success(c, row);
 });
 
 evaluationsRoutes.delete('/:evaluationId', requirePermission('evaluations:delete'), async (c) => {
   const row = await requireEvaluation(db(c), param(c, 'evaluationId'));
   await deleteEvaluation(db(c), row.id);
-  emit(c, 'hr_evaluation', 'deleted', row.id, { employeeId: row.employeeId });
+  emit(c, 'hr_evaluation', 'deleted', row.id, { employeeId: row.employeeId }, evaluationAudience(row));
   return noContent(c);
 });
 
@@ -222,7 +247,7 @@ kpiValuesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
 
 kpiValuesRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrKpiValueSchema), async (c) => {
   const row = await createKpiValue(db(c), c.req.valid('json'), actor(c));
-  emit(c, 'hr_kpi_value', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId });
+  emit(c, 'hr_kpi_value', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId }, { client: row.sharedWithClient });
   return success(c, row, 201);
 });
 
@@ -231,15 +256,18 @@ kpiValuesRoutes.post('/import', requirePermission('evaluations:create'), zValida
 });
 
 kpiValuesRoutes.patch('/:kpiValueId', requirePermission('evaluations:update'), zValidator('json', updateHrKpiValueSchema), async (c) => {
-  const row = await updateKpiValue(db(c), param(c, 'kpiValueId'), c.req.valid('json'));
-  emit(c, 'hr_kpi_value', 'updated', row.id, { employeeId: row.employeeId, companyId: row.companyId });
+  const before = await requireKpiValue(db(c), param(c, 'kpiValueId'));
+  const row = await updateKpiValue(db(c), before.id, c.req.valid('json'));
+  emit(c, 'hr_kpi_value', 'updated', row.id, { employeeId: row.employeeId, companyId: row.companyId }, {
+    client: before.sharedWithClient || row.sharedWithClient,
+  });
   return success(c, row);
 });
 
 kpiValuesRoutes.delete('/:kpiValueId', requirePermission('evaluations:delete'), async (c) => {
   const row = await requireKpiValue(db(c), param(c, 'kpiValueId'));
   await deleteKpiValue(db(c), row.id);
-  emit(c, 'hr_kpi_value', 'deleted', row.id, { employeeId: row.employeeId });
+  emit(c, 'hr_kpi_value', 'deleted', row.id, { employeeId: row.employeeId, companyId: row.companyId }, { client: row.sharedWithClient });
   return noContent(c);
 });
 
@@ -263,25 +291,34 @@ milestonesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
 
 milestonesRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrMilestoneSchema), async (c) => {
   const row = await createMilestone(db(c), c.req.valid('json'), actor(c));
-  emit(c, 'hr_milestone', row.status === 'achieved' ? 'achieved' : 'created', row.id, {
-    employeeId: row.employeeId,
-    status: row.status,
-  });
+  emit(
+    c,
+    'hr_milestone',
+    row.status === 'achieved' ? 'achieved' : 'created',
+    row.id,
+    { employeeId: row.employeeId, status: row.status },
+    { client: row.sharedWithClient },
+  );
   return success(c, row, 201);
 });
 
 milestonesRoutes.patch('/:milestoneId', requirePermission('evaluations:update'), zValidator('json', updateHrMilestoneSchema), async (c) => {
-  const { milestone, justAchieved } = await updateMilestone(db(c), param(c, 'milestoneId'), c.req.valid('json'));
-  emit(c, 'hr_milestone', justAchieved ? 'achieved' : 'updated', milestone.id, {
-    employeeId: milestone.employeeId,
-    status: milestone.status,
-  });
+  const before = await requireMilestone(db(c), param(c, 'milestoneId'));
+  const { milestone, justAchieved } = await updateMilestone(db(c), before.id, c.req.valid('json'));
+  emit(
+    c,
+    'hr_milestone',
+    justAchieved ? 'achieved' : 'updated',
+    milestone.id,
+    { employeeId: milestone.employeeId, status: milestone.status },
+    { client: before.sharedWithClient || milestone.sharedWithClient },
+  );
   return success(c, milestone);
 });
 
 milestonesRoutes.delete('/:milestoneId', requirePermission('evaluations:delete'), async (c) => {
   const row = await requireMilestone(db(c), param(c, 'milestoneId'));
   await deleteMilestone(db(c), row.id);
-  emit(c, 'hr_milestone', 'deleted', row.id, { employeeId: row.employeeId });
+  emit(c, 'hr_milestone', 'deleted', row.id, { employeeId: row.employeeId }, { client: row.sharedWithClient });
   return noContent(c);
 });
