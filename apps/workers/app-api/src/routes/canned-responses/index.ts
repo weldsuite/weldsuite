@@ -54,7 +54,7 @@ function interpolateVariables(text: string, context: Record<string, unknown>): s
 app.get('/', requirePermission('tickets:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.departmentId !== undefined && q.departmentId !== '') conditions.push(eq(t.departmentId, q.departmentId));

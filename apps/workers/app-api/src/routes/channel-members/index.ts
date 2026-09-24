@@ -62,7 +62,7 @@ app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   // Membership boundary: a roster is scoped to a single channel the caller can
   // access — never an un-scoped dump of every membership row in the tenant.

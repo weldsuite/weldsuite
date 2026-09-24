@@ -42,7 +42,7 @@ async function ownsPage(
 app.get('/', requirePermission('bookings:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.bookingPageId !== undefined && q.bookingPageId !== '') conditions.push(eq(t.bookingPageId, q.bookingPageId));
