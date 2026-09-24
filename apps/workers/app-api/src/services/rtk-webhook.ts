@@ -21,6 +21,7 @@ import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-ses
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import { getTenantDbForWorkspace, schema } from '../db';
 import type { Env } from '../types';
+import { logSafe } from '../lib/log-safe';
 import { endMeetingSession } from './weldmeet/meeting-lifecycle';
 import { endChatCall } from './chat/call-lifecycle';
 
@@ -74,7 +75,7 @@ export async function handleMeetingEnded(
     }
 
     await endMeetingSession(db, env, mapping.orgId, mapping.sessionId, session, mapping.meetingId);
-    console.log(`[RTK Webhook] Ended session ${mapping.sessionId} for RTK meeting ${rtkMeetingId}`);
+    console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
   } else if (mapping.type === 'call' && mapping.callId) {
     const { chatCalls } = schema;
     const [call] = await db

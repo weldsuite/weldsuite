@@ -24,6 +24,7 @@ import {
   type Database,
 } from '../db';
 import type { Env } from '../types';
+import { logSafe } from '../lib/log-safe';
 
 // ============================================================================
 // Types
@@ -260,7 +261,9 @@ export async function handleStatusChange(
   payload: NormalizedMeetingBaasPayload,
 ): Promise<void> {
   const statusCode = payload._statusCode;
-  console.log(`[MeetingBaas Webhook] Status change: code=${statusCode}, message=${payload._statusMessage}`);
+  console.log(
+    `[MeetingBaas Webhook] Status change: code=${logSafe(statusCode)}, message=${logSafe(payload._statusMessage)}`,
+  );
 
   const result = await findPlatformSession(env, payload);
   if (!result) {
@@ -345,10 +348,10 @@ export async function handleComplete(
   const joinedAt = payload.data?.joined_at;
   const exitedAt = payload.data?.exited_at;
 
-  console.log('[MeetingBaas Webhook] Recording URL:', mp4Url ? mp4Url.substring(0, 80) + '...' : 'NOT PROVIDED');
-  console.log('[MeetingBaas Webhook] Duration:', durationSeconds ?? 'unknown');
-  console.log('[MeetingBaas Webhook] Participants:', participants?.length || 0);
-  console.log('[MeetingBaas Webhook] Transcript segments:', transcript?.length || 0);
+  console.log('[MeetingBaas Webhook] Recording URL:', mp4Url ? logSafe(mp4Url.substring(0, 80)) + '...' : 'NOT PROVIDED');
+  console.log('[MeetingBaas Webhook] Duration:', logSafe(durationSeconds ?? 'unknown'));
+  console.log('[MeetingBaas Webhook] Participants:', logSafe(participants?.length || 0));
+  console.log('[MeetingBaas Webhook] Transcript segments:', logSafe(transcript?.length || 0));
 
   // Use MeetingBaas duration, fall back to transcript-based calculation
   let duration = durationSeconds || 0;
@@ -389,8 +392,15 @@ export async function handleComplete(
       const timestamp = Date.now();
       const r2Key = `recordings/meetings/${workspaceId}/${timestamp}-${session.id}.mp4`;
 
-      console.log(`[MeetingBaas Webhook] Fetching MP4 for R2 upload: ${mp4Url}`);
-      const mp4Response = await fetch(mp4Url);
+      // Only follow https recording links, so a payload cannot point this
+      // fetch at an internal or plaintext endpoint.
+      const recordingUrl = new URL(mp4Url);
+      if (recordingUrl.protocol !== 'https:') {
+        throw new Error(`Refusing non-https recording URL (${logSafe(recordingUrl.protocol)})`);
+      }
+
+      console.log(`[MeetingBaas Webhook] Fetching MP4 for R2 upload: ${logSafe(recordingUrl.href)}`);
+      const mp4Response = await fetch(recordingUrl);
 
       if (!mp4Response.ok) {
         throw new Error(`Failed to fetch MP4: ${mp4Response.status} ${mp4Response.statusText}`);
@@ -412,7 +422,7 @@ export async function handleComplete(
         })
         .where(eq(meetingBotSessions.id, session.id));
 
-      console.log(`[MeetingBaas Webhook] MP4 uploaded to R2: ${r2Key}`);
+      console.log(`[MeetingBaas Webhook] MP4 uploaded to R2: ${logSafe(r2Key)}`);
     } catch (r2Error) {
       // Non-fatal: MeetingBaas URL still works temporarily
       console.error('[MeetingBaas Webhook] R2 upload failed (MeetingBaas URL still available):', r2Error);
@@ -553,7 +563,9 @@ export async function handleComplete(
         await db.insert(crmTranscriptSegments).values(batch);
       }
 
-      console.log(`[MeetingBaas Webhook] Transcript stored: ${transcript.length} segments, ${speakerNames.length} speakers, ${wordCount} words`);
+      console.log(
+        `[MeetingBaas Webhook] Transcript stored: ${logSafe(transcript.length)} segments, ${speakerNames.length} speakers, ${wordCount} words`,
+      );
     } catch (transcriptError) {
       console.error('[MeetingBaas Webhook] Failed to store transcript:', transcriptError);
     }
