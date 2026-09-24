@@ -180,7 +180,7 @@ export function HelpdeskWorkflowEditorClient({
         description: editSubAgentData.description || '',
         systemPrompt: editSubAgentData.systemPrompt || '',
         modelId: editSubAgentData.modelId || 'openai/gpt-4o',
-        temperature: parseFloat(editSubAgentData.temperature || '') || 0.7,
+        temperature: Number.parseFloat(editSubAgentData.temperature || '') || 0.7,
         maxTokens: editSubAgentData.maxTokens || 1024,
         maxIterations: editSubAgentData.maxIterations || 10,
         maxTotalTokens: editSubAgentData.maxTotalTokens || 20000,

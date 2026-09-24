@@ -131,7 +131,7 @@ function applyCatalogMarkup(
     return cents + pricing.markupAmount;
   }
   if (pricing.markupPercent !== null && pricing.markupPercent !== undefined) {
-    const pct = parseFloat(String(pricing.markupPercent));
+    const pct = Number.parseFloat(String(pricing.markupPercent));
     return Math.round(cents * (1 + pct / 100));
   }
   return cents;

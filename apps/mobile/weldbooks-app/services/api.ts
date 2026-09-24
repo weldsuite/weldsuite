@@ -81,7 +81,7 @@ interface DataEnvelope<T = Json> {
 /** Coerce app-api numeric strings ("123.45") to numbers for display. */
 function num(value: unknown): number {
   if (typeof value === 'number') return value;
-  const parsed = parseFloat(String(value ?? '0'));
+  const parsed = Number.parseFloat(String(value ?? '0'));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 

@@ -288,7 +288,7 @@ export function expandGstTaxBreakdown(opts: {
   const direction = opts.direction ?? 'sales';
 
   return list.map((c) => {
-    const rate = parseFloat(c.rate);
+    const rate = Number.parseFloat(c.rate);
     const taxAmount = opts.taxableAmount * (rate / 100);
     const label =
       c.code === 'cgst'

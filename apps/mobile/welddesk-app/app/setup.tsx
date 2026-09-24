@@ -578,7 +578,7 @@ export default function SetupScreen() {
         ]);
 
         if (savedStep) {
-          const step = parseInt(savedStep, 10);
+          const step = Number.parseInt(savedStep, 10);
           if (step >= 1 && step <= totalSteps) setCurrentStep(step);
         }
 
