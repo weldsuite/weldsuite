@@ -16,7 +16,7 @@ function formatter(currency: string, locale: string): Intl.NumberFormat {
 /** Parse an app-api decimal string ("123.45") to a number, defaulting to 0. */
 export function toNumber(value: number | string | null | undefined): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const parsed = parseFloat(String(value ?? '0'));
+  const parsed = Number.parseFloat(String(value ?? '0'));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
@@ -59,10 +59,10 @@ export function parseAmount(value: string): number {
     cleaned.includes(',') &&
     (!cleaned.includes('.') || cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.'))
   ) {
-    const parsed = parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+    const parsed = Number.parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
     return Number.isNaN(parsed) ? 0 : parsed;
   }
-  const parsed = parseFloat(cleaned.replace(/,/g, ''));
+  const parsed = Number.parseFloat(cleaned.replace(/,/g, ''));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
