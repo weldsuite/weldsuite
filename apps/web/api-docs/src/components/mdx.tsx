@@ -35,7 +35,7 @@ export const h2 = function H2(
   return <Heading level={2} {...props} />
 }
 
-function InfoIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function InfoIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" {...props}>
       <circle cx="8" cy="8" r="8" strokeWidth="0" />
@@ -51,7 +51,7 @@ function InfoIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-export function Note({ children }: { children: React.ReactNode }) {
+export function Note({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="my-6 flex gap-2.5 rounded-2xl border border-emerald-500/20 bg-emerald-50/50 p-4 text-sm/6 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/5 dark:text-emerald-200 dark:[--tw-prose-links-hover:var(--color-emerald-300)] dark:[--tw-prose-links:var(--color-white)]">
       <InfoIcon className="mt-1 h-4 w-4 flex-none fill-emerald-500 stroke-white dark:fill-emerald-200/20 dark:stroke-emerald-200" />
@@ -62,7 +62,7 @@ export function Note({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function Row({ children }: { children: React.ReactNode }) {
+export function Row({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="grid grid-cols-1 items-start gap-x-16 gap-y-10 xl:max-w-none xl:grid-cols-2">
       {children}
@@ -73,10 +73,10 @@ export function Row({ children }: { children: React.ReactNode }) {
 export function Col({
   children,
   sticky = false,
-}: {
+}: Readonly<{
   children: React.ReactNode
   sticky?: boolean
-}) {
+}>) {
   return (
     <div
       className={clsx(
@@ -89,7 +89,7 @@ export function Col({
   )
 }
 
-export function Properties({ children }: { children: React.ReactNode }) {
+export function Properties({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="my-6">
       <ul
@@ -106,11 +106,11 @@ export function Property({
   name,
   children,
   type,
-}: {
+}: Readonly<{
   name: string
   children: React.ReactNode
   type?: string
-}) {
+}>) {
   return (
     <li className="m-0 px-0 py-4 first:pt-0 last:pb-0">
       <dl className="m-0 flex flex-wrap items-center gap-x-3 gap-y-2">

@@ -187,7 +187,7 @@ export function BookingClient({
   workspaceName,
   workspaceImage,
   bookingPage,
-}: BookingClientProps) {
+}: Readonly<BookingClientProps>) {
   const [state, dispatch] = useReducer(reducer, bookingPage, makeInitialState);
   const [slotsLoading, startSlotsTransition] = useTransition();
   const [submitting, startSubmitTransition] = useTransition();
