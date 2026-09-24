@@ -91,7 +91,10 @@ app.get('/conversations', async (c) => {
       eq(weldagentConversations.userId, userId),
       isNull(weldagentConversations.deletedAt),
     ];
-    if (agentId) {
+    // `agentId=none` → personal assistant chats only (home sidebar "Recent").
+    if (agentId === 'none') {
+      conditions.push(isNull(weldagentConversations.agentId));
+    } else if (agentId) {
       conditions.push(eq(weldagentConversations.agentId, agentId));
     }
 
@@ -183,20 +186,33 @@ app.get('/conversations/:conversationId/messages', async (c) => {
       return error.notFound(c, 'Conversation', conversationId);
     }
 
-    const messages = await db
+    const where = and(
+      eq(weldagentMessages.conversationId, conversationId),
+      isNull(weldagentMessages.deletedAt),
+    );
+
+    // With an explicit offset: legacy oldest-first paging. Without one: the
+    // latest `limit` messages, still in chronological order — chat UIs need
+    // the tail of a long thread, not its first page.
+    if (c.req.query('offset') !== undefined) {
+      const page = await db
+        .select()
+        .from(weldagentMessages)
+        .where(where)
+        .orderBy(weldagentMessages.createdAt, weldagentMessages.id)
+        .limit(limit)
+        .offset(offset);
+      return success(c, page);
+    }
+
+    const latest = await db
       .select()
       .from(weldagentMessages)
-      .where(
-        and(
-          eq(weldagentMessages.conversationId, conversationId),
-          isNull(weldagentMessages.deletedAt),
-        ),
-      )
-      .orderBy(weldagentMessages.createdAt)
-      .limit(limit)
-      .offset(offset);
+      .where(where)
+      .orderBy(desc(weldagentMessages.createdAt), desc(weldagentMessages.id))
+      .limit(limit);
 
-    return success(c, messages);
+    return success(c, latest.reverse());
   } catch (err) {
     console.error('[app-api/weldagent] list messages failed:', err);
     return error.internal(c, 'Failed to get messages');

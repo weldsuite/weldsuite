@@ -55,9 +55,10 @@ export function useAgent(id: string) {
   return useQuery({
     queryKey: agentKeys.detail(id),
     queryFn: async (): Promise<AgentWithRuns | undefined> => {
+      // Runs are secondary: a failing runs call must not hide the agent itself.
       const [detail, runs] = await Promise.all([
         api.workspaceAgents.get(id),
-        api.workspaceAgents.listRuns(id, 20),
+        api.workspaceAgents.listRuns(id, 20).catch(() => ({ data: [] as AgentRun[] })),
       ]);
       if (!detail.data) return undefined;
       return {
