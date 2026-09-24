@@ -2,7 +2,7 @@
  * WeldAgent Grok-parity services — skills, routines, approvals, memory, templates, teach.
  */
 
-import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { AgentDb } from './agents';
@@ -915,5 +915,3 @@ export async function stopTeachSession(
   return { id, status: 'stopped' as const, skillId, steps };
 }
 
-// silence unused import if tree-shaken oddly
-void sql;

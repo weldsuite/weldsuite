@@ -46,7 +46,8 @@ export function iframeTargetOrigin(src: string): string {
 }
 
 export function iframeSandbox(src: string): string {
-  // Preview and R2 both need allow-same-origin; see file header.
-  void src;
-  return R2_SANDBOX;
+  // Preview and R2 both need allow-same-origin today (see file header), so
+  // the two sandboxes are currently identical; keep the split so they can
+  // diverge without touching callers.
+  return isPreviewAppUrl(src) ? PREVIEW_SANDBOX : R2_SANDBOX;
 }
