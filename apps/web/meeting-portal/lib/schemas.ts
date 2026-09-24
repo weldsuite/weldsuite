@@ -162,7 +162,7 @@ export const messagesListQuerySchema = z.object({
     .optional()
     .transform((v) => {
       if (v === undefined) return 50;
-      const n = typeof v === 'number' ? v : parseInt(v, 10);
+      const n = typeof v === 'number' ? v : Number.parseInt(v, 10);
       if (!Number.isFinite(n)) return 50;
       return Math.min(Math.max(n, 1), 100);
     }),

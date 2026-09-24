@@ -28,7 +28,7 @@ interface FileWithRelativePath extends File {
 }
 
 function bumpPatch(version: string): string {
-  const parts = version.split('.').map((p) => parseInt(p, 10));
+  const parts = version.split('.').map((p) => Number.parseInt(p, 10));
   if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return '0.0.1';
   return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
 }
