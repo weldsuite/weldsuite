@@ -56,8 +56,8 @@ app.get('/', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const { payments } = schema;
   const q = c.req.query();
-  const page = Math.max(parseInt(q.page || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(q.pageSize || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(q.page || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(q.pageSize || '25', 10), 1), 100);
 
   try {
     const entityId = await resolveEntityId(c, db);
@@ -107,7 +107,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
   try {
     const { payments, invoices, bills } = schema;
 
-    const paymentAmount = parseFloat(data.amount);
+    const paymentAmount = Number.parseFloat(data.amount);
     const paymentId = generateId('pay');
 
     const entityId = await resolveEntityId(c, db);
@@ -176,8 +176,8 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
         .where(and(eq(invoices.id, data.invoiceId), eq(invoices.entityId, entityId)))
         .limit(1);
       if (invoice) {
-        const newAmountPaid = parseFloat(invoice.amountPaid || '0') + paymentAmount;
-        const newBalanceDue = parseFloat(invoice.total || '0') - newAmountPaid;
+        const newAmountPaid = Number.parseFloat(invoice.amountPaid || '0') + paymentAmount;
+        const newBalanceDue = Number.parseFloat(invoice.total || '0') - newAmountPaid;
         const isFullyPaid = newBalanceDue <= 0.01;
         await db.update(invoices).set({
           amountPaid: newAmountPaid.toFixed(2),
@@ -199,8 +199,8 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
         .where(and(eq(bills.id, data.billId), eq(bills.entityId, entityId)))
         .limit(1);
       if (bill) {
-        const newAmountPaid = parseFloat(bill.amountPaid || '0') + paymentAmount;
-        const newBalanceDue = parseFloat(bill.total || '0') - newAmountPaid;
+        const newAmountPaid = Number.parseFloat(bill.amountPaid || '0') + paymentAmount;
+        const newBalanceDue = Number.parseFloat(bill.total || '0') - newAmountPaid;
         const isFullyPaid = newBalanceDue <= 0.01;
         await db.update(bills).set({
           amountPaid: newAmountPaid.toFixed(2),
@@ -273,7 +273,7 @@ async function maybePostFxAdjustment(
     createdBy?: string;
   },
 ): Promise<void> {
-  const paymentRate = parseFloat(args.paymentExchangeRate);
+  const paymentRate = Number.parseFloat(args.paymentExchangeRate);
   if (!paymentRate || paymentRate === 0) return;
 
   // Load the settled document to fetch its booking rate.
@@ -285,7 +285,7 @@ async function maybePostFxAdjustment(
       .where(eq(schema.invoices.id, args.invoiceId))
       .limit(1);
     if (!inv) return;
-    docRate = parseFloat(inv.rate ?? '1');
+    docRate = Number.parseFloat(inv.rate ?? '1');
   } else if (args.billId) {
     const [bill] = await db
       .select({ rate: schema.bills.exchangeRate })
@@ -293,7 +293,7 @@ async function maybePostFxAdjustment(
       .where(eq(schema.bills.id, args.billId))
       .limit(1);
     if (!bill) return;
-    docRate = parseFloat(bill.rate ?? '1');
+    docRate = Number.parseFloat(bill.rate ?? '1');
   } else {
     return;
   }
