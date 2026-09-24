@@ -484,15 +484,15 @@ export default function TimesheetPage() {
 
     const totalMinutesRaw =
       rangeMinutes ??
-      (parseInt(newEntryHours || '0', 10) || 0) * 60 +
-        (parseInt(newEntryMinutes || '0', 10) || 0);
+      (Number.parseInt(newEntryHours || '0', 10) || 0) * 60 +
+        (Number.parseInt(newEntryMinutes || '0', 10) || 0);
     if (!totalMinutesRaw) return;
 
     let totalMinutes = totalMinutesRaw;
 
     // Round time if enabled
     if (newEntryRoundTo !== 'none') {
-      const roundToMinutes = parseInt(newEntryRoundTo);
+      const roundToMinutes = Number.parseInt(newEntryRoundTo);
       totalMinutes = Math.round(totalMinutes / roundToMinutes) * roundToMinutes;
     }
 
@@ -612,7 +612,7 @@ export default function TimesheetPage() {
       // Rounding is a client-side preference, so it's applied as a follow-up
       // edit to the entry the server just created.
       if (timerRoundTo !== 'none') {
-        const roundTo = parseInt(timerRoundTo);
+        const roundTo = Number.parseInt(timerRoundTo);
         const rounded = Math.max(roundTo, Math.round(durationMinutes / roundTo) * roundTo);
         if (rounded !== durationMinutes) {
           durationMinutes = rounded;
@@ -1687,8 +1687,8 @@ export default function TimesheetPage() {
                           const ranged = minutesFromRange(newEntryStartTime, newEntryEndTime);
                           const total =
                             ranged ??
-                            (parseInt(newEntryHours || '0', 10) || 0) * 60 +
-                              (parseInt(newEntryMinutes || '0', 10) || 0);
+                            (Number.parseInt(newEntryHours || '0', 10) || 0) * 60 +
+                              (Number.parseInt(newEntryMinutes || '0', 10) || 0);
                           const h = Math.floor(total / 60);
                           const m = total % 60;
                           if (!h && !m) return 'Duration';
@@ -1887,8 +1887,8 @@ export default function TimesheetPage() {
                     const missing: string[] = [];
                     const mins =
                       minutesFromRange(newEntryStartTime, newEntryEndTime) ??
-                      (parseInt(newEntryHours || '0', 10) || 0) * 60 +
-                        (parseInt(newEntryMinutes || '0', 10) || 0);
+                      (Number.parseInt(newEntryHours || '0', 10) || 0) * 60 +
+                        (Number.parseInt(newEntryMinutes || '0', 10) || 0);
                     if (!mins) missing.push('Duration');
                     if (!selectedDate) missing.push('Date');
                     const disabled = isSubmitting || !mins || !selectedDate;

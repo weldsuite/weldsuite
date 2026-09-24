@@ -59,8 +59,8 @@ function sumLines(lines: Array<{ debit?: string; credit?: string }>) {
   let totalDebit = 0;
   let totalCredit = 0;
   for (const line of lines) {
-    totalDebit += parseFloat(line.debit || '0');
-    totalCredit += parseFloat(line.credit || '0');
+    totalDebit += Number.parseFloat(line.debit || '0');
+    totalCredit += Number.parseFloat(line.credit || '0');
   }
   return { totalDebit, totalCredit };
 }
@@ -73,8 +73,8 @@ async function applyBalances(
 ) {
   const { accounts } = schema;
   for (const line of lines) {
-    const debit = parseFloat(line.debit || '0');
-    const credit = parseFloat(line.credit || '0');
+    const debit = Number.parseFloat(line.debit || '0');
+    const credit = Number.parseFloat(line.credit || '0');
     const netChange = (debit - credit) * direction;
     if (netChange !== 0) {
       await db
@@ -93,8 +93,8 @@ app.get('/', requirePermission('journal:read'), async (c) => {
   const db = c.get('tenantDb');
   const t = schema.journalEntries;
   const q = c.req.query();
-  const page = Math.max(parseInt(q.page || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(q.pageSize || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(q.page || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(q.pageSize || '25', 10), 1), 100);
 
   try {
     const entityId = await resolveEntityId(c, db);
