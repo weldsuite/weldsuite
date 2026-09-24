@@ -18,13 +18,13 @@ export function SectionCard({
   children,
   padded = true,
   style,
-}: {
+}: Readonly<{
   title?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
   padded?: boolean;
   style?: StyleProp<ViewStyle>;
-}) {
+}>) {
   return (
     <Card style={[styles.card, style]}>
       {title ? (
@@ -44,12 +44,12 @@ export function DetailRow({
   value,
   valueColor,
   strong = false,
-}: {
+}: Readonly<{
   label: string;
   value: React.ReactNode;
   valueColor?: string;
   strong?: boolean;
-}) {
+}>) {
   const { colors } = useTheme();
   return (
     <View style={styles.detailRow}>
@@ -78,10 +78,10 @@ export function DetailRow({
 export function TotalsBlock({
   rows,
   total,
-}: {
+}: Readonly<{
   rows: { label: string; value: string }[];
   total: { label: string; value: string };
-}) {
+}>) {
   const { colors } = useTheme();
   return (
     <View>
@@ -102,11 +102,11 @@ export function IconTile({
   icon: Icon,
   color,
   size = 38,
-}: {
+}: Readonly<{
   icon: React.ComponentType<{ size: number; color: string }>;
   color: string;
   size?: number;
-}) {
+}>) {
   return (
     <View
       style={[
