@@ -44,12 +44,12 @@ export function Tag({
   children,
   variant = 'medium',
   color = valueColorMap[children] ?? 'emerald',
-}: {
+}: Readonly<{
   // `valueColorMap` is a Record<string, …>, so its keys are already `string`.
   children: string
   variant?: keyof typeof variantStyles
   color?: keyof typeof colorStyles
-}) {
+}>) {
   return (
     <span
       className={clsx(

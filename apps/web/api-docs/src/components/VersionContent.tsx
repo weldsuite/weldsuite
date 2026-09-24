@@ -24,7 +24,7 @@ interface VersionSinceProps {
  *   This content only shows for 2024-12-01 and later
  * </VersionSince>
  */
-export function VersionSince({ version, children }: VersionSinceProps) {
+export function VersionSince({ version, children }: Readonly<VersionSinceProps>) {
   const selectedVersion = useVersion()
 
   if (!isVersionAtLeast(selectedVersion, version)) {
@@ -48,7 +48,7 @@ interface VersionBeforeProps {
  *   This content only shows for versions before 2024-12-01
  * </VersionBefore>
  */
-export function VersionBefore({ version, children }: VersionBeforeProps) {
+export function VersionBefore({ version, children }: Readonly<VersionBeforeProps>) {
   const selectedVersion = useVersion()
 
   if (!isVersionBefore(selectedVersion, version)) {
@@ -80,11 +80,11 @@ interface VersionCaseProps {
  *   </VersionCase>
  * </VersionSwitch>
  */
-export function VersionSwitch({ children }: VersionSwitchProps) {
+export function VersionSwitch({ children }: Readonly<VersionSwitchProps>) {
   return <>{children}</>
 }
 
-export function VersionCase({ version, children }: VersionCaseProps) {
+export function VersionCase({ version, children }: Readonly<VersionCaseProps>) {
   const selectedVersion = useVersion()
 
   if (selectedVersion !== version) {
@@ -107,7 +107,7 @@ interface VersionBadgeProps {
  * <VersionBadge since="2024-12-01" />
  * <VersionBadge deprecated="2024-12-01" />
  */
-export function VersionBadge({ since, until, deprecated }: VersionBadgeProps) {
+export function VersionBadge({ since, until, deprecated }: Readonly<VersionBadgeProps>) {
   const selectedVersion = useVersion()
 
   if (deprecated && isVersionAtLeast(selectedVersion, deprecated)) {
@@ -154,7 +154,7 @@ interface VersionWarningProps {
 /**
  * Shows a warning banner for version-specific issues.
  */
-export function VersionWarning({ type, version, message }: VersionWarningProps) {
+export function VersionWarning({ type, version, message }: Readonly<VersionWarningProps>) {
   const styles = {
     'not-available': {
       bg: 'bg-zinc-50 dark:bg-zinc-800/50',
