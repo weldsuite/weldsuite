@@ -8,11 +8,11 @@ export function FormField({
   label,
   value,
   placeholder,
-}: {
+}: Readonly<{
   label: string;
   value?: React.ReactNode;
   placeholder?: string;
-}) {
+}>) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -29,7 +29,7 @@ export function FormField({
 }
 
 /** A label / value row for detail panels and info cards. */
-export function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+export function MetaRow({ label, value }: Readonly<{ label: string; value: React.ReactNode }>) {
   return (
     <div className="flex items-center justify-between gap-4 py-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
@@ -38,7 +38,7 @@ export function MetaRow({ label, value }: { label: string; value: React.ReactNod
   );
 }
 
-export function SectionTitle({ children }: { children: React.ReactNode }) {
+export function SectionTitle({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
@@ -52,12 +52,12 @@ export function PersonChip({
   name,
   subtitle,
   size = 'sm',
-}: {
+}: Readonly<{
   initials: string;
   name?: string;
   subtitle?: string;
   size?: 'sm' | 'lg';
-}) {
+}>) {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <Avatar className={size === 'lg' ? 'h-10 w-10' : 'h-7 w-7'}>
@@ -80,9 +80,9 @@ export function PersonChip({
 /** Simple vertical activity timeline. */
 export function ActivityTimeline({
   items,
-}: {
+}: Readonly<{
   items: { id: string; title: string; body: string; author: string; when: string }[];
-}) {
+}>) {
   return (
     <ol className="relative space-y-5 border-l border-border pl-5">
       {items.map((item) => (
