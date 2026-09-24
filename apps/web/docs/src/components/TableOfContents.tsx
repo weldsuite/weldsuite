@@ -8,9 +8,9 @@ import { type Section, type Subsection } from '@/lib/sections'
 
 export function TableOfContents({
   tableOfContents,
-}: {
+}: Readonly<{
   tableOfContents: Array<Section>
-}) {
+}>) {
   let [currentSection, setCurrentSection] = useState(tableOfContents[0]?.id)
 
   let getHeadings = useCallback((tableOfContents: Array<Section>) => {
