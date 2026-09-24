@@ -21,7 +21,7 @@ export function useHomeSidebarItems(isActive: boolean): {
   const isHome = pathname === '/' || pathname === '';
   const isChat = pathname === '/new-chat';
 
-  const { data: conversations = [] } = useWeldAgentConversations(50);
+  const { data: conversations = [] } = useWeldAgentConversations(50, 'none');
   const updateConvo = useUpdateConversation();
   const deleteConvo = useDeleteConversation();
 

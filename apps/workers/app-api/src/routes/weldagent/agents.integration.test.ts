@@ -23,6 +23,7 @@ describe('weldagent agents routes', () => {
           'weldagent:update',
           'weldagent:manage',
           'weldagent:use',
+          'people:read',
         ),
         tenantDb: db,
       },
@@ -67,6 +68,39 @@ describe('weldagent agents routes', () => {
     expect(pauseRes.status).toBe(200);
     const paused = (await pauseRes.json()) as { data: { status: string } };
     expect(paused.data.status).toBe('paused');
+  });
+
+  it('refuses to grant an agent permissions the caller lacks', async () => {
+    const { request } = createTestApp('/api/weldagent/agents', weldagentAgentsRoutes, {
+      context: {
+        permissions: permissions('weldagent:read', 'weldagent:create', 'weldagent:update'),
+        tenantDb: db,
+      },
+    });
+
+    const denied = await request('/api/weldagent/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Escalator', permissions: ['people:delete'] }),
+    });
+    expect(denied.status).toBe(403);
+
+    // No explicit grants: defaults are limited to what the creator holds.
+    const created = await request('/api/weldagent/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Plain' }),
+    });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { data: { id: string; permissions: string[] } };
+    expect(body.data.permissions).toEqual([]);
+
+    const patched = await request(`/api/weldagent/agents/${body.data.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ permissions: ['tickets:create'] }),
+    });
+    expect(patched.status).toBe(403);
   });
 
   it('rejects list without weldagent:read', async () => {

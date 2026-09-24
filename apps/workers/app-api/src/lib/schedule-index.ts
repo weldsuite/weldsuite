@@ -7,7 +7,7 @@
  * matching index row so the sweep sees current timing.
  *
  * We only ever write `next_run_at = NULL` here — the worker computes the actual
- * fire time (cron math lives there, `workflow-worker/src/lib/cron.ts`). Keep the
+ * fire time (cron math: `@weldsuite/workflow-integrations/cron`). Keep the
  * SQL in lockstep with `workflow-worker/src/schedule-index.ts` (deliberate copy,
  * same as the manifest copies noted in CLAUDE.md — two workers, no shared pkg).
  *

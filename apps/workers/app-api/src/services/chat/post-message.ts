@@ -22,7 +22,7 @@ import type { Database } from '../../db';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { Env } from '../../types';
-import { dispatchAgentMentions } from './agent-mention-dispatch';
+import { enqueueWeldAgentJob } from '../weldagent/jobs';
 import { parseAgentRoomPolicy } from './agent-room-policy';
 import {
   checkSlowMode,
@@ -385,32 +385,22 @@ export async function postChatMessage(
       (agentMentionIds.length > 0 || policy.agentReplyPolicy === 'always');
 
     if (shouldDispatch) {
-      const dispatchPromise = dispatchAgentMentions(
+      // Durable job: agent replies (tool loops) outlive the ~30s waitUntil budget.
+      const job = enqueueWeldAgentJob(
+        env,
+        ctx.waitUntil ?? ((p) => void p.catch(() => undefined)),
         {
-          db,
-          env,
-          orgId,
+          kind: 'chat-room',
+          workspaceId: orgId,
           invokerUserId: authorUserId,
-          waitUntil: ctx.waitUntil,
-        },
-        {
           agentMentionIds,
           channelId,
           messageId: id,
           messageContent: input.content,
         },
-      );
-      if (ctx.waitUntil) {
-        ctx.waitUntil(
-          dispatchPromise.catch((e) =>
-            console.error('[app-api/chat] agent mention dispatch failed:', e),
-          ),
-        );
-      } else {
-        void dispatchPromise.catch((e) =>
-          console.error('[app-api/chat] agent mention dispatch failed:', e),
-        );
-      }
+        db as never,
+      ).catch((e) => console.error('[app-api/chat] agent mention dispatch failed:', e));
+      if (ctx.waitUntil) ctx.waitUntil(job);
     }
   }
 

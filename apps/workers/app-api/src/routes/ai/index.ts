@@ -230,15 +230,18 @@ app.post(
             maxIterations: agent.maxIterations,
             permissions: agent.permissions,
             enabledTools: agent.enabledTools,
+            autoReviewEnabled: agent.autoReviewEnabled,
           },
           toolContext: {
             db: c.get('tenantDb'),
             agentId: agent.id,
             actorUserId: c.get('userId'),
             workspaceId: c.get('workspaceId'),
+            env: c.env,
           },
           messages: chatMessages,
           extraSystem: extraSystem || undefined,
+          actorPermissions: resolved.permissions,
         });
         return success(c, {
           text: result.text,
@@ -395,15 +398,18 @@ app.post(
             maxIterations: agent.maxIterations,
             permissions: agent.permissions,
             enabledTools: agent.enabledTools,
+            autoReviewEnabled: agent.autoReviewEnabled,
           },
           toolContext: {
             db: c.get('tenantDb'),
             agentId: agent.id,
             actorUserId: c.get('userId'),
             workspaceId: c.get('workspaceId'),
+            env: c.env,
           },
           messages: chatMessages,
           extraSystem: extraSystem || undefined,
+          actorPermissions: resolved.permissions,
           metering,
           executionCtx: c.executionCtx,
         });

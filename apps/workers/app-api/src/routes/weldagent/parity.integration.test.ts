@@ -15,6 +15,8 @@ const perms = permissions(
   'weldagent:update',
   'weldagent:manage',
   'agents:read',
+  'computer:use',
+  'browser:use',
 );
 
 describe('weldagent parity routes', () => {

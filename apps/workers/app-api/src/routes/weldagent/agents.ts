@@ -4,7 +4,8 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { hasPermission } from '@weldsuite/permissions';
 import { getAllPermissionKeys } from '@weldsuite/permissions/catalog';
 import {
   createWorkspaceAgentSchema,
@@ -25,8 +26,25 @@ import { extractEventSubscriptions } from '../../services/weldagent/subscription
 import { executeAgentRun } from '../../services/weldagent/run';
 import { listToolCatalog, resolveAgentTools } from '../../services/weldagent/tools';
 import { InsufficientAiCreditsError } from '../../services/ai/billing';
+import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-routine-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * Permissions in `requested` that the caller does not hold. Granting an agent
+ * more than you have would let you act beyond your role through the agent.
+ * Grants the agent already has are left alone so a teammate can still edit it.
+ */
+async function ungrantablePermissions(
+  c: Parameters<typeof ensurePermissionsResolved>[0],
+  requested: string[] | undefined,
+  existing: string[] = [],
+): Promise<string[]> {
+  if (!requested) return [];
+  const resolved = await ensurePermissionsResolved(c);
+  const held = resolved?.permissions ?? [];
+  return requested.filter((perm) => !existing.includes(perm) && !hasPermission(held, perm));
+}
 
 /** GET /agents — list workspace agents. */
 app.get('/', requirePermission('weldagent:read'), async (c) => {
@@ -115,9 +133,18 @@ app.post('/:id/browser/close', requirePermission('weldagent:update', 'weldagent:
 app.post('/', requirePermission('weldagent:create', 'weldagent:manage'), zValidator('json', createWorkspaceAgentSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
+  const denied = await ungrantablePermissions(c, data.permissions);
+  if (denied.length > 0) {
+    return error.forbidden(c, `You can't grant permissions you don't have: ${denied.join(', ')}`);
+  }
+  // Default cloud computer + browser grants only when the creator holds them.
+  const held = (await ensurePermissionsResolved(c))?.permissions ?? [];
+  const permissions =
+    data.permissions ?? ['computer:use', 'browser:use'].filter((p) => hasPermission(held, p));
   try {
     const agent = await createAgent(db, {
       ...data,
+      permissions,
       createdBy: c.get('userId'),
     });
     return success(c, agent, 201);
@@ -146,9 +173,18 @@ app.patch('/:id', requirePermission('weldagent:update', 'weldagent:manage'), zVa
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json');
+  const existing = await getAgent(db, id);
+  if (!existing) return error.notFound(c, 'Agent not found');
+  const denied = await ungrantablePermissions(c, data.permissions, existing.permissions);
+  if (denied.length > 0) {
+    return error.forbidden(c, `You can't grant permissions you don't have: ${denied.join(', ')}`);
+  }
   try {
     const agent = await updateAgent(db, id, data);
     if (!agent) return error.notFound(c, 'Agent not found');
+    if (data.status !== undefined) {
+      await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
+    }
     return success(c, agent);
   } catch (err) {
     console.error('[weldagent/agents] update failed:', err);
@@ -161,6 +197,7 @@ app.delete('/:id', requirePermission('weldagent:delete', 'weldagent:manage'), as
   const db = c.get('tenantDb');
   const ok = await deleteAgent(db, c.req.param('id'));
   if (!ok) return error.notFound(c, 'Agent not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, c.req.param('id'));
   return noContent(c);
 });
 
@@ -176,6 +213,7 @@ app.post('/:id/activate', requirePermission('weldagent:update', 'weldagent:manag
     status: 'active',
     eventSubscriptions: subscriptions,
   });
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
   return success(c, agent);
 });
 
@@ -184,6 +222,7 @@ app.post('/:id/pause', requirePermission('weldagent:update', 'weldagent:manage')
   const db = c.get('tenantDb');
   const agent = await updateAgent(db, c.req.param('id'), { status: 'paused' });
   if (!agent) return error.notFound(c, 'Agent not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, agent.id);
   return success(c, agent);
 });
 

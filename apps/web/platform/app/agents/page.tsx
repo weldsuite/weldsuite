@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { Bot } from 'lucide-react';
+import { toast } from 'sonner';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
@@ -19,20 +20,27 @@ export default function AgentsPage() {
   const { data: agents = [], isLoading } = useAgents();
   const createAgent = useCreateAgent();
 
+  // Desktop jumps straight into the first bot; on mobile this route is the bot
+  // list (ListDetailLayout), so redirecting would make the list unreachable.
   useEffect(() => {
     if (isLoading || agents.length === 0) return;
+    if (window.matchMedia('(max-width: 767px)').matches) return;
     router.replace(`/agents/${agents[0].id}`);
   }, [agents, isLoading, router]);
 
   const handleCreate = async () => {
-    const res = await createAgent.mutateAsync({ name: t.agents.detail.untitledAgent });
-    if (res.data?.id) router.push(`/agents/${res.data.id}`);
+    try {
+      const res = await createAgent.mutateAsync({ name: t.agents.detail.untitledAgent });
+      if (res.data?.id) router.push(`/agents/${res.data.id}`);
+    } catch {
+      toast.error(t.agents.detail.feedback.createFailed);
+    }
   };
 
   if (isLoading || agents.length > 0) {
     return (
       <div className="h-full flex-1 hidden md:flex flex-col items-center justify-center text-center px-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t.agents.detail.feedback.loading}</p>
       </div>
     );
   }

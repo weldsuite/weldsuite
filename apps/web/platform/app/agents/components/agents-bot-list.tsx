@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Bot, Plus, Search, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { usePathname, useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
@@ -59,16 +60,25 @@ export function AgentsBotList() {
 
   const handleCreate = async () => {
     if (createAgent.isPending) return;
-    const res = await createAgent.mutateAsync({
-      name: t.agents.detail.untitledAgent,
-    });
-    if (res.data?.id) router.push(`/agents/${res.data.id}`);
+    try {
+      const res = await createAgent.mutateAsync({
+        name: t.agents.detail.untitledAgent,
+      });
+      if (res.data?.id) router.push(`/agents/${res.data.id}`);
+    } catch {
+      toast.error(t.agents.detail.feedback.createFailed);
+    }
   };
 
   const handleConfirmDelete = async () => {
     if (!agentToDelete) return;
     const deletedId = agentToDelete.id;
-    await deleteAgent.mutateAsync(deletedId);
+    try {
+      await deleteAgent.mutateAsync(deletedId);
+    } catch {
+      toast.error(t.agents.detail.feedback.deleteFailed);
+      return;
+    }
     setAgentToDelete(null);
 
     if (selectedId === deletedId) {

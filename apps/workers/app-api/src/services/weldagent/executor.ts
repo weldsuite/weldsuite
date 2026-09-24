@@ -25,6 +25,7 @@ import {
 } from '../ai/billing';
 import {
   resolveAgentTools,
+  effectiveAgentPermissions,
   type ToolContext,
   type PlatformToolDefinition,
 } from './tools';
@@ -75,7 +76,28 @@ export interface AgentExecutorInput {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Extra system context (entity event payload, etc.). */
   extraSystem?: string;
+  /**
+   * Permissions of the human driving this turn. When set, the agent's grants
+   * are narrowed to them (an agent never acts beyond its user's role). Omit
+   * for unattended runs (entity events, routines).
+   */
+  actorPermissions?: string[] | null;
+  /**
+   * Run high-risk tools without parking an approval. Only for routines whose
+   * owner explicitly turned "ask for approval" off.
+   */
+  skipApprovals?: boolean;
+  /**
+   * Wall-clock budget for the whole tool loop. Defaults to 75s, which suits a
+   * blocking HTTP request; durable jobs (Workflows) pass a longer budget.
+   */
+  timeoutMs?: number;
 }
+
+/** Default loop budget for request-bound runs. */
+export const REQUEST_RUN_TIMEOUT_MS = 75_000;
+/** Loop budget for durable background runs (WeldAgent job workflow). */
+export const BACKGROUND_RUN_TIMEOUT_MS = 8 * 60_000;
 
 export interface AgentExecutorResult {
   text: string;
@@ -116,12 +138,16 @@ export function toolsForAgentTurn(input: {
   enabledTools: string[];
   systemPrompt: string;
   userMessageCount: number;
+  actorPermissions?: string[] | null;
 }): PlatformToolDefinition[] {
   if (agentNeedsSetup(input.systemPrompt)) {
     if (input.userMessageCount < 2) return [];
     return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup');
   }
-  return resolveAgentTools(input.permissions, input.enabledTools);
+  return resolveAgentTools(
+    effectiveAgentPermissions(input.permissions, input.actorPermissions),
+    input.enabledTools,
+  );
 }
 
 function buildSystemPrompt(agent: AgentExecutorInput['agent'], extra?: string): string {
@@ -145,7 +171,7 @@ function toSdkTools(
   defs: PlatformToolDefinition[],
   ctx: ToolContext,
   invocations: StoredToolInvocation[],
-  opts?: { autoReviewEnabled?: boolean },
+  opts?: { autoReviewEnabled?: boolean; skipApprovals?: boolean },
 ): Record<string, unknown> {
   const tools: Record<string, unknown> = {};
   for (const def of defs) {
@@ -156,16 +182,19 @@ function toSdkTools(
         const input = args as unknown;
         invocations.push({ toolName: def.name, state: 'call', args: input });
         try {
-          const { toolRiskLevel, createApproval, findPriorApproval } = await import('./parity');
-          const risk = toolRiskLevel(def.name);
-          if (risk === 'high') {
+          const { toolRiskLevel, createApproval, findPriorApproval, allowsAutoReview } = await import(
+            './parity'
+          );
+          const risk = toolRiskLevel(def.name, input);
+          if (risk === 'high' && !opts?.skipApprovals) {
             const autoOk =
               opts?.autoReviewEnabled &&
+              allowsAutoReview(def.name) &&
               (await findPriorApproval(ctx.db, ctx.agentId, def.name));
             if (!autoOk) {
               const approval = await createApproval(ctx.db, {
                 agentId: ctx.agentId,
-                conversationId: ctx.channelId ?? null,
+                conversationId: ctx.conversationId ?? ctx.channelId ?? null,
                 toolName: def.name,
                 args: (input && typeof input === 'object'
                   ? (input as Record<string, unknown>)
@@ -176,7 +205,9 @@ function toSdkTools(
               const blocked = {
                 pendingApproval: true,
                 approvalId: approval.id,
-                message: `Action "${def.name}" requires human approval before it runs.`,
+                message:
+                  `Action "${def.name}" is waiting for human approval and has NOT run yet. ` +
+                  'It runs automatically once approved. Tell the user it is pending — do not claim it is done, and do not retry it.',
               };
               invocations.push({ toolName: def.name, state: 'result', args: input, result: blocked });
               return blocked;
@@ -201,6 +232,25 @@ function toSdkTools(
   return tools;
 }
 
+/** System prompt plus the agent's enabled skills and saved memories. */
+async function buildAgentSystem(input: AgentExecutorInput): Promise<string> {
+  let system = buildSystemPrompt(input.agent, input.extraSystem);
+  if (input.toolContext.db && input.agent.id && !agentNeedsSetup(input.agent.systemPrompt)) {
+    try {
+      const { skillsPromptBlock, memoryPromptBlock } = await import('./parity');
+      const [skills, memory] = await Promise.all([
+        skillsPromptBlock(input.toolContext.db, input.agent.id),
+        memoryPromptBlock(input.toolContext.db, input.agent.id),
+      ]);
+      if (skills) system = `${system}\n\n${skills}`;
+      if (memory) system = `${system}\n\n${memory}`;
+    } catch (err) {
+      console.warn('[weldagent] failed to load skills/memory prompt blocks:', err);
+    }
+  }
+  return system;
+}
+
 /**
  * Non-streaming agent loop (manual runs + event dispatch).
  */
@@ -217,27 +267,16 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
     enabledTools: input.agent.enabledTools,
     systemPrompt: input.agent.systemPrompt,
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
+    actorPermissions: input.actorPermissions,
   });
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
     autoReviewEnabled: input.agent.autoReviewEnabled,
+    skipApprovals: input.skipApprovals,
   });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
-  let system = buildSystemPrompt(input.agent, input.extraSystem);
-  if (input.toolContext.db && input.agent.id && !agentNeedsSetup(input.agent.systemPrompt)) {
-    try {
-      const { skillsPromptBlock, memoryPromptBlock } = await import('./parity');
-      const [skills, memory] = await Promise.all([
-        skillsPromptBlock(input.toolContext.db, input.agent.id),
-        memoryPromptBlock(input.toolContext.db, input.agent.id),
-      ]);
-      if (skills) system = `${system}\n\n${skills}`;
-      if (memory) system = `${system}\n\n${memory}`;
-    } catch (err) {
-      console.warn('[weldagent] failed to load skills/memory prompt blocks:', err);
-    }
-  }
+  const system = await buildAgentSystem(input);
 
   const credits = input.env.WORKSPACE_CACHE
     ? toCreditStates(await readGatewayCreditSnapshot(input.env.WORKSPACE_CACHE))
@@ -268,7 +307,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
         tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
         stopWhen: stepCountIs(Math.max(1, input.agent.maxIterations)),
         maxRetries: 1,
-        abortSignal: AbortSignal.timeout(75_000),
+        abortSignal: AbortSignal.timeout(input.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS),
       }),
   );
 
@@ -307,14 +346,16 @@ export async function streamAgentChat(input: StreamAgentParams) {
     enabledTools: input.agent.enabledTools,
     systemPrompt: input.agent.systemPrompt,
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
+    actorPermissions: input.actorPermissions,
   });
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
     autoReviewEnabled: input.agent.autoReviewEnabled,
+    skipApprovals: input.skipApprovals,
   });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
-  const system = buildSystemPrompt(input.agent, input.extraSystem);
+  const system = await buildAgentSystem(input);
 
   const credits = input.env.WORKSPACE_CACHE
     ? toCreditStates(await readGatewayCreditSnapshot(input.env.WORKSPACE_CACHE))
