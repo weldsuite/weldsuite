@@ -47,8 +47,8 @@ function pageOffset(page: number, pageSize: number): number {
 
 app.get('/email', requirePermission('orders:read'), async (c) => {
   const q = c.req.query();
-  const page = Math.max(1, q.page ? parseInt(q.page, 10) : 1);
-  const pageSize = Math.min(q.pageSize ? parseInt(q.pageSize, 10) : 20, 100);
+  const page = Math.max(1, q.page ? Number.parseInt(q.page, 10) : 1);
+  const pageSize = Math.min(q.pageSize ? Number.parseInt(q.pageSize, 10) : 20, 100);
 
   try {
     const db = c.get('tenantDb');
@@ -239,8 +239,8 @@ app.delete('/email/:id', requirePermission('orders:read'), async (c) => {
 
 app.get('/sms', requirePermission('orders:read'), async (c) => {
   const q = c.req.query();
-  const page = Math.max(1, q.page ? parseInt(q.page, 10) : 1);
-  const pageSize = Math.min(q.pageSize ? parseInt(q.pageSize, 10) : 20, 100);
+  const page = Math.max(1, q.page ? Number.parseInt(q.page, 10) : 1);
+  const pageSize = Math.min(q.pageSize ? Number.parseInt(q.pageSize, 10) : 20, 100);
 
   try {
     const db = c.get('tenantDb');
@@ -380,8 +380,8 @@ app.delete('/sms/:id', requirePermission('orders:read'), async (c) => {
 
 app.get('/whatsapp', requirePermission('orders:read'), async (c) => {
   const q = c.req.query();
-  const page = Math.max(1, q.page ? parseInt(q.page, 10) : 1);
-  const pageSize = Math.min(q.pageSize ? parseInt(q.pageSize, 10) : 20, 100);
+  const page = Math.max(1, q.page ? Number.parseInt(q.page, 10) : 1);
+  const pageSize = Math.min(q.pageSize ? Number.parseInt(q.pageSize, 10) : 20, 100);
 
   try {
     const db = c.get('tenantDb');
@@ -513,8 +513,8 @@ app.delete('/whatsapp/:id', requirePermission('orders:read'), async (c) => {
 
 app.get('/webhooks', requirePermission('orders:read'), async (c) => {
   const q = c.req.query();
-  const page = Math.max(1, q.page ? parseInt(q.page, 10) : 1);
-  const pageSize = Math.min(q.pageSize ? parseInt(q.pageSize, 10) : 20, 100);
+  const page = Math.max(1, q.page ? Number.parseInt(q.page, 10) : 1);
+  const pageSize = Math.min(q.pageSize ? Number.parseInt(q.pageSize, 10) : 20, 100);
   const statusFilter = q.status;
 
   try {
@@ -725,8 +725,8 @@ app.post('/webhooks/:id/test', requirePermission('orders:read'), async (c) => {
 app.get('/webhooks/:id/logs', requirePermission('orders:read'), async (c) => {
   const webhookId = c.req.param('id');
   const q = c.req.query();
-  const page = Math.max(1, q.page ? parseInt(q.page, 10) : 1);
-  const pageSize = Math.min(q.pageSize ? parseInt(q.pageSize, 10) : 20, 100);
+  const page = Math.max(1, q.page ? Number.parseInt(q.page, 10) : 1);
+  const pageSize = Math.min(q.pageSize ? Number.parseInt(q.pageSize, 10) : 20, 100);
 
   try {
     const db = c.get('tenantDb');
