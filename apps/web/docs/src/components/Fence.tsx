@@ -6,10 +6,10 @@ import { Highlight } from 'prism-react-renderer'
 export function Fence({
   children,
   language,
-}: {
+}: Readonly<{
   children: string
   language: string
-}) {
+}>) {
   return (
     <Highlight
       code={children.trimEnd()}

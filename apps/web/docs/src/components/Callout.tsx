@@ -28,11 +28,11 @@ export function Callout({
   title,
   children,
   type = 'note',
-}: {
+}: Readonly<{
   title?: string
   children: React.ReactNode
   type?: keyof typeof styles
-}) {
+}>) {
   let IconComponent = icons[type]
 
   return (
