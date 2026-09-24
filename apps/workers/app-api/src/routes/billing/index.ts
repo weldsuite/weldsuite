@@ -199,7 +199,7 @@ app.get('/plans-page', async (c) => {
     .orderBy(plans.sortOrder);
 
   const features = (f: PlanFeatures | null | undefined) => f || {};
-  const toCents = (v: string | null | undefined) => Math.round(parseFloat(v || '0') * 100);
+  const toCents = (v: string | null | undefined) => Math.round(Number.parseFloat(v || '0') * 100);
 
   const mappedPlans = allPlans.map((plan) => {
     const f = features(plan.features);
@@ -268,8 +268,8 @@ app.get('/invoices', canReadBilling, async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '10', 10), 100);
-  const page = Math.max(parseInt(c.req.query('page') || '1', 10), 1);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '10', 10), 100);
+  const page = Math.max(Number.parseInt(c.req.query('page') || '1', 10), 1);
   const offset = (page - 1) * limit;
 
   const masterDb = getMasterDb(c.env);
@@ -314,8 +314,8 @@ app.get('/payments', canReadBilling, async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
-  const page = Math.max(parseInt(c.req.query('page') || '1', 10), 1);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '20', 10), 100);
+  const page = Math.max(Number.parseInt(c.req.query('page') || '1', 10), 1);
   const offset = (page - 1) * limit;
 
   const masterDb = getMasterDb(c.env);

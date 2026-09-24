@@ -383,7 +383,7 @@ authed.get('/me', async (c) => {
 authed.get('/products', async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const t = schema.products;
   try {
     const conditions = [
@@ -459,7 +459,7 @@ authed.get('/orders', async (c) => {
   const db = c.get('tenantDb');
   const partyId = c.get('portalPartyId')!;
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const t = schema.orders;
   try {
     const conditions = [isNull(t.deletedAt), eq(t.counterpartyId, partyId)];
@@ -550,7 +550,7 @@ authed.get('/invoices', async (c) => {
   const db = c.get('tenantDb');
   const partyId = c.get('portalPartyId')!;
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const t = schema.invoices;
   try {
     const conditions = [isNull(t.deletedAt), eq(t.counterpartyId, partyId), ne(t.status, 'draft')];
@@ -635,7 +635,7 @@ authed.get('/returns', async (c) => {
   const db = c.get('tenantDb');
   const partyId = c.get('portalPartyId')!;
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   try {
     const companyOrders = await db
       .select({ id: schema.orders.id })
