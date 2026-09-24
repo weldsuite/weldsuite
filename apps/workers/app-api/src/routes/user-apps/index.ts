@@ -148,7 +148,7 @@ app.get('/', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
   const q = c.req.query();
-  const parsedLimit = q.limit ? parseInt(q.limit, 10) : 25;
+  const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
   const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 25;
 
   const conditions = [eq(uApps.ownerWorkspaceId, workspaceId), isNull(uApps.deletedAt)];
