@@ -6,7 +6,7 @@ interface BreadcrumbsProps {
   articleTitle?: string
 }
 
-export function Breadcrumbs({ folder, articleTitle }: BreadcrumbsProps) {
+export function Breadcrumbs({ folder, articleTitle }: Readonly<BreadcrumbsProps>) {
   return (
     <div className="space-y-3">
       <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">

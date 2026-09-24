@@ -13,7 +13,7 @@ interface HeaderProps {
   config: HelpcenterConfig
 }
 
-export function Header({ config }: HeaderProps) {
+export function Header({ config }: Readonly<HeaderProps>) {
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import type { HelpcenterConfig } from '@/lib/api-client'
 
-export function Footer({ config }: { config: HelpcenterConfig }) {
+export function Footer({ config }: Readonly<{ config: HelpcenterConfig }>) {
   const year = new Date().getFullYear()
   return (
     <footer className="mt-24 border-t border-zinc-200/70 dark:border-zinc-800/70">
