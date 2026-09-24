@@ -26,7 +26,7 @@ import type { Jurisdiction } from '@/types/accounting';
 import { useI18n } from '@/lib/i18n';
 
 /** Building with a door — the same motif as the platform's empty-state illustration. */
-function EntityIllustration({ stroke, fill, accent }: { stroke: string; fill: string; accent: string }) {
+function EntityIllustration({ stroke, fill, accent }: Readonly<{ stroke: string; fill: string; accent: string }>) {
   return (
     <Svg width={120} height={120} viewBox="0 0 120 120">
       <Rect x={28} y={34} width={64} height={58} rx={4} fill={fill} stroke={stroke} strokeWidth={1} />
@@ -55,11 +55,11 @@ export function CreateEntitySheet({
   visible,
   onClose,
   onCreated,
-}: {
+}: Readonly<{
   visible: boolean;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
-}) {
+}>) {
   const { colors } = useTheme();
   const toast = useToast();
   const { t } = useI18n();
@@ -176,7 +176,7 @@ export function CreateEntitySheet({
   );
 }
 
-export function EntityEmptyState({ onCreated }: { onCreated: () => void | Promise<void> }) {
+export function EntityEmptyState({ onCreated }: Readonly<{ onCreated: () => void | Promise<void> }>) {
   const { colors, theme } = useTheme();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
