@@ -64,11 +64,11 @@ export function PhonePricingList({
   rows,
   stats,
   defaultMarkup,
-}: {
+}: Readonly<{
   rows: PhonePricingRow[];
   stats: { total: number; active: number };
   defaultMarkup: PhonePricingDefault | null;
-}) {
+}>) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -360,7 +360,7 @@ function MarkupDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   label: string | null;
   currency: string;
@@ -370,7 +370,7 @@ function MarkupDialog({
   isMutating: boolean;
   onClose: () => void;
   onSave: (kind: MarkupKind, value: string, onlyEmpty: boolean) => void;
-}) {
+}>) {
   const copy = adminPhonePricingCopy();
   const [kind, setKind] = useState<MarkupKind>(initialKind);
   const [value, setValue] = useState(initialValue);
@@ -452,7 +452,7 @@ function WholesaleDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   currency: string;
   initialValue: string;
@@ -460,7 +460,7 @@ function WholesaleDialog({
   isMutating: boolean;
   onClose: () => void;
   onSave: (monthlyPrice: string) => void;
-}) {
+}>) {
   const copy = adminPhonePricingCopy();
   const [value, setValue] = useState(initialValue);
   const customerPreview = customerPriceMajor(value, markup);
@@ -512,12 +512,12 @@ function CreateDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   isMutating: boolean;
   onClose: () => void;
   onSave: (input: { countryCode: string; numberType: string; monthlyPrice: string }) => void;
-}) {
+}>) {
   const copy = adminPhonePricingCopy();
   const [countryCode, setCountryCode] = useState('');
   const [numberType, setNumberType] = useState('local');

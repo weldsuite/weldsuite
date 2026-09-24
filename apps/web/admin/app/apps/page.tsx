@@ -4,9 +4,9 @@ import { AppsList } from './apps-list';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AppsPage(props: {
+export default async function AppsPage(props: Readonly<{
   searchParams?: Promise<{ search?: string; category?: string }>;
-}) {
+}>) {
   await requireAdmin();
   const searchParams = (await props.searchParams) ?? {};
   const search = (searchParams.search ?? '').trim();
