@@ -91,7 +91,7 @@ export function AppForm({
   onCancel,
   isSubmitting,
   errorMessage,
-}: AppFormProps) {
+}: Readonly<AppFormProps>) {
   const [values, setValues] = useState<AppFormValues>(initial);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -339,11 +339,11 @@ function Section({
   title,
   description,
   children,
-}: {
+}: Readonly<{
   title: string;
   description?: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <Card className="py-5">
       <CardContent className="space-y-4 px-5">
@@ -362,12 +362,12 @@ function Field({
   required,
   hint,
   children,
-}: {
+}: Readonly<{
   label: string;
   required?: boolean;
   hint?: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs font-medium">
@@ -385,12 +385,12 @@ function Toggle({
   description,
   checked,
   onChange,
-}: {
+}: Readonly<{
   label: string;
   description?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
-}) {
+}>) {
   return (
     <Label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 font-normal hover:bg-accent/50">
       <Checkbox
@@ -410,11 +410,11 @@ function StringListEditor({
   items,
   onChange,
   placeholder,
-}: {
+}: Readonly<{
   items: string[];
   onChange: (items: string[]) => void;
   placeholder?: string;
-}) {
+}>) {
   const [draft, setDraft] = useState('');
 
   function add() {
@@ -492,10 +492,10 @@ function StringListEditor({
 function HowItWorksEditor({
   items,
   onChange,
-}: {
+}: Readonly<{
   items: { title: string; description: string }[];
   onChange: (items: { title: string; description: string }[]) => void;
-}) {
+}>) {
   function add() {
     onChange([...items, { title: '', description: '' }]);
   }
@@ -564,12 +564,12 @@ function ReorderButtons({
   onDown,
   disableUp,
   disableDown,
-}: {
+}: Readonly<{
   onUp: () => void;
   onDown: () => void;
   disableUp?: boolean;
   disableDown?: boolean;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-0.5">
       <Button
