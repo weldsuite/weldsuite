@@ -75,6 +75,10 @@ export function commercePortalSlugMiddleware() {
       const tenantDb = await getTenantDbForWorkspace(c.env, entry.clerkOrgId);
       c.set('tenantDb', tenantDb);
       c.set('workspaceId', entry.workspaceId);
+      // Clerk-authenticated routes key everything workspace-scoped (entity
+      // events, realtime hubs) by the Clerk org id. Expose it so a public
+      // router that publishes can use the same key.
+      c.set('orgId', entry.clerkOrgId);
       await next();
     } catch (err) {
       console.error('[app-api/commerce-portal-slug] resolution error:', err);

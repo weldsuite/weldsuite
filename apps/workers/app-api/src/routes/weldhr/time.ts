@@ -48,7 +48,7 @@ import {
   updateShift,
 } from '../../services/weldhr/time';
 import { addDays, todayIso } from '../../services/weldhr/shared';
-import { actor, db, emit, param } from './helpers';
+import { actor, db, emit, emitPortalConfig, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -161,15 +161,22 @@ leaveTypesRoutes.get('/', requirePermission('leave:read', 'employees:read'), asy
 });
 
 leaveTypesRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrLeaveTypeSchema), async (c) => {
-  return success(c, await createLeaveType(db(c), c.req.valid('json')), 201);
+  const row = await createLeaveType(db(c), c.req.valid('json'));
+  emitPortalConfig(c, 'hr_leave_type', row.id);
+  return success(c, row, 201);
 });
 
 leaveTypesRoutes.patch('/:leaveTypeId', requirePermission('employees:manage'), zValidator('json', updateHrLeaveTypeSchema), async (c) => {
-  return success(c, await updateLeaveType(db(c), param(c, 'leaveTypeId'), c.req.valid('json')));
+  const row = await updateLeaveType(db(c), param(c, 'leaveTypeId'), c.req.valid('json'));
+  emitPortalConfig(c, 'hr_leave_type', row.id);
+  return success(c, row);
 });
 
 leaveTypesRoutes.delete('/:leaveTypeId', requirePermission('employees:manage'), async (c) => {
-  return success(c, await deleteLeaveType(db(c), param(c, 'leaveTypeId')));
+  const id = param(c, 'leaveTypeId');
+  const result = await deleteLeaveType(db(c), id);
+  emitPortalConfig(c, 'hr_leave_type', id);
+  return success(c, result);
 });
 
 export const leaveAllowancesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();

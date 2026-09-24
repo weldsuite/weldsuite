@@ -468,6 +468,12 @@ export interface Env {
    * `https://team-test.weldsuite.org`, otherwise `http://localhost:3022`.
    */
   HR_PORTAL_URL?: string;
+  /**
+   * Public origin of the realtime worker (e.g. `wss://realtime.weldsuite.org`),
+   * handed to the workforce portal with its connect ticket. Defaults per
+   * ENVIRONMENT; set it for local runs on a non-default port.
+   */
+  REALTIME_PUBLIC_URL?: string;
 }
 
 /**

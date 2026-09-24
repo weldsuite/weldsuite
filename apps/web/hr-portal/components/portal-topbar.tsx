@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n';
 import type { Locale } from '@/lib/i18n';
 import type { Me, PortalConfig } from '@/lib/types';
 import { PortalLogo } from '@/components/portal-logo';
+import { clearPortalCache } from '@/lib/query-client';
 
 interface NavItem {
   href: string;
@@ -44,6 +45,7 @@ export function PortalTopbar({ me, config }: { me: Me; config: PortalConfig }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug }),
     });
+    clearPortalCache(slug);
     router.push(`/${slug}/login`);
   }
 

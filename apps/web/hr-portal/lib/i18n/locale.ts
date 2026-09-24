@@ -24,3 +24,22 @@ export function localeFromAcceptLanguage(header: string | null | undefined): Loc
   }
   return DEFAULT_LOCALE;
 }
+
+/**
+ * The browser's IANA time zone, stored so server-rendered times match what
+ * the browser would show (the server itself runs in UTC). Until the cookie is
+ * set — the very first visit — both sides render in UTC, then the page
+ * refreshes once in the right zone (see TimeZoneSync in ./context.tsx).
+ */
+export const TIMEZONE_COOKIE = 'hrportal_tz';
+export const DEFAULT_TIMEZONE = 'UTC';
+
+export function isTimeZone(value: string | undefined | null): value is string {
+  if (!value || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}

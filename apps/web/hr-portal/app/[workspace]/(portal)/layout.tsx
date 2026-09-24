@@ -1,43 +1,24 @@
-'use client';
+import { HydrationBoundary } from '@tanstack/react-query';
+import { hydratePortalQueries } from '@/lib/server/portal';
+import { PortalShell } from '@/components/portal-shell';
 
-import { useParams } from 'next/navigation';
-import { useI18n } from '@/lib/i18n';
-import { usePortalQuery } from '@/lib/hooks/use-portal-query';
-import { useBranding } from '@/lib/hooks/use-branding';
-import { MeProvider } from '@/lib/me-context';
-import type { Me } from '@/lib/types';
-import { PortalTopbar } from '@/components/portal-topbar';
-import { LoadingState, ErrorState } from '@/components/ui/states';
-
-export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  const slug = String(useParams().workspace ?? '');
-  const { data: me, loading, error, refetch } = usePortalQuery<Me>(slug, '/me');
-  useBranding(me?.config);
-  const { dict } = useI18n();
-
-  if (loading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <LoadingState />
-      </main>
-    );
-  }
-
-  if (error || !me) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <ErrorState onRetry={refetch} />
-      </main>
-    );
-  }
-
+/**
+ * Signed-in area. The session is checked on the server: `/me` is loaded here,
+ * an expired session gets an HTTP redirect to the sign-in page, and the shell
+ * renders with the user and branding already in the HTML.
+ */
+export default async function PortalLayout({
+  children,
+  params,
+}: {
+  children: React.ReactNode;
+  params: Promise<{ workspace: string }>;
+}) {
+  const { workspace } = await params;
+  const state = await hydratePortalQueries(workspace, [{ path: '/me' }]);
   return (
-    <MeProvider value={me}>
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <PortalTopbar me={me} config={me.config} />
-        <div className="flex-1 px-4 py-6 sm:px-6 max-w-5xl w-full mx-auto">{children}</div>
-        {!me.config.hideWeldsuiteBranding && <footer className="py-6 text-center text-xs text-gray-400">{dict.common.poweredBy}</footer>}
-      </div>
-    </MeProvider>
+    <HydrationBoundary state={state}>
+      <PortalShell>{children}</PortalShell>
+    </HydrationBoundary>
   );
 }

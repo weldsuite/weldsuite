@@ -48,6 +48,7 @@ import { buildClientView, clientTeam } from '../../services/weldhr/client-view';
 import { acknowledgeCoachingLog, acknowledgeEvaluation, listEvaluations, listKpiValues, listMilestones } from '../../services/weldhr/performance';
 import { grantsForEmail, loadPortalSettings } from '../../services/weldhr/portal';
 import { resolvePortalHost, sendHrPortalCodeEmail } from '../../services/weldhr/portal-mail';
+import { mintPortalRealtimeTicket, notifyPortal } from '../../services/weldhr/portal-realtime';
 import {
   clientRequests,
   completeEmployeeTask,
@@ -136,7 +137,15 @@ app.get('/resolve-host', async (c) => {
 const slugMiddleware = commercePortalSlugMiddleware();
 app.use('*', async (c, next) => {
   if (c.req.path.endsWith('/resolve-host')) return next();
-  return slugMiddleware(c, next);
+  return slugMiddleware(c, async () => {
+    // The slug middleware sets the master workspace id, but the back office
+    // (Clerk routes) keys entity events, realtime hubs and the custom-domain
+    // map by the Clerk org id. Use that here too, or a leave request filed in
+    // the portal is published to a hub nobody in the back office listens on.
+    const orgId = c.get('orgId');
+    if (orgId) c.set('workspaceId', orgId);
+    await next();
+  });
 });
 
 function normalizeEmail(email: string): string {
@@ -377,10 +386,35 @@ function emitPortal<T extends Extract<EntityType, `hr_${string}`>>(
   employeeId: string,
 ) {
   publishEntityEvent({ c, entityType, action, entityId, data: { id: entityId, employeeId } as DataFor<T>, source: 'web' });
+  // The employee's other open portal tabs/devices, and client views the change touches.
+  notifyPortal(c, { entity: entityType, action, id: entityId, employeeId });
 }
 
 app.use('/me', requireSession);
 app.use('/auth/logout', requireSession);
+app.use('/realtime/*', requireSession);
+
+/**
+ * Single-use ticket for the portal's live-update WebSocket. The browser opens
+ * `${url}?token=${ticket}` within seconds; the realtime worker checks and
+ * deletes the ticket, then joins the socket to this workspace's portal hub
+ * with only this principal's topics allowed.
+ */
+app.get('/realtime/ticket', async (c) => {
+  const accessId = c.get('hrPortalAccessId');
+  const kind = c.get('hrPortalKind');
+  const orgId = c.get('workspaceId');
+  if (!accessId || !kind || !orgId) return error.unauthorized(c, 'Sign in required');
+  const minted = await mintPortalRealtimeTicket(c.env, {
+    orgId,
+    accessId,
+    kind,
+    employeeId: c.get('hrPortalEmployeeId') ?? null,
+    companyId: c.get('hrPortalCompanyId') ?? null,
+  });
+  if (!minted) return c.json({ error: { code: 'UNAVAILABLE', message: 'Live updates are not available' } }, 503);
+  return success(c, minted);
+});
 app.use('/employee/*', requireSession, requireEmployee);
 app.use('/client/*', requireSession, requireClient);
 

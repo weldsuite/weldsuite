@@ -6,20 +6,10 @@
  * token stays in an httpOnly cookie the browser JS can't read.
  */
 
-export interface ApiErrorBody {
-  error?: { code?: string; message?: string; details?: unknown };
-}
+import { PortalApiError, type ApiErrorBody } from './client-errors';
+import { clearPortalCache, invalidatePortal } from './query-client';
 
-export class PortalApiError extends Error {
-  code?: string;
-  status: number;
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = 'PortalApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
+export { PortalApiError, type ApiErrorBody };
 
 function buildUrl(slug: string, path: string, query?: Record<string, string | undefined>): string {
   const url = new URL(
@@ -37,6 +27,7 @@ function buildUrl(slug: string, path: string, query?: Record<string, string | un
 
 async function handle<T>(res: Response, slug: string): Promise<T> {
   if (res.status === 401) {
+    clearPortalCache(slug);
     if (typeof window !== 'undefined') window.location.href = `/${slug}/login`;
     throw new PortalApiError('Session expired', 401, 'UNAUTHORIZED');
   }
@@ -60,5 +51,10 @@ export async function portalPost<T>(slug: string, path: string, body?: unknown):
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   });
-  return handle<T>(res, slug);
+  const result = await handle<T>(res, slug);
+  // A write can change several pages at once (a leave request moves the
+  // balance and the overview too), so refresh the cached reads. Only mounted
+  // queries refetch; the rest are just marked stale.
+  void invalidatePortal(slug);
+  return result;
 }
