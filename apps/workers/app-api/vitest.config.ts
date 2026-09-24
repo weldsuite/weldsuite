@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
+// Absolute, forward-slash globs for coverage: with `allowExternal` a relative
+// pattern no longer matches, and a backslash is an escape inside a glob.
+const glob = (dir: string) => path.resolve(__dirname, dir).replace(/\\/g, '/');
+const APP_SRC = glob('src');
+const PERMISSIONS_SRC = glob('../../../packages/core/permissions/src');
+
 export default defineConfig({
   test: {
     environment: 'node',
@@ -18,12 +24,19 @@ export default defineConfig({
     },
     // Coverage feeds SonarQube Cloud (see sonar-project.properties). lcov is the
     // format the Sonar scanner reads; text keeps the local run readable.
+    //
+    // @weldsuite/permissions has no test runner of its own: its checks are
+    // exercised here (src/routes/_app-permissions.test.ts), so its source is
+    // included too. lcov paths are written relative to the repo root
+    // (`apps/workers/app-api/src/…`, `packages/core/permissions/src/…`), the
+    // form Sonar resolves directly against its base directory.
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'lcov'],
+      reporter: ['text', ['lcov', { projectRoot: path.resolve(__dirname, '../../..') }]],
       reportsDirectory: './coverage',
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/test/**'],
+      allowExternal: true,
+      include: [`${APP_SRC}/**/*.ts`, `${PERMISSIONS_SRC}/**/*.{ts,tsx}`],
+      exclude: [`${APP_SRC}/**/*.test.ts`, `${APP_SRC}/test/**`, `${PERMISSIONS_SRC}/**/*.test.{ts,tsx}`],
     },
   },
   resolve: {

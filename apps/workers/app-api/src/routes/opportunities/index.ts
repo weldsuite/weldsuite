@@ -9,10 +9,9 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createOpportunitySchema,
@@ -35,9 +34,7 @@ const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']
 const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'opportunities:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'opportunities:scope:all')) return undefined;
   return c.get('userId');
 }
 

@@ -31,6 +31,9 @@ export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) 
 const client = createClientApi({
   baseUrl: APP_API_URL,
   getToken: () => tokenGetter(),
+  // Tells app-api which app's permissions apply (per-app permission model,
+  // see @weldsuite/permissions APP_CONTEXT_HEADER).
+  getExtraHeaders: () => ({ 'X-Weld-App': 'weldsocial' }),
 });
 
 export const appApi = {

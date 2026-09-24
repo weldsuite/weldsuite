@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
   createDrizzlePermissionQueries,
+  isAppPermissionEnforced,
   resolveEffectivePermissions,
 } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
@@ -43,6 +44,9 @@ app.get('/permissions', async (c) => {
 
     return success(c, {
       permissions: resolved.permissions,
+      denies: resolved.denies ?? [],
+      // Clients apply per-app checks only once the server enforces them.
+      appEnforced: isAppPermissionEnforced(c),
       role: resolved.role,
       roleId: resolved.roleId,
       isOwner: resolved.isOwner,

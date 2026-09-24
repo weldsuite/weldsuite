@@ -36,10 +36,24 @@ Exact names may vary if your workspace uses custom role templates.
 
 ## App permissions
 
-1. Go to **Settings** → **Permissions** (or **Roles**).
-2. Select a role or member.
-3. Toggle access per app — WeldCRM, WeldMail, WeldHost, etc.
-4. Drill into **objects** (leads, deals, DNS) for create/read/update/delete where supported.
+Permissions are set **per app**. Some objects appear in several apps. Companies, for example, show up in WeldCRM, WeldDesk and WeldMail, so you can let a role see companies in WeldCRM but not in WeldDesk.
+
+1. Go to **Settings** → **Roles** and open a role.
+2. Pick an app from the list on the left, or **Workspace** for settings that don't belong to one app.
+3. Tick **Members with this role can open** the app, then choose what they can do with each object: view, create, edit, delete or manage.
+4. Use **Read only**, **Grant all** or **Copy from…** to fill an app quickly from another app's settings.
+
+### Exceptions for one member
+
+1. Open **Settings** → **Team** and select the member.
+2. Open the **Permissions** tab and pick an app.
+3. Click a permission to change it for this member only. A permission the role doesn't give becomes **allowed**; one it does give becomes **denied**. Click again to go back to the role's setting.
+
+A denied permission always wins, even if the role allows it.
+
+{% callout title="What per-app permissions cover" %}
+Per-app permissions decide what someone can see and do inside each app's screens. Access that doesn't go through an app screen (the API, integrations, AI assistants and global search) follows the most permissive app: if someone may view companies in WeldCRM, they can read companies that way even when WeldDesk denies it. To keep someone away from an object entirely, deny it in every app.
+{% /callout %}
 
 Changes apply on next sign-in or within a few minutes for active sessions.
 

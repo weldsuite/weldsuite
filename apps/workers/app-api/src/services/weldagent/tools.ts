@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission, hasPermission } from '@weldsuite/permissions';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
@@ -71,8 +71,19 @@ async function emitAgentEntityEvent(
   }
 }
 
+/**
+ * An agent works across apps, so an app-scoped grant counts when ANY app
+ * gives it (`weldcrm:people:read` satisfies `people:read`). Agent grants
+ * are stored unqualified (the builder offers catalog keys) and are not part of
+ * the per-app data rewrite, so a plain match is checked first — it keeps them
+ * valid once the unqualified-grant fallback is switched off.
+ */
 function agentHasGrants(agentPermissions: string[], required: string[]): boolean {
-  return required.every((req) => hasPermission(agentPermissions, req));
+  return required.every(
+    (req) =>
+      hasPermission(agentPermissions, req) ||
+      hasAppPermission({ permissions: agentPermissions }, req, null),
+  );
 }
 
 const listPeopleParams = z.object({
@@ -897,12 +908,17 @@ export function effectiveAgentPermissions(
   actorPermissions?: string[] | null,
 ): string[] {
   if (!actorPermissions) return agentPermissions;
+  // An agent works across apps, and a user's grants may be per app
+  // (`weldcrm:people:read`) while the agent's are not (`people:read`), so
+  // each side is matched plainly or in any app.
+  const holds = (grants: string[], key: string) =>
+    hasPermission(grants, key) || hasAppPermission({ permissions: grants }, key, null);
   // Keep the narrower side of each overlap so wildcards intersect correctly
   // (agent `people:*` ∩ user `people:read` → `people:read`).
   return Array.from(
     new Set([
-      ...agentPermissions.filter((perm) => hasPermission(actorPermissions, perm)),
-      ...actorPermissions.filter((perm) => hasPermission(agentPermissions, perm)),
+      ...agentPermissions.filter((perm) => holds(actorPermissions, perm)),
+      ...actorPermissions.filter((perm) => holds(agentPermissions, perm)),
     ]),
   );
 }

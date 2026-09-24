@@ -40,6 +40,7 @@ function toApiSession(session: McpSession): ApiKeySession {
     userId: session.userId,
     // `scopes` carries effective permissions here — see `api/lib/scopes.ts`.
     scopes: session.permissions,
+    permissionDenies: session.permissionDenies,
     tier: session.tier,
     hasApiAccess: true,
     databaseUrl: session.databaseUrl,

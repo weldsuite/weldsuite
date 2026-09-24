@@ -32,6 +32,14 @@ describe('effectiveAgentPermissions', () => {
     expect(effectiveAgentPermissions(['people:*'], ['people:read'])).toEqual(['people:read']);
     expect(effectiveAgentPermissions(['people:read'], ['*'])).toEqual(['people:read']);
   });
+
+  it('intersects with per-app user grants', () => {
+    // Agent grants are unqualified; a user's may be granted per app.
+    const effective = effectiveAgentPermissions(['people:read', 'people:create'], ['weldcrm:people:read']);
+    expect(effective).toContain('people:read');
+    expect(effective).not.toContain('people:create');
+    expect(effectiveAgentPermissions(['people:*'], ['weldcrm:people:read'])).toEqual(['weldcrm:people:read']);
+  });
 });
 
 describe('computeRoutineNextRun', () => {

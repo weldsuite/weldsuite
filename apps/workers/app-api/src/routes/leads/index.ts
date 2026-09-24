@@ -10,10 +10,9 @@ import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   convertLeadSchema,
@@ -29,9 +28,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmLeads;
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'leads:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'leads:scope:all')) return undefined;
   return c.get('userId');
 }
 

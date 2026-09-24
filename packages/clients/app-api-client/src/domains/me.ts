@@ -10,6 +10,10 @@ import type { ClientApi, DataResponse } from '../types';
 
 export interface MyPermissions {
   permissions: string[];
+  /** Explicit per-member denies; a deny wins over any grant. */
+  denies?: string[];
+  /** Whether the server enforces per-app permissions (else any-app). */
+  appEnforced?: boolean;
   role: string;
   roleId: string | null;
   isOwner: boolean;

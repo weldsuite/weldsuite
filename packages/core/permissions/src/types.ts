@@ -36,6 +36,19 @@ export interface ObjectDefinition {
 }
 
 // ---------------------------------------------------------------------------
+// App registry (per-app permission matrix)
+// ---------------------------------------------------------------------------
+
+export interface PermissionAppDefinition {
+  /** Canonical app code, e.g. "weldcrm". First segment of app-scoped keys. */
+  code: string;
+  /** Human-readable label, e.g. "WeldCRM" */
+  label: string;
+  /** Catalog object keys this app exposes, e.g. ["companies", "leads"] */
+  objects: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
 // System role definitions
 // ---------------------------------------------------------------------------
 
@@ -55,6 +68,13 @@ export type SystemRoleName = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 export interface ResolvedPermissions {
   /** Raw permission strings (may include wildcards) */
   permissions: string[];
+  /**
+   * Explicit per-member denies (may include wildcards). A deny always wins
+   * over a grant from the role, a team or the member's own extras. Only
+   * honoured by the app-aware checks (`checkAppPermission` and the server
+   * middleware), never by the bare `hasPermission` matcher.
+   */
+  denies?: string[];
   /** The member's workspace role name */
   role: string;
   /** Custom role ID if assigned */

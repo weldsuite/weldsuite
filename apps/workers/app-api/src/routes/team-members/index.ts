@@ -38,12 +38,12 @@ import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, isNotNull, notInArray } from 'drizzle-orm';
 import {
   requirePermission,
-  ensurePermissionsResolved,
+  hasContextPermission,
   getPermissionsFromContext,
   resolveEffectivePermissions,
   createDrizzlePermissionQueries,
 } from '@weldsuite/permissions/server';
-import { hasAnyPermission, hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission } from '@weldsuite/permissions';
 import {
   inviteMemberSchema,
   updateMemberInput,
@@ -90,8 +90,7 @@ const toggleMemberAppSchema = z.object({
  * visibility and `roleId` / `email` / `permissions` are projected through.
  */
 async function getVisibility(c: any): Promise<Visibility> {
-  const perms = await ensurePermissionsResolved(c);
-  if (perms && hasAnyPermission(perms.permissions, ['team:read'])) {
+  if (await hasContextPermission(c, 'team:read')) {
     return 'admin';
   }
   return 'public';
@@ -114,7 +113,7 @@ async function ensurePermissionsLoaded(c: any): Promise<void> {
 function viewerIsAdmin(c: any): boolean {
   const perms = getPermissionsFromContext(c);
   if (!perms) return false;
-  return hasAnyPermission(perms.permissions, ['team:update']);
+  return hasAppPermission(perms, 'team:update', null);
 }
 
 function viewerCanReadMemberActivity(c: any, viewerUserId: string, subjectUserId: string): boolean {
@@ -122,7 +121,7 @@ function viewerCanReadMemberActivity(c: any, viewerUserId: string, subjectUserId
   if (viewerUserId === subjectUserId) return true;
   const perms = getPermissionsFromContext(c);
   if (!perms) return false;
-  return hasAnyPermission(perms.permissions, ['team:read']);
+  return hasAppPermission(perms, 'team:read', null);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,8 +372,7 @@ app.post('/invite', async (c) => {
   // Permission gate: guests use a separate permission so admins can grant
   // "invite externals" to roles that can't invite internal teammates.
   const requiredPermission = isGuest ? 'team:invite_external' : 'team:create';
-  const userPerms = await ensurePermissionsResolved(c);
-  if (!userPerms || !hasPermission(userPerms.permissions, requiredPermission)) {
+  if (!(await hasContextPermission(c, requiredPermission))) {
     return error.forbidden(c, `Missing required permission: ${requiredPermission}`);
   }
 
@@ -669,6 +667,7 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
 
   if (body.name !== undefined) update.name = body.name;
   if (body.permissions !== undefined) update.permissions = body.permissions;
+  if (body.permissionDenies !== undefined) update.permissionDenies = body.permissionDenies;
   if (body.hoursPerWeek !== undefined) update.hoursPerWeek = body.hoursPerWeek;
 
   await db.update(workspaceMembers).set(update).where(eq(workspaceMembers.id, memberId));

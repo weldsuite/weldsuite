@@ -29,7 +29,8 @@ export function requireScope(required: string): MiddlewareHandler<HonoEnv> {
     const session = c.get('apiSession');
     if (!session) return error.unauthorized(c);
 
-    if (!canPerform(session.scopes, required, c.req.method)) {
+    const grants = { permissions: session.scopes, denies: session.permissionDenies };
+    if (!canPerform(grants, required, c.req.method)) {
       return error.forbidden(c, `Missing required permission for: ${required}`);
     }
 

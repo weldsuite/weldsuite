@@ -15,7 +15,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
-import { hasAnyPermission } from '@weldsuite/permissions';
+import { hasAnyAppPermission, type PermissionSubject } from '@weldsuite/permissions';
 import { searchInputSchema, reindexInputSchema } from '@weldsuite/app-api-client/schemas/search';
 import {
   createEmbedder,
@@ -37,16 +37,18 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
 
   // Resolve permissions inline — search has no requirePermission() gate (any
   // authenticated user can call it; results are filtered per-type below).
-  let userPermissions: string[] = [];
+  let subject: PermissionSubject = { permissions: [] };
   try {
     const resolved = await ensurePermissionsResolved(c);
-    userPermissions = resolved?.permissions ?? [];
+    if (resolved) subject = resolved;
   } catch (err) {
     console.error('[app-api/search] Failed to resolve permissions:', err);
   }
 
+  // Global search spans every app, so each result type is allowed when ANY
+  // app grants it (app context deliberately not applied).
   const perms: PermissionLike = {
-    hasAny: (required) => hasAnyPermission(userPermissions, required),
+    hasAny: (required) => hasAnyAppPermission(subject, required, null),
   };
 
   const input = c.req.valid('json');

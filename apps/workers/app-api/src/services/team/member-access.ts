@@ -18,6 +18,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
 import { appName } from '../roles';
+import { SYSTEM_ROLES } from '@weldsuite/permissions';
 
 const { workspaceMembers, roles, userAppAssignments, workspaceInstalledApps } = schema;
 
@@ -28,6 +29,14 @@ export interface MemberPermissionsBreakdown {
   rolePermissions: string[];
   /** Grants written directly onto the member row. */
   memberOverrides: string[];
+  /** Explicit per-member denies; a deny wins over any grant. */
+  memberDenies: string[];
+  /**
+   * What the member inherits from their role, as the resolver applies it: the
+   * custom role's grants, else the system tier's defaults (OWNER = ['*']).
+   * Unlike `rolePermissions`, never empty for a bare system tier.
+   */
+  inheritedPermissions: string[];
   /** System tier (OWNER / ADMIN / MEMBER / ...). */
   role: string;
   /** Custom role id, or null when the member is on a bare system tier. */
@@ -51,6 +60,7 @@ async function findMember(db: Database, memberId: string) {
       role: workspaceMembers.role,
       roleId: workspaceMembers.roleId,
       permissions: workspaceMembers.permissions,
+      permissionDenies: workspaceMembers.permissionDenies,
     })
     .from(workspaceMembers)
     .where(and(eq(workspaceMembers.id, memberId), isNull(workspaceMembers.deletedAt)))
@@ -87,11 +97,17 @@ export async function getMemberPermissions(
   }
 
   const memberOverrides = (member.permissions as string[] | null) || [];
+  const memberDenies = (member.permissionDenies as string[] | null) || [];
+  const inheritedPermissions = member.roleId
+    ? rolePermissions
+    : [...(SYSTEM_ROLES[member.role]?.permissions ?? [])];
 
   return {
     effective: [...new Set([...rolePermissions, ...memberOverrides])],
     rolePermissions,
     memberOverrides,
+    memberDenies,
+    inheritedPermissions,
     role: member.role,
     roleId: member.roleId,
   };

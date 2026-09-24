@@ -86,10 +86,11 @@ export function AppAccessGuard({ children }: { children: React.ReactNode }) {
     // Check 2: Does the user have any permission for this app?
     // Uses the platform-level APP_PERMISSION_OBJECTS map, which covers both
     // legacy apps (auto-derived from the migration map) and apps introduced
-    // after the permissions refactor (e.g. weldcall).
+    // after the permissions refactor (e.g. weldcall). Checked in THIS app:
+    // `companies` granted only in WeldCRM does not open WeldDesk.
     if (perms && !perms.isOwner) {
       const objects = getAppPermissionObjects(appCode);
-      if (objects.length === 0 || !perms.hasAnyObject(objects)) {
+      if (objects.length === 0 || !perms.hasAnyObject(objects, appCode)) {
         router.replace('/');
       }
     }

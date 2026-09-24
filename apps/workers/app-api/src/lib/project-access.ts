@@ -13,8 +13,7 @@
 
 import type { Context } from 'hono';
 import { and, eq, isNull } from 'drizzle-orm';
-import { ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../types';
 import { schema } from '../db';
 
@@ -22,8 +21,7 @@ type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
 async function callerContext(c: Ctx) {
   const userId = c.get('userId') as string | undefined;
-  const resolved = await ensurePermissionsResolved(c);
-  const scopeAll = hasPermission(resolved?.permissions ?? [], 'projects:scope:all');
+  const scopeAll = await hasContextPermission(c, 'projects:scope:all');
   return { userId, scopeAll };
 }
 

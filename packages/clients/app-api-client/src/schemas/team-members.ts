@@ -73,6 +73,9 @@ export const updateMemberInput = z
     role: z.enum(['ADMIN', 'MEMBER', 'VIEWER']).optional(),
     roleId: z.string().optional(),
     permissions: z.array(z.string()).optional(),
+    // Explicit per-member denies (`weldbooks:companies:read`); a deny always
+    // wins over the role and the member's own grants.
+    permissionDenies: z.array(z.string()).optional(),
     hoursPerWeek: z.string().optional(),
   })
   .refine((d) => (d.role ? 1 : 0) + (d.roleId ? 1 : 0) <= 1, {

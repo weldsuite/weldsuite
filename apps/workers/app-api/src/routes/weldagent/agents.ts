@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission, hasPermission, type PermissionSubject } from '@weldsuite/permissions';
 import { getAllPermissionKeys } from '@weldsuite/permissions/catalog';
 import {
   createWorkspaceAgentSchema,
@@ -31,6 +31,15 @@ import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-rout
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /**
+ * Does the caller hold `perm`? Agent grants are plain catalog keys
+ * (`people:read`) while a caller's may be per app (`weldcrm:people:read`), so
+ * a grant in any app counts; the caller's own denies apply.
+ */
+function callerHolds(subject: PermissionSubject, perm: string): boolean {
+  return hasPermission(subject.permissions, perm) || hasAppPermission(subject, perm, null);
+}
+
+/**
  * Permissions in `requested` that the caller does not hold. Granting an agent
  * more than you have would let you act beyond your role through the agent.
  * Grants the agent already has are left alone so a teammate can still edit it.
@@ -42,8 +51,8 @@ async function ungrantablePermissions(
 ): Promise<string[]> {
   if (!requested) return [];
   const resolved = await ensurePermissionsResolved(c);
-  const held = resolved?.permissions ?? [];
-  return requested.filter((perm) => !existing.includes(perm) && !hasPermission(held, perm));
+  const held: PermissionSubject = resolved ?? { permissions: [] };
+  return requested.filter((perm) => !existing.includes(perm) && !callerHolds(held, perm));
 }
 
 /** GET /agents — list workspace agents. */

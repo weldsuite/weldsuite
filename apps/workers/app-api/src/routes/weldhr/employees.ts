@@ -5,8 +5,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { keyringFromEnv } from '@weldsuite/db/lib/crypto';
-import { hasPermission } from '@weldsuite/permissions';
-import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import {
   createHrDepartmentSchema,
   createHrEmployeeSchema,
@@ -52,8 +51,7 @@ employeesRoutes.post('/', requirePermission('employees:create'), zValidator('jso
   const database = db(c);
 
   if (sensitive) {
-    const resolved = await ensurePermissionsResolved(c);
-    if (!hasPermission(resolved?.permissions ?? [], 'employees:sensitive')) {
+    if (!(await hasContextPermission(c, 'employees:sensitive'))) {
       return error.forbidden(c, 'You do not have permission to set sensitive employee data');
     }
   }

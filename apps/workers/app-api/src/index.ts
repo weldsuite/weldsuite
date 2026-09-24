@@ -16,7 +16,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { initPermissionMiddleware, createDrizzlePermissionQueries } from '@weldsuite/permissions/server';
+import {
+  appContextMiddleware,
+  createDrizzlePermissionQueries,
+  initPermissionMiddleware,
+} from '@weldsuite/permissions/server';
 import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { getMasterDb, schema } from './db';
 import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
@@ -333,11 +337,14 @@ app.use(
     // token in their respective middleware, inert in production). Allowing the
     // header NAMES here just lets a browser-driven E2E send them cross-origin;
     // it grants nothing on its own.
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Test-Token', 'X-Test-Flags', 'X-Accounting-Entity-Id'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Test-Token', 'X-Test-Flags', 'X-Accounting-Entity-Id', 'X-Weld-App'],
     exposeHeaders: ['X-Request-Id'],
     credentials: true,
   }),
 );
+// X-Weld-App → c.get('app'), read by requirePermission for app-scoped keys.
+// A missing header means "no app context" (checked across all apps).
+app.use('*', appContextMiddleware());
 
 app.get('/robots.txt', (c) => c.text('User-agent: *\nDisallow: /\n'));
 

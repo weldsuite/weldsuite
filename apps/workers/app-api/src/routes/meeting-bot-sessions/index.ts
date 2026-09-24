@@ -12,8 +12,7 @@ import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createMeetingBotSessionSchema,
@@ -31,8 +30,7 @@ const SESSION_DENIED = 'You do not have access to this meeting bot session';
 
 /** Own-only (session owner) unless the caller holds activities:scope:all. */
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  if (hasPermission(resolved?.permissions ?? [], 'activities:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'activities:scope:all')) return undefined;
   return c.get('userId');
 }
 
