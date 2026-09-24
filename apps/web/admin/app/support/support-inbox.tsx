@@ -33,7 +33,7 @@ type Message = {
   createdAt: Date | string;
 };
 
-export function SupportInbox({ workspaces }: { workspaces: SupportWorkspace[] }) {
+export function SupportInbox({ workspaces }: Readonly<{ workspaces: SupportWorkspace[] }>) {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const selected = workspaces.find((ws) => ws.clerkOrgId === selectedOrgId);
 
@@ -71,11 +71,11 @@ function WorkspaceList({
   workspaces,
   selected,
   onSelect,
-}: {
+}: Readonly<{
   workspaces: SupportWorkspace[];
   selected: string | null;
   onSelect: (orgId: string) => void;
-}) {
+}>) {
   if (workspaces.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground text-sm px-4 text-center">
@@ -130,7 +130,7 @@ function WorkspaceList({
   );
 }
 
-function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: string }) {
+function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceName: string }>) {
   const { getToken } = useAuth();
   const { user } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);

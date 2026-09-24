@@ -4,9 +4,9 @@ import { WorkspacesList } from './workspaces-list';
 
 export const dynamic = 'force-dynamic';
 
-export default async function WorkspacesPage(props: {
+export default async function WorkspacesPage(props: Readonly<{
   searchParams?: Promise<{ search?: string }>;
-}) {
+}>) {
   await requireAdmin();
   const searchParams = (await props.searchParams) ?? {};
   const search = (searchParams.search ?? '').trim();

@@ -39,10 +39,10 @@ function initials(member: WorkspaceMemberRow): string {
 export function WorkspaceDetail({
   workspace,
   members,
-}: {
+}: Readonly<{
   workspace: WorkspaceRow;
   members: WorkspaceMemberRow[];
-}) {
+}>) {
   const active = members.filter((m) => m.status === 'ACTIVE');
   const pending = members.filter((m) => m.status === 'PENDING');
   const admins = active.filter((m) => m.role === 'org:admin');
@@ -174,7 +174,7 @@ export function WorkspaceDetail({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value }: Readonly<{ label: string; value: number }>) {
   return (
     <Card className="py-4">
       <CardContent className="px-4">
