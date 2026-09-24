@@ -25,7 +25,7 @@ export default function AnnouncementsPage() {
   const { t } = useI18n();
   const ta = t.helpdesk.announcements;
   const searchParams = useSearchParams();
-  const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
+  const page = searchParams.get('page') ? Number.parseInt(searchParams.get('page')!) : 1;
 
   const currentParams: Record<string, string> = {};
   searchParams.forEach((value: string, key: string) => {

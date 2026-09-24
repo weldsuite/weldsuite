@@ -198,7 +198,7 @@ export function ForwardMessageDialog({
 
   const handleSchedule = async () => {
     if (selectedList.length === 0 || !scheduleDate || !messageId || !sourceChannelId) return;
-    const [hh, mm] = scheduleTime.split(':').map((v) => parseInt(v, 10) || 0);
+    const [hh, mm] = scheduleTime.split(':').map((v) => Number.parseInt(v, 10) || 0);
     const when = new Date(scheduleDate);
     when.setHours(hh, mm, 0, 0);
     const delay = when.getTime() - Date.now();
