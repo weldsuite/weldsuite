@@ -46,6 +46,7 @@ import type { Database } from '../db';
 import { schema } from '../db';
 import { atomically } from '../lib/atomically';
 import { generateId } from '../lib/id';
+import { logSafe } from '../lib/log-safe';
 
 const { inventory, products, productVariants, stockAdjustments, inventoryMovements } = schema;
 
@@ -549,9 +550,11 @@ export async function transferStock(db: Database, params: TransferParams): Promi
       });
     } catch (compensationErr) {
       console.error(
-        `[inventory-ledger] transfer ${movementNumber} failed AND compensation failed — ` +
-          `${params.quantity} units of ${params.productId} are debited from ` +
-          `${params.from.warehouseId}/${params.from.locationId ?? 'unlocated'} with no matching credit:`,
+        logSafe(
+          `[inventory-ledger] transfer ${movementNumber} failed AND compensation failed — ` +
+            `${params.quantity} units of ${params.productId} are debited from ` +
+            `${params.from.warehouseId}/${params.from.locationId ?? 'unlocated'} with no matching credit:`,
+        ),
         compensationErr,
       );
     }
