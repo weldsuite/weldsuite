@@ -55,6 +55,32 @@ lookups are cached in-memory per middleware instance for 5 minutes; this is a
 best-effort optimization only (Edge instances recycle often) and nothing
 relies on it for correctness.
 
+## Deployment
+
+Vercel project **`weldsuite-hr-portal`** (team `weldsuite`), Git-connected to
+this repo with root directory `apps/web/hr-portal` — the same setup as
+`booking-portal` and `meeting-portal`. Build settings live in `vercel.json`.
+It is not part of `.github/workflows/deploy.yml`; Vercel's Git integration is
+the releaser.
+
+| Branch | Vercel target | Hostname | `APP_API_URL` |
+| --- | --- | --- | --- |
+| `main` | Production | `team.weldsuite.org` | `https://app-api.weldsuite.org` |
+| `develop` | Preview (branch domain) | `team-test.weldsuite.org` | `https://app-api-test.weldsuite.org` |
+| other branches | Preview | `*.vercel.app` | `https://app-api-test.weldsuite.org` |
+
+`HR_PORTAL_DEFAULT_HOSTS` is `team.weldsuite.org,team-test.weldsuite.org` in
+every environment. These hostnames match what `app-api` puts in invite emails
+(`hrPortalOrigin()` in `apps/workers/app-api/src/services/weldhr/portal-mail.ts`).
+
+DNS: both hostnames are CNAMEs to `cname.vercel-dns.com`.
+
+**Customer domains.** A workspace's custom domain (WeldHR → Workforce portal →
+Branding) has to be added to this Vercel project as well, and the customer
+points a CNAME for it at `cname.vercel-dns.com`. Saving the domain in WeldHR
+only writes the host → workspace lookup the middleware uses; adding it to
+Vercel is currently a manual step.
+
 ## i18n
 
 This app does **not** use `@weldsuite/i18n` — that package's locale files are
@@ -91,8 +117,8 @@ plain JS objects. Every new user-visible string needs an entry in **both**
   every other endpoint (`/config`, `/me`, `/employee/*`, `/client/*`)
 - `lib/types.ts` — response shapes mirroring
   `apps/workers/app-api/src/services/weldhr/{portal-self-service,client-view}.ts`.
-  `HrClientView` is imported type-only from `@weldsuite/app-api-client` so the
-  client overview page can't silently drift from the backend contract.
+  `HrClientView` mirrors the type of the same name in
+  `packages/clients/app-api-client/src/domains/weldhr.ts`; change both together.
 - `lib/client.ts` — browser-side fetch helpers; redirect to `/<slug>/login`
   on a `401` is centralized here
 - `middleware.ts` — custom-domain → slug rewrite (see above)
@@ -112,3 +138,6 @@ pnpm --filter hr-portal build
 - The client "Milestones" page reuses `/client/overview` (there's no
   standalone `/client/milestones` endpoint — the overview response already
   carries the full shared-milestones list).
+- Adding a customer's custom domain to the Vercel project is manual. It can be
+  automated from the portal branding save in app-api (it already calls the
+  Vercel API for WeldPass).
