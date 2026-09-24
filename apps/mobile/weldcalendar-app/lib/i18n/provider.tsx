@@ -30,10 +30,10 @@ const I18nContext = createContext<I18nContextValue | undefined>(undefined);
 export function I18nProvider({
   children,
   initialLanguage,
-}: {
+}: Readonly<{
   children: ReactNode;
   initialLanguage?: string | null;
-}) {
+}>) {
   const [language, setLanguageState] = useState<AppLanguage>(() =>
     resolveAppLanguage(initialLanguage),
   );

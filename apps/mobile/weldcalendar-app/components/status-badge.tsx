@@ -31,10 +31,10 @@ const PRIORITY_VARIANTS: Record<string, Variant> = {
 export function EventStatusBadge({
   status,
   size = 'sm',
-}: {
+}: Readonly<{
   status: string;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <Badge
@@ -52,10 +52,10 @@ export function EventStatusBadge({
 export function EventPriorityBadge({
   priority,
   size = 'sm',
-}: {
+}: Readonly<{
   priority: string | null | undefined;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   if (!priority || priority === 'normal') return null;
   return (
@@ -71,7 +71,7 @@ export function EventPriorityBadge({
  * Type chip tinted with the event's own colour. Not a `Badge` — the palette is
  * per-type rather than one of the semantic variants.
  */
-export function EventTypeChip({ type }: { type: string }) {
+export function EventTypeChip({ type }: Readonly<{ type: string }>) {
   const { t } = useI18n();
   const color = EVENT_TYPE_COLORS[type] ?? EVENT_TYPE_COLORS.other;
   return (
