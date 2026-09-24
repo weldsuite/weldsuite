@@ -1,11 +1,11 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 @source "../**/*.{ts,tsx}";
 @source "../../../../packages/design/site-components/src/**/*.{ts,tsx}";
 @source "../../../../packages/design/weldmeet-ui/src/**/*.{ts,tsx}";
 @source "../../../../packages/design/ui/src/**/*.{ts,tsx}";
 
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
