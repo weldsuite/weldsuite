@@ -67,13 +67,13 @@ export function LineItemsEditor({
   onChange,
   currency = 'EUR',
   error,
-}: {
+}: Readonly<{
   items: LineItemDraft[];
   onChange: (items: LineItemDraft[]) => void;
   currency?: string;
   /** Validation message for the group as a whole, e.g. "add at least one item". */
   error?: string;
-}) {
+}>) {
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const { formatCurrency: money } = useLocaleFormatters();

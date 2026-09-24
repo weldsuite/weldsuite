@@ -51,7 +51,7 @@ interface AccountingEntityContextValue {
 
 const AccountingEntityContext = createContext<AccountingEntityContextValue | undefined>(undefined);
 
-export function AccountingEntityProvider({ children }: { children: React.ReactNode }) {
+export function AccountingEntityProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, organizationId } = useClerkAuth();
   const [entities, setEntities] = useState<AccountingEntity[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
