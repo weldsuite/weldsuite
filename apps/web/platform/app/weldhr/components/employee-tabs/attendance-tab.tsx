@@ -1,19 +1,16 @@
 /** Employee detail — attendance tab: last 30 days summary, records and upcoming shifts. */
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrAttendance, useHrAttendanceSummary, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
 import { AttendanceRecordDialog } from '../../attendance/components/record-dialog';
+import { EmptyText, FieldGrid, SectionCard } from '../page-kit';
 import {
-  EmptyState,
   ErrorBanner,
-  InlineSpinner,
-  StatTile,
   StatusBadge,
   errorMessage,
   formatDate,
@@ -40,34 +37,41 @@ export function EmployeeAttendanceTab({ employeeId }: { employeeId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile
-          label={t('weldhr.attendance.records.summary.attendanceRate')}
-          value={summary?.attendanceRate !== null && summary?.attendanceRate !== undefined ? `${summary.attendanceRate}%` : '—'}
+      <SectionCard title={t('weldhr.attendance.records.summary.last30Days')} contentClassName="pt-0">
+        <FieldGrid
+          fields={[
+            {
+              label: t('weldhr.attendance.records.summary.attendanceRate'),
+              value: summary?.attendanceRate !== null && summary?.attendanceRate !== undefined ? `${summary.attendanceRate}%` : '—',
+            },
+            { label: t('weldhr.attendance.records.summary.workedHours'), value: formatMinutes(summary?.workedMinutes) },
+            { label: t('weldhr.attendance.records.summary.lateMinutes'), value: summary?.lateMinutes ?? 0 },
+            { label: t('weldhr.attendance.records.summary.absences'), value: summary?.byStatus.absent ?? 0 },
+          ]}
         />
-        <StatTile label={t('weldhr.attendance.records.summary.workedHours')} value={formatMinutes(summary?.workedMinutes)} />
-        <StatTile label={t('weldhr.attendance.records.summary.lateMinutes')} value={summary?.lateMinutes ?? 0} />
-        <StatTile label={t('weldhr.attendance.records.summary.absences')} value={summary?.byStatus.absent ?? 0} />
-      </div>
+      </SectionCard>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">{t('weldhr.attendance.records.title')}</p>
-        {canWrite && (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldhr.attendance.records.addRecord')}
-          </Button>
-        )}
-      </div>
+      <SectionCard
+        title={t('weldhr.attendance.records.title')}
+        action={
+          canWrite && (
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              {t('weldhr.attendance.records.addRecord')}
+            </Button>
+          )
+        }
+        contentClassName="p-0"
+      >
+        <ErrorBanner error={error ? errorMessage(error, t('weldhr.attendance.records.loadFailed')) : null} />
 
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.attendance.records.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !records || records.data.length === 0 ? (
-        <EmptyState title={t('weldhr.attendance.records.empty.title')} description={t('weldhr.attendance.records.empty.description')} />
-      ) : (
-        <div className="overflow-hidden rounded-lg border">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : !records || records.data.length === 0 ? (
+          <EmptyText>{t('weldhr.attendance.records.empty.title')}</EmptyText>
+        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -98,27 +102,30 @@ export function EmployeeAttendanceTab({ employeeId }: { employeeId: string }) {
               ))}
             </TableBody>
           </Table>
-        </div>
-      )}
+        )}
+      </SectionCard>
 
-      <p className="text-sm font-medium">{t('weldhr.attendance.tabs.schedule')}</p>
-      {shiftsLoading ? (
-        <InlineSpinner />
-      ) : !shifts || shifts.length === 0 ? (
-        <EmptyState title={t('weldhr.attendance.schedule.empty.title')} />
-      ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {shifts.map((shift) => (
-            <Card key={shift.id} className="p-3 text-sm">
-              <p className="font-medium">{formatDate(shift.startsAt)}</p>
-              <p className="text-muted-foreground">
-                {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
-                {shift.companyName ? ` · ${shift.companyName}` : ''}
-              </p>
-            </Card>
-          ))}
-        </div>
-      )}
+      <SectionCard title={t('weldhr.attendance.tabs.schedule')}>
+        {shiftsLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : !shifts || shifts.length === 0 ? (
+          <EmptyText>{t('weldhr.attendance.schedule.empty.title')}</EmptyText>
+        ) : (
+          <ul className="divide-y">
+            {shifts.map((shift) => (
+              <li key={shift.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="font-medium">{formatDate(shift.startsAt)}</span>
+                <span className="text-muted-foreground">
+                  {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
+                  {shift.companyName ? ` · ${shift.companyName}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
 
       {adding && <AttendanceRecordDialog employeeId={employeeId} onClose={() => setAdding(false)} />}
     </div>

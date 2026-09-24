@@ -3,13 +3,16 @@
 import { useState } from 'react';
 import { Check, Pencil, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Card } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrLeaveBalances, useSetHrLeaveAllowance } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, InlineSpinner, errorMessage, todayIso } from '../../components/shared';
+import { PageLoader } from '@/components/page-loader';
+import { EmptyText } from '../../components/page-kit';
+import { EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
@@ -75,17 +78,17 @@ export function BalancesTab() {
       <ErrorBanner error={failure ?? (error ? errorMessage(error, t('weldhr.leave.balances.loadFailed')) : null)} />
 
       {!employeeId ? (
-        <p className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-          {t('weldhr.leave.balances.selectEmployee')}
-        </p>
+        <Card>
+          <EmptyText>{t('weldhr.leave.balances.selectEmployee')}</EmptyText>
+        </Card>
       ) : isLoading ? (
-        <InlineSpinner />
+        <PageLoader fullScreen={false} />
       ) : !balances || balances.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-          {t('weldhr.leave.balances.empty')}
-        </p>
+        <Card>
+          <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>
+        </Card>
       ) : (
-        <div className="overflow-hidden rounded-lg border">
+        <Card className="overflow-hidden p-0">
           <Table>
             <TableHeader>
               <TableRow>
@@ -154,7 +157,7 @@ export function BalancesTab() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Card>
       )}
     </div>
   );

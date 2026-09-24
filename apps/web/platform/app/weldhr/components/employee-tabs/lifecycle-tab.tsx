@@ -14,6 +14,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrAssigneeRole, HrChecklist } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@/components/page-loader';
 import {
   useAddHrChecklistTask,
   useCancelHrChecklist,
@@ -24,7 +25,8 @@ import {
   useUpdateHrChecklistTask,
 } from '@/hooks/queries/use-weldhr-queries';
 import { StartChecklistDialog } from '../../lifecycle/components/start-checklist-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
+import { EmptyText } from '../page-kit';
+import { ErrorBanner, StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
 
 const ASSIGNEE_ROLES: HrAssigneeRole[] = ['hr', 'manager', 'it', 'employee', 'other'];
 
@@ -67,7 +69,7 @@ export function EmployeeLifecycleTab({ employeeId }: { employeeId: string }) {
     }
   }
 
-  if (isLoading) return <InlineSpinner />;
+  if (isLoading) return <PageLoader fullScreen={false} />;
 
   return (
     <div className="space-y-4">
@@ -99,7 +101,7 @@ export function EmployeeLifecycleTab({ employeeId }: { employeeId: string }) {
       )}
 
       {!checklists || checklists.length === 0 ? (
-        <EmptyState title={t('weldhr.lifecycle.detail.noChecklists')} />
+        <EmptyText>{t('weldhr.lifecycle.detail.noChecklists')}</EmptyText>
       ) : (
         <div className="space-y-4">
           {checklists.map((checklist) => {

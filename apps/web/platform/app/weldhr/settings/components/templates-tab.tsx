@@ -1,7 +1,7 @@
 /** WeldHR settings — onboarding/offboarding checklist templates tab. */
 
-import { useState } from 'react';
-import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, GripVertical } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ClipboardList, Plus, ChevronUp, ChevronDown, GripVertical, Trash2 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -30,7 +30,9 @@ import {
   useDeleteHrChecklistTemplate,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, StatusBadge, errorMessage } from '../../components/shared';
+import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { ErrorBanner, errorMessage } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
 
 const ASSIGNEE_ROLES: HrAssigneeRole[] = ['hr', 'manager', 'it', 'employee', 'other'];
 
@@ -65,6 +67,14 @@ export function TemplatesTab() {
   const { data: templates, isLoading, error } = useHrChecklistTemplates();
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrChecklistTemplate | null>(null);
+  const [search, setSearch] = useState('');
+
+  const items = useMemo(() => {
+    const all = templates ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter((tpl) => tpl.name.toLowerCase().includes(q) || (tpl.description ?? '').toLowerCase().includes(q));
+  }, [templates, search]);
 
   function openEdit(template: HrChecklistTemplate) {
     setForm({
@@ -77,79 +87,78 @@ export function TemplatesTab() {
     });
   }
 
+  const groups: GroupConfig<HrChecklistTemplate>[] = [
+    { id: 'onboarding', label: t('weldhr.settings.templates.groupOnboarding'), sortOrder: 1, filter: (i) => i.kind === 'onboarding' },
+    { id: 'offboarding', label: t('weldhr.settings.templates.groupOffboarding'), sortOrder: 2, filter: (i) => i.kind === 'offboarding' },
+    { id: 'other', label: t('weldhr.settings.templates.groupOther'), sortOrder: 3, filter: (i) => i.kind !== 'onboarding' && i.kind !== 'offboarding' },
+  ];
+
+  const columns: ColumnDef<HrChecklistTemplate>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.settings.templates.name'),
+      width: 'flex-1',
+      render: (template) => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate font-medium">{template.name}</p>
+            {template.isDefault && <Badge variant="outline">{t('weldhr.settings.templates.default')}</Badge>}
+          </div>
+          {template.description && <p className="truncate text-xs text-muted-foreground">{template.description}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'items',
+      header: t('weldhr.settings.templates.items'),
+      width: 'w-[140px]',
+      render: (template) => (
+        <span className="text-muted-foreground">
+          {t(
+            template.items.length === 1 ? 'weldhr.settings.templates.itemCount' : 'weldhr.settings.templates.itemCountPlural',
+            { count: template.items.length },
+          )}
+        </span>
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{t('weldhr.settings.templates.subtitle')}</p>
-        {canManage && (
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setForm(emptyForm('onboarding'))}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t('weldhr.settings.templates.addOnboarding')}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setForm(emptyForm('offboarding'))}>
+    <>
+      <PanelEntityList<HrChecklistTemplate>
+        items={items}
+        isLoading={isLoading}
+        error={error as Error | null}
+        columns={columns}
+        groups={groups}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? setDeleteTarget : undefined}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.settings.templates.name')}
+        actionButtons={
+          canManage ? (
+            <Button size="sm" variant="outline" className="h-8" onClick={() => setForm(emptyForm('offboarding'))}>
               <Plus className="mr-1.5 h-4 w-4" />
               {t('weldhr.settings.templates.addOffboarding')}
             </Button>
-          </div>
-        )}
-      </div>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !templates || templates.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.settings.templates.emptyTitle')}
-          description={t('weldhr.settings.templates.emptyDescription')}
-        />
-      ) : (
-        <div className="space-y-2">
-          {templates.map((template) => (
-            <div key={template.id} className="flex items-center justify-between gap-4 rounded-lg border p-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate font-medium">{template.name}</p>
-                  <StatusBadge group="checklistKind" status={template.kind} />
-                  {template.isDefault && <Badge variant="outline">{t('weldhr.settings.templates.default')}</Badge>}
-                </div>
-                {template.description && (
-                  <p className="truncate text-xs text-muted-foreground">{template.description}</p>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t(
-                    template.items.length === 1 ? 'weldhr.settings.templates.itemCount' : 'weldhr.settings.templates.itemCountPlural',
-                    { count: template.items.length },
-                  )}
-                </p>
-              </div>
-              {canManage && (
-                <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(template)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={() => setDeleteTarget(template)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+          ) : undefined
+        }
+        createButton={canManage ? { label: t('weldhr.settings.templates.addOnboarding'), onClick: () => setForm(emptyForm('onboarding')) } : undefined}
+        emptyState={{
+          icon: emptyIcon(ClipboardList),
+          title: t('weldhr.settings.templates.emptyTitle'),
+          description: t('weldhr.settings.templates.emptyDescription'),
+          action: canManage ? { label: t('weldhr.settings.templates.addOnboarding'), onClick: () => setForm(emptyForm('onboarding')) } : undefined,
+        }}
+      />
 
       {form && <TemplateEditor form={form} onClose={() => setForm(null)} />}
 
       {deleteTarget && (
         <DeleteTemplateDialog template={deleteTarget} onClose={() => setDeleteTarget(null)} />
       )}
-    </div>
+    </>
   );
 }
 

@@ -1,7 +1,7 @@
 /** Personal data card: encrypted, audited, revealed on demand, edited inline. */
 
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
@@ -17,7 +17,7 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrEmployeeSensitive } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrEmployeeSensitive, useUpdateHrEmployeeSensitive } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, InlineSpinner, errorMessage, formatDate } from '../../components/shared';
+import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
 
 export function SensitivePanel({ employeeId }: { employeeId: string }) {
   const t = useTranslations();
@@ -61,7 +61,9 @@ export function SensitivePanel({ employeeId }: { employeeId: string }) {
         <div className="mt-4 border-t pt-4">
           <ErrorBanner error={error ? errorMessage(error, t('weldhr.employees.detail.personalTab.loadFailed')) : null} />
           {isLoading ? (
-            <InlineSpinner />
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
           ) : editing ? (
             <SensitiveForm employeeId={employeeId} data={data ?? null} onDone={() => setEditing(false)} />
           ) : (

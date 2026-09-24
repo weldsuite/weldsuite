@@ -1,10 +1,11 @@
 /** WeldHR — white-label workforce portal: settings, branding and access. */
 
+import { Lock } from 'lucide-react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@weldsuite/ui/components/tabs';
+import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { EmptyState, PageBody, PageHeader } from '../components/shared';
+import { emptyIcon, useHrBreadcrumbs, HrTabsPage } from '../components/page-kit';
 import { PortalSettingsTab } from './components/settings-tab';
 import { PortalBrandingTab } from './components/branding-tab';
 import { PortalAccessTab } from './components/access-tab';
@@ -22,41 +23,34 @@ export default function WeldHrPortalPage() {
   const search = useSearch({ from: '/weldhr/portal/' });
   const navigate = useNavigate();
 
+  useHrBreadcrumbs({ label: t('weldhr.portal.title') });
+
   if (!can('employees:manage')) {
     return (
-      <PageBody>
-        <EmptyState title={t('weldhr.common.noPermission')} />
-      </PageBody>
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        {emptyIcon(Lock)}
+        <p className="text-sm font-medium">{t('weldhr.common.noPermission')}</p>
+      </div>
     );
   }
 
   const activeTab: PortalTab = isPortalTab(search.tab) ? search.tab : 'settings';
 
-  function setTab(tab: PortalTab) {
-    navigate({ to: '/weldhr/portal', search: { tab } });
+  function setTab(tab: string) {
+    navigate({ to: '/weldhr/portal', search: { tab: tab as PortalTab } });
   }
 
+  const tabs: PageTab[] = [
+    { id: 'settings', label: t('weldhr.portal.tabs.settings') },
+    { id: 'branding', label: t('weldhr.portal.tabs.branding') },
+    { id: 'access', label: t('weldhr.portal.tabs.access') },
+  ];
+
   return (
-    <PageBody wide>
-      <PageHeader title={t('weldhr.portal.title')} subtitle={t('weldhr.portal.subtitle')} />
-
-      <Tabs value={activeTab} onValueChange={(v) => setTab(v as PortalTab)}>
-        <TabsList>
-          <TabsTrigger value="settings">{t('weldhr.portal.tabs.settings')}</TabsTrigger>
-          <TabsTrigger value="branding">{t('weldhr.portal.tabs.branding')}</TabsTrigger>
-          <TabsTrigger value="access">{t('weldhr.portal.tabs.access')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="settings" className="pt-4">
-          <PortalSettingsTab />
-        </TabsContent>
-        <TabsContent value="branding" className="pt-4">
-          <PortalBrandingTab />
-        </TabsContent>
-        <TabsContent value="access" className="pt-4">
-          <PortalAccessTab />
-        </TabsContent>
-      </Tabs>
-    </PageBody>
+    <HrTabsPage tabs={tabs} activeTab={activeTab} onTabChange={setTab}>
+      {activeTab === 'settings' && <PortalSettingsTab />}
+      {activeTab === 'branding' && <PortalBrandingTab />}
+      {activeTab === 'access' && <PortalAccessTab />}
+    </HrTabsPage>
   );
 }

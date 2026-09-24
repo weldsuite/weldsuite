@@ -3,12 +3,14 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@/components/page-loader';
 import { useDeleteHrShift, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyState, ErrorBanner, InlineSpinner, errorMessage, formatTime, shiftIsoDate, todayIso } from '../../components/shared';
+import { ErrorBanner, errorMessage, formatTime, shiftIsoDate, todayIso } from '../../components/shared';
 import { ShiftDialog } from './shift-dialog';
 
 function mondayOf(dateIso: string): string {
@@ -74,15 +76,19 @@ export function ScheduleTab() {
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.attendance.schedule.loadFailed')) : null} />
 
       {isLoading ? (
-        <InlineSpinner />
+        <PageLoader fullScreen={false} />
       ) : employees.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.attendance.schedule.empty.title')}
-          description={t('weldhr.attendance.schedule.empty.description')}
-          action={canCreate ? <Button onClick={() => setDialog({ date: weekStart })}>{t('weldhr.attendance.schedule.addShift')}</Button> : undefined}
-        />
+        <Card className="flex flex-col items-center gap-2 p-10 text-center">
+          <p className="text-sm font-medium">{t('weldhr.attendance.schedule.empty.title')}</p>
+          <p className="max-w-md text-sm text-muted-foreground">{t('weldhr.attendance.schedule.empty.description')}</p>
+          {canCreate && (
+            <Button className="mt-2" onClick={() => setDialog({ date: weekStart })}>
+              {t('weldhr.attendance.schedule.addShift')}
+            </Button>
+          )}
+        </Card>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[840px] border-collapse text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
@@ -127,7 +133,7 @@ export function ScheduleTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
 
       {dialog && (

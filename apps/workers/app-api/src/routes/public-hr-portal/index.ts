@@ -181,6 +181,11 @@ function publicConfig(settings: HrPortalSettings) {
   };
 }
 
+/** Portal settings for a signed-in request — loaded once by requireSession. */
+async function sessionSettings(c: PortalContext): Promise<HrPortalSettings> {
+  return c.get('hrPortalSettings') ?? loadPortalSettings(c.get('tenantDb'));
+}
+
 async function enabledSettings(c: { get: (k: 'tenantDb') => Variables['tenantDb'] }) {
   const settings = await loadPortalSettings(c.get('tenantDb'));
   return settings.isEnabled ? settings : null;
@@ -319,29 +324,37 @@ const requireSession = createMiddleware<{ Bindings: Env; Variables: Variables }>
   const session = await kvGetJson<HrPortalSession>(c.env, kv.session(await sha256Hex(raw)));
   if (!session || session.workspaceId !== c.get('workspaceId')) return error.unauthorized(c, 'Session expired');
 
+  if (session.kind === 'employee' && !session.employeeId) return error.unauthorized(c, 'Access revoked');
+
+  // Every portal request runs these three checks; do them in one round of
+  // parallel queries rather than three sequential ones.
   const db = c.get('tenantDb');
-  const settings = await loadPortalSettings(db);
+  const [settings, [access], [employee]] = await Promise.all([
+    loadPortalSettings(db),
+    db
+      .select({ id: schema.hrPortalAccess.id, status: schema.hrPortalAccess.status })
+      .from(schema.hrPortalAccess)
+      .where(eq(schema.hrPortalAccess.id, session.accessId))
+      .limit(1),
+    session.kind === 'employee' && session.employeeId
+      ? db
+          .select({ status: schema.hrEmployees.status })
+          .from(schema.hrEmployees)
+          .where(and(eq(schema.hrEmployees.id, session.employeeId), isNull(schema.hrEmployees.deletedAt)))
+          .limit(1)
+      : Promise.resolve([] as Array<{ status: string }>),
+  ]);
+
   if (!settings.isEnabled || !kindEnabled(settings, session.kind)) {
     return error.unauthorized(c, 'The portal is not available right now');
   }
-
-  const [access] = await db
-    .select({ id: schema.hrPortalAccess.id, status: schema.hrPortalAccess.status })
-    .from(schema.hrPortalAccess)
-    .where(eq(schema.hrPortalAccess.id, session.accessId))
-    .limit(1);
   if (!access || access.status === 'revoked') return error.unauthorized(c, 'Access revoked');
-
-  if (session.kind === 'employee') {
-    if (!session.employeeId) return error.unauthorized(c, 'Access revoked');
-    const [employee] = await db
-      .select({ status: schema.hrEmployees.status })
-      .from(schema.hrEmployees)
-      .where(and(eq(schema.hrEmployees.id, session.employeeId), isNull(schema.hrEmployees.deletedAt)))
-      .limit(1);
-    if (!employee || employee.status === 'terminated') return error.unauthorized(c, 'Access revoked');
+  if (session.kind === 'employee' && (!employee || employee.status === 'terminated')) {
+    return error.unauthorized(c, 'Access revoked');
   }
 
+  // Handlers read the settings from here instead of querying them again.
+  c.set('hrPortalSettings', settings);
   c.set('hrPortalAccessId', session.accessId);
   c.set('hrPortalKind', session.kind);
   c.set('hrPortalEmployeeId', session.employeeId);
@@ -426,7 +439,7 @@ app.post('/auth/logout', async (c) => {
 
 app.get('/me', async (c) => {
   const db = c.get('tenantDb');
-  const settings = await loadPortalSettings(db);
+  const settings = await sessionSettings(c);
   const kind = c.get('hrPortalKind');
   const base = { kind, email: c.get('hrPortalEmail'), config: publicConfig(settings) };
   if (kind === 'employee') {
@@ -464,7 +477,7 @@ app.get('/employee/attendance', async (c) => {
 });
 
 app.post('/employee/clock', zValidator('json', hrPortalClockSchema), async (c) => {
-  const settings = await loadPortalSettings(c.get('tenantDb'));
+  const settings = await sessionSettings(c);
   if (!settings.employeeSelfClockIn) return error.forbidden(c, 'Clocking in from the portal is turned off');
   const employeeId = employeeIdOf(c);
   const { action } = c.req.valid('json');
@@ -484,7 +497,7 @@ app.post('/employee/clock', zValidator('json', hrPortalClockSchema), async (c) =
 app.get('/employee/leave', async (c) => success(c, await employeeLeave(c.get('tenantDb'), employeeIdOf(c))));
 
 app.post('/employee/leave', zValidator('json', hrPortalLeaveRequestSchema), async (c) => {
-  const settings = await loadPortalSettings(c.get('tenantDb'));
+  const settings = await sessionSettings(c);
   if (!settings.employeeLeaveRequests) return error.forbidden(c, 'Leave requests from the portal are turned off');
   const employeeId = employeeIdOf(c);
   const row = await createLeaveRequest(c.get('tenantDb'), { ...c.req.valid('json'), employeeId }, `portal:${employeeId}`);
@@ -536,7 +549,7 @@ app.get('/employee/performance', async (c) => success(c, await employeePerforman
 
 app.get('/client/overview', async (c) => {
   const db = c.get('tenantDb');
-  const settings = await loadPortalSettings(db);
+  const settings = await sessionSettings(c);
   return success(c, await buildClientView(db, companyIdOf(c), { individualScores: settings.clientCanSeeIndividualScores }));
 });
 
@@ -549,7 +562,7 @@ app.get('/client/team/:employeeId', async (c) => {
   const member = team.find((m) => m.employeeId === employeeId);
   if (!member) return error.notFound(c, 'Team member', employeeId);
 
-  const settings = await loadPortalSettings(db);
+  const settings = await sessionSettings(c);
   const since = addDays(todayIso(), -365);
   const [milestones, evaluations, kpis] = await Promise.all([
     listMilestones(db, { employeeId, sharedWithClient: true }),

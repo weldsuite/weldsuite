@@ -1,14 +1,22 @@
+import { Suspense } from 'react';
 import { HydrationBoundary } from '@tanstack/react-query';
-import { hydratePortalQueries } from '@/lib/server/portal';
+import { PageSkeleton } from '@/components/page-skeleton';
+import { streamPortalQueries } from '@/lib/server/portal';
 import ClientOverviewView from './view';
 
-/** Server-rendered: the data is loaded on the server and handed to the client view through the query cache. */
+/**
+ * Server-rendered and streamed: the data request starts here without blocking
+ * navigation, and reaches the client view through the query cache.
+ */
 export default async function Page({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace } = await params;
-  const state = await hydratePortalQueries(workspace, [{ path: '/client/overview' }]);
+  const state = streamPortalQueries(workspace, [{ path: '/client/overview' }]);
   return (
     <HydrationBoundary state={state}>
-      <ClientOverviewView />
+      {/* Fresh per page, so the skeleton shows at once on navigation. */}
+      <Suspense fallback={<PageSkeleton />}>
+        <ClientOverviewView />
+      </Suspense>
     </HydrationBoundary>
   );
 }

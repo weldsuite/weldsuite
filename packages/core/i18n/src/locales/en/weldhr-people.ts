@@ -50,10 +50,7 @@ export const weldhrPeople = {
     loadFailed: 'Could not load employees.',
     loadMore: 'Load more',
     filters: {
-      statusActive: 'Active',
-      statusAll: 'All',
-      statusLeft: 'Left',
-      departmentAll: 'All departments',
+      departmentLabel: 'Department',
     },
     table: {
       name: 'Name',
@@ -211,6 +208,7 @@ export const weldhrPeople = {
     title: 'Client accounts',
     subtitle: 'Headcount and FTE assigned to each client account.',
     assignEmployee: 'Assign employee',
+    searchPlaceholder: 'Search client accounts…',
     loadFailed: 'Could not load client accounts.',
     table: {
       company: 'Company',

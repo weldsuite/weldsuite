@@ -2,9 +2,8 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, RotateCcw, Trash2, UserX } from 'lucide-react';
+import { Loader2, Plus, RotateCcw, Trash2, UserX } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import {
   Dialog,
   DialogContent,
@@ -23,7 +22,8 @@ import {
   useDeleteHrPortalAccess,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, PersonPicker, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
+import { ErrorBanner, PersonPicker, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
+import { EmptyText, SectionCard } from '../page-kit';
 
 export function ClientPortalContactsCard({ companyId, companyName }: { companyId: string; companyName: string | null }) {
   const t = useTranslations();
@@ -53,23 +53,26 @@ export function ClientPortalContactsCard({ companyId, companyName }: { companyId
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-sm">{t('weldhr.portal.clientCard.title')}</CardTitle>
+    <SectionCard
+      title={t('weldhr.portal.clientCard.title')}
+      action={
         <Button size="sm" variant="outline" onClick={() => setInviting(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
           {t('weldhr.portal.access.inviteClientContact')}
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      }
+      contentClassName="space-y-3"
+    >
         <ErrorBanner error={rowFailure} onDismiss={() => setRowFailure(null)} />
 
         {isLoading ? (
-          <InlineSpinner />
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
         ) : error ? (
           <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />
         ) : !data || data.length === 0 ? (
-          <EmptyState title={t('weldhr.portal.clientCard.emptyTitle')} description={t('weldhr.portal.clientCard.emptyDescription')} />
+          <EmptyText>{t('weldhr.portal.clientCard.emptyDescription')}</EmptyText>
         ) : (
           <div className="space-y-2">
             {data.map((access) => (
@@ -107,11 +110,10 @@ export function ClientPortalContactsCard({ companyId, companyName }: { companyId
             ))}
           </div>
         )}
-      </CardContent>
 
       {inviting && <InviteContactDialog companyId={companyId} companyName={companyName} onClose={() => setInviting(false)} />}
       {deleteTarget && <DeleteContactAccessDialog access={deleteTarget} onClose={() => setDeleteTarget(null)} />}
-    </Card>
+    </SectionCard>
   );
 }
 

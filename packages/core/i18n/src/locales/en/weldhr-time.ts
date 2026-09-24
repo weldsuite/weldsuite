@@ -10,6 +10,7 @@ export const weldhrTime = {
     startChecklist: {
       action: 'Start checklist',
       title: 'Start a checklist',
+      kind: 'Type',
       employee: 'Employee',
       template: 'Template',
       selectTemplate: 'Select a template',
@@ -24,6 +25,24 @@ export const weldhrTime = {
       onboarding: 'Onboarding',
       offboarding: 'Offboarding',
       completed: 'Completed',
+    },
+    list: {
+      columns: {
+        employee: 'Employee',
+        template: 'Template',
+        progress: 'Progress',
+        overdue: 'Overdue',
+        started: 'Started',
+      },
+      groups: {
+        onboarding: 'Onboarding in progress',
+        offboarding: 'Offboarding in progress',
+        completed: 'Completed & cancelled',
+      },
+      empty: {
+        title: 'No checklists yet',
+        description: 'Start an onboarding or offboarding checklist for an employee to track it here.',
+      },
     },
     card: {
       progress: '{done}/{total} tasks done',
@@ -101,6 +120,7 @@ export const weldhrTime = {
         needsApproval: 'Needs approval only',
       },
       summary: {
+        last30Days: 'Last 30 days',
         attendanceRate: 'Attendance rate',
         workedHours: 'Worked hours',
         lateMinutes: 'Late minutes',
@@ -240,6 +260,12 @@ export const weldhrTime = {
         reason: 'Reason',
         status: 'Status',
         reviewer: 'Reviewer',
+      },
+      groups: {
+        pending: 'Pending',
+        approved: 'Approved',
+        rejectedCancelled: 'Rejected & cancelled',
+        other: 'Other',
       },
       approve: 'Approve',
       reject: 'Reject',

@@ -2,14 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrEvaluations } from '@/hooks/queries/use-weldhr-queries';
 import { EvaluationDialog } from '../../evaluations/components/evaluation-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, ScoreBadge, StatusBadge, errorMessage, formatDate } from '../shared';
+import { SectionCard, EmptyText } from '../page-kit';
+import { ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate } from '../shared';
 
 export function EmployeeEvaluationsTab({ employeeId }: { employeeId: string }) {
   const t = useTranslations();
@@ -27,30 +28,32 @@ export function EmployeeEvaluationsTab({ employeeId }: { employeeId: string }) {
   }, [evaluations]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">{t('weldhr.evaluations.tab.title')}</h3>
-        {canCreate && (
+    <SectionCard
+      title={t('weldhr.evaluations.tab.title')}
+      action={
+        canCreate && (
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             {t('weldhr.evaluations.newEvaluation')}
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
 
       {isLoading ? (
-        <InlineSpinner />
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
       ) : !evaluations || evaluations.length === 0 ? (
-        <EmptyState title={t('weldhr.evaluations.tab.empty')} />
+        <EmptyText>{t('weldhr.evaluations.tab.empty')}</EmptyText>
       ) : (
-        <>
+        <div className="space-y-4">
           {trend.length >= 2 && (
-            <Card className="p-4">
+            <div className="rounded-md border p-3">
               <p className="mb-2 text-xs text-muted-foreground">{t('weldhr.evaluations.tab.trend')}</p>
               <ScoreTrendChart points={trend.map((e) => e.overallScore as number)} />
-            </Card>
+            </div>
           )}
 
           <div className="space-y-2">
@@ -78,11 +81,11 @@ export function EmployeeEvaluationsTab({ employeeId }: { employeeId: string }) {
               </Link>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {creating && <EvaluationDialog employeeId={employeeId} onClose={() => setCreating(false)} />}
-    </div>
+    </SectionCard>
   );
 }
 

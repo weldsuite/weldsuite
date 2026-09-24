@@ -7,10 +7,11 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { PageLoader } from '@/components/page-loader';
 import { useHrPortalSettings, useUpdateHrPortalSettings } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, InlineSpinner, errorMessage } from '../../components/shared';
+import { ErrorBanner, errorMessage } from '../../components/shared';
+import { SettingsPage, SettingsSection, SettingRow } from '../../components/page-kit';
 import { ColorField } from '../../settings/components/color-field';
 
 interface FormState {
@@ -60,9 +61,12 @@ export function PortalBrandingTab() {
     if (data && !state) setState(toForm(data));
   }, [data, state]);
 
-  if (isLoading) return <InlineSpinner />;
+  if (isLoading) return <PageLoader fullScreen={false} />;
   if (error) return <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />;
   if (!data || !state) return null;
+
+  const initial = toForm(data);
+  const hasChanges = (Object.keys(state) as Array<keyof FormState>).some((key) => state[key] !== initial[key]);
 
   async function submit() {
     if (!state) return;
@@ -85,108 +89,94 @@ export function PortalBrandingTab() {
     }
   }
 
+  function cancel() {
+    if (data) setState(toForm(data));
+  }
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <div className="space-y-4">
-        <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
+    <SettingsPage
+      title={t('weldhr.portal.branding.identityTitle')}
+      hasChanges={hasChanges}
+      saving={update.isPending}
+      onSave={() => void submit()}
+      onCancel={cancel}
+    >
+      <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('weldhr.portal.branding.identityTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-display-name">{t('weldhr.portal.branding.displayName')}</Label>
-              <Input
-                id="portal-display-name"
-                value={state.displayName}
-                placeholder={t('weldhr.portal.branding.displayNamePlaceholder')}
-                onChange={(e) => setState({ ...state, displayName: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-logo">{t('weldhr.portal.branding.logoUrl')}</Label>
-              <Input id="portal-logo" value={state.logoUrl} onChange={(e) => setState({ ...state, logoUrl: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-favicon">{t('weldhr.portal.branding.faviconUrl')}</Label>
-              <Input id="portal-favicon" value={state.faviconUrl} onChange={(e) => setState({ ...state, faviconUrl: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ColorField
-                id="portal-primary-color"
-                label={t('weldhr.portal.branding.primaryColor')}
-                value={state.primaryColor}
-                onChange={(color) => setState({ ...state, primaryColor: color })}
-              />
-              <ColorField
-                id="portal-accent-color"
-                label={t('weldhr.portal.branding.accentColor')}
-                value={state.accentColor}
-                onChange={(color) => setState({ ...state, accentColor: color })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-welcome">{t('weldhr.portal.branding.welcomeMessage')}</Label>
-              <Textarea
-                id="portal-welcome"
-                value={state.welcomeMessage}
-                onChange={(e) => setState({ ...state, welcomeMessage: e.target.value })}
-                rows={3}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-support-email">{t('weldhr.portal.branding.supportEmail')}</Label>
-              <Input
-                id="portal-support-email"
-                type="email"
-                value={state.supportEmail}
-                onChange={(e) => setState({ ...state, supportEmail: e.target.value })}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-              <div>
-                <Label htmlFor="portal-hide-branding">{t('weldhr.portal.branding.hideWeldsuiteBranding')}</Label>
-                <p className="mt-0.5 text-xs text-muted-foreground">{t('weldhr.portal.branding.hideWeldsuiteBrandingHint')}</p>
-              </div>
-              <Switch
-                id="portal-hide-branding"
-                checked={state.hideWeldsuiteBranding}
-                onCheckedChange={(checked) => setState({ ...state, hideWeldsuiteBranding: checked })}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('weldhr.portal.branding.customDomainTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-custom-domain">{t('weldhr.portal.branding.customDomain')}</Label>
-              <Input
-                id="portal-custom-domain"
-                value={state.customDomain}
-                placeholder="portal.yourcompany.com"
-                onChange={(e) => setState({ ...state, customDomain: e.target.value })}
-              />
-            </div>
-            <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              {t('weldhr.portal.branding.customDomainDnsInstructions')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button onClick={() => void submit()} disabled={update.isPending}>
-            {update.isPending ? t('weldhr.common.saving') : t('weldhr.common.save')}
-          </Button>
+      <SettingsSection title={t('weldhr.portal.branding.identityTitle')}>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-display-name">{t('weldhr.portal.branding.displayName')}</Label>
+          <Input
+            id="portal-display-name"
+            value={state.displayName}
+            placeholder={t('weldhr.portal.branding.displayNamePlaceholder')}
+            onChange={(e) => setState({ ...state, displayName: e.target.value })}
+          />
         </div>
-      </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-logo">{t('weldhr.portal.branding.logoUrl')}</Label>
+          <Input id="portal-logo" value={state.logoUrl} onChange={(e) => setState({ ...state, logoUrl: e.target.value })} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-favicon">{t('weldhr.portal.branding.faviconUrl')}</Label>
+          <Input id="portal-favicon" value={state.faviconUrl} onChange={(e) => setState({ ...state, faviconUrl: e.target.value })} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <ColorField
+            id="portal-primary-color"
+            label={t('weldhr.portal.branding.primaryColor')}
+            value={state.primaryColor}
+            onChange={(color) => setState({ ...state, primaryColor: color })}
+          />
+          <ColorField
+            id="portal-accent-color"
+            label={t('weldhr.portal.branding.accentColor')}
+            value={state.accentColor}
+            onChange={(color) => setState({ ...state, accentColor: color })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-welcome">{t('weldhr.portal.branding.welcomeMessage')}</Label>
+          <Textarea
+            id="portal-welcome"
+            value={state.welcomeMessage}
+            onChange={(e) => setState({ ...state, welcomeMessage: e.target.value })}
+            rows={3}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-support-email">{t('weldhr.portal.branding.supportEmail')}</Label>
+          <Input
+            id="portal-support-email"
+            type="email"
+            value={state.supportEmail}
+            onChange={(e) => setState({ ...state, supportEmail: e.target.value })}
+          />
+        </div>
+        <SettingRow label={t('weldhr.portal.branding.hideWeldsuiteBranding')} description={t('weldhr.portal.branding.hideWeldsuiteBrandingHint')}>
+          <Switch
+            checked={state.hideWeldsuiteBranding}
+            onCheckedChange={(checked) => setState({ ...state, hideWeldsuiteBranding: checked })}
+          />
+        </SettingRow>
+      </SettingsSection>
 
-      <div className="lg:sticky lg:top-4 lg:self-start">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">{t('weldhr.portal.branding.previewTitle')}</p>
+      <SettingsSection title={t('weldhr.portal.branding.customDomainTitle')}>
+        <div className="space-y-1.5">
+          <Label htmlFor="portal-custom-domain">{t('weldhr.portal.branding.customDomain')}</Label>
+          <Input
+            id="portal-custom-domain"
+            value={state.customDomain}
+            placeholder="portal.yourcompany.com"
+            onChange={(e) => setState({ ...state, customDomain: e.target.value })}
+          />
+        </div>
+        <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+          {t('weldhr.portal.branding.customDomainDnsInstructions')}
+        </p>
+      </SettingsSection>
+
+      <SettingsSection title={t('weldhr.portal.branding.previewTitle')}>
         <SignInPreview
           displayName={state.displayName || t('weldhr.portal.branding.previewDefaultName')}
           logoUrl={state.logoUrl}
@@ -195,8 +185,8 @@ export function PortalBrandingTab() {
           welcomeMessage={state.welcomeMessage}
           hideWeldsuiteBranding={state.hideWeldsuiteBranding}
         />
-      </div>
-    </div>
+      </SettingsSection>
+    </SettingsPage>
   );
 }
 
@@ -217,7 +207,7 @@ function SignInPreview({
 }) {
   const t = useTranslations();
   return (
-    <div className="overflow-hidden rounded-xl border shadow-sm" style={{ backgroundColor: accentColor }}>
+    <div className="max-w-sm overflow-hidden rounded-xl border shadow-sm" style={{ backgroundColor: accentColor }}>
       <div className="flex flex-col items-center gap-3 p-6 text-center">
         {logoUrl ? (
           <img src={logoUrl} alt={displayName} className="h-10 max-w-full object-contain" />
