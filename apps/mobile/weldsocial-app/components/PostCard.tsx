@@ -13,7 +13,7 @@ interface PostCardProps {
   onPress: () => void;
 }
 
-export function PostCard({ post, accountsById, onPress }: PostCardProps) {
+export function PostCard({ post, accountsById, onPress }: Readonly<PostCardProps>) {
   const { colors } = useTheme();
   const status = POST_STATUS_META[post.status] ?? { label: post.status, variant: 'outline' as const };
   const targets = (post.targetAccountIds ?? [])
