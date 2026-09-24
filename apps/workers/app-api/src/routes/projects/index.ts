@@ -33,7 +33,7 @@ app.get('/', async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const canSeeAll = await hasContextPermission(c, 'projects:scope:all');
 
