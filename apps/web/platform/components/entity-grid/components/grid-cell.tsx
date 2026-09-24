@@ -411,7 +411,7 @@ export function GridCell<TEntity>({
             <NumberEditor
               value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
-                const newValue = parseFloat(String(finalValue ?? '')) || 0;
+                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
                 setEditingCellValue(null);
               }}
@@ -443,7 +443,7 @@ export function GridCell<TEntity>({
             <CurrencyEditor
               value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
-                const newValue = parseFloat(String(finalValue ?? '')) || 0;
+                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
                 setEditingCellValue(null);
               }}
@@ -475,7 +475,7 @@ export function GridCell<TEntity>({
             <NumberEditor
               value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
-                const newValue = parseFloat(String(finalValue ?? '')) || 0;
+                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
                 setEditingCellValue(null);
               }}
