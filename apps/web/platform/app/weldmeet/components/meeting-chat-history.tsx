@@ -104,7 +104,7 @@ export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistory
               !!prevMessage &&
               prevMessage.authorId === message.authorId &&
               !showDate &&
-              !isNaN(timeDiff) &&
+              !Number.isNaN(timeDiff) &&
               timeDiff >= 0 &&
               timeDiff < 300000;
 

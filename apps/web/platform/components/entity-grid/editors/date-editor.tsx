@@ -17,7 +17,7 @@ export function DateEditor({
   onCommit,
 }: DateEditorProps) {
   const dateValue = value ? (value instanceof Date ? value : new Date(value)) : undefined;
-  const isValidDate = dateValue && !isNaN(dateValue.getTime());
+  const isValidDate = dateValue && !Number.isNaN(dateValue.getTime());
 
   return (
     <Popover>

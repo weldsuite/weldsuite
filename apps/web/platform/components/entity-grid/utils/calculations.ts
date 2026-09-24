@@ -127,7 +127,7 @@ export function formatDate(
   if (!value) return '';
 
   const date = value instanceof Date ? value : new Date(value);
-  if (isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return '';
 
   const formatOption = options?.format || 'medium';
 

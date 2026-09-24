@@ -350,7 +350,7 @@ function CustomerDetailPanelLayout({
   const [chatHeight, setChatHeight] = React.useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_CHAT_HEIGHT;
     const raw = window.localStorage.getItem(CHAT_HEIGHT_KEY);
-    const parsed = raw ? Number(raw) : NaN;
+    const parsed = raw ? Number(raw) : Number.NaN;
     return Number.isFinite(parsed) && parsed >= MIN_CHAT_HEIGHT ? parsed : DEFAULT_CHAT_HEIGHT;
   });
   // Whether the chat is collapsed (only the drag line stays visible at the
