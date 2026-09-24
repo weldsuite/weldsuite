@@ -23,7 +23,7 @@ interface PermissionContextValue {
 
 const PermissionContext = createContext<PermissionContextValue | undefined>(undefined);
 
-export function PermissionProvider({ children }: { children: React.ReactNode }) {
+export function PermissionProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   // Gate the fetch on auth readiness — the app-api client throws when no Clerk
   // token is wired yet, and returns 403 ORG_REQUIRED until the session token
   // carries the active org. This provider mounts above the AuthGuard, so guard

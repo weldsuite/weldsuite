@@ -35,7 +35,7 @@ const NetworkContext = createContext<NetworkStatus>({
 
 export const useNetworkStatus = () => useContext(NetworkContext);
 
-export function NetworkProvider({ children }: { children: React.ReactNode }) {
+export function NetworkProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [isOnline, setIsOnline] = useState(true);
   const [isInternetReachable, setIsInternetReachable] = useState<boolean | null>(null);
   const [wasOffline, setWasOffline] = useState(false);
