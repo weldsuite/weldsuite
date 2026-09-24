@@ -886,7 +886,6 @@ export async function togglePrivacy(
     await clients.rtr.updateDomain(domain.fullDomain, { privacyProtect: params.enabled });
   } else if (domain.registrar === 'cloudflare' && domain.externalRegistrarId) {
     // Cloudflare Registrar beta has no privacy toggle API.
-    void clients.cf;
     throw new Error(
       'Privacy protection cannot be changed for domains registered through Cloudflare Registrar',
     );
@@ -979,7 +978,6 @@ export async function issueAuthCode(
   if (!domain) return { ok: false, reason: 'not_found' };
 
   if (domain.registrar === 'cloudflare') {
-    void clients.cf;
     return {
       ok: false,
       reason: 'unavailable',
@@ -1374,7 +1372,6 @@ export async function renewDomain(
     .limit(1);
   if (!domain) return null;
   if (domain.registrar === 'cloudflare') {
-    void clients.cf;
     throw new Error(
       'Renewal is not available via API for domains registered through Cloudflare Registrar',
     );

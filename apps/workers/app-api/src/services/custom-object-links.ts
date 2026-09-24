@@ -450,13 +450,12 @@ export async function applyTargetDeleteCascade(
       .where(inArray(records.id, result.cascadedRecordIds));
   }
 
-  const deleted = await db
+  await db
     .delete(relations)
     .where(
       and(eq(relations.targetEntityKey, targetEntityKey), eq(relations.targetId, targetId)),
     );
   result.detached = edges.length;
-  void deleted;
 
   return result;
 }
