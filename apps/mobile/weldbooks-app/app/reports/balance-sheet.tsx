@@ -27,13 +27,13 @@ function Section({
   totalLabel,
   currency,
   formatCurrencyFn,
-}: {
+}: Readonly<{
   section: BalanceSheetSection;
   title: string;
   totalLabel: string;
   currency: string;
   formatCurrencyFn: (amount: number, currency: string) => string;
-}) {
+}>) {
   const { colors } = useTheme();
   if (section.accounts.length === 0 && section.total === 0) return null;
 

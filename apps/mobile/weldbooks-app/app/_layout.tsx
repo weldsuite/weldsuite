@@ -54,7 +54,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
+function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();
@@ -128,7 +128,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
  *
  * Signed-out users pass straight through; AuthGuard is redirecting them.
  */
-function EntityGate({ children }: { children: React.ReactNode }) {
+function EntityGate({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user } = useClerkAuth();
   const { hasEntity, isLoading, loadError, isRefreshing, refresh, activeEntity } =
     useAccountingEntity();
@@ -252,7 +252,7 @@ function AuthenticatedApp() {
   );
 }
 
-function Splash({ label }: { label: string }) {
+function Splash({ label }: Readonly<{ label: string }>) {
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color="#10B981" />
