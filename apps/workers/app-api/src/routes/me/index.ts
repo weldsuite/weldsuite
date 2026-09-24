@@ -43,6 +43,7 @@ app.get('/permissions', async (c) => {
 
     return success(c, {
       permissions: resolved.permissions,
+      denies: resolved.denies ?? [],
       role: resolved.role,
       roleId: resolved.roleId,
       isOwner: resolved.isOwner,

@@ -24,6 +24,7 @@ export {
 // App registry + app-scoped checks (per-app permission matrix)
 export {
   APP_CONTEXT_HEADER,
+  WORKSPACE_APP_CONTEXT,
   PERMISSION_APPS,
   APP_CODE_ALIASES,
   isAppCode,
@@ -47,6 +48,8 @@ export {
 export { toAppScopedKeys } from './app-migration';
 export {
   buildAppPermissionCatalog,
+  hasObjectAccessInApp,
+  hasAnyObjectAccessInApp,
   type AppPermissionCatalog,
   type AppPermissionCatalogEntry,
 } from './app-catalog';

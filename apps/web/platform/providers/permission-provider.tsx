@@ -3,23 +3,32 @@
  *
  * Fetches the current user's permissions from the API via TanStack Query,
  * then feeds them to @weldsuite/permissions PermissionProvider.
+ *
+ * Checks are evaluated for the module in the URL (`/weldcrm/...` → weldcrm),
+ * matching the X-Weld-App header the server sees for the same screen.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { PermissionProvider } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { appFromPathname } from '@/lib/apps/current-app';
+import { usePathname } from '@/lib/router';
 import { useAuth } from '@clerk/clerk-react';
 
 interface PermissionResponse {
   permissions: string[];
+  denies?: string[];
   role: string;
   roleId: string | null;
   isOwner: boolean;
 }
 
+const NO_KEYS: string[] = [];
+
 export function PlatformPermissionProvider({ children }: { children: React.ReactNode }) {
   const { getClient } = useAppApiClient();
   const { isSignedIn, orgId } = useAuth();
+  const app = appFromPathname(usePathname());
 
   const { data, isLoading } = useQuery({
     queryKey: ['my-permissions', orgId],
@@ -37,9 +46,11 @@ export function PlatformPermissionProvider({ children }: { children: React.React
 
   return (
     <PermissionProvider
-      permissions={data?.permissions ?? []}
+      permissions={data?.permissions ?? NO_KEYS}
+      denies={data?.denies ?? NO_KEYS}
       isLoading={isLoading}
       role={data?.role ?? ''}
+      app={app}
     >
       {children}
     </PermissionProvider>

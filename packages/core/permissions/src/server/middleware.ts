@@ -87,6 +87,17 @@ export function initPermissionMiddleware(opts: RequirePermissionOptions) {
   if (opts.isAppEnforced) _isAppEnforced = opts.isAppEnforced;
 }
 
+// Each distinct warning is logged once per isolate: every request made from a
+// module carries its app, so an unregistered (app, object) pair would
+// otherwise log on every call.
+const _warned = new Set<string>();
+function warnOnce(key: string, message: string): void {
+  if (_warned.has(key)) return;
+  if (_warned.size > 5000) _warned.clear();
+  _warned.add(key);
+  console.warn(message);
+}
+
 /**
  * Evaluate "any of `required`" for the resolved user in the request's app
  * context. True when access is granted (including the log-mode
@@ -99,7 +110,10 @@ function evaluateInAppContext(c: any, resolved: ResolvedPermissions, required: s
   for (const key of required) {
     const check = checkAppPermission(resolved, key, app);
     if (check.objectNotInApp) {
-      console.warn(`[permissions] object of "${key}" is not registered in app "${app}"; checked across all apps`);
+      warnOnce(
+        `nia|${app}|${key}`,
+        `[permissions] object of "${key}" is not registered in app "${app}"; checked across all apps`,
+      );
     }
     if (check.allowed) return true;
     if (check.mode === 'app' && !refusedInApp && checkAppPermission(resolved, key, null).allowed) {
@@ -109,8 +123,10 @@ function evaluateInAppContext(c: any, resolved: ResolvedPermissions, required: s
 
   // Refused in this app but granted in another one: enforce, or only log.
   if (refusedInApp && !_isAppEnforced(c)) {
-    console.warn(
-      `[permissions] "${refusedInApp}" is not granted in app "${app}" for user ${c.get('userId')}; allowed (log-only mode)`,
+    const userId = c.get('userId');
+    warnOnce(
+      `ref|${app}|${refusedInApp}|${userId}`,
+      `[permissions] "${refusedInApp}" is not granted in app "${app}" for user ${userId}; allowed (log-only mode)`,
     );
     return true;
   }

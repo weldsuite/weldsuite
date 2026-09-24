@@ -10,6 +10,8 @@
 
 import { PERMISSION_CATALOG_OBJECTS } from './catalog';
 import { PERMISSION_APPS, isAppScopedObject } from './apps';
+import { checkAppPermission, type PermissionSubject } from './app-scope';
+import { hasObjectAccess } from './engine';
 import type { ObjectDefinition } from './types';
 
 export interface AppPermissionCatalogEntry {
@@ -45,4 +47,36 @@ export function buildAppPermissionCatalog(): AppPermissionCatalog {
   const workspace = PERMISSION_CATALOG_OBJECTS.filter((o) => !isAppScopedObject(o.key));
 
   return { apps, workspace };
+}
+
+const CATALOG_KEYS_BY_OBJECT: ReadonlyMap<string, readonly string[]> = new Map(
+  PERMISSION_CATALOG_OBJECTS.map((o) => [o.key, o.permissions.map((p) => p.key)]),
+);
+
+/**
+ * Does the subject hold ANY permission on `object` in `app` (deny-aware)?
+ * Checks each concrete catalog key for the object through
+ * `checkAppPermission`, so wildcards, legacy unqualified grants and denies all
+ * behave exactly as they do for a single-key check. Workspace-level objects
+ * keep the plain prefix match, since they carry runtime keys the static
+ * catalog doesn't list (`weldobjects:<slug>:read`).
+ */
+export function hasObjectAccessInApp(
+  subject: PermissionSubject,
+  object: string,
+  app: string | null | undefined,
+): boolean {
+  if (subject.permissions.includes('*') && !subject.denies?.length) return true;
+  const keys = CATALOG_KEYS_BY_OBJECT.get(object);
+  if (!keys || !isAppScopedObject(object)) return hasObjectAccess(subject.permissions, object);
+  return keys.some((key) => checkAppPermission(subject, key, app).allowed);
+}
+
+/** Any access to at least one of `objects` in `app`. */
+export function hasAnyObjectAccessInApp(
+  subject: PermissionSubject,
+  objects: readonly string[],
+  app: string | null | undefined,
+): boolean {
+  return objects.some((object) => hasObjectAccessInApp(subject, object, app));
 }

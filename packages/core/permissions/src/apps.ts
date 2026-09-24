@@ -20,6 +20,12 @@ import type { PermissionAppDefinition } from './types';
 /** Request header carrying the caller's app code (platform + mobile apps). */
 export const APP_CONTEXT_HEADER = 'X-Weld-App';
 
+/**
+ * Header value for requests that deliberately carry no app context (the
+ * workspace shell's own widgets, settings) even when made from inside a module.
+ */
+export const WORKSPACE_APP_CONTEXT = 'workspace';
+
 // Object lists follow what each module's screens call: its own hooks plus the
 // shared record panels it opens. Generic cross-module lookups (WeldChat
 // resolving any entity's title, the workspace shell's header widgets) are

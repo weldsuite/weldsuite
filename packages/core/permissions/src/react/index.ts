@@ -1,6 +1,7 @@
 // React exports
 export {
   PermissionProvider,
+  AppPermissionScope,
   usePermissions,
   usePermissionsMaybe,
   type PermissionProviderProps,

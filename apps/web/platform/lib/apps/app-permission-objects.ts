@@ -39,6 +39,11 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   weldads: ['ad_accounts', 'ad_campaigns'],
   // WeldHR spans the five HR objects its app-api routes enforce.
   weldhr: ['employees', 'attendance', 'leave', 'coaching', 'evaluations'],
+  // The Social module's route segment is `social` (not `weldsocial`, the key
+  // the migration map derives), and WeldPass post-dates the refactor. Both
+  // were missing, which made them owner-only.
+  social: ['posts', 'campaigns', 'analytics', 'accounts'],
+  weldpass: ['secrets'],
 };
 
 /**

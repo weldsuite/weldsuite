@@ -16,6 +16,7 @@ import {
   buildAppPermissionCatalog,
   checkAppPermission,
   getAllPermissionKeys,
+  hasObjectAccessInApp,
   hasPermission,
   toAppScopedKeys,
   getAppsForObject,
@@ -247,5 +248,40 @@ describe('toAppScopedKeys (data migration)', () => {
         }
       }
     }
+  });
+});
+
+describe('hasObjectAccessInApp (sidebar / app gating)', () => {
+  it('is app-aware for app-scoped objects', () => {
+    const s = subject(['weldcrm:companies:read']);
+    expect(hasObjectAccessInApp(s, 'companies', 'weldcrm')).toBe(true);
+    expect(hasObjectAccessInApp(s, 'companies', 'welddesk')).toBe(false);
+    expect(hasObjectAccessInApp(s, 'companies', null)).toBe(true);
+  });
+
+  it('keeps legacy unqualified grants and cross-object wildcards working', () => {
+    expect(hasObjectAccessInApp(subject(['companies:update']), 'companies', 'welddesk')).toBe(true);
+    expect(hasObjectAccessInApp(subject(['*:read']), 'tickets', 'welddesk')).toBe(true);
+  });
+
+  it('respects a deny covering every action on the object in that app', () => {
+    const s = subject(['companies:*'], ['welddesk:companies:*']);
+    expect(hasObjectAccessInApp(s, 'companies', 'welddesk')).toBe(false);
+    expect(hasObjectAccessInApp(s, 'companies', 'weldcrm')).toBe(true);
+  });
+
+  it('prefix-matches workspace-level objects with runtime keys', () => {
+    expect(hasObjectAccessInApp(subject(['weldobjects:*:read']), 'weldobjects', 'weldcrm')).toBe(true);
+  });
+});
+
+describe('X-Weld-App: workspace', () => {
+  it('means no app context and logs nothing', async () => {
+    const router = new Hono<{ Bindings: Env; Variables: Variables }>();
+    router.use('*', appContextMiddleware());
+    router.get('/', (c) => c.json({ app: c.get('app') ?? null }));
+    const t = createTestApp('/api', router, { context: { permissions: subject(['*']) } });
+    const res = await t.request('/api', { headers: { 'X-Weld-App': 'workspace' } });
+    expect(await res.json()).toEqual({ app: null });
   });
 });

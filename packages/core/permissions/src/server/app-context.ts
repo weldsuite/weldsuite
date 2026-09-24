@@ -11,13 +11,14 @@
  */
 
 import type { Next } from 'hono';
-import { APP_CONTEXT_HEADER, normalizeAppCode } from '../apps';
+import { APP_CONTEXT_HEADER, WORKSPACE_APP_CONTEXT, normalizeAppCode } from '../apps';
 import { APP_CONTEXT_KEY } from './middleware';
 
 export function appContextMiddleware() {
   return async (c: any, next: Next): Promise<void> => {
     const raw = c.req.header(APP_CONTEXT_HEADER);
-    if (raw) {
+    // `workspace` = an explicit "no app" (shell widgets inside a module).
+    if (raw && raw.trim().toLowerCase() !== WORKSPACE_APP_CONTEXT) {
       const app = normalizeAppCode(raw);
       if (app) {
         c.set(APP_CONTEXT_KEY, app);
