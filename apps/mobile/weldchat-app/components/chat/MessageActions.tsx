@@ -50,7 +50,7 @@ export function MessageActions({
   onEdit,
   onSave,
   isOwnMessage,
-}: MessageActionsProps) {
+}: Readonly<MessageActionsProps>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.bottom), [colors, insets.bottom]);

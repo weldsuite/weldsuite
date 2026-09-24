@@ -42,7 +42,7 @@ export function SearchField({
   inputRef,
   onPress,
   style,
-}: SearchFieldProps) {
+}: Readonly<SearchFieldProps>) {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const isButton = onChangeText === undefined && !!onPress;
