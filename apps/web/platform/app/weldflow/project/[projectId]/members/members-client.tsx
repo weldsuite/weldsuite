@@ -153,7 +153,7 @@ export function MembersClient({
           membersApi.add(projectId, {
             userId,
             role: selectedRole,
-            allocationPercentage: parseInt(allocation) || 100,
+            allocationPercentage: Number.parseInt(allocation) || 100,
           }),
         ),
       );

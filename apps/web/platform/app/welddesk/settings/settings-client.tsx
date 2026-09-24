@@ -293,7 +293,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
                     max={60}
                     value={satisfaction.delayMinutes ?? 5}
                     onChange={(e) => {
-                      setSatisfaction(prev => ({ ...prev, delayMinutes: parseInt(e.target.value) || 0 }));
+                      setSatisfaction(prev => ({ ...prev, delayMinutes: Number.parseInt(e.target.value) || 0 }));
                       setHasChanges(true);
                     }}
                     className="w-24 h-9"

@@ -106,7 +106,7 @@ export function FileDetailPanel({
 }: FileDetailPanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('overview');
-  const widthNum = parseInt(width, 10) || 500;
+  const widthNum = Number.parseInt(width, 10) || 500;
   const { user } = useUser();
   const { data: membersData } = useWorkspaceMembers();
 

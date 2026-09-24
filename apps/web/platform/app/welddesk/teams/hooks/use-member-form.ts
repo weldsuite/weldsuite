@@ -124,7 +124,7 @@ export function useMemberForm({
         departmentId,
         status: data.status,
         availability: data.availability,
-        maxActiveTickets: data.maxActiveTickets ? parseInt(data.maxActiveTickets) : undefined,
+        maxActiveTickets: data.maxActiveTickets ? Number.parseInt(data.maxActiveTickets) : undefined,
         skills: data.skills ? data.skills.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
         languages: data.languages ? data.languages.split(',').map((l) => l.trim()).filter(Boolean) : undefined,
       };

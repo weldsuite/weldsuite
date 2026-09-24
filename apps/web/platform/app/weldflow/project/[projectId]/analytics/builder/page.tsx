@@ -186,7 +186,7 @@ export default function ProjectAnalyticsBuilderPage() {
           groupBy,
           aggregation,
           sortOrder,
-          limit: limit === 'All' ? undefined : parseInt(limit, 10),
+          limit: limit === 'All' ? undefined : Number.parseInt(limit, 10),
           color: chartColor,
           smoothCurve: smoothLines,
           fillArea,

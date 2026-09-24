@@ -170,7 +170,7 @@ export default function MemberDetailPage() {
     try {
       const result = await membersApi.update(projectId, member.userId, {
         role: editRole,
-        allocationPercentage: parseInt(editAllocation) || 100,
+        allocationPercentage: Number.parseInt(editAllocation) || 100,
       });
 
       if (result.success) {
