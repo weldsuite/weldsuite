@@ -80,7 +80,7 @@ function salesChannelError(
 app.get('/', requirePermission('products:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));

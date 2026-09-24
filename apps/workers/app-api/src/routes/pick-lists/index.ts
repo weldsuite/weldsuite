@@ -65,7 +65,7 @@ function mapPickError(c: Parameters<typeof error.badRequest>[0], err: unknown, f
 app.get('/', requirePermission('picklists:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: ReturnType<typeof eq>[] = [isNull(t.deletedAt)] as never[];
   if (q.warehouseId !== undefined && q.warehouseId !== '') conditions.push(eq(t.warehouseId, q.warehouseId));
