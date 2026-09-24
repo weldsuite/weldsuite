@@ -297,7 +297,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
       'financial_mutations/synchronization',
     );
     const rows = Array.isArray(versions) ? versions : [];
-    const sinceMs = options.updatedAfter ? Date.parse(options.updatedAfter) : NaN;
+    const sinceMs = options.updatedAfter ? Date.parse(options.updatedAfter) : Number.NaN;
     const filtered = Number.isFinite(sinceMs)
       ? rows.filter((row) => {
           const version = typeof row.version === 'number' ? row.version : Number(row.version);
@@ -374,7 +374,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
       const sinceMs = Date.parse(since);
       if (!Number.isFinite(sinceMs)) return page.items.length > 0;
       return page.items.some((item) => {
-        const updated = typeof item.updated_at === 'string' ? Date.parse(item.updated_at) : NaN;
+        const updated = typeof item.updated_at === 'string' ? Date.parse(item.updated_at) : Number.NaN;
         return Number.isFinite(updated) && updated > sinceMs;
       });
     }

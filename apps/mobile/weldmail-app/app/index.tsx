@@ -59,7 +59,7 @@ const EMAIL_LIST_WIDTH_TABLET = 400;
 function formatRowTime(input?: string): string {
   if (!input) return '';
   const d = new Date(input);
-  if (isNaN(d.getTime())) return '';
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
@@ -742,7 +742,7 @@ export default function MailScreen() {
     const dateStr = item.receivedDate || item.createdAt;
     if (!dateStr) return 'Older';
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 'Older';
+    if (Number.isNaN(date.getTime())) return 'Older';
     // Compare calendar days in the device's local timezone, not elapsed
     // milliseconds. Using raw elapsed time would label an email from
     // yesterday evening as "Today" when viewed early the next morning

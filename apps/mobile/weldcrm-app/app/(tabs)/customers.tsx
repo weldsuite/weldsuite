@@ -117,7 +117,7 @@ export default function CustomersScreen() {
   const formatCurrency = (value?: string) => {
     if (!value) return undefined;
     const num = Number.parseFloat(value);
-    if (isNaN(num)) return value;
+    if (Number.isNaN(num)) return value;
     return `$${num.toLocaleString()}`;
   };
 
@@ -216,7 +216,7 @@ export default function CustomersScreen() {
       if (newDealClosingDate) {
         // Try to parse the date string (e.g., "1 Jan 2026")
         const parsed = new Date(newDealClosingDate);
-        closeDate = !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        closeDate = !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       } else {
         closeDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       }

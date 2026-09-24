@@ -1051,7 +1051,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
       prev.type !== 'system' &&
       prev.authorId === item.authorId &&
       !item.parentId &&
-      !isNaN(timeDiff) &&
+      !Number.isNaN(timeDiff) &&
       timeDiff >= 0 &&
       timeDiff < 300000;
 

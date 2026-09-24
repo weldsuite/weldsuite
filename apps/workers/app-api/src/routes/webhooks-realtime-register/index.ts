@@ -64,7 +64,7 @@ app.post('/', async (c) => {
       ? processIdRaw
       : typeof processIdRaw === 'string'
         ? Number.parseInt(processIdRaw, 10)
-        : NaN;
+        : Number.NaN;
 
   if (!Number.isFinite(processId)) {
     console.log('[RTR Webhook] no processId — ack only', JSON.stringify({ keys: Object.keys(payload) }));
