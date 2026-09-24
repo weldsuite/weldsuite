@@ -67,7 +67,7 @@ export function useContentAreaBounds(): ContentAreaBounds {
       const reservationStr = getComputedStyle(root)
         .getPropertyValue('--object-panel-reservation-width')
         .trim();
-      const reservation = parseFloat(reservationStr) || 0;
+      const reservation = Number.parseFloat(reservationStr) || 0;
       const rightInset = Math.max(0, Math.floor(window.innerWidth - rect.right - reservation));
       const bottomInset = Math.max(0, Math.floor(window.innerHeight - rect.bottom));
       const top = Math.floor(rect.top);

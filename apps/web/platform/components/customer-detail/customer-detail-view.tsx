@@ -340,7 +340,7 @@ function CustomerDetailPanelLayout({
   const { isLoading, data, customerId, entityType } = useCustomerDetailContext();
 
   // Parse width to number for events
-  const widthNum = parseInt(width, 10) || 500;
+  const widthNum = Number.parseInt(width, 10) || 500;
 
   // Bottom-pinned, resizable chat — mirrors the task detail panel pattern
   // in apps/web/platform/components/task-detail/task-detail-panel.tsx.

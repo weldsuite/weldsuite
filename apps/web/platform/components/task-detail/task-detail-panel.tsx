@@ -204,7 +204,7 @@ export function TaskDetailPanel({
   hideCompletionCheckbox,
   onBack,
 }: TaskDetailPanelProps) {
-  const widthNum = parseInt(width, 10) || 480;
+  const widthNum = Number.parseInt(width, 10) || 480;
 
   const { t } = useI18n();
   const st = useTranslations();
