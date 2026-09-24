@@ -26,6 +26,7 @@ import { extractEventSubscriptions } from '../../services/weldagent/subscription
 import { executeAgentRun } from '../../services/weldagent/run';
 import { listToolCatalog, resolveAgentTools } from '../../services/weldagent/tools';
 import { InsufficientAiCreditsError } from '../../services/ai/billing';
+import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-routine-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -181,6 +182,9 @@ app.patch('/:id', requirePermission('weldagent:update', 'weldagent:manage'), zVa
   try {
     const agent = await updateAgent(db, id, data);
     if (!agent) return error.notFound(c, 'Agent not found');
+    if (data.status !== undefined) {
+      await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
+    }
     return success(c, agent);
   } catch (err) {
     console.error('[weldagent/agents] update failed:', err);
@@ -193,6 +197,7 @@ app.delete('/:id', requirePermission('weldagent:delete', 'weldagent:manage'), as
   const db = c.get('tenantDb');
   const ok = await deleteAgent(db, c.req.param('id'));
   if (!ok) return error.notFound(c, 'Agent not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, c.req.param('id'));
   return noContent(c);
 });
 
@@ -208,6 +213,7 @@ app.post('/:id/activate', requirePermission('weldagent:update', 'weldagent:manag
     status: 'active',
     eventSubscriptions: subscriptions,
   });
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
   return success(c, agent);
 });
 
@@ -216,6 +222,7 @@ app.post('/:id/pause', requirePermission('weldagent:update', 'weldagent:manage')
   const db = c.get('tenantDb');
   const agent = await updateAgent(db, c.req.param('id'), { status: 'paused' });
   if (!agent) return error.notFound(c, 'Agent not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, agent.id);
   return success(c, agent);
 });
 

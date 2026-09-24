@@ -14,6 +14,7 @@ import { generateId } from '../../lib/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson } from '../people';
 import { allocateTaskNumber } from '../task-numbering';
+import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-routine-index';
 import type { Variables } from '../../types';
 
 export type AgentDb = Variables['tenantDb'];
@@ -225,6 +226,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
       });
       if (!updated) return { error: 'Failed to save agent setup' };
+      await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
 
       return {
         ok: true,
@@ -355,6 +357,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
           : null,
         createdBy: ctx.actorUserId,
       });
+      await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
       return { ok: true, routineId: routine.id, name: routine.name, nextRunAt: routine.nextRunAt };
     },
   },

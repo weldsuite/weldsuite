@@ -59,6 +59,7 @@ import { getAgent } from '../../services/weldagent/agents';
 import { executeAgentRun } from '../../services/weldagent/run';
 import { enqueueWeldAgentJob } from '../../services/weldagent/jobs';
 import { executeDecidedApproval } from '../../services/weldagent/approvals';
+import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-routine-index';
 import {
   browserAct,
   browserOpen,
@@ -118,18 +119,22 @@ app.post('/routines', requirePermission('weldagent:create', 'weldagent:manage'),
   const agent = await getAgent(c.get('tenantDb'), data.agentId);
   if (!agent) return error.notFound(c, 'Agent not found');
   const routine = await createRoutine(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
   return success(c, routine, 201);
 });
 
 app.patch('/routines/:id', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', updateRoutineSchema), async (c) => {
   const routine = await updateRoutine(c.get('tenantDb'), c.req.param('id'), c.req.valid('json'));
   if (!routine) return error.notFound(c, 'Routine not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
   return success(c, routine);
 });
 
 app.delete('/routines/:id', requirePermission('weldagent:manage', 'weldagent:update'), async (c) => {
+  const existing = await getRoutine(c.get('tenantDb'), c.req.param('id'));
   const ok = await deleteRoutine(c.get('tenantDb'), c.req.param('id'));
-  if (!ok) return error.notFound(c, 'Routine not found');
+  if (!ok || !existing) return error.notFound(c, 'Routine not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), existing.agentId);
   return noContent(c);
 });
 
@@ -258,6 +263,7 @@ app.post('/templates/install', requirePermission('weldagent:create', 'weldagent:
   }
   const agent = await installTemplate(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   if (!agent) return error.notFound(c, 'Template not found');
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), agent.id);
   return success(c, agent, 201);
 });
 
