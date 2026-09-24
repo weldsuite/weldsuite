@@ -27,7 +27,7 @@ export default function ChangelogPage() {
   const { t } = useI18n();
   const tc = t.helpdesk.changelog;
   const searchParams = useSearchParams();
-  const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
+  const page = searchParams.get('page') ? Number.parseInt(searchParams.get('page')!) : 1;
   const search = searchParams.get('search') || undefined;
 
   const currentParams: Record<string, string> = {};

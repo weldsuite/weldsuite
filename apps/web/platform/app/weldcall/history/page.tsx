@@ -12,7 +12,7 @@ import { WeldCallGate } from '../components/weldcall-gate';
 function CallHistoryContent() {
   const searchParams = useSearchParams();
 
-  const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
+  const page = searchParams.get('page') ? Number.parseInt(searchParams.get('page')!) : 1;
   const search = searchParams.get('search') || undefined;
   const direction = searchParams.get('direction') as
     | 'inbound'
