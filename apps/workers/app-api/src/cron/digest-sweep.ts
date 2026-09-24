@@ -35,7 +35,7 @@ function getCurrentHourForTimezones(timezones: string[]): Map<string, number> {
       const parts = formatter.formatToParts(now);
       const hourPart = parts.find((p) => p.type === 'hour');
       if (hourPart) {
-        const hour = parseInt(hourPart.value, 10) % 24;
+        const hour = Number.parseInt(hourPart.value, 10) % 24;
         result.set(tz, hour);
       }
     } catch {

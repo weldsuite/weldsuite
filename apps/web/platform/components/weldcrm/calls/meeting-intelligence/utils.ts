@@ -42,5 +42,5 @@ export function formatDurationMin(seconds: number): string {
 
 export function parseSpeakerId(speakerLabel: string): number {
   const match = speakerLabel.match(/\d+/);
-  return match ? parseInt(match[0]) : 0;
+  return match ? Number.parseInt(match[0]) : 0;
 }

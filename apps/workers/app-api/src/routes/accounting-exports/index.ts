@@ -25,7 +25,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.get('/xaf', requirePermission('reports:read'), async (c) => {
   const db = c.get('tenantDb');
-  const fiscalYear = parseInt(c.req.query('fiscalYear') || '', 10);
+  const fiscalYear = Number.parseInt(c.req.query('fiscalYear') || '', 10);
   if (!fiscalYear || fiscalYear < 2000 || fiscalYear > 2100) {
     return error.badRequest(c, 'fiscalYear query parameter is required (e.g. ?fiscalYear=2026)');
   }

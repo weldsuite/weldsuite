@@ -69,7 +69,7 @@ export function AudioPlayer({
   }, [segments, t]);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
+    const newVolume = Number.parseFloat(e.target.value);
     setVolume(newVolume);
     if (audioRef.current) {
       audioRef.current.volume = newVolume;
