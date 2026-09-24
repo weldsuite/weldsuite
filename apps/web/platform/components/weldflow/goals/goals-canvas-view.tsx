@@ -2029,8 +2029,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           {/* Add child button - appears on hover, hidden when dragging */}
           {canWrite && hoveredGoal && !isDragging && (() => {
             // Check if hovering over mission card
-            const isMission = hoveredGoal === mission.id;
-            const goal = isMission ? null : goals.find(g => g.id === hoveredGoal);
+            const activeGoalId = hoveredGoal;
+            const isMission = activeGoalId === mission.id;
+            const goal = isMission ? null : goals.find(g => g.id === activeGoalId);
             if (!isMission && !goal) return null;
 
             const buttonX = isMission
@@ -2049,7 +2050,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                   transform: 'translate(-50%, 0)',
                   paddingTop: '10px'
                 }}
-                onMouseEnter={() => setHoveredGoal(hoveredGoal)}
+                onMouseEnter={() => setHoveredGoal(activeGoalId)}
                 onMouseLeave={() => setHoveredGoal(null)}
               >
                 <Button

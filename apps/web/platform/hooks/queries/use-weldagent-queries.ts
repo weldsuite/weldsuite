@@ -39,6 +39,8 @@ interface WeldAgentMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   toolInvocations?: unknown[];
+  /** `kind: 'approval_outcome'` marks a note posted after an approval, not a turn reply. */
+  metadata?: Record<string, unknown> | null;
   formState?: {
     formId?: string;
     formType?: string;
@@ -66,7 +68,8 @@ export interface WeldAgentUserSettings {
 
 // Lists the current user's saved chats for the home sidebar's "Recent" /
 // "Pinned" groups. Backed by app-api `GET /api/weldagent/conversations`.
-// Pass `agentId` to scope to one workspace agent (Grok-bot style history).
+// Pass `agentId` to scope to one workspace agent (Grok-bot style history), or
+// `'none'` for personal assistant chats only.
 export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   const { weldAgent } = useAppApi();
   return useQuery({

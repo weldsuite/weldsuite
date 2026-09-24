@@ -8,7 +8,7 @@
  * to fire. app-api keeps rows in sync on schedule create/update/toggle/delete
  * (see app-api `services/workflow-schedules.ts`), writing `next_run_at = NULL`
  * to signal "recompute" whenever a timing-relevant field changes. Cron math
- * lives only in this worker (`lib/cron.ts`).
+ * lives in `@weldsuite/workflow-integrations/cron`.
  *
  * The tenant `workflow_schedules` row stays the source of truth for config and
  * run stats; this index is the source of truth for *when to fire*.

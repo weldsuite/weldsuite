@@ -167,7 +167,7 @@ export function EntityDetailHeader({
                     variant={action.variant || "default"}
                     onClick={action.onClick}
                     disabled={action.disabled}
-                    className={`h-8 text-sm px-3 shadow-none ${action.iconPosition === "right" ? "flex items-center gap-1.5" : "flex items-center gap-1.5"}`}
+                    className="h-8 text-sm px-3 shadow-none flex items-center gap-1.5"
                   >
                     {action.iconPosition === "right" ? (
                       <>

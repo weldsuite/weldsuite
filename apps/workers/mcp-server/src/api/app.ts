@@ -9,7 +9,7 @@ import type { McpSession } from '../lib/api-types';
  * Origin used when dispatching into the internal API. Never leaves the worker —
  * `apiApp.fetch()` is called directly, so only the path and query matter.
  */
-export const INTERNAL_ORIGIN = 'http://mcp.internal';
+export const INTERNAL_ORIGIN = 'https://mcp.internal';
 
 /**
  * Key under which the authenticated session is smuggled into the Hono `env`

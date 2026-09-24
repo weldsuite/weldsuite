@@ -807,6 +807,7 @@ export { TrashCleanupWorkflow } from './workflows/trash-cleanup';
 export { TranscribeRecordingWorkflow } from './workflows/transcribe-recording';
 export { UnpinExpiredMessageWorkflow } from './workflows/unpin-expired-message';
 export { DeferredNotificationEmailWorkflow } from './workflows/deferred-notification-email';
+export { WeldAgentJobWorkflow } from './workflows/weldagent-job';
 export { SendDigestWorkflow } from './workflows/send-digest';
 export { ImportTasksWorkflow } from './workflows/import-tasks';
 

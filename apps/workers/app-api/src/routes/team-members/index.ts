@@ -64,6 +64,7 @@ import * as commonService from '../../services/team/common-concepts';
 import * as activityService from '../../services/team/activity';
 import * as memberAccessService from '../../services/team/member-access';
 import { getWorkspaceSeatLimit } from '../../services/seat-limits';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -454,7 +455,11 @@ app.post('/invite', async (c) => {
         const errBody = (await membershipResp.json().catch(() => ({}))) as {
           errors?: Array<{ code?: string; message?: string }>;
         };
-        console.error('[app-api/team-members] Clerk membership error (guest):', membershipResp.status, errBody);
+        console.error(
+          '[app-api/team-members] Clerk membership error (guest):',
+          membershipResp.status,
+          logSafe(JSON.stringify(errBody)),
+        );
         return error.internal(c, 'Failed to add guest to Clerk organization');
       }
 
@@ -515,7 +520,11 @@ app.post('/invite', async (c) => {
     if (clerkCode === 'duplicate_record' || clerkResp.status === 422) {
       return error.conflict(c, 'An invitation for this email already exists in Clerk.');
     }
-    console.error('[app-api/team-members] Clerk invitation error:', clerkResp.status, errBody);
+    console.error(
+      '[app-api/team-members] Clerk invitation error:',
+      clerkResp.status,
+      logSafe(JSON.stringify(errBody)),
+    );
     return error.internal(c, 'Failed to create Clerk invitation');
   }
 

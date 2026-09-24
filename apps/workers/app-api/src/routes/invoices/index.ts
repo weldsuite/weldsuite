@@ -150,8 +150,8 @@ async function applyBalances(
 ) {
   const { accounts } = schema;
   for (const line of lines) {
-    const debit = parseFloat(line.debit || '0');
-    const credit = parseFloat(line.credit || '0');
+    const debit = Number.parseFloat(line.debit || '0');
+    const credit = Number.parseFloat(line.credit || '0');
     const netChange = debit - credit;
     if (netChange !== 0) {
       await db
@@ -170,8 +170,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
   const db = c.get('tenantDb');
   const { invoices } = schema;
 
-  const page = parseInt(c.req.query('page') || '1', 10);
-  const pageSize = Math.min(Math.max(parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
+  const page = Number.parseInt(c.req.query('page') || '1', 10);
+  const pageSize = Math.min(Math.max(Number.parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
   const offset = (page - 1) * pageSize;
 
   try {
@@ -540,7 +540,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       updateData.discountTotal = totals.discountTotal;
       updateData.taxTotal = totals.taxTotal;
       updateData.total = totals.total;
-      updateData.balanceDue = String(parseFloat(totals.total) - parseFloat(invoice.amountPaid || '0'));
+      updateData.balanceDue = String(Number.parseFloat(totals.total) - Number.parseFloat(invoice.amountPaid || '0'));
       updateData.taxBreakdown = totals.taxBreakdown;
 
       const newItems = data.items.map((item, idx) => ({
@@ -827,8 +827,8 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       resolvedRevenueAccountId = owned.id;
     }
 
-    const total = parseFloat(invoice.total || '0');
-    const taxTotal = parseFloat(invoice.taxTotal || '0');
+    const total = Number.parseFloat(invoice.total || '0');
+    const taxTotal = Number.parseFloat(invoice.taxTotal || '0');
     const subtotal = total - taxTotal;
 
     // Create journal entry
@@ -1185,9 +1185,9 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
     // Payments dated inside a closed fiscal period are not allowed.
     await assertPeriodOpen(db, invoice.entityId, data.date);
 
-    const paymentAmount = parseFloat(data.amount);
-    const currentPaid = parseFloat(invoice.amountPaid || '0');
-    const invoiceTotal = parseFloat(invoice.total || '0');
+    const paymentAmount = Number.parseFloat(data.amount);
+    const currentPaid = Number.parseFloat(invoice.amountPaid || '0');
+    const invoiceTotal = Number.parseFloat(invoice.total || '0');
     const newAmountPaid = currentPaid + paymentAmount;
     const newBalanceDue = invoiceTotal - newAmountPaid;
     const isFullyPaid = newBalanceDue <= 0;
@@ -1296,11 +1296,11 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
     // absolute amounts so the invoice's line-item math matches the order.
     const lineInputs = items.map((item) => {
       const qty = item.quantity || 1;
-      const price = parseFloat(item.unitPrice || '0');
+      const price = Number.parseFloat(item.unitPrice || '0');
       const gross = qty * price;
-      const discountAmount = parseFloat(item.discountAmount || '0');
+      const discountAmount = Number.parseFloat(item.discountAmount || '0');
       const net = gross - discountAmount;
-      const taxAmount = parseFloat(item.taxAmount || '0');
+      const taxAmount = Number.parseFloat(item.taxAmount || '0');
       const discountPercent = gross > 0 ? ((discountAmount / gross) * 100).toFixed(2) : '0';
       const taxRate = net > 0 && taxAmount > 0 ? ((taxAmount / net) * 100).toFixed(2) : '0';
       return {
@@ -1313,7 +1313,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       };
     });
 
-    const shippingTotal = parseFloat(order.shippingTotal || '0');
+    const shippingTotal = Number.parseFloat(order.shippingTotal || '0');
     if (shippingTotal > 0) {
       lineInputs.push({
         description: 'Shipping',

@@ -24,6 +24,7 @@ import {
   type MeetingBaasWebhookPayload,
 } from '../../services/meeting-bot-webhook';
 import { verifyWebhookToken } from '../../lib/webhook-token';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -59,7 +60,7 @@ app.post('/', async (c) => {
     payload.extra = extra;
   }
 
-  console.log(`[MeetingBaas Webhook] Received event: ${payload.event}`, {
+  console.log(`[MeetingBaas Webhook] Received event: ${logSafe(payload.event)}`, {
     botId,
     statusCode,
     platformSessionId: extra?.platformSessionId,
@@ -91,7 +92,7 @@ app.post('/', async (c) => {
         break;
 
       default:
-        console.log(`[MeetingBaas Webhook] Unhandled event: ${payload.event}`);
+        console.log(`[MeetingBaas Webhook] Unhandled event: ${logSafe(payload.event)}`);
     }
 
     return c.json({ received: true });

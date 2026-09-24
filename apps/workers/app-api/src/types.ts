@@ -270,6 +270,10 @@ export interface Env {
     columnId: string;
     leadIds: string[];
   }>;
+  /** CF Workflow that runs WeldAgent background work (chat replies, routine
+   *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
+   *  app-api (class exported from src/index.ts). */
+  WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
   /** CF Workflow that transcribes a meeting (or CRM call) recording.
    *  Hosted in app-api itself under the `transcribe-recording-v2*` workflow
    *  names — api-worker's old names keep draining until W7. Dispatched by

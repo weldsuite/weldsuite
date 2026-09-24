@@ -9,7 +9,7 @@
  * only when a schedule actually fires — to mirror run stats into the UI-facing
  * `workflow_schedules` row — so idle workspaces' databases autosuspend normally.
  *
- * Cron math lives in `lib/cron.ts`. app-api keeps the index in sync on schedule
+ * Cron math lives in `@weldsuite/workflow-integrations/cron`. app-api keeps the index in sync on schedule
  * CRUD (see app-api `services/workflow-schedules.ts`).
  *
  * Split into: a `ScheduleIndexStore` port (D1 impl `d1ScheduleStore`, so the
@@ -20,11 +20,11 @@
 import { eq } from 'drizzle-orm';
 import { getTenantDbForWorkspace, schema } from '../db';
 import type { WorkflowEnv } from '../engine/types';
-import { computeNextRunAt } from '../lib/cron';
+import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import type { ScheduleIndexRow } from '../schedule-index';
 
 // Re-exported for back-compat / callers that want the matcher directly.
-export { cronMatchesNow, cronMatchesAt, computeNextRunAt } from '../lib/cron';
+export { cronMatchesNow, cronMatchesAt, computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 
 const DOUBLE_FIRE_GUARD_MS = 55_000;
 

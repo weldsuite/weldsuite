@@ -62,8 +62,8 @@ app.get('/', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const { bankTransactions } = schema;
   const q = c.req.query();
-  const page = Math.max(parseInt(q.page || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(q.pageSize || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(q.page || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(q.pageSize || '25', 10), 1), 100);
 
   try {
     const accountingEntityId = await resolveEntityId(c, db);
@@ -459,7 +459,7 @@ app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
     const [txn] = await db.select().from(bankTransactions).where(eq(bankTransactions.id, txnId)).limit(1);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
 
-    const amount = parseFloat(txn.amount || '0');
+    const amount = Number.parseFloat(txn.amount || '0');
     const suggestions: Array<{ type: string; id: string; number: string | null; contactName: string | null; amount: string | null; confidence: number }> = [];
 
     if (amount > 0) {
@@ -472,7 +472,7 @@ app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
 
       for (const inv of openInvoices) {
         let confidence = 0;
-        if (Math.abs(parseFloat(inv.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
+        if (Math.abs(Number.parseFloat(inv.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
         if (txn.counterpartyIban && txn.reference && inv.invoiceNumber && txn.reference.includes(inv.invoiceNumber)) confidence += 0.3;
 
         // Check IBAN match via contact
@@ -496,7 +496,7 @@ app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
 
       for (const bill of openBills) {
         let confidence = 0;
-        if (Math.abs(parseFloat(bill.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
+        if (Math.abs(Number.parseFloat(bill.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
         if (txn.reference && bill.externalReference && txn.reference.includes(bill.externalReference)) confidence += 0.3;
 
         if (confidence > 0) {

@@ -173,8 +173,7 @@ export function NavbarShopifySection({
 
     const showImage = megamenuShowImages && item.megamenuImage;
     const columnsClass = megamenuColumns === 2 ? 'grid-cols-2' :
-                         megamenuColumns === 3 ? 'grid-cols-3' :
-                         megamenuColumns === 4 ? 'grid-cols-4' : 'grid-cols-4';
+                         megamenuColumns === 3 ? 'grid-cols-3' : 'grid-cols-4';
 
     if (megamenuStyle === 'full-width') {
       return (

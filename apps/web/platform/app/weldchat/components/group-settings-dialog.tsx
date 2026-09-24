@@ -1203,7 +1203,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
 function normalize(s: GroupFilterSettings): GroupFilterSettings {
   return {
     ...s,
-    channelIds: [...(s.channelIds ?? [])].sort(),
+    channelIds: [...(s.channelIds ?? [])].sort((a, b) => a.localeCompare(b)),
   };
 }
 

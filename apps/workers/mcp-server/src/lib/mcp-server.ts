@@ -73,6 +73,20 @@ Making changes:
   rather than retrying.`;
 
 /**
+ * First free name for a dynamically registered tool: `base`, else `base_2`,
+ * `base_3`, … so a colliding tool stays reachable instead of being dropped.
+ */
+function uniqueToolName(base: string, taken: ReadonlySet<string>): string {
+  let name = base;
+  let suffix = 2;
+  while (taken.has(name)) {
+    name = `${base}_${suffix}`;
+    suffix++;
+  }
+  return name;
+}
+
+/**
  * Create an MCP server instance for one authenticated session.
  * A new instance is created per request (stateless).
  *
@@ -130,10 +144,7 @@ export async function createMcpServer(
       // `${appCode}_${name}`, deduped by numeric suffix on collision (with
       // static tools or other app tools sharing the same code + name).
       const baseName = `${appTool.appCode}_${appTool.name}`;
-      let toolName = baseName;
-      for (let i = 2; registeredNames.has(toolName); i++) {
-        toolName = `${baseName}_${i}`;
-      }
+      const toolName = uniqueToolName(baseName, registeredNames);
       registeredNames.add(toolName);
 
       server.tool(
@@ -171,10 +182,7 @@ export async function createMcpServer(
         // if someone names an object `products`) or with another object's
         // tools. Dedupe by numeric suffix rather than dropping the tool, so the
         // object stays reachable either way.
-        let toolName = objectTool.name;
-        for (let i = 2; registeredNames.has(toolName); i++) {
-          toolName = `${objectTool.name}_${i}`;
-        }
+        const toolName = uniqueToolName(objectTool.name, registeredNames);
         registeredNames.add(toolName);
 
         server.tool(

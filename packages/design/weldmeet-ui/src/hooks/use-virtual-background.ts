@@ -108,7 +108,10 @@ export function useVirtualBackground(meeting: RealtimeKitClient | null) {
   useEffect(() => {
     return () => {
       if (middlewareRef.current && meeting) {
-        try { meeting.self.removeVideoMiddleware(middlewareRef.current); } catch { /* ignore */ }
+        const middleware = middlewareRef.current;
+        Promise.resolve()
+          .then(() => meeting.self.removeVideoMiddleware(middleware))
+          .catch(() => { /* ignore */ });
       }
       transformerRef.current = null;
       initPromiseRef.current = null;
@@ -119,7 +122,10 @@ export function useVirtualBackground(meeting: RealtimeKitClient | null) {
 
   const removeCurrentMiddleware = useCallback(() => {
     if (middlewareRef.current && meeting) {
-      try { meeting.self.removeVideoMiddleware(middlewareRef.current); } catch { /* ignore */ }
+      const middleware = middlewareRef.current;
+      Promise.resolve()
+        .then(() => meeting.self.removeVideoMiddleware(middleware))
+        .catch(() => { /* ignore */ });
       middlewareRef.current = null;
     }
   }, [meeting]);

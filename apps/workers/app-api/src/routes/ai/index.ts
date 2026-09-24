@@ -20,7 +20,11 @@
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission, hasContextPermission } from '@weldsuite/permissions/server';
+import {
+  ensurePermissionsResolved,
+  hasContextPermission,
+  requirePermission,
+} from '@weldsuite/permissions/server';
 import {
   generateText,
   streamText,
@@ -207,7 +211,8 @@ app.post(
 
     // Workspace agent path — tools + agent instructions.
     if (agentId) {
-      if (!(await hasContextPermission(c, 'weldagent:use'))) {
+      const resolved = await ensurePermissionsResolved(c);
+      if (!resolved || !(await hasContextPermission(c, 'weldagent:use'))) {
         return error.forbidden(c, 'Missing permission: weldagent:use');
       }
       const agent = await getAgent(c.get('tenantDb'), agentId);
@@ -228,15 +233,18 @@ app.post(
             maxIterations: agent.maxIterations,
             permissions: agent.permissions,
             enabledTools: agent.enabledTools,
+            autoReviewEnabled: agent.autoReviewEnabled,
           },
           toolContext: {
             db: c.get('tenantDb'),
             agentId: agent.id,
             actorUserId: c.get('userId'),
             workspaceId: c.get('workspaceId'),
+            env: c.env,
           },
           messages: chatMessages,
           extraSystem: extraSystem || undefined,
+          actorPermissions: resolved.permissions,
         });
         return success(c, {
           text: result.text,
@@ -371,7 +379,8 @@ app.post(
     }
 
     if (agentId) {
-      if (!(await hasContextPermission(c, 'weldagent:use'))) {
+      const resolved = await ensurePermissionsResolved(c);
+      if (!resolved || !(await hasContextPermission(c, 'weldagent:use'))) {
         return error.forbidden(c, 'Missing permission: weldagent:use');
       }
       const agent = await getAgent(c.get('tenantDb'), agentId);
@@ -392,15 +401,18 @@ app.post(
             maxIterations: agent.maxIterations,
             permissions: agent.permissions,
             enabledTools: agent.enabledTools,
+            autoReviewEnabled: agent.autoReviewEnabled,
           },
           toolContext: {
             db: c.get('tenantDb'),
             agentId: agent.id,
             actorUserId: c.get('userId'),
             workspaceId: c.get('workspaceId'),
+            env: c.env,
           },
           messages: chatMessages,
           extraSystem: extraSystem || undefined,
+          actorPermissions: resolved.permissions,
           metering,
           executionCtx: c.executionCtx,
         });

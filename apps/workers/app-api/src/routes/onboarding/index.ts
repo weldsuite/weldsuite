@@ -48,6 +48,7 @@ import { clerkMiddleware } from '../../middleware/clerk';
 import { success, error } from '../../lib/response';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema } from '../../db';
 import { generateId } from '../../lib/id';
+import { logSafe } from '../../lib/log-safe';
 
 /**
  * Default apps installed when a workspace is created from the platform's
@@ -523,7 +524,7 @@ app.post('/profile', zValidator('json', profileInput), async (c) => {
 
     if (!patchRes.ok) {
       const errText = await patchRes.text();
-      console.error('[Onboarding] Failed to update Clerk user profile:', errText);
+      console.error('[Onboarding] Failed to update Clerk user profile:', logSafe(errText));
       return error.internal(c, 'Failed to update profile');
     }
 
@@ -763,7 +764,7 @@ app.post('/complete', async (c) => {
 
         if (!patchRes.ok) {
           const errText = await patchRes.text();
-          console.error('[Onboarding] Failed to patch org metadata:', errText);
+          console.error('[Onboarding] Failed to patch org metadata:', logSafe(errText));
         }
       }
 

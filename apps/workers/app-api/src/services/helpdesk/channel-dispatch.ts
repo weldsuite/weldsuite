@@ -18,6 +18,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { sendMessage as sendDiscordMessage } from '../../lib/discord';
 import { schema, type Database } from '../../db';
 import type { Env } from '../../types';
+import { logSafe } from '../../lib/log-safe';
 
 // `lib/cloudflare-email` statically imports `cloudflare:email`, a Workers
 // runtime built-in that a node/vitest module graph cannot resolve. Importing it
@@ -73,7 +74,7 @@ export async function dispatchOutbound(
       return dispatchSlack(db, conversation, message);
     default:
       console.warn(
-        `[ChannelDispatch] Unknown channel "${channel}" for conversation ${conversation.id}`,
+        `[ChannelDispatch] Unknown channel "${logSafe(channel)}" for conversation ${logSafe(conversation.id)}`,
       );
   }
 }
@@ -91,7 +92,7 @@ async function dispatchDiscord(
 
   if (!discordChannelId || !env.DISCORD_BOT_TOKEN) {
     console.warn(
-      `[ChannelDispatch:Discord] Missing channelId or bot token for conversation ${conversation.id}`,
+      `[ChannelDispatch:Discord] Missing channelId or bot token for conversation ${logSafe(conversation.id)}`,
     );
     return;
   }
@@ -119,7 +120,7 @@ async function dispatchEmail(
 
   if (!helpdeskEmailAddress || !customerEmail) {
     console.warn(
-      `[ChannelDispatch:Email] Missing email addresses for conversation ${conversation.id}`,
+      `[ChannelDispatch:Email] Missing email addresses for conversation ${logSafe(conversation.id)}`,
     );
     return;
   }
@@ -196,7 +197,7 @@ async function dispatchSlack(
 
   if (!slackChannelId) {
     console.warn(
-      `[ChannelDispatch:Slack] Missing slackChannelId for conversation ${conversation.id}`,
+      `[ChannelDispatch:Slack] Missing slackChannelId for conversation ${logSafe(conversation.id)}`,
     );
     return;
   }
@@ -214,7 +215,7 @@ async function dispatchSlack(
 
   if (!integration || integration.status !== 'connected') {
     console.warn(
-      `[ChannelDispatch:Slack] No active Slack integration for conversation ${conversation.id}`,
+      `[ChannelDispatch:Slack] No active Slack integration for conversation ${logSafe(conversation.id)}`,
     );
     return;
   }
@@ -245,7 +246,7 @@ async function dispatchSlack(
 
     const result = (await response.json()) as { ok: boolean; error?: string };
     if (!result.ok) {
-      console.error(`[ChannelDispatch:Slack] API error: ${result.error}`);
+      console.error(`[ChannelDispatch:Slack] API error: ${logSafe(result.error)}`);
     }
   } catch (err) {
     console.error('[ChannelDispatch:Slack] Failed to send message:', err);

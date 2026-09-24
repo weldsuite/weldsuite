@@ -177,7 +177,7 @@ export function EntityDataTable<T = unknown>({
     const widths: Record<string, number> = {};
     columns.forEach((col) => {
       if (col.width) {
-        widths[col.key] = parseInt(col.width, 10) || 100;
+        widths[col.key] = Number.parseInt(col.width, 10) || 100;
       }
     });
     return widths;
@@ -195,7 +195,7 @@ export function EntityDataTable<T = unknown>({
       e.preventDefault();
       e.stopPropagation();
       const column = columns.find((c) => c.key === columnKey);
-      const currentWidth = columnWidths[columnKey] || (column?.width ? parseInt(column.width, 10) : 100);
+      const currentWidth = columnWidths[columnKey] || (column?.width ? Number.parseInt(column.width, 10) : 100);
 
       resizingRef.current = {
         columnKey,
@@ -216,7 +216,7 @@ export function EntityDataTable<T = unknown>({
 
       const { columnKey, startX, startWidth } = resizingRef.current;
       const column = columns.find((c) => c.key === columnKey);
-      const minWidth = column?.minWidth ? parseInt(column.minWidth, 10) : 50;
+      const minWidth = column?.minWidth ? Number.parseInt(column.minWidth, 10) : 50;
 
       const diff = e.clientX - startX;
       const newWidth = Math.max(minWidth, startWidth + diff);
@@ -726,7 +726,7 @@ export function EntityDataTable<T = unknown>({
               <TableHeader className="sticky top-0 z-5 bg-background">
                 <TableRow className="border-b border-border/50">
                   {visibleColumnsArray.map((col, index) => {
-                    const width = columnWidths[col.key] || (col.width ? parseInt(col.width, 10) : undefined);
+                    const width = columnWidths[col.key] || (col.width ? Number.parseInt(col.width, 10) : undefined);
                     const isResizable = col.resizable !== false; // Default to resizable
                     const isLastColumn = index === visibleColumnsArray.length - 1;
 
@@ -809,7 +809,7 @@ export function EntityDataTable<T = unknown>({
                       onClick={() => onRowClick?.(item)}
                     >
                       {visibleColumnsArray.map((col) => {
-                        const width = columnWidths[col.key] || (col.width ? parseInt(col.width, 10) : undefined);
+                        const width = columnWidths[col.key] || (col.width ? Number.parseInt(col.width, 10) : undefined);
                         return (
                           <TableCell
                             key={col.key}

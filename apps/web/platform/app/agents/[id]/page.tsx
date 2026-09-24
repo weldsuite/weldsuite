@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { ArrowLeft, Bot, MessageSquare, Play, Pause, Save, Settings2, Trash2 } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter, useParams } from '@/lib/router';
@@ -64,19 +65,58 @@ export default function AgentDetailPage() {
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissionFilter, setPermissionFilter] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const fb = t.agents.detail.feedback;
 
   useBreadcrumbs([
     { label: t.agents.pageTitle, href: '/agents' },
     { label: agent?.name ?? t.agents.detail.untitledAgent },
   ]);
 
+  // Sync the form from the server, but never clobber unsaved edits: refetches
+  // (Run now, window focus, setup finishing in chat) only update the form
+  // when it still matches what was last loaded.
+  const lastSynced = useRef<{
+    id: string;
+    name: string;
+    description: string;
+    systemPrompt: string;
+    permissions: string[];
+  } | null>(null);
+  const formSnapshot = { name, description, systemPrompt, permissions };
+  const isDirty =
+    !!lastSynced.current &&
+    (lastSynced.current.name !== name ||
+      lastSynced.current.description !== description ||
+      lastSynced.current.systemPrompt !== systemPrompt ||
+      lastSynced.current.permissions.join('|') !== permissions.join('|'));
+
   useEffect(() => {
     if (!agent) return;
-    setName(agent.name);
-    setDescription(agent.description ?? '');
-    setSystemPrompt(agent.systemPrompt);
-    setPermissions(agent.permissions ?? []);
+    const prev = lastSynced.current;
+    const sameAgent = prev?.id === agent.id;
+    const current = formSnapshot;
+    const untouched =
+      !prev ||
+      (prev.name === current.name &&
+        prev.description === current.description &&
+        prev.systemPrompt === current.systemPrompt &&
+        prev.permissions.join('|') === current.permissions.join('|'));
+    if (sameAgent && !untouched) return;
+    const next = {
+      id: agent.id,
+      name: agent.name,
+      description: agent.description ?? '',
+      systemPrompt: agent.systemPrompt,
+      permissions: agent.permissions ?? [],
+    };
+    lastSynced.current = next;
+    setName(next.name);
+    setDescription(next.description);
+    setSystemPrompt(next.systemPrompt);
+    setPermissions(next.permissions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on server changes
   }, [agent]);
 
   // Always land on chat when switching bots.
@@ -101,6 +141,16 @@ export default function AgentDetailPage() {
     });
   }, [grantable]);
 
+  const filteredGrantable = useMemo(() => {
+    const q = permissionFilter.trim().toLowerCase();
+    return q ? sortedGrantable.filter((key) => key.toLowerCase().includes(q)) : sortedGrantable;
+  }, [sortedGrantable, permissionFilter]);
+
+  const errorMessage = (err: unknown, fallback: string) =>
+    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message
+      ? err.message
+      : fallback;
+
   const togglePermission = (key: string) => {
     setPermissions((prev) =>
       prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key],
@@ -108,24 +158,76 @@ export default function AgentDetailPage() {
   };
 
   const handleSave = async () => {
-    await updateAgent.mutateAsync({
-      name: name.trim() || agent?.name,
-      description: description.trim() || null,
-      systemPrompt,
-      permissions,
-    });
+    try {
+      const saved = await updateAgent.mutateAsync({
+        name: name.trim() || agent?.name,
+        description: description.trim() || null,
+        systemPrompt,
+        permissions,
+      });
+      const data = (saved as { data?: typeof agent })?.data;
+      if (data) {
+        lastSynced.current = {
+          id: data.id,
+          name: data.name,
+          description: data.description ?? '',
+          systemPrompt: data.systemPrompt,
+          permissions: data.permissions ?? [],
+        };
+        setName(data.name);
+        setDescription(data.description ?? '');
+        setSystemPrompt(data.systemPrompt);
+        setPermissions(data.permissions ?? []);
+      }
+      toast.success(fb.saved);
+    } catch (err) {
+      toast.error(errorMessage(err, fb.saveFailed));
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    if (!agent) return;
+    try {
+      if (agent.status === 'active') {
+        await pauseAgent.mutateAsync(id);
+        toast.success(fb.paused);
+      } else {
+        await activateAgent.mutateAsync(id);
+        toast.success(fb.activated);
+      }
+    } catch (err) {
+      toast.error(errorMessage(err, fb.statusFailed));
+    }
+  };
+
+  const handleRun = async () => {
+    try {
+      const res = await runAgent.mutateAsync({ id });
+      const result = (res as { data?: { success?: boolean; error?: string } })?.data;
+      if (result && result.success === false) {
+        toast.error(fb.runFailed.replace('{error}', result.error ?? ''));
+      } else {
+        toast.success(fb.runSucceeded);
+      }
+    } catch (err) {
+      toast.error(fb.runFailed.replace('{error}', errorMessage(err, '')));
+    }
   };
 
   const handleDelete = async () => {
-    await deleteAgent.mutateAsync(id);
-    setDeleteOpen(false);
-    const remaining = agents.filter((a) => a.id !== id);
-    router.replace(remaining[0] ? `/agents/${remaining[0].id}` : '/agents');
+    try {
+      await deleteAgent.mutateAsync(id);
+      setDeleteOpen(false);
+      const remaining = agents.filter((a) => a.id !== id);
+      router.replace(remaining[0] ? `/agents/${remaining[0].id}` : '/agents');
+    } catch (err) {
+      toast.error(errorMessage(err, fb.deleteFailed));
+    }
   };
 
   if (isLoading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+      <div className="p-6 text-sm text-muted-foreground">{fb.loading}</div>
     );
   }
 
@@ -201,23 +303,25 @@ export default function AgentDetailPage() {
             <Button
               size="sm"
               variant="outline"
-              className="h-8 hidden sm:inline-flex"
+              className="h-8 gap-1"
               disabled={pauseAgent.isPending}
-              onClick={() => void pauseAgent.mutateAsync(id)}
+              onClick={() => void handleToggleStatus()}
+              aria-label={t.agents.actions.pause}
             >
-              <Pause className="h-3.5 w-3.5 mr-1" />
-              {t.agents.actions.pause}
+              <Pause className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t.agents.actions.pause}</span>
             </Button>
           ) : (
             <Button
               size="sm"
               variant="outline"
-              className="h-8 hidden sm:inline-flex"
+              className="h-8 gap-1"
               disabled={activateAgent.isPending || setupPending}
-              onClick={() => void activateAgent.mutateAsync(id)}
+              onClick={() => void handleToggleStatus()}
+              aria-label={t.agents.actions.activate}
             >
-              <Play className="h-3.5 w-3.5 mr-1" />
-              {t.agents.actions.activate}
+              <Play className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t.agents.actions.activate}</span>
             </Button>
           )}
           {tab === 'configure' && (
@@ -227,11 +331,17 @@ export default function AgentDetailPage() {
                 variant="outline"
                 className="h-8"
                 disabled={runAgent.isPending || setupPending}
-                onClick={() => void runAgent.mutateAsync({ id })}
+                onClick={() => void handleRun()}
               >
                 {runAgent.isPending ? t.agents.actions.running : t.agents.actions.runNow}
               </Button>
-              <Button size="sm" className="h-8" disabled={updateAgent.isPending} onClick={() => void handleSave()}>
+              <Button
+                size="sm"
+                className="h-8"
+                disabled={updateAgent.isPending || !isDirty}
+                onClick={() => void handleSave()}
+                title={isDirty ? fb.unsavedChanges : undefined}
+              >
                 <Save className="h-3.5 w-3.5 mr-1" />
                 {updateAgent.isPending ? t.agents.actions.saving : t.agents.actions.save}
               </Button>
@@ -287,8 +397,16 @@ export default function AgentDetailPage() {
               <p className="text-sm text-muted-foreground">
                 {t.agents.detail.sections.permissions.description}
               </p>
+              <Input
+                value={permissionFilter}
+                placeholder={fb.permissionsSearch}
+                onChange={(e) => setPermissionFilter(e.target.value)}
+              />
               <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-auto rounded-md border p-3">
-                {sortedGrantable.slice(0, 80).map((key) => (
+                {filteredGrantable.length === 0 && (
+                  <p className="text-sm text-muted-foreground">{fb.permissionsNoMatch}</p>
+                )}
+                {filteredGrantable.map((key) => (
                   <label key={key} className="flex items-center gap-2 text-sm">
                     <Checkbox
                       checked={permissions.includes(key)}

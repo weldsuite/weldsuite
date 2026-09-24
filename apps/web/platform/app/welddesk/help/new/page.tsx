@@ -366,17 +366,17 @@ export default function NewHelpArticlePage() {
         }
 
         // Check font size
-        const currentFontSize = Math.round(parseFloat(computedStyle.fontSize));
-        const matchedSize = fontSizes.find(s => parseInt(s.value) === currentFontSize);
+        const currentFontSize = Math.round(Number.parseFloat(computedStyle.fontSize));
+        const matchedSize = fontSizes.find(s => Number.parseInt(s.value) === currentFontSize);
         if (matchedSize) {
           setFontSize(matchedSize.value);
         } else {
           // Find closest size
           const closestSize = fontSizes.reduce((prev, curr) => {
-            return Math.abs(parseInt(curr.value) - currentFontSize) < Math.abs(parseInt(prev.value) - currentFontSize)
+            return Math.abs(Number.parseInt(curr.value) - currentFontSize) < Math.abs(Number.parseInt(prev.value) - currentFontSize)
               ? curr
               : prev;
-          });
+          }, fontSizes[0]);
           setFontSize(closestSize.value);
         }
       }

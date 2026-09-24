@@ -370,14 +370,13 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     const url = `${baseUrl}/api/meeting-sessions/${sId}/leave`;
     const token = authTokenRef.current;
     if (!token) return;
-    try {
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: '{}',
-        keepalive: true,
-      }).catch(() => {});
-    } catch { /* best effort */ }
+    // Best effort: a failed leave notification must never block teardown.
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: '{}',
+      keepalive: true,
+    }).catch(() => {});
   }, []);
 
   // Notify backend on tab close
@@ -516,7 +515,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       // reliably release the camera/mic, so the device indicator would otherwise
       // stay on after the meeting ends.
       stopLocalMediaTracks(meeting);
-      try { meeting.leave(); } catch { /* ignore */ }
+      meeting.leave().catch(() => { /* ignore */ });
     }
     // Restore getUserMedia first, then dispose the suppressor.
     try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
@@ -997,14 +996,16 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       if (newState) next.add(selfPeerId); else next.delete(selfPeerId);
       return next;
     });
-    try {
-      meeting.participants.broadcastMessage(
-        newState ? 'call:hand-raised' : 'call:hand-lowered',
-        { peerId: selfPeerId },
-      );
-    } catch (err) {
-      console.error('[WeldMeet:Call] broadcast hand-raise failed:', err);
-    }
+    Promise.resolve()
+      .then(() =>
+        meeting.participants.broadcastMessage(
+          newState ? 'call:hand-raised' : 'call:hand-lowered',
+          { peerId: selfPeerId },
+        ),
+      )
+      .catch((err: unknown) => {
+        console.error('[WeldMeet:Call] broadcast hand-raise failed:', err);
+      });
     if (newState) playHandRaiseSound(); else playHandLowerSound();
   }, [meeting, handRaised]);
 

@@ -14,8 +14,9 @@ interface DayScheduleRowProps {
   onCloseTimeChange: (time: string) => void;
 }
 
+// `day` is part of the props because the caller keys businessHours/setValue by
+// it; the row itself doesn't read it.
 export function DayScheduleRow({
-  day,
   label,
   isOpen,
   openTime = '09:00',
@@ -24,8 +25,6 @@ export function DayScheduleRow({
   onOpenTimeChange,
   onCloseTimeChange,
 }: DayScheduleRowProps) {
-  // `day` is used by the caller as the businessHours/setValue key; not read here.
-  void day;
   const { t } = useI18n();
   return (
     <div className="flex items-center gap-3 py-2">

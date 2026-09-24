@@ -95,7 +95,7 @@ export function formatPhoneNumber(number: string): string {
     return `+32 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
   }
   if (cleaned.startsWith('+') && cleaned.length > 7) {
-    const countryCode = cleaned.slice(0, cleaned.length > 12 ? 3 : (cleaned.length > 11 ? 2 : 2));
+    const countryCode = cleaned.slice(0, cleaned.length > 12 ? 3 : 2);
     const rest = cleaned.slice(countryCode.length);
     const groups = rest.match(/.{1,4}/g) || [];
     return `${countryCode} ${groups.join(' ')}`;

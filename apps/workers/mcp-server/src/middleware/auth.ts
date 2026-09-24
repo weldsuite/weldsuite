@@ -266,7 +266,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
       'Token is not scoped to an organization. Re-authorize requesting the "user:org:read" scope and select a workspace.',
       `no org_id for user ${userId} via client ${clientId}: ` +
         `format=${payload ? 'jwt' : 'opaque'}, ` +
-        `claims=[${payload ? Object.keys(payload).sort().join(',') : ''}], ` +
+        `claims=[${payload ? Object.keys(payload).sort((a, b) => a.localeCompare(b)).join(',') : ''}], ` +
         'userinfo also had none — the client most likely lacks the user:org:read scope',
     );
   }

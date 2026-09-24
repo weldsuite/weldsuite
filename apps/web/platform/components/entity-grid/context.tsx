@@ -191,13 +191,13 @@ export function GridProvider<TEntity>({
           case 'is_not_empty':
             return value && entityValue.trim() !== '';
           case 'gt':
-            return parseFloat(entityValue) > parseFloat(filterValue);
+            return Number.parseFloat(entityValue) > Number.parseFloat(filterValue);
           case 'lt':
-            return parseFloat(entityValue) < parseFloat(filterValue);
+            return Number.parseFloat(entityValue) < Number.parseFloat(filterValue);
           case 'gte':
-            return parseFloat(entityValue) >= parseFloat(filterValue);
+            return Number.parseFloat(entityValue) >= Number.parseFloat(filterValue);
           case 'lte':
-            return parseFloat(entityValue) <= parseFloat(filterValue);
+            return Number.parseFloat(entityValue) <= Number.parseFloat(filterValue);
           default:
             return true;
         }

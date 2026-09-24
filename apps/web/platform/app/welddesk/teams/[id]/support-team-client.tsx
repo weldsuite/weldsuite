@@ -111,18 +111,14 @@ const roleConfigBase: Record<string, { color: string; bg: string }> = {
   supervisor: { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
 };
 
+// `teamDescription` and `initialFeedback` aren't rendered by this view yet;
+// they stay in the props for parity with the page's data-loading contract.
 export function SupportTeamClient({
   teamId,
   teamName,
-  teamDescription,
   initialMembers,
-  initialFeedback,
   users,
 }: SupportTeamClientProps) {
-  // Description/feedback aren't rendered by this view yet; accepted for interface
-  // parity with the page's data-loading contract.
-  void teamDescription;
-  void initialFeedback;
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
   const router = useRouter();

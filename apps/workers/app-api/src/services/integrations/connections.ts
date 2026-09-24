@@ -11,6 +11,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../../db';
 import { schema } from '../../db';
 import type { Env } from '../../types';
+import { logSafe } from '../../lib/log-safe';
 import { getOAuthAdapter } from './oauth-providers';
 
 /**
@@ -79,7 +80,7 @@ export async function triggerCrmSync(env: IntegrationsEnv, payload: CrmSyncPaylo
     id: `${payload.connectionId}-${Date.now()}`,
     params: payload,
   });
-  console.log(`[Integrations] CRM sync workflow created for ${payload.connectionId}`);
+  console.log(`[Integrations] CRM sync workflow created for ${logSafe(payload.connectionId)}`);
 }
 
 export type ConnectionActionResult =
@@ -117,7 +118,7 @@ export async function triggerConnectionSync(
       return { ok: false, code: 'conflict', message: 'A sync is already in progress' };
     }
     console.warn(
-      `[Integrations] Connection ${connectionId} stuck in 'syncing' since ${connection.updatedAt?.toISOString()} — treating as stale and re-running`,
+      `[Integrations] Connection ${logSafe(connectionId)} stuck in 'syncing' since ${connection.updatedAt?.toISOString()} — treating as stale and re-running`,
     );
   }
 

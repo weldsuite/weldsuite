@@ -22,6 +22,7 @@ import { PendingVerificationError } from '@weldsuite/email';
 import type { EmailAttachment } from '@weldsuite/email/core/types';
 import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
 import type { Env } from '../types';
+import { logSafe } from './log-safe';
 
 export interface SendEmailParams {
   from: string;
@@ -109,8 +110,10 @@ export async function createDomain(env: Env, domain: string): Promise<void> {
   const result = await provider.provisionDomain(domain);
   const sending = (result.metadata as { sending?: { tag?: string; name?: string } } | undefined)?.sending;
   console.log(
-    `[CFEmail] Provisioned ${domain}, ruleId=${result.externalRuleId}` +
-      (sending ? `, sendingSubdomain=${sending.name} (tag=${sending.tag})` : ', sending=skipped'),
+    logSafe(
+      `[CFEmail] Provisioned ${domain}, ruleId=${result.externalRuleId}` +
+        (sending ? `, sendingSubdomain=${sending.name} (tag=${sending.tag})` : ', sending=skipped'),
+    ),
   );
 }
 

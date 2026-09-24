@@ -55,9 +55,9 @@ app.get('/', requirePermission('general:read'), async (c) => {
 
   // Clamp rather than reject, matching this route's existing behaviour — a
   // stricter validator would start 400ing requests that succeed today.
-  const limit = Math.min(Math.max(q.limit ? parseInt(q.limit, 10) : 25, 1), 100);
-  const rawPage = q.page !== undefined && q.page !== '' ? parseInt(q.page, 10) : NaN;
-  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? parseInt(q.pageSize, 10) : NaN;
+  const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
+  const rawPage = q.page !== undefined && q.page !== '' ? Number.parseInt(q.page, 10) : NaN;
+  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? Number.parseInt(q.pageSize, 10) : NaN;
   // A cursor always wins; offset mode engages only on an explicit, valid `page`.
   const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
   const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);
@@ -145,7 +145,7 @@ app.get('/:entityType/:entityId', requirePermission('general:read'), async (c) =
   const db = c.get('tenantDb');
   const entityType = c.req.param('entityType');
   const entityId = c.req.param('entityId');
-  const limit = Math.min(c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 100, 200);
+  const limit = Math.min(c.req.query('limit') ? Number.parseInt(c.req.query('limit')!, 10) : 100, 200);
   try {
     const rows = await db
       .select()

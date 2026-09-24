@@ -1,6 +1,7 @@
 
 import React, { useState } from "react";
 import { getCategoryStyle } from "./tailwind-helpers";
+import { evaluateArithmetic } from "./evaluate-arithmetic";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
 import { Label } from "@weldsuite/ui/components/label";
@@ -538,10 +539,10 @@ export default function TablePage() {
         linkedin: company.linkedin,
         last_interaction: company.lastInteraction,
         connection_strength: company.lastInteraction === "1 day ago" ? "Very weak" : "No communication",
-        twitter_followers: parseInt(company.twitter.followers.replace(/\./g, '').replace(/,/g, '')) || 0,
+        twitter_followers: Number.parseInt(company.twitter.followers.replace(/\./g, '').replace(/,/g, '')) || 0,
         twitter: company.twitter.handle,
-        revenue: parseInt(company.id) * 12500000,
-        employees: parseInt(company.id) * 5000 + 1000,
+        revenue: Number.parseInt(company.id) * 12500000,
+        employees: Number.parseInt(company.id) * 5000 + 1000,
         domains: company.domain,
         description: company.description,
       },
@@ -935,9 +936,9 @@ export default function TablePage() {
         // Convert value to number if it's a number or currency field
         let numericValue = 0;
         if (field.type === 'number' || field.type === 'currency') {
-          numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+          numericValue = typeof value === 'number' ? value : Number.parseFloat(value) || 0;
         } else if (typeof value === 'string') {
-          numericValue = parseFloat(value) || 0;
+          numericValue = Number.parseFloat(value) || 0;
         } else if (typeof value === 'number') {
           numericValue = value;
         }
@@ -954,9 +955,9 @@ export default function TablePage() {
         return "Invalid formula";
       }
 
-      const result = Function(`"use strict"; return (${sanitized})`)();
+      const result = evaluateArithmetic(sanitized);
 
-      if (typeof result === 'number' && !isNaN(result)) {
+      if (result !== null && Number.isFinite(result)) {
         return Math.round(result * 100) / 100; // Round to 2 decimal places
       }
 
@@ -2330,9 +2331,9 @@ export default function TablePage() {
                                   max="99"
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                      const hours = parseInt((e.target as HTMLInputElement).value) || 0;
-                                      const minutes = parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || '0') || 0;
-                                      const seconds = parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(3)') as HTMLInputElement)?.value || '0') || 0;
+                                      const hours = Number.parseInt((e.target as HTMLInputElement).value) || 0;
+                                      const minutes = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || '0') || 0;
+                                      const seconds = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(3)') as HTMLInputElement)?.value || '0') || 0;
                                       const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                                       setRows(rows.map(r =>
                                         r.id === row.id
@@ -2366,9 +2367,9 @@ export default function TablePage() {
                                 className="w-full"
                                 onClick={() => {
                                   const inputs = document.querySelectorAll(`input[type="number"]`);
-                                  const hours = parseInt((inputs[0] as HTMLInputElement).value) || 0;
-                                  const minutes = parseInt((inputs[1] as HTMLInputElement).value) || 0;
-                                  const seconds = parseInt((inputs[2] as HTMLInputElement).value) || 0;
+                                  const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
+                                  const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
+                                  const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
                                   const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                                   setRows(rows.map(r => ({
                                     ...r,
@@ -2383,9 +2384,9 @@ export default function TablePage() {
                                 className="w-full"
                                 onClick={() => {
                                   const inputs = document.querySelectorAll(`input[type="number"]`);
-                                  const hours = parseInt((inputs[0] as HTMLInputElement).value) || 0;
-                                  const minutes = parseInt((inputs[1] as HTMLInputElement).value) || 0;
-                                  const seconds = parseInt((inputs[2] as HTMLInputElement).value) || 0;
+                                  const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
+                                  const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
+                                  const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
                                   const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                                   setRows(rows.map(r =>
                                     r.id === row.id

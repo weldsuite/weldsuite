@@ -30,7 +30,7 @@ import {
   chargeAiUsage,
 } from '../ai/billing';
 import { getAgent, type AgentDb } from './agents';
-import { runAgentOnce } from './executor';
+import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
 
 const WELDAGENT_SYSTEM =
   'You are WeldAgent, the AI assistant built into the WeldSuite business platform. ' +
@@ -66,6 +66,64 @@ export interface AcceptedTurn {
   boundAgentId: string | null;
   userMessage: WeldAgentMessageRow;
   chatMessages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Permissions of the user driving the turn — narrows the agent's grants. */
+  actorPermissions?: string[] | null;
+}
+
+/** Serializable handle for an accepted turn (Workflow payload). */
+export interface AcceptedTurnRef {
+  conversationId: string;
+  userId: string;
+  workspaceId: string;
+  userMessageId: string;
+  agentId: string | null;
+  actorPermissions?: string[] | null;
+}
+
+type MessageRow = typeof schema.weldagentMessages.$inferSelect;
+
+const TOOL_SUMMARY_MAX_CHARS = 1500;
+
+/**
+ * Compact recap of the tools an assistant turn ran, appended to its text when
+ * replaying history. Without it the model forgets ids/results it fetched in
+ * earlier turns and re-queries (or invents) them.
+ */
+function summarizeToolInvocations(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  const lines: string[] = [];
+  for (const inv of raw as Array<Record<string, unknown>>) {
+    if (!inv || (inv.state !== 'result' && inv.state !== 'error')) continue;
+    let result = '';
+    try {
+      result = JSON.stringify(inv.result ?? null);
+    } catch {
+      result = '[unserializable]';
+    }
+    if (result.length > 400) result = `${result.slice(0, 400)}…`;
+    lines.push(`- ${String(inv.toolName)} → ${result}`);
+  }
+  if (lines.length === 0) return '';
+  let summary = `[Tools used in this turn]\n${lines.join('\n')}`;
+  if (summary.length > TOOL_SUMMARY_MAX_CHARS) {
+    summary = `${summary.slice(0, TOOL_SUMMARY_MAX_CHARS)}…`;
+  }
+  return summary;
+}
+
+/** Map persisted messages to model history (user/assistant only). */
+export function toModelHistory(
+  rows: MessageRow[],
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return rows
+    .filter((m): m is MessageRow & { role: 'user' | 'assistant' } =>
+      m.role === 'user' || m.role === 'assistant',
+    )
+    .map((m) => {
+      if (m.role !== 'assistant') return { role: m.role, content: m.content };
+      const tools = summarizeToolInvocations(m.toolInvocations);
+      return { role: m.role, content: tools ? `${m.content}\n\n${tools}` : m.content };
+    });
 }
 
 function serializeMessage(row: typeof schema.weldagentMessages.$inferSelect): WeldAgentMessageRow {
@@ -143,6 +201,9 @@ export async function defaultTurnGenerator(params: {
   userId: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   agentId: string | null;
+  conversationId?: string;
+  actorPermissions?: string[] | null;
+  timeoutMs?: number;
 }): Promise<TurnGeneratorResult> {
   if (params.agentId) {
     const agent = await getAgent(params.db, params.agentId);
@@ -171,8 +232,11 @@ export async function defaultTurnGenerator(params: {
         actorUserId: params.userId,
         workspaceId: params.workspaceId,
         env: params.env,
+        conversationId: params.conversationId,
       },
       messages: params.messages,
+      actorPermissions: params.actorPermissions,
+      timeoutMs: params.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS,
     });
     return {
       text: result.text,
@@ -202,6 +266,7 @@ export async function acceptConversationTurn(params: {
   conversationId: string;
   content: string;
   agentId?: string;
+  actorPermissions?: string[] | null;
 }): Promise<AcceptedTurn> {
   const { weldagentConversations, weldagentMessages } = schema;
   const db = params.db;
@@ -272,9 +337,7 @@ export async function acceptConversationTurn(params: {
     .limit(1);
 
   const chatMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-    ...history
-      .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, content: m.content })),
+    ...toModelHistory(history),
     { role: 'user', content: params.content },
   ];
 
@@ -285,17 +348,91 @@ export async function acceptConversationTurn(params: {
     boundAgentId,
     userMessage: serializeMessage(userRow),
     chatMessages,
+    actorPermissions: params.actorPermissions ?? null,
+  };
+}
+
+export function toAcceptedTurnRef(accepted: AcceptedTurn): AcceptedTurnRef {
+  return {
+    conversationId: accepted.conversationId,
+    userId: accepted.userId,
+    workspaceId: accepted.workspaceId,
+    userMessageId: accepted.userMessage.id,
+    agentId: accepted.boundAgentId,
+    actorPermissions: accepted.actorPermissions ?? null,
+  };
+}
+
+/**
+ * Rebuild an accepted turn from the database (history up to and including the
+ * user message). Used by the durable job runner, whose payload must stay small
+ * and serializable. Returns null when the turn is gone or already answered.
+ */
+export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promise<AcceptedTurn | null> {
+  const { weldagentConversations, weldagentMessages } = schema;
+  const [conversation] = await db
+    .select({ id: weldagentConversations.id })
+    .from(weldagentConversations)
+    .where(
+      and(
+        eq(weldagentConversations.id, ref.conversationId),
+        eq(weldagentConversations.userId, ref.userId),
+        isNull(weldagentConversations.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!conversation) return null;
+
+  const rows = await db
+    .select()
+    .from(weldagentMessages)
+    .where(
+      and(
+        eq(weldagentMessages.conversationId, ref.conversationId),
+        isNull(weldagentMessages.deletedAt),
+      ),
+    )
+    .orderBy(weldagentMessages.createdAt);
+
+  const index = rows.findIndex((m) => m.id === ref.userMessageId);
+  if (index === -1) return null;
+  // A reply already landed after this user message (e.g. a duplicate job).
+  // Approval outcomes posted meanwhile are not replies.
+  if (rows.slice(index + 1).some(isTurnReply)) return null;
+
+  return {
+    conversationId: ref.conversationId,
+    userId: ref.userId,
+    workspaceId: ref.workspaceId,
+    boundAgentId: ref.agentId,
+    userMessage: serializeMessage(rows[index]),
+    chatMessages: toModelHistory(rows.slice(0, index + 1)),
+    actorPermissions: ref.actorPermissions ?? null,
   };
 }
 
 /**
  * Generate the assistant reply for an already-accepted user turn and persist it.
  */
-async function persistAssistantMessage(params: {
+/**
+ * `metadata.kind` of assistant rows that are NOT the reply to a user turn
+ * (e.g. an approval outcome posted later). Turn completion ignores them.
+ */
+export const APPROVAL_OUTCOME_KIND = 'approval_outcome';
+
+function isTurnReply(row: MessageRow): boolean {
+  return (
+    row.role === 'assistant' &&
+    (row.metadata as { kind?: unknown } | null)?.kind !== APPROVAL_OUTCOME_KIND
+  );
+}
+
+export async function persistAssistantMessage(params: {
   db: AgentDb;
   conversationId: string;
   content: string;
   toolInvocations?: unknown;
+  metadata?: Record<string, unknown>;
 }): Promise<WeldAgentMessageRow> {
   const { weldagentConversations, weldagentMessages } = schema;
   const assistantMessageId = generateId('msg');
@@ -308,6 +445,7 @@ async function persistAssistantMessage(params: {
     content,
     toolInvocations:
       (params.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
+    metadata: params.metadata ?? null,
   });
 
   await params.db
@@ -365,6 +503,7 @@ export async function finishAcceptedTurn(params: {
   accepted: AcceptedTurn;
   generate?: TurnGenerator;
   notify?: boolean;
+  timeoutMs?: number;
 }): Promise<CompleteTurnResult> {
   const { accepted, db } = params;
 
@@ -379,6 +518,9 @@ export async function finishAcceptedTurn(params: {
           userId: accepted.userId,
           messages: input.messages,
           agentId: input.agentId,
+          conversationId: accepted.conversationId,
+          actorPermissions: accepted.actorPermissions,
+          timeoutMs: params.timeoutMs,
         }));
 
     const generated = await generate({
@@ -442,6 +584,7 @@ export async function completeConversationTurn(params: {
   conversationId: string;
   content: string;
   agentId?: string;
+  actorPermissions?: string[] | null;
   generate?: TurnGenerator;
   /** Skip push (used when the caller already notified, or in tests). */
   notify?: boolean;
@@ -454,6 +597,7 @@ export async function completeConversationTurn(params: {
     conversationId: params.conversationId,
     content: params.content,
     agentId: params.agentId,
+    actorPermissions: params.actorPermissions,
   });
 
   return finishAcceptedTurn({

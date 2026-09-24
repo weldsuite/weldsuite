@@ -681,7 +681,9 @@ export default function GuestJoinClient() {
       // Stop the local hardware tracks first — RTK's leave() does not reliably
       // release the camera/mic, so the device indicator would otherwise stay on.
       stopLocalMediaTracks(rtkClient);
-      try { rtkClient.leave(); } catch { /* ignore */ }
+      Promise.resolve()
+        .then(() => rtkClient.leave())
+        .catch(() => { /* ignore */ });
     }
     setRtkClient(null);
     try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
