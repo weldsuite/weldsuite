@@ -1,36 +1,39 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { portalGet } from '@/lib/client';
 import { portalQueryKey } from '@/lib/query-client';
 
 interface UsePortalQueryOptions {
   query?: Record<string, string | undefined>;
-  enabled?: boolean;
 }
 
 interface UsePortalQueryResult<T> {
-  data: T | null;
-  error: Error | null;
-  /** True only while there is nothing to show yet — cached data renders immediately and revalidates in the background. */
-  loading: boolean;
+  data: T;
+  /** Kept for the views' existing checks — with Suspense there is never a render without data. */
+  error: null;
+  loading: false;
   /** A background revalidation is in flight (cached data is on screen). */
   refreshing: boolean;
   refetch: () => void;
 }
 
 /**
- * Cached GET through the portal proxy. Keyed by `['portal', slug, path, query]`
- * (see lib/query-client.ts), so pages share entries — `/employee/overview`
- * fetched on the home page is instant when the user comes back to it.
+ * Cached GET through the portal proxy, keyed by `['portal', slug, path, query]`
+ * (see lib/query-client.ts).
+ *
+ * Suspense-based so navigation never blocks:
+ * - cached data renders immediately (and revalidates in the background when
+ *   stale), so going back to a page is instant;
+ * - otherwise the nearest `loading.tsx` shows while the server-streamed
+ *   request (lib/server/portal.ts `streamPortalQueries`) finishes;
+ * - failures surface in the `(portal)/error.tsx` boundary, which can retry.
  */
 export function usePortalQuery<T>(slug: string, path: string, opts?: UsePortalQueryOptions): UsePortalQueryResult<T> {
-  const enabled = opts?.enabled !== false && Boolean(slug);
-  const query = useQuery({
+  const query = useSuspenseQuery({
     queryKey: portalQueryKey(slug, path, opts?.query),
     queryFn: () => portalGet<T>(slug, path, opts?.query),
-    enabled,
   });
 
   const { refetch: refetchQuery } = query;
@@ -39,10 +42,10 @@ export function usePortalQuery<T>(slug: string, path: string, opts?: UsePortalQu
   }, [refetchQuery]);
 
   return {
-    data: query.data ?? null,
-    error: query.data === undefined && query.error ? query.error : null,
-    loading: enabled && query.isPending,
-    refreshing: query.isFetching && !query.isPending,
+    data: query.data as T,
+    error: null,
+    loading: false,
+    refreshing: query.isFetching,
     refetch,
   };
 }

@@ -9,6 +9,7 @@ import type { Locale } from '@/lib/i18n';
 import type { Me, PortalConfig } from '@/lib/types';
 import { PortalLogo } from '@/components/portal-logo';
 import { clearPortalCache } from '@/lib/query-client';
+import { usePrefetchRoute } from '@/lib/hooks/use-prefetch-route';
 
 interface NavItem {
   href: string;
@@ -21,6 +22,7 @@ export function PortalTopbar({ me, config }: { me: Me; config: PortalConfig }) {
   const router = useRouter();
   const { dict, locale, setLocale } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const prefetchRoute = usePrefetchRoute(slug);
 
   const navItems: NavItem[] =
     me.kind === 'employee'
@@ -66,6 +68,9 @@ export function PortalTopbar({ me, config }: { me: Me; config: PortalConfig }) {
             <Link
               key={item.href}
               href={item.href}
+              onMouseEnter={() => prefetchRoute(item.href)}
+              onFocus={() => prefetchRoute(item.href)}
+              onTouchStart={() => prefetchRoute(item.href)}
               className={`rounded-md px-3 py-2 text-sm whitespace-nowrap ${
                 pathname === item.href ? 'font-semibold portal-accent' : 'text-gray-600 hover:bg-gray-50'
               }`}
@@ -113,6 +118,9 @@ export function PortalTopbar({ me, config }: { me: Me; config: PortalConfig }) {
             <Link
               key={item.href}
               href={item.href}
+              onMouseEnter={() => prefetchRoute(item.href)}
+              onFocus={() => prefetchRoute(item.href)}
+              onTouchStart={() => prefetchRoute(item.href)}
               onClick={() => setMenuOpen(false)}
               className={`rounded-md px-3 py-2.5 text-sm ${
                 pathname === item.href ? 'font-semibold portal-accent bg-gray-50' : 'text-gray-600 hover:bg-gray-50'

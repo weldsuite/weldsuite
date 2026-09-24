@@ -1,11 +1,11 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { usePortalQuery } from '@/lib/hooks/use-portal-query';
 import { formatDate, formatDateTime } from '@/lib/date';
-import { defaultScheduleRange } from './range';
+import { defaultScheduleRange } from '@/lib/schedule-range';
 import type { EmployeeAttendance } from '@/lib/types';
 import { Card, Input, Label, PageHeader } from '@/components/ui/primitives';
 import { Badge } from '@/components/ui/badge';
@@ -16,9 +16,14 @@ export default function ScheduleView() {
   const { dict, locale, format, timeZone } = useI18n();
   const [from, setFrom] = useState(() => defaultScheduleRange().from);
   const [to, setTo] = useState(() => defaultScheduleRange().to);
+  const deferredFrom = useDeferredValue(from);
+  const deferredTo = useDeferredValue(to);
   const { data, loading, error, refetch } = usePortalQuery<EmployeeAttendance>(slug, '/employee/attendance', {
-    query: { from, to },
+    query: { from: deferredFrom, to: deferredTo },
   });
+  // Changing the dates keeps the current list on screen (dimmed) while the new
+  // range loads, instead of suspending the whole page.
+  const updating = from !== deferredFrom || to !== deferredTo;
 
   return (
     <div className="space-y-6">
@@ -45,7 +50,7 @@ export default function ScheduleView() {
       ) : error || !data ? (
         <ErrorState onRetry={refetch} />
       ) : (
-        <>
+        <div className={`space-y-6 transition-opacity ${updating ? 'opacity-60' : ''}`} aria-busy={updating}>
           <Card>
             <h2 className="font-medium text-gray-900 mb-3">{dict.schedule.upcomingShifts}</h2>
             {data.shifts.length === 0 ? (
@@ -99,7 +104,7 @@ export default function ScheduleView() {
               </div>
             )}
           </Card>
-        </>
+        </div>
       )}
     </div>
   );

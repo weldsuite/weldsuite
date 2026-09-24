@@ -15,6 +15,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { dehydrate, type DehydratedState } from '@tanstack/react-query';
 import { portalUpstream, sessionCookieName } from '@/lib/api';
+import { PortalApiError } from '@/lib/client-errors';
 import { getQueryClient, portalQueryKey } from '@/lib/query-client';
 import type { PortalConfig } from '@/lib/types';
 
@@ -95,6 +96,35 @@ export async function hydratePortalQueries(slug: string, queries: PortalQuery[])
     const q = queries[index]!;
     if (result.ok) queryClient.setQueryData(portalQueryKey(slug, q.path, q.query), result.data);
   });
+  return dehydrate(queryClient);
+}
+
+/**
+ * Start a page's queries WITHOUT waiting for them, and return the cache with
+ * the pending promises in it. The server component returns immediately, so a
+ * client-side navigation is never held up by app-api:
+ *
+ * - data already in the browser's cache renders at once (and refreshes in the
+ *   background when stale);
+ * - otherwise the page's `loading.tsx` shows until the streamed result lands;
+ * - on a full page load React streams the finished HTML, so the page is still
+ *   server-rendered.
+ *
+ * The session itself is checked (with a real redirect) by the signed-in
+ * layout, which does await `/me`.
+ */
+export function streamPortalQueries(slug: string, queries: PortalQuery[]): DehydratedState {
+  const queryClient = getQueryClient();
+  for (const q of queries) {
+    void queryClient.prefetchQuery({
+      queryKey: portalQueryKey(slug, q.path, q.query),
+      queryFn: async () => {
+        const result = await serverPortalGet<unknown>(slug, q.path, q.query);
+        if (!result.ok) throw new PortalApiError(`Request failed (${result.status})`, result.status);
+        return result.data;
+      },
+    });
+  }
   return dehydrate(queryClient);
 }
 

@@ -500,6 +500,7 @@ export type Variables = {
   portalSessionToken?: string;
   /** WeldHR workforce portal session (public `/public/hr-portal` only). */
   hrPortalAccessId?: string;
+  hrPortalSettings?: import('@weldsuite/db/schema').HrPortalSettings;
   hrPortalKind?: 'employee' | 'client';
   hrPortalEmployeeId?: string | null;
   hrPortalCompanyId?: string | null;
