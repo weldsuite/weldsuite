@@ -31,9 +31,9 @@ test.describe('Chat Flow', () => {
       if (await submitButton.isVisible()) {
         await submitButton.click();
 
-        // Check for validation errors
-        const errorMessage = widgetPage.page.locator('[class*="error"], [role="alert"]');
-        // Validation should prevent submission or show error
+        // Validation should prevent submission: a required field is flagged invalid
+        const invalidFields = widgetPage.page.locator('input:invalid, [aria-invalid="true"]');
+        expect(await invalidFields.count()).toBeGreaterThan(0);
       }
     });
 
@@ -56,6 +56,7 @@ test.describe('Chat Flow', () => {
           // Should show validation error or be invalid
           const isInvalid = await emailInput.evaluate((el) => !(el as HTMLInputElement).checkValidity());
           // Invalid email should not pass validation
+          expect(isInvalid).toBe(true);
         }
       }
     });
@@ -124,10 +125,18 @@ test.describe('Chat Flow', () => {
       const sendButton = widgetPage.page.locator('button[type="submit"]').first();
 
       if (await sendButton.isVisible()) {
+        const messagePosts: string[] = [];
+        widgetPage.page.on('request', (request) => {
+          if (request.method() === 'POST' && request.url().includes('/messages')) {
+            messagePosts.push(request.url());
+          }
+        });
+
         // Try to send empty message
         await sendButton.click();
 
         // Should not send empty message (button may be disabled or validation prevents)
+        expect(messagePosts).toHaveLength(0);
       }
     });
 
@@ -234,6 +243,8 @@ test.describe('Chat Flow', () => {
       const messageInput = widgetPage.page.locator('textarea').first();
       if (await messageInput.isVisible()) {
         await messageInput.fill('Test offline message');
+        // The composer keeps working while offline
+        expect(await messageInput.inputValue()).toBe('Test offline message');
       }
 
       // Restore online
@@ -291,6 +302,7 @@ test.describe('Chat Flow', () => {
       if (await fileInput.count() > 0) {
         const acceptAttr = await fileInput.first().getAttribute('accept');
         // Should have file type restrictions
+        expect(acceptAttr).toBeTruthy();
       }
     });
   });

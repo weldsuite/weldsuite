@@ -57,6 +57,7 @@ test.describe('Widget Lifecycle', () => {
     test('should handle back navigation', async ({ widgetPage }) => {
       await widgetPage.goto('/');
       await widgetPage.waitForReady();
+      const startUrl = widgetPage.page.url();
 
       // Navigate forward
       const anyLink = widgetPage.page.locator('a').first();
@@ -67,6 +68,7 @@ test.describe('Widget Lifecycle', () => {
         // Go back
         await widgetPage.page.goBack();
         await widgetPage.page.waitForLoadState('networkidle');
+        expect(widgetPage.page.url()).toBe(startUrl);
       }
     });
 

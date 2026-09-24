@@ -5,8 +5,8 @@ import mapboxgl from 'mapbox-gl';
 import { Plus, Minus, Compass } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 
-// You'll need to add your Mapbox token here
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+// Public Mapbox token, supplied via NEXT_PUBLIC_MAPBOX_TOKEN (see .env.local.example)
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '';
 
 interface TrackingMapProps {
   selectedShipment: string;
@@ -34,6 +34,7 @@ export default function TrackingMap({ selectedShipment }: TrackingMapProps) {
   useEffect(() => {
     if (map.current) return; // initialize map only once
     if (!mapContainer.current) return;
+    if (!mapboxgl.accessToken) return; // no token configured, Mapbox cannot render
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
