@@ -45,7 +45,7 @@ function apply(theme: Theme): 'light' | 'dark' {
   return resolved;
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [theme, setThemeState] = React.useState<Theme>('system');
   const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light');
 

@@ -68,7 +68,7 @@ function ThemeToggle() {
  * left with a rounded left card edge, no border — the panel/content colour
  * change is the seam.
  */
-export function AdminSidebar({ name, email, role, avatar }: AdminSidebarProps) {
+export function AdminSidebar({ name, email, role, avatar }: Readonly<AdminSidebarProps>) {
   const pathname = usePathname() ?? '/';
   const { signOut } = useClerk();
 

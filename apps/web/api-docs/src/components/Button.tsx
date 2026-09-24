@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import Link from 'next/link'
 
-function ArrowIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function ArrowIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
       <path
