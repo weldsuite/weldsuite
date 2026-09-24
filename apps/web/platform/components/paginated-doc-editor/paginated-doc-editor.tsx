@@ -520,7 +520,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
         const cs = window.getComputedStyle(probeEl);
         const fam = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
         if (fam) fontName = fam;
-        const px = parseFloat(cs.fontSize);
+        const px = Number.parseFloat(cs.fontSize);
         if (px) fontSize = Math.round((px * 72) / 96); // px → pt
       }
 

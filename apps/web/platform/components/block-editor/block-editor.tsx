@@ -644,7 +644,7 @@ function readEffectiveFontSize(): string {
   if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
   if (!(node instanceof Element)) return '16px';
   const size = window.getComputedStyle(node).fontSize;
-  const px = parseFloat(size);
+  const px = Number.parseFloat(size);
   return Number.isFinite(px) ? `${Math.round(px)}px` : '16px';
 }
 

@@ -190,7 +190,7 @@ export function GlobalFloatingCall() {
             {floatingCall.segments.length > 0 ? (
               floatingCall.segments.map((segment) => {
                 const speakerMatch = segment.speaker?.match(/\d+/);
-                const speakerId = speakerMatch ? parseInt(speakerMatch[0]) : 0;
+                const speakerId = speakerMatch ? Number.parseInt(speakerMatch[0]) : 0;
                 const color = speakerColors[speakerId % speakerColors.length];
                 const isActive = segment.id === activeSegmentId;
 

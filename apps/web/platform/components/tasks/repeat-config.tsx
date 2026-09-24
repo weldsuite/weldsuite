@@ -95,7 +95,7 @@ export function RepeatConfigMenu({
             type="number"
             min={1}
             value={repeatInterval}
-            onChange={(e) => onIntervalChange(Math.max(1, parseInt(e.target.value) || 1))}
+            onChange={(e) => onIntervalChange(Math.max(1, Number.parseInt(e.target.value) || 1))}
             className="w-16 text-center"
           />
           <Select
