@@ -32,7 +32,7 @@ function formatBytes(size: number): string {
 function formatEventWhen(event: ParsedIcsEvent): string {
   if (!event.start) return '';
   const start = new Date(event.start);
-  if (isNaN(start.getTime())) return '';
+  if (Number.isNaN(start.getTime())) return '';
 
   if (event.allDay) {
     return format(start, 'EEE, MMM d, yyyy');
@@ -40,7 +40,7 @@ function formatEventWhen(event: ParsedIcsEvent): string {
 
   const end = event.end ? new Date(event.end) : undefined;
   const startStr = format(start, 'EEE, MMM d, yyyy · HH:mm');
-  if (!end || isNaN(end.getTime())) return startStr;
+  if (!end || Number.isNaN(end.getTime())) return startStr;
 
   const sameDay = start.toDateString() === end.toDateString();
   return sameDay
