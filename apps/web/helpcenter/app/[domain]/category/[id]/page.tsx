@@ -14,10 +14,10 @@ export async function generateMetadata({ params }: { params: Promise<{ domain: s
 export default async function CategoryPage({
   params,
   searchParams,
-}: {
+}: Readonly<{
   params: Promise<{ domain: string; id: string }>
   searchParams: Promise<{ page?: string }>
-}) {
+}>) {
   const { domain, id } = await params
   const { page } = await searchParams
   const [folders, articles] = await Promise.all([

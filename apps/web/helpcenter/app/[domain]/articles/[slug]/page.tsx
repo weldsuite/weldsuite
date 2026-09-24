@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: { params: Promise<{ domain: s
   return { title: article.title, description: article.excerpt }
 }
 
-export default async function ArticlePage({ params }: { params: Promise<{ domain: string; slug: string }> }) {
+export default async function ArticlePage({ params }: Readonly<{ params: Promise<{ domain: string; slug: string }> }>) {
   const { domain, slug } = await params
   const [article, folders] = await Promise.all([
     getArticle(domain, slug),
