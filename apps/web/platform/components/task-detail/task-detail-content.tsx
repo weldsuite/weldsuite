@@ -169,9 +169,9 @@ function readableLabelTextColor(color: string | undefined): string {
   const hex = resolveLabelHex(color).replace('#', '');
   if (hex.length !== 3 && hex.length !== 6) return '#ffffff';
   const expand = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
-  const r = parseInt(expand.slice(0, 2), 16);
-  const g = parseInt(expand.slice(2, 4), 16);
-  const b = parseInt(expand.slice(4, 6), 16);
+  const r = Number.parseInt(expand.slice(0, 2), 16);
+  const g = Number.parseInt(expand.slice(2, 4), 16);
+  const b = Number.parseInt(expand.slice(4, 6), 16);
   if ([r, g, b].some(Number.isNaN)) return '#ffffff';
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq >= 160 ? '#1f2937' /* gray-800 */ : '#ffffff';
@@ -1150,7 +1150,7 @@ export function TaskDetailContent({
                       min={1}
                       value={task.repeat.interval ?? 1}
                       onChange={(e) => {
-                        const interval = Math.max(1, parseInt(e.target.value, 10) || 1);
+                        const interval = Math.max(1, Number.parseInt(e.target.value, 10) || 1);
                         onUpdate(task.id, {
                           repeat: { frequency: 'custom', interval, unit: task.repeat?.unit ?? 'days' },
                         });

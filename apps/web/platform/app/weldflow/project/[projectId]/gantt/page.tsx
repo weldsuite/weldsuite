@@ -450,7 +450,7 @@ const GanttPage = () => {
     if (!scrollEl || !todayEl) return;
     const containerRect = scrollEl.getBoundingClientRect();
     const todayRect = todayEl.getBoundingClientRect();
-    const sidebar = parseFloat(
+    const sidebar = Number.parseFloat(
       getComputedStyle(scrollEl).getPropertyValue('--gantt-sidebar-width') || '0',
     );
     const targetX = containerRect.left + sidebar + (containerRect.width - sidebar) * 0.2;
@@ -482,7 +482,7 @@ const GanttPage = () => {
       if (!todayEl) return;
       const containerRect = scrollEl.getBoundingClientRect();
       const todayRect = todayEl.getBoundingClientRect();
-      const sidebar = parseFloat(
+      const sidebar = Number.parseFloat(
         getComputedStyle(scrollEl).getPropertyValue('--gantt-sidebar-width') || '0',
       );
       const visibleLeft = containerRect.left + sidebar;
@@ -1373,7 +1373,7 @@ const GanttPage = () => {
                       value={selectedMarker.date.getHours().toString().padStart(2, '0')}
                       onValueChange={(h) => {
                         const newDate = new Date(selectedMarker.date);
-                        newDate.setHours(parseInt(h));
+                        newDate.setHours(Number.parseInt(h));
                         handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
@@ -1391,7 +1391,7 @@ const GanttPage = () => {
                       value={selectedMarker.date.getMinutes().toString().padStart(2, '0')}
                       onValueChange={(m) => {
                         const newDate = new Date(selectedMarker.date);
-                        newDate.setMinutes(parseInt(m));
+                        newDate.setMinutes(Number.parseInt(m));
                         handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
