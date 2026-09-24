@@ -73,7 +73,7 @@ export default function EmailHtmlView({
   }, [html, initialHeight]);
 
   const onProbeMessage = (e: WebViewMessageEvent) => {
-    const h = parseInt(e.nativeEvent.data, 10);
+    const h = Number.parseInt(e.nativeEvent.data, 10);
     // Reject near-zero measurements — those come from a probe that ran before
     // the WebView had a real layout width and would hide the whole body.
     if (Number.isFinite(h) && h >= 40 && h < 100000) {

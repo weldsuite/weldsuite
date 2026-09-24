@@ -21,7 +21,7 @@ export function TableOfContents({
         if (!el) return null
 
         let style = window.getComputedStyle(el)
-        let scrollMt = parseFloat(style.scrollMarginTop)
+        let scrollMt = Number.parseFloat(style.scrollMarginTop)
 
         let top = window.scrollY + el.getBoundingClientRect().top - scrollMt
         return { id, top }
