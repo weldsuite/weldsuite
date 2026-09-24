@@ -39,6 +39,7 @@ import {
   type RtkMeetingMapping,
 } from '../../services/rtk-webhook';
 import { verifyWebhookToken } from '../../lib/webhook-token';
+import { logSafe } from '../../lib/log-safe';
 import { registerWebhook } from '@weldsuite/cloudflare-realtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -64,13 +65,13 @@ app.post('/', async (c) => {
       return c.json({ ok: true });
     }
 
-    console.log(`[RTK Webhook] ${eventType} — rtkMeetingId=${rtkMeetingId}`);
+    console.log(`[RTK Webhook] ${logSafe(eventType)} — rtkMeetingId=${logSafe(rtkMeetingId)}`);
 
     // Look up our KV mapping
     const raw = await c.env.WORKSPACE_CACHE.get(`rtk-meeting:${rtkMeetingId}`, 'json') as RtkMeetingMapping | null;
     if (!raw) {
       // Already cleaned up, unknown meeting, or KV expired — acknowledge
-      console.log(`[RTK Webhook] No KV mapping for ${rtkMeetingId}, skipping`);
+      console.log(`[RTK Webhook] No KV mapping for ${logSafe(rtkMeetingId)}, skipping`);
       return c.json({ ok: true });
     }
 

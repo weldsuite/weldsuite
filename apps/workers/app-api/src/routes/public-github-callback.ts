@@ -13,6 +13,7 @@ import type { Env, Variables } from '../types';
 import { verifyInstallStateJwt, fetchInstallationMeta } from '../services/github/auth';
 import { upsertConnection, revokeConnection } from '../services/github/connections';
 import { getTenantDbForWorkspace } from '../db';
+import { logSafe } from '../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -82,9 +83,9 @@ app.get('/callback', async (c) => {
     const e = err as { message?: string; cause?: unknown };
     console.error(
       '[GitHub] Callback error:',
-      e?.message,
+      logSafe(e?.message),
       '| cause:',
-      e?.cause instanceof Error ? e.cause.message : String(e?.cause),
+      logSafe(e?.cause instanceof Error ? e.cause.message : e?.cause),
     );
     return c.redirect(settingsPath('?error=internal_error'));
   }
