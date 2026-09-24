@@ -16,7 +16,7 @@ import {
 } from '@/hooks/use-user-apps';
 import { AppLogoField } from '@/components/app-logo-field';
 
-function CodeBlock({ children }: { children: string }) {
+function CodeBlock({ children }: Readonly<{ children: string }>) {
   const [copied, setCopied] = useState(false);
   const { t } = useDeveloperI18n();
   return (

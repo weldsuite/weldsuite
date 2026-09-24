@@ -188,7 +188,7 @@ export function CliAuthPage() {
   );
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[var(--shell-chrome)] px-4 py-10">
       {children}
@@ -196,7 +196,7 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function Header({ title, subtitle }: { title: string; subtitle: string }) {
+function Header({ title, subtitle }: Readonly<{ title: string; subtitle: string }>) {
   return (
     <div className="max-w-md space-y-2 text-center">
       <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>

@@ -34,12 +34,12 @@ export function AppLogoField({
   value,
   onChange,
   disabled,
-}: {
+}: Readonly<{
   appId: string;
   value: string;
   onChange: (next: string) => void | Promise<void>;
   disabled?: boolean;
-}) {
+}>) {
   const { t } = useDeveloperI18n();
   const { getClient } = useAppApiClient();
   const inputRef = useRef<HTMLInputElement>(null);
