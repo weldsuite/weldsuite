@@ -50,7 +50,9 @@ export function DesktopSourcePicker() {
 
   useEffect(() => {
     const desktop = getDesktop();
-    if (!desktop) return;
+    // Shells older than 0.2.0 have no picker bridge (and grab the primary
+    // display themselves), so there is nothing to register with.
+    if (typeof desktop?.onSelectSource !== 'function') return;
 
     const unsubscribe = desktop.onSelectSource(
       (sources) =>

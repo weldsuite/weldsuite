@@ -159,8 +159,9 @@ export function onOsNotificationClick(
 ): () => void {
   const unsubs: Array<() => void> = [];
 
+  // Shells older than 0.2.0 don't expose click events.
   const desktop = getDesktop();
-  if (desktop) {
+  if (typeof desktop?.onNotificationClick === 'function') {
     unsubs.push(desktop.onNotificationClick(listener));
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "license": "AGPL-3.0-only",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "WeldSuite desktop app — Electron shell around the platform SPA with native screen share, tray, notifications, and deep links.",
   "author": "Weld Corporation <info@weldsuite.org>",
