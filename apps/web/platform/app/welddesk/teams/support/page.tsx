@@ -108,7 +108,7 @@ export default function SupportTeamPage() {
     avgResponseTime: formatResponseTime(
       members.length > 0
         ? members.reduce((sum, member) => {
-            const time = parseFloat(member.avgResponseTime);
+            const time = Number.parseFloat(member.avgResponseTime);
             return sum + (isNaN(time) ? 0 : time);
           }, 0) / members.length
         : 0

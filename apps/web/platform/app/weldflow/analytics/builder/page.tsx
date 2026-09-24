@@ -295,7 +295,7 @@ export default function ProjectsAnalyticsBuilderPage() {
           compareWith: compareWith || undefined,
           aggregation,
           sortOrder,
-          limit: limit === 'All' ? undefined : parseInt(limit, 10),
+          limit: limit === 'All' ? undefined : Number.parseInt(limit, 10),
           color: chartColor,
           smoothCurve: smoothLines,
           fillArea,
