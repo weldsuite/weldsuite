@@ -216,8 +216,8 @@ export function BookingClient({
       state.timezone,
       'yyyy-M',
     ).split('-');
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10) - 1;
+    const year = Number.parseInt(yearStr, 10);
+    const month = Number.parseInt(monthStr, 10) - 1;
     if (Number.isNaN(year) || Number.isNaN(month)) return;
     const prevKey = state.currentMonth.getFullYear() * 12 + state.currentMonth.getMonth();
     const nowKey = year * 12 + month;

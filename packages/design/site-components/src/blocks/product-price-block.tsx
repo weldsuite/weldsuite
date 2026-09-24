@@ -24,8 +24,8 @@ export function ProductPriceBlock({
   const productPrice = store?.selectedProduct?.price;
   const productComparePrice = store?.selectedProduct?.compareAtPrice;
 
-  const displayPrice = productPrice ? toPriceNumber(productPrice) : parseFloat(price);
-  const displayComparePrice = productComparePrice ? toPriceNumber(productComparePrice) : (compareAtPrice ? parseFloat(compareAtPrice) : 0);
+  const displayPrice = productPrice ? toPriceNumber(productPrice) : Number.parseFloat(price);
+  const displayComparePrice = productComparePrice ? toPriceNumber(productComparePrice) : (compareAtPrice ? Number.parseFloat(compareAtPrice) : 0);
 
   const hasCompareAtPrice = displayComparePrice && displayComparePrice > displayPrice;
 

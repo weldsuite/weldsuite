@@ -43,8 +43,8 @@ async function applyLineBalances(
 ): Promise<void> {
   const { accounts } = schema;
   for (const line of lines) {
-    const debit = parseFloat(line.debit || '0');
-    const credit = parseFloat(line.credit || '0');
+    const debit = Number.parseFloat(line.debit || '0');
+    const credit = Number.parseFloat(line.credit || '0');
     const netChange = debit - credit;
     if (netChange !== 0) {
       await db
