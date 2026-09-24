@@ -29,7 +29,7 @@ export default function MaterialSpinner({
   spinning,
   pullValue,
   trigger = 80,
-}: MaterialSpinnerProps) {
+}: Readonly<MaterialSpinnerProps>) {
   const r = (size - strokeWidth) / 2;
   const C = 2 * Math.PI * r;
 

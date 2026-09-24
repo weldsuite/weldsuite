@@ -48,7 +48,7 @@ const ICON_MAP = {
   calendar: Calendar,
 };
 
-export default function SnoozePickerModal({ visible, onClose, onSelect }: SnoozePickerModalProps) {
+export default function SnoozePickerModal({ visible, onClose, onSelect }: Readonly<SnoozePickerModalProps>) {
   const { colors } = useTheme();
   const options = getSnoozeOptions();
 

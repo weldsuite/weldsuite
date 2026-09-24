@@ -16,11 +16,11 @@ const ICON_COLOR = BRAND;
 export function WeldMailWordmark({
   width = 200,
   color = TEXT_COLOR,
-}: {
+}: Readonly<{
   width?: number;
   /** Wordmark text color (icon keeps brand orange). Defaults to dark navy. */
   color?: string;
-}) {
+}>) {
   const height = width * ASPECT;
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}>
