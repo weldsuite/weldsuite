@@ -33,6 +33,8 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [denies, setDenies] = useState<string[]>([]);
+  // Per-app checks apply only once the server enforces them (log-only rollout).
+  const [appEnforced, setAppEnforced] = useState(false);
   const [role, setRole] = useState('');
   const [isOwner, setIsOwner] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +52,7 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
       retryCountRef.current = 0;
       setPermissions(data.permissions ?? []);
       setDenies(data.denies ?? []);
+      setAppEnforced(!!data.appEnforced);
       setRole(data.role ?? '');
       setIsOwner(!!data.isOwner);
       setIsLoading(false);
@@ -89,9 +92,9 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
   const can = useCallback(
     (permission: string) => {
       if (isLoading) return false;
-      return hasAppPermission({ permissions, denies }, permission, APP);
+      return hasAppPermission({ permissions, denies }, permission, appEnforced ? APP : null);
     },
-    [isLoading, permissions, denies],
+    [isLoading, permissions, denies, appEnforced],
   );
 
   return (

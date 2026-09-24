@@ -11,6 +11,7 @@ export {
   getPermissionsFromContext,
   ensurePermissionsResolved,
   hasContextPermission,
+  isAppPermissionEnforced,
   APP_CONTEXT_KEY,
 } from './middleware';
 

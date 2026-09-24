@@ -117,7 +117,11 @@ export function usePermissionSections(installedAppCodes?: readonly string[]): Pe
   }, [installedKey, t]);
 }
 
-/** Keep only objects whose name/key matches `query` (and sections that still have some). */
+/**
+ * Keep only objects whose name/key matches `query` (and sections that still
+ * have some). `keys` is narrowed to the visible objects too, so bulk actions
+ * (Grant all, Revoke all, Reset) never reach objects the search hides.
+ */
 export function filterSections(sections: PermissionSection[], query: string): PermissionSection[] {
   const q = query.trim().toLowerCase();
   if (!q) return sections;
@@ -127,7 +131,7 @@ export function filterSections(sections: PermissionSection[], query: string): Pe
       const objects = sectionMatches
         ? s.objects
         : s.objects.filter((o) => o.objectName.toLowerCase().includes(q) || o.object.toLowerCase().includes(q));
-      return { ...s, objects };
+      return { ...s, objects, keys: objects.flatMap((o) => o.all.map((p) => p.key)) };
     })
     .filter((s) => s.objects.length > 0);
 }

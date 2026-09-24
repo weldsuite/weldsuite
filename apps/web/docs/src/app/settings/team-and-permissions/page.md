@@ -51,6 +51,10 @@ Permissions are set **per app**. Some objects appear in several apps. Companies,
 
 A denied permission always wins, even if the role allows it.
 
+{% callout title="What per-app permissions cover" %}
+Per-app permissions decide what someone can see and do inside each app's screens. Access that doesn't go through an app screen (the API, integrations, AI assistants and global search) follows the most permissive app: if someone may view companies in WeldCRM, they can read companies that way even when WeldDesk denies it. To keep someone away from an object entirely, deny it in every app.
+{% /callout %}
+
 Changes apply on next sign-in or within a few minutes for active sessions.
 
 ---

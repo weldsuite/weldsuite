@@ -2191,7 +2191,7 @@ export const sweep = {
       "readOnly": "Read only",
       "copyFrom": "Copy from…",
       "copyFromApp": "Copy from {app}",
-      "grantedByPattern": "Granted by \"{pattern}\"",
+      "grantedByPattern": "Granted by \"{pattern}\". Unticking replaces it with individual permissions.",
       "otherApps": "Other apps",
       "memberTitle": "Permissions per app",
       "memberDescription": "Click a permission to change it for this member only: allow something the {role} role does not give, or deny something it does. Denied always wins.",

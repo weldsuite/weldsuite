@@ -30,7 +30,10 @@ import { getAppsForObject, isAppCode, normalizeAppCode } from './apps';
  * Transition switch. Grants stored before the per-app data migration are
  * unqualified (`companies:read`); while this is on they count as a grant in
  * every app, so nobody loses access before the migration rewrites them.
- * Turned off once every stored key is app-qualified.
+ * Turned off once every stored key is app-qualified. Before that, also
+ * qualify SYSTEM_ROLES (members on a bare ADMIN/MEMBER/VIEWER tier get their
+ * grants from code, which the data rewrite never touches), or those members
+ * lose every app-scoped key.
  */
 export const LEGACY_UNQUALIFIED_GRANTS = true;
 

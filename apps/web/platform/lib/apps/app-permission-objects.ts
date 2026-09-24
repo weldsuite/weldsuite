@@ -12,7 +12,7 @@
  * access to the app. Empty array means owner-only.
  */
 
-import { APP_TO_OBJECTS } from '@weldsuite/permissions';
+import { APP_TO_OBJECTS, getPermissionApp, normalizeAppCode } from '@weldsuite/permissions';
 
 /**
  * Apps that did not exist (or used a different prefix) before the
@@ -62,5 +62,11 @@ const APP_PERMISSION_OBJECTS: Record<string, string[]> = {
  * "open to everyone" or "owner-only".
  */
 export function getAppPermissionObjects(appCode: string): string[] {
-  return APP_PERMISSION_OBJECTS[appCode] ?? [];
+  // The per-app registry lists every object an app exposes (e.g. companies
+  // and people in WeldCRM), which is what the role editor grants per app —
+  // so a grant on any of them has to open the app. The map above still
+  // covers apps and objects the registry doesn't list.
+  const code = normalizeAppCode(appCode);
+  const registry = (code && getPermissionApp(code)?.objects) || [];
+  return [...new Set([...(APP_PERMISSION_OBJECTS[appCode] ?? []), ...registry])];
 }

@@ -2191,7 +2191,7 @@ export const sweep = {
       "readOnly": "Alleen lezen",
       "copyFrom": "Kopiëren van…",
       "copyFromApp": "Kopiëren van {app}",
-      "grantedByPattern": "Toegekend via \"{pattern}\"",
+      "grantedByPattern": "Toegekend via \"{pattern}\". Uitvinken vervangt dit door losse rechten.",
       "otherApps": "Overige apps",
       "memberTitle": "Rechten per app",
       "memberDescription": "Klik op een recht om het alleen voor dit lid te wijzigen: sta iets toe wat de rol {role} niet geeft, of weiger iets wat de rol wel geeft. Weigeren gaat altijd voor.",

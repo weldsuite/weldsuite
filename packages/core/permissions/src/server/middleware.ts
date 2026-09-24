@@ -235,3 +235,13 @@ export async function hasContextPermission(c: any, ...required: string[]): Promi
   if (!resolved) return false;
   return evaluateInAppContext(c, resolved, required);
 }
+
+/**
+ * Whether per-app refusals are enforced for this request (see
+ * `initPermissionMiddleware({ isAppEnforced })`). Reported to clients by
+ * /me/permissions so the UI applies the same rule as the API: until
+ * enforcement is on, both check "allowed in any app".
+ */
+export function isAppPermissionEnforced(c: any): boolean {
+  return _isAppEnforced(c);
+}

@@ -21,7 +21,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
-import { hasPermission, normalizeAppCode, toAppScopedKeys } from '@weldsuite/permissions';
+import { buildAppPermissionCatalog, hasPermission, normalizeAppCode, toAppScopedKeys } from '@weldsuite/permissions';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { RoleDetail, InstallableApp } from '@/lib/api/types/rbac.types';
 import { AppIcon } from '@/components/app-icon';
@@ -157,7 +157,7 @@ export default function RoleDetailPage() {
   }, [installableApps, sections]);
 
   // Wildcard grants (`weldcrm:*`, `*:read`) cover keys without listing them;
-  // such cells show as granted and locked, with the covering pattern.
+  // such cells show as granted, with the covering pattern in their title.
   const wildcardGrants = React.useMemo(
     () => [...grantedPermissions].filter((k) => k.includes('*')),
     [grantedPermissions],
@@ -166,18 +166,43 @@ export default function RoleDetailPage() {
     grantedPermissions.has(key) ? undefined : wildcardGrants.find((p) => hasPermission([p], key));
   const isGranted = (key: string) => grantedPermissions.has(key) || coveringPattern(key) !== undefined;
 
+  /** Every key the editor can grant, across all apps (installed or not). */
+  const allCatalogKeys = React.useMemo(() => {
+    const catalog = buildAppPermissionCatalog();
+    return [...catalog.apps.flatMap((a) => a.objects), ...catalog.workspace].flatMap((o) =>
+      o.permissions.map((p) => p.key),
+    );
+  }, []);
+
+  /**
+   * Remove `keys` from a grant set. A wildcard covering any of them is first
+   * split into the individual catalog keys it grants, so the rest of what it
+   * covered stays granted and the removal actually takes effect.
+   */
+  const withoutKeys = React.useCallback(
+    (grants: Set<string>, keys: string[]): Set<string> => {
+      const next = new Set(grants);
+      for (const pattern of grants) {
+        if (!pattern.includes('*') || !keys.some((k) => hasPermission([pattern], k))) continue;
+        next.delete(pattern);
+        for (const k of allCatalogKeys) if (hasPermission([pattern], k)) next.add(k);
+      }
+      for (const k of keys) next.delete(k);
+      return next;
+    },
+    [allCatalogKeys],
+  );
+
   const setKeys = (keys: string[], grant: boolean) => {
     setGrantedPermissions((prev) => {
+      if (!grant) return withoutKeys(prev, keys);
       const next = new Set(prev);
-      for (const k of keys) {
-        if (grant) next.add(k);
-        else next.delete(k);
-      }
+      for (const k of keys) next.add(k);
       return next;
     });
   };
 
-  const togglePermission = (key: string) => setKeys([key], !grantedPermissions.has(key));
+  const togglePermission = (key: string) => setKeys([key], !isGranted(key));
 
   const toggleApp = (appCode: string) => {
     const next = new Set(grantedApps);
@@ -187,14 +212,10 @@ export default function RoleDetailPage() {
   };
 
   const grantReadOnly = (section: PermissionSection) => {
+    const all = section.objects.flatMap((o) => o.all);
     setGrantedPermissions((prev) => {
-      const next = new Set(prev);
-      for (const object of section.objects) {
-        for (const p of object.all) {
-          if (p.action === 'read') next.add(p.key);
-          else next.delete(p.key);
-        }
-      }
+      const next = withoutKeys(prev, all.filter((p) => p.action !== 'read').map((p) => p.key));
+      for (const p of all) if (p.action === 'read') next.add(p.key);
       return next;
     });
   };
@@ -204,14 +225,16 @@ export default function RoleDetailPage() {
     if (!section.app) return;
     setGrantedPermissions((prev) => {
       const sourceGrants = [...prev];
-      const next = new Set(prev);
+      const grant: string[] = [];
+      const revoke: string[] = [];
       for (const object of section.objects) {
         for (const p of object.all) {
           const source = `${sourceApp}:${object.object}:${p.action}`;
-          if (hasPermission(sourceGrants, source)) next.add(p.key);
-          else next.delete(p.key);
+          (hasPermission(sourceGrants, source) ? grant : revoke).push(p.key);
         }
       }
+      const next = withoutKeys(prev, revoke);
+      for (const k of grant) next.add(k);
       return next;
     });
   };
@@ -268,7 +291,7 @@ export default function RoleDetailPage() {
       <Checkbox
         checked={isGranted(perm.key)}
         onCheckedChange={() => togglePermission(perm.key)}
-        disabled={!editable || pattern !== undefined}
+        disabled={!editable}
         className="h-3.5 w-3.5"
         aria-label={ariaLabel}
         title={pattern ? t('sweep.settings.appPermissions.grantedByPattern', { pattern }) : perm.description ?? perm.label}
@@ -279,7 +302,7 @@ export default function RoleDetailPage() {
   const rowAction = (object: MatrixObject) => {
     if (!editable || object.all.length === 0) return null;
     const keys = object.all.map((p) => p.key);
-    const allGranted = keys.every((k) => grantedPermissions.has(k));
+    const allGranted = keys.every(isGranted);
     return linkButton(
       allGranted ? t('sweep.settings.roleDetail.revokeAll') : t('sweep.settings.roleDetail.grantAll'),
       () => setKeys(keys, !allGranted),

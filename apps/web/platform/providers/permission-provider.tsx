@@ -18,6 +18,8 @@ import { useAuth } from '@clerk/clerk-react';
 interface PermissionResponse {
   permissions: string[];
   denies?: string[];
+  /** Whether the server enforces per-app permissions yet. */
+  appEnforced?: boolean;
   role: string;
   roleId: string | null;
   isOwner: boolean;
@@ -51,6 +53,7 @@ export function PlatformPermissionProvider({ children }: { children: React.React
       isLoading={isLoading}
       role={data?.role ?? ''}
       app={app}
+      enforceApp={data?.appEnforced ?? false}
     >
       {children}
     </PermissionProvider>

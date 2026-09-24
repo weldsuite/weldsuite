@@ -11,6 +11,10 @@
  * <AppPermissionScope app="…"> to evaluate it against another app, and pass a
  * fully qualified key (`weldbooks:invoices:read`) for a one-off cross-app
  * check. Member denies are honoured.
+ *
+ * While the server only logs per-app refusals (`enforceApp` false, the
+ * rollout default), checks here also run "allowed in any app", so the UI never
+ * hides what the API still serves.
  */
 
 import { createContext, useContext, useMemo } from 'react';
@@ -36,6 +40,8 @@ export interface PermissionContextValue {
   isOwner: boolean;
   /** Canonical code of the app checks run against, or null (any app). */
   app: string | null;
+  /** Whether per-app permissions are enforced (else checks run any-app). */
+  appEnforced: boolean;
   /** Check a single permission in the current app */
   can: (permission: string) => boolean;
   /** Check if user has ANY of the listed permissions in the current app */
@@ -62,11 +68,14 @@ function buildValue(
   isLoading: boolean,
   role: string,
   app: string | null,
+  appEnforced: boolean,
 ): PermissionContextValue {
   const { permissions } = subject;
   const denies = subject.denies ?? [];
   const isOwner = role === 'OWNER' || permissions.includes('*');
-  const allowed = (perm: string) => checkAppPermission(subject, perm, app).allowed;
+  // Not enforced yet: evaluate like the server does in log mode (any app).
+  const checkApp = appEnforced ? app : null;
+  const allowed = (perm: string) => checkAppPermission(subject, perm, checkApp).allowed;
 
   return {
     permissions,
@@ -75,6 +84,7 @@ function buildValue(
     role,
     isOwner,
     app,
+    appEnforced,
     // While loading, assume no access (safe default)
     can: (perm) => !isLoading && allowed(perm),
     canAny: (...perms) => !isLoading && perms.some(allowed),
@@ -83,11 +93,12 @@ function buildValue(
       if (isLoading) return false;
       const code = normalizeAppCode(appPrefix);
       const objects = (code && getPermissionApp(code)?.objects) || APP_TO_OBJECTS[appPrefix] || [];
-      return hasAnyObjectAccessInApp(subject, objects, code);
+      return hasAnyObjectAccessInApp(subject, objects, appEnforced ? code : null);
     },
     hasAnyObject: (objectKeys, targetApp = app) => {
       if (isLoading) return false;
-      return hasAnyObjectAccessInApp(subject, objectKeys, targetApp ? normalizeAppCode(targetApp) : null);
+      const code = appEnforced && targetApp ? normalizeAppCode(targetApp) : null;
+      return hasAnyObjectAccessInApp(subject, objectKeys, code);
     },
   };
 }
@@ -110,6 +121,12 @@ export interface PermissionProviderProps {
    * Omit or null for "allowed in any app".
    */
   app?: string | null;
+  /**
+   * Whether the server enforces per-app permissions (/me/permissions
+   * `appEnforced`). Defaults to true; pass false during the log-only rollout
+   * so the UI stays in step with the API.
+   */
+  enforceApp?: boolean;
   children: React.ReactNode;
 }
 
@@ -119,12 +136,13 @@ export function PermissionProvider({
   isLoading = false,
   role = '',
   app = null,
+  enforceApp = true,
   children,
 }: PermissionProviderProps) {
   const appCode = app ? normalizeAppCode(app) : null;
   const value = useMemo(
-    () => buildValue({ permissions, denies: denies ?? [] }, isLoading, role, appCode),
-    [permissions, denies, isLoading, role, appCode],
+    () => buildValue({ permissions, denies: denies ?? [] }, isLoading, role, appCode, enforceApp),
+    [permissions, denies, isLoading, role, appCode, enforceApp],
   );
 
   return (
@@ -145,7 +163,13 @@ export function AppPermissionScope({ app, children }: { app: string | null; chil
   const value = useMemo(
     () =>
       parent
-        ? buildValue({ permissions: parent.permissions, denies: parent.denies }, parent.isLoading, parent.role, appCode)
+        ? buildValue(
+            { permissions: parent.permissions, denies: parent.denies },
+            parent.isLoading,
+            parent.role,
+            appCode,
+            parent.appEnforced,
+          )
         : null,
     [parent, appCode],
   );

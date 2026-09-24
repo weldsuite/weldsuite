@@ -164,13 +164,34 @@ describe('RoleDetailPage — per-app permissions', () => {
     expect(checked.length).toBeGreaterThan(0);
   });
 
-  it('locks cells covered by a wildcard grant and names the pattern', async () => {
+  it('splits a wildcard into individual grants when a covered cell is unticked', async () => {
     await renderPage(['weldcrm:*']);
     openSection(/WeldCRM/);
     const crmCompanies = cell(VIEW, 'Companies');
     expect(isChecked(crmCompanies)).toBe(true);
-    expect(crmCompanies.hasAttribute('disabled')).toBe(true);
     expect(crmCompanies.getAttribute('title')).toBe('sweep.settings.appPermissions.grantedByPattern(weldcrm:*)');
+
+    fireEvent.click(crmCompanies);
+    expect(isChecked(cell(VIEW, 'Companies'))).toBe(false);
+    expect(isChecked(cell(VIEW, 'Leads'))).toBe(true);
+
+    const body = await save();
+    expect(body.permissions).not.toContain('weldcrm:*');
+    expect(body.permissions).not.toContain('weldcrm:companies:read');
+    expect(body.permissions).toContain('weldcrm:companies:update');
+    expect(body.permissions).toContain('weldcrm:leads:read');
+  });
+
+  it('limits Revoke all to the objects the search shows', async () => {
+    await renderPage(['welddesk:tickets:read', 'welddesk:companies:read']);
+    fireEvent.change(screen.getByPlaceholderText('sweep.settings.roleDetail.searchPermissionsPlaceholder'), {
+      target: { value: 'tickets' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'sweep.settings.roleDetail.revokeAll' })[0]!);
+
+    const body = await save();
+    expect(body.permissions).not.toContain('welddesk:tickets:read');
+    expect(body.permissions).toContain('welddesk:companies:read');
   });
 
   it('filters apps and objects by search', async () => {

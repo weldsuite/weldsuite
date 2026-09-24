@@ -2189,7 +2189,7 @@ export const sweep = {
       "readOnly": "Solo lectura",
       "copyFrom": "Copiar de…",
       "copyFromApp": "Copiar de {app}",
-      "grantedByPattern": "Concedido por \"{pattern}\"",
+      "grantedByPattern": "Concedido por \"{pattern}\". Al desmarcarlo se sustituye por permisos individuales.",
       "otherApps": "Otras apps",
       "memberTitle": "Permisos por app",
       "memberDescription": "Haz clic en un permiso para cambiarlo solo para este miembro: permite algo que el rol {role} no concede o deniega algo que sí concede. Denegar siempre prevalece.",
