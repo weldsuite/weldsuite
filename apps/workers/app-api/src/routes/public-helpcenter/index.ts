@@ -23,8 +23,8 @@ app.use('*', helpcenterDomainMiddleware());
 const PAGE_SIZE_MAX = 50;
 
 function parsePaging(q: Record<string, string>): { page: number; pageSize: number; offset: number } {
-  const page = Math.max(parseInt(q.page ?? '1', 10) || 1, 1);
-  const pageSize = Math.min(Math.max(parseInt(q.pageSize ?? '20', 10) || 20, 1), PAGE_SIZE_MAX);
+  const page = Math.max(Number.parseInt(q.page ?? '1', 10) || 1, 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(q.pageSize ?? '20', 10) || 20, 1), PAGE_SIZE_MAX);
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 

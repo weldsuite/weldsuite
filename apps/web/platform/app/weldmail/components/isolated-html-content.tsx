@@ -225,7 +225,7 @@ function adaptEmailToDarkMode(doc: Document, surface: Hsla) {
 
     for (const side of sides) {
       if (cs.getPropertyValue(`border-${side}-style`) === 'none') continue;
-      if (parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
+      if (Number.parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
       const border = parseColor(cs.getPropertyValue(`border-${side}-color`));
       if (!border || border.a === 0) continue;
       const hsla = toHsla(border);

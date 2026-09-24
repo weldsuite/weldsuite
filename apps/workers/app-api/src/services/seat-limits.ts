@@ -67,7 +67,7 @@ export async function getWorkspaceSeatLimit(
       if (plan.maxUsers != null && plan.maxUsers > 0) {
         limit = plan.maxUsers;
       } else {
-        const pricePerUser = plan.pricePerUser ? parseFloat(plan.pricePerUser) : 0;
+        const pricePerUser = plan.pricePerUser ? Number.parseFloat(plan.pricePerUser) : 0;
         if (pricePerUser > 0) {
           limit = (plan.includedUsers ?? 1) + (workspace.purchasedSeats ?? 0);
         }
