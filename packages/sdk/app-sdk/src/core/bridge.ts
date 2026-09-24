@@ -6,15 +6,27 @@ import {
   shouldUseLocalDev,
   type WeldAppBridgeOptions,
 } from './local-dev';
+import { applyDesignTokens, applyTheme } from './appearance';
 import type {
   AppMessage,
   BridgeEventName,
+  BridgeFetchRequest,
+  BridgeFetchResponse,
   BridgeRequestMethod,
+  ConfirmOptions,
   HostMessage,
   InitPayload,
+  ModalResult,
+  OpenModalOptions,
+  ShortcutPayload,
   ToastVariant,
+  WeldBreadcrumb,
+  WeldSurface,
   WeldTokenInfo,
 } from './types';
+
+/** Highest bridge protocol this SDK speaks. */
+export const BRIDGE_PROTOCOL = 2;
 
 /** How long we wait for the host's `weldapp:init` reply before giving up. */
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -22,13 +34,27 @@ const CONNECT_TIMEOUT_MS = 10_000;
 /** How long we wait for a `weldapp:response` to a `weldapp:request`. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/** Proxied API calls may legitimately take longer than UI requests. */
+const FETCH_TIMEOUT_MS = 60_000;
+
+/** Platform shortcuts (with Cmd/Ctrl) handed to the host when unhandled. */
+const HOST_SHORTCUT_KEYS = new Set(['k', 'j']);
+
+/** Statuses whose Response must be constructed without a body. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
+interface RequestOptions {
+  /** Milliseconds, or `null` for user-driven requests (confirm, modals). */
+  timeoutMs?: number | null;
+}
+
 /** Refresh the cached token this long before it actually expires. */
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 type EventCallback = (value: string) => void;
@@ -68,6 +94,8 @@ export class WeldAppBridge {
   private hostBridgeActive = false;
   private readonly options: WeldAppBridgeOptions;
   private memoryStore: LocalMemoryStore | null = null;
+  private mountedNotified = false;
+  private shortcutsAttached = false;
 
   constructor(options: WeldAppBridgeOptions = {}) {
     this.options = options;
@@ -105,6 +133,28 @@ export class WeldAppBridge {
     return this.initPayload !== null;
   }
 
+  /** Protocol spoken by the connected host (1 until connected / for legacy hosts). */
+  get protocol(): number {
+    return this.initPayload?.protocol ?? 1;
+  }
+
+  /**
+   * True when the host performs API requests for the app (protocol 2). The
+   * iframe then never holds a token: the host calls the API with the
+   * member's platform session, outside the sandbox.
+   */
+  get hostProxiesRequests(): boolean {
+    if (this.localDevActive && !this.hostBridgeActive) {
+      return false;
+    }
+    return this.protocol >= 2;
+  }
+
+  /** Where the host renders this instance (`page` or `modal`). */
+  get surface(): WeldSurface {
+    return this.initPayload?.surface ?? 'page';
+  }
+
   /**
    * Perform the handshake with the WeldSuite host. Idempotent — concurrent
    * and repeated calls share one handshake. Rejects after 10s with a hint
@@ -125,6 +175,7 @@ export class WeldAppBridge {
       const payload = buildLocalInitPayload(this.options.local);
       this.initPayload = payload;
       this.tokenInfo = buildLocalTokenInfo(payload);
+      this.applyAppearance(payload);
       this.connectPromise = Promise.resolve(payload);
       return this.connectPromise;
     }
@@ -189,7 +240,11 @@ export class WeldAppBridge {
    * Times out after 15s. Bare local preview stubs host methods; the CLI
    * local shell keeps the real postMessage path.
    */
-  async request<TResult = unknown>(method: BridgeRequestMethod, payload?: unknown): Promise<TResult> {
+  async request<TResult = unknown>(
+    method: BridgeRequestMethod,
+    payload?: unknown,
+    options: RequestOptions = {},
+  ): Promise<TResult> {
     await this.connect();
 
     if (this.localDevActive && !this.hostBridgeActive) {
@@ -197,14 +252,18 @@ export class WeldAppBridge {
     }
 
     const id = `req_${++this.requestCounter}_${Math.random().toString(36).slice(2, 10)}`;
+    const timeoutMs = options.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : options.timeoutMs;
 
     return new Promise<TResult>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          new Error(`@weldsuite/app-sdk: request "${method}" (${id}) timed out after ${REQUEST_TIMEOUT_MS / 1000}s.`),
-        );
-      }, REQUEST_TIMEOUT_MS);
+      const timer =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(
+                new Error(`@weldsuite/app-sdk: request "${method}" (${id}) timed out after ${timeoutMs / 1000}s.`),
+              );
+            }, timeoutMs);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -240,6 +299,10 @@ export class WeldAppBridge {
    * Get a valid workspace-scoped API token. Cached from the init payload and
    * refreshed via a `getToken` request when within 60s of expiry (or when
    * `forceRefresh` is set). Concurrent refreshes are deduplicated.
+   *
+   * @deprecated Legacy (protocol 1) path. Protocol 2 hosts proxy requests
+   * ({@link hostProxiesRequests}) so the app never needs a token; `WeldApi`
+   * only calls this against older hosts.
    */
   async getToken(options: { forceRefresh?: boolean } = {}): Promise<WeldTokenInfo> {
     await this.connect();
@@ -281,11 +344,96 @@ export class WeldAppBridge {
     await this.request('toast', { message, variant });
   }
 
+  /**
+   * Perform an API request through the host (protocol 2). The host attaches
+   * the member's session outside the sandbox and returns the response.
+   * `WeldApi` uses this automatically; call it directly only for raw access.
+   */
+  async hostFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const headers: [string, string][] = [];
+    new Headers(init.headers).forEach((value, name) => {
+      headers.push([name, value]);
+    });
+    const { body, contentType } = await serializeBody(init.body);
+    if (contentType && !headers.some(([name]) => name === 'content-type')) {
+      headers.push(['content-type', contentType]);
+    }
+    const payload: BridgeFetchRequest = {
+      method: (init.method ?? 'GET').toUpperCase(),
+      path,
+      headers,
+      body,
+    };
+    const result = await this.request<BridgeFetchResponse>('fetch', payload, { timeoutMs: FETCH_TIMEOUT_MS });
+    const responseBody = NULL_BODY_STATUSES.has(result.status) ? null : result.body;
+    return new Response(responseBody, {
+      status: result.status,
+      statusText: result.statusText ?? '',
+      headers: result.headers,
+    });
+  }
+
+  /**
+   * Replace the app-level breadcrumbs in the platform header. The host keeps
+   * the app name as the first crumb; `path` values are app-relative.
+   */
+  async setBreadcrumbs(items: WeldBreadcrumb[]): Promise<void> {
+    await this.request('setBreadcrumbs', { items });
+  }
+
+  /**
+   * Mark unsaved changes. While dirty, the host asks the member to confirm
+   * before navigating away from the app or closing the tab.
+   */
+  async setDirty(dirty: boolean, message?: string): Promise<void> {
+    await this.request('setDirty', { dirty, message });
+  }
+
+  /** Show a platform confirmation dialog; resolves `true` when confirmed. */
+  async confirm(options: ConfirmOptions): Promise<boolean> {
+    const result = await this.request<{ confirmed?: boolean }>('confirm', options, { timeoutMs: null });
+    return result?.confirmed === true;
+  }
+
+  /**
+   * Open another route of this app in a platform modal. Resolves when it
+   * closes: with the value passed to {@link closeModal}, or `dismissed`.
+   */
+  async openModal<T = unknown>(options: OpenModalOptions): Promise<ModalResult<T>> {
+    const result = await this.request<ModalResult<T>>('openModal', options, { timeoutMs: null });
+    return { dismissed: result?.dismissed !== false, result: result?.result };
+  }
+
+  /** From inside a modal instance: close it and hand `result` to the opener. */
+  async closeModal(result?: unknown): Promise<void> {
+    await this.request('closeModal', { result });
+  }
+
+  /**
+   * Tell the host the app has rendered its first screen, so it can swap its
+   * loading skeleton for the iframe without a blank flash. Idempotent.
+   * `WeldAppProvider` calls this for you.
+   */
+  notifyMounted(): void {
+    if (this.mountedNotified || !this.isConnected) {
+      return;
+    }
+    if (this.localDevActive && !this.hostBridgeActive) {
+      return;
+    }
+    this.mountedNotified = true;
+    this.postToHost({ type: 'weldapp:notify', event: 'mounted' });
+  }
+
   /** Detach the message listener and fail all in-flight requests. */
   destroy(): void {
     if (this.listening && typeof window !== 'undefined') {
       window.removeEventListener('message', this.handleMessage);
       this.listening = false;
+    }
+    if (this.shortcutsAttached && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.handleKeydown);
+      this.shortcutsAttached = false;
     }
     for (const [id, entry] of this.pending) {
       clearTimeout(entry.timer);
@@ -330,6 +478,24 @@ export class WeldAppBridge {
         }
         return undefined as TResult;
       }
+      case 'setBreadcrumbs':
+      case 'setDirty':
+      case 'closeModal': {
+        return undefined as TResult;
+      }
+      case 'confirm': {
+        const options = (payload ?? {}) as Partial<ConfirmOptions>;
+        const text = [options.title, options.description].filter(Boolean).join('\n\n');
+        const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function' ? window.confirm(text) : false;
+        return { confirmed } as TResult;
+      }
+      case 'openModal': {
+        if (typeof console !== 'undefined' && console.debug) {
+          const path = (payload as { path?: string } | undefined)?.path;
+          console.debug(`[weld local preview] openModal(${JSON.stringify(path ?? '')}) — no host, dismissed`);
+        }
+        return { dismissed: true } as TResult;
+      }
       default: {
         throw new Error(`@weldsuite/app-sdk: unknown host method "${method as string}" in local preview.`);
       }
@@ -342,7 +508,42 @@ export class WeldAppBridge {
     }
     window.addEventListener('message', this.handleMessage);
     this.listening = true;
+    if (this.options.forwardShortcuts !== false && !this.shortcutsAttached) {
+      window.addEventListener('keydown', this.handleKeydown);
+      this.shortcutsAttached = true;
+    }
   }
+
+  private applyAppearance(payload: InitPayload): void {
+    if (this.options.applyAppearance === false) {
+      return;
+    }
+    applyTheme(payload.theme);
+    applyDesignTokens(payload.designTokens);
+  }
+
+  /**
+   * Bubble-phase listener: an app that handles Cmd/Ctrl+K itself calls
+   * `preventDefault()` and keeps it; otherwise the platform gets it.
+   */
+  private readonly handleKeydown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || !(event.metaKey || event.ctrlKey)) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (!HOST_SHORTCUT_KEYS.has(key)) {
+      return;
+    }
+    event.preventDefault();
+    const payload: ShortcutPayload = {
+      key,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+    };
+    this.postToHost({ type: 'weldapp:notify', event: 'shortcut', payload });
+  };
 
   /**
    * Post a message to the embedding WeldSuite host.
@@ -374,11 +575,17 @@ export class WeldAppBridge {
     switch (message.type) {
       case 'weldapp:init': {
         this.initPayload = message.payload;
-        this.tokenInfo = {
-          token: message.payload.token,
-          tokenExpiresAt: message.payload.tokenExpiresAt,
-          apiBaseUrl: message.payload.apiBaseUrl,
-        };
+        // Protocol 2 hosts send no token (requests are proxied); a legacy
+        // host's token is cached for the direct-fetch path.
+        this.tokenInfo =
+          typeof message.payload.token === 'string' && message.payload.tokenExpiresAt !== null
+            ? {
+                token: message.payload.token,
+                tokenExpiresAt: message.payload.tokenExpiresAt,
+                apiBaseUrl: message.payload.apiBaseUrl,
+              }
+            : null;
+        this.applyAppearance(message.payload);
         // CLI local shell: keep memory store + real bridge for host methods.
         if (isLocalPreviewInit(message.payload)) {
           this.localDevActive = true;
@@ -405,9 +612,22 @@ export class WeldAppBridge {
         break;
       }
       case 'weldapp:event': {
+        if (message.event === 'designTokens') {
+          const tokens = message.payload?.value;
+          if (this.initPayload && tokens) {
+            this.initPayload = { ...this.initPayload, designTokens: tokens };
+          }
+          if (this.options.applyAppearance !== false) {
+            applyDesignTokens(tokens);
+          }
+          return;
+        }
         const value = message.payload?.value;
         if (typeof value !== 'string') {
           return;
+        }
+        if (message.event === 'theme' && (value === 'light' || value === 'dark') && this.options.applyAppearance !== false) {
+          applyTheme(value);
         }
         // Keep the init snapshot current so late readers see fresh values.
         if (this.initPayload) {
@@ -431,4 +651,36 @@ export class WeldAppBridge {
         break;
     }
   };
+}
+
+/**
+ * Convert a fetch body into something postMessage can carry. Streams and
+ * FormData cannot cross the bridge; send JSON, text, Blob or bytes.
+ */
+async function serializeBody(
+  body: BodyInit | null | undefined,
+): Promise<{ body: string | ArrayBuffer | null; contentType?: string }> {
+  if (body === null || body === undefined) {
+    return { body: null };
+  }
+  if (typeof body === 'string') {
+    return { body };
+  }
+  if (body instanceof ArrayBuffer) {
+    return { body };
+  }
+  if (ArrayBuffer.isView(body)) {
+    const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    return { body: bytes.slice().buffer };
+  }
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    return { body: await body.arrayBuffer(), contentType: body.type || undefined };
+  }
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+    return { body: body.toString(), contentType: 'application/x-www-form-urlencoded;charset=UTF-8' };
+  }
+  throw new Error(
+    '@weldsuite/app-sdk: this request body cannot be sent through the WeldSuite host. ' +
+      'Use a string (e.g. JSON), Blob, ArrayBuffer, typed array or URLSearchParams.',
+  );
 }

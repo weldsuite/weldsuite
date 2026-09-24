@@ -36,6 +36,18 @@ export interface WeldAppBridgeOptions {
   localDev?: boolean;
   /** Customize the mock init payload used in local preview. */
   local?: LocalDevOptions;
+  /**
+   * Mirror the host theme on `<html>` (`data-theme`, `.dark`) and apply the
+   * platform design tokens as `--wui-*` properties. Default `true`; turn off
+   * when the app manages its own theming.
+   */
+  applyAppearance?: boolean;
+  /**
+   * Hand platform-wide shortcuts (Cmd/Ctrl+K search, Cmd/Ctrl+J agent) to the
+   * host when the app did not handle them (`event.defaultPrevented`).
+   * Default `true`.
+   */
+  forwardShortcuts?: boolean;
 }
 
 declare global {
@@ -105,8 +117,8 @@ export function isLocalPreviewInit(payload: InitPayload | null | undefined): boo
 
 export function buildLocalTokenInfo(init: InitPayload): WeldTokenInfo {
   return {
-    token: init.token,
-    tokenExpiresAt: init.tokenExpiresAt,
+    token: init.token ?? 'local_preview_token',
+    tokenExpiresAt: init.tokenExpiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     apiBaseUrl: init.apiBaseUrl,
   };
 }

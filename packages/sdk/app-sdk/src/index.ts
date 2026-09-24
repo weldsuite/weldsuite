@@ -2,7 +2,8 @@ import { WeldApi } from './core/api';
 import { WeldAppBridge } from './core/bridge';
 import type { WeldAppBridgeOptions } from './core/local-dev';
 
-export { WeldAppBridge } from './core/bridge';
+export { BRIDGE_PROTOCOL, WeldAppBridge } from './core/bridge';
+export { DESIGN_TOKEN_NAMES, applyDesignTokens, applyTheme } from './core/appearance';
 export { WeldApi, WeldApiError } from './core/api';
 export {
   LOCAL_DEV_QUERY_PARAM,
@@ -17,7 +18,10 @@ export type {
   AppMessage,
   AppRecord,
   BridgeEventName,
+  BridgeFetchRequest,
+  BridgeFetchResponse,
   BridgeRequestMethod,
+  ConfirmOptions,
   CreateProductInput,
   EventMessage,
   HostMessage,
@@ -26,6 +30,9 @@ export type {
   KvClient,
   ListPagination,
   ListResponse,
+  ModalResult,
+  NotifyMessage,
+  OpenModalOptions,
   PersonSummary,
   ProductListOptions,
   ProductSummary,
@@ -36,6 +43,7 @@ export type {
   RequestMessage,
   ResourceListOptions,
   ResponseMessage,
+  ShortcutPayload,
   SingleResponse,
   TicketSummary,
   TicketsClient,
@@ -43,7 +51,10 @@ export type {
   ToastVariant,
   UpdateProductInput,
   WeldAppUser,
+  WeldBreadcrumb,
+  WeldDesignTokens,
   WeldLocale,
+  WeldSurface,
   WeldTheme,
   WeldTokenInfo,
 } from './core/types';

@@ -6,7 +6,7 @@ This project is a **WeldSuite app**: a small Vite + React SPA that runs inside t
 ## What a WeldSuite app is
 
 - The platform renders `dist/index.html` in a sandboxed iframe and completes a postMessage handshake with `@weldsuite/app-sdk` (`weldapp:ready` → `weldapp:init`).
-- The init payload provides theme (`light`/`dark`), locale, the current user, and a short-lived workspace-scoped API token, the SDK refreshes it automatically.
+- The init payload provides theme (`light`/`dark`), locale, the current user and the platform design tokens. There is no token in the iframe: the SDK hands API calls to the platform, which makes them with the member's session and the app's granted scopes.
 - The app gets per-app storage on the WeldSuite API: document collections and a key-value store. Broader API access (CRM, tasks, tickets, …) requires scopes declared in the manifest and granted at install time.
 
 ## Key files

@@ -75,9 +75,11 @@ async function toApiError(response: Response): Promise<WeldApiError> {
 /**
  * Workspace-scoped API client bound to a {@link WeldAppBridge}.
  *
- * Every request goes to the external API (`apiBaseUrl` from the init
- * payload) with the bridge-managed `wsat_` token injected as a Bearer
- * header. A 401 triggers one forced token refresh + retry.
+ * Against a protocol 2 host every request is handed to the host, which calls
+ * the API with the member's platform session outside the sandbox — the app
+ * never holds a token. Against a legacy host, requests go straight to
+ * `apiBaseUrl` with the bridge-managed `wsat_` token as a Bearer header, and a
+ * 401 triggers one forced token refresh + retry.
  *
  * In local preview (`bridge.isLocalDev`), app-storage (records + kv) and
  * `/v1/products` are backed by an in-memory store. Other `/v1/*` routes throw
@@ -105,6 +107,11 @@ export class WeldApi {
         'Local preview has no WeldSuite API connection. App-storage (records / kv) and products ' +
           'work in memory; other routes need the platform host (`weld app dev --tunnel` or installed app).',
       );
+    }
+    await this.bridge.connect();
+    if (this.bridge.hostProxiesRequests) {
+      // The host owns the session (and its refresh), so no retry here.
+      return this.bridge.hostFetch(path, init);
     }
     const first = await this.send(path, init, false);
     if (first.status !== 401) {

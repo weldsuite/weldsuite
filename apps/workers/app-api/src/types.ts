@@ -157,6 +157,12 @@ export interface Env {
    *  Defaults to https://api.weldsuite.org when unset. */
   EXTERNAL_API_URL?: string;
   /**
+   * Service binding to external-api. The WeldApps data gateway
+   * (/api/user-apps/code/:code/gateway/v1/*) forwards through it: a Worker
+   * cannot reach a same-zone route with a plain fetch.
+   */
+  EXTERNAL_API?: Fetcher;
+  /**
    * Comma-separated master workspace ids whose WeldApps are first-party.
    * Those apps skip public review and show an Official badge in the store.
    */

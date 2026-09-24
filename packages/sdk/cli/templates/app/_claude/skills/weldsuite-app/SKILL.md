@@ -5,7 +5,7 @@ description: Building WeldSuite apps, iframe apps that run inside the WeldSuite 
 
 # Building WeldSuite apps
 
-A WeldSuite app is a static web bundle (usually Vite + React) that the WeldSuite platform renders in a **sandboxed iframe**. The platform (host) gives the app a themed shell, the current user, and a short-lived **workspace-scoped API token** over a postMessage bridge. The app talks to the WeldSuite external API (`https://api.weldsuite.org`) with that token, most importantly to its own per-app storage (document collections + key-value store).
+A WeldSuite app is a static web bundle (usually Vite + React) that the WeldSuite platform renders in a **sandboxed iframe**. The platform (host) gives the app a themed shell, the current user and the platform design tokens over a postMessage bridge, and **performs the app's API calls for it** with the member's own session, so no credential ever enters the iframe. The app talks to the WeldSuite external API (`/v1/*`) through the SDK, most importantly to its own per-app storage (document collections + key-value store).
 
 Everything below is what you need to build, wire, and ship one.
 
@@ -60,17 +60,20 @@ The canonical schema is `userAppManifestSchema` in the WeldSuite monorepo (`pack
 The SDK implements this, you rarely touch raw messages, but knowing the lifecycle explains behaviour:
 
 1. **App boots** inside the sandboxed iframe and posts `{ type: 'weldapp:ready' }` to `window.parent`.
-2. **Host replies** with `{ type: 'weldapp:init', payload: { appCode, theme: 'light' | 'dark', locale, path, apiBaseUrl, token, tokenExpiresAt, user: { id, name, imageUrl } } }`. `path` is the app-relative section from the platform URL (`/` or `/products`).
-3. **Requests**: the app sends `{ type: 'weldapp:request', id, method: 'getToken' | 'navigate' | 'toast', payload? }`; the host answers `{ type: 'weldapp:response', id, ok, payload?, error?: { message } }`. `getToken` returns `{ token, tokenExpiresAt, apiBaseUrl }`.
-4. **Push events**: the host sends `{ type: 'weldapp:event', event: 'theme' | 'locale' | 'route', payload: { value } }` when the platform theme, locale, or sidebar section changes.
+2. **Host replies** with `{ type: 'weldapp:init', payload: { appCode, theme: 'light' | 'dark', locale, path, protocol: 2, token: null, designTokens, surface: 'page' | 'modal', modal?, user: { id, name, imageUrl } } }`. `path` is the app-relative section from the platform URL (`/` or `/products`).
+3. **Requests**: the app sends `{ type: 'weldapp:request', id, method, payload? }` with `method` one of `fetch` (API call performed by the host), `navigate`, `toast`, `setBreadcrumbs`, `setDirty`, `confirm`, `openModal`, `closeModal`; the host answers `{ type: 'weldapp:response', id, ok, payload?, error?: { message } }`.
+4. **Push events**: the host sends `{ type: 'weldapp:event', event: 'theme' | 'locale' | 'route' | 'designTokens', payload: { value } }` when the platform theme, locale, sidebar section or palette changes.
+5. **Notifications** (no reply): the SDK posts `{ type: 'weldapp:notify', event: 'mounted' }` after the first render and `event: 'shortcut'` for unhandled Cmd/Ctrl+K / Cmd/Ctrl+J.
 
 Consequences:
 
 - `connect()` **fails outside WeldSuite** unless you opt into **local preview** (`localDev: true`, `?weldLocal=1`, or `window.__WELD_LOCAL_DEV__`). Bare local mode never activates while iframed — production host security is unchanged.
 - Bare local preview: mock user/theme/locale, in-memory `records`/`kv`, no-op `toast`/`navigate`, banner “Local preview — not connected to WeldSuite”. Other `/v1/*` calls error with `local_preview`.
 - **Local shell:** `weld app dev` opens a WeldSuite-like shell with the real postMessage bridge (`init.localPreview`) and in-memory storage. Also registers `/apps/{code}` for the real platform (`--tunnel` when hosted).
-- Tokens are short-lived. The SDK caches them and refreshes 60s before expiry; a 401 triggers one refresh + retry. Never store the token yourself.
-- Request timeout is 15s.
+- There is no token in the iframe: `WeldApi` sends each call to the host, which uses the member's session and (for community apps) the install's granted scopes. Older hosts fall back to a short-lived `wsat_` token the SDK manages. Never handle tokens yourself.
+- Request bodies must be strings (JSON), Blobs, bytes or `URLSearchParams` (no streams / FormData).
+- UI request timeout is 15s; proxied API calls 60s; `confirm` / `openModal` wait for the user.
+- Use `bridge.setBreadcrumbs` / `useWeldBreadcrumbs`, `useWeldDirty`, `bridge.confirm` and `bridge.openModal` instead of in-iframe equivalents: the platform renders them natively (full-page backdrop, header crumbs, leave guard).
 
 ## 3. Using @weldsuite/app-sdk
 
@@ -147,7 +150,7 @@ Errors throw `WeldApiError` with `status`, `code`, `message`.
 
 ## 4. Storage endpoints (what the SDK calls)
 
-All on the external API, `Authorization: Bearer <wsat_ token>`; responses use `{ data }` / `{ data, pagination: { totalCount, hasMore, cursor } }` envelopes, errors `{ error: { code, message } }`.
+All on the external API (called through the host; the install's granted scopes apply); responses use `{ data }` / `{ data, pagination: { totalCount, hasMore, cursor } }` envelopes, errors `{ error: { code, message } }`.
 
 - `GET /v1/app-storage/collections/{collection}/records`, query: `limit`, `cursor`, `filter` (JSON string, jsonb containment, e.g. `{"status":"open"}`)
 - `POST /v1/app-storage/collections/{collection}/records`, body `{ data }`
@@ -156,7 +159,7 @@ All on the external API, `Authorization: Bearer <wsat_ token>`; responses use `{
 - `DELETE /v1/app-storage/collections/{collection}/records/{id}`, 204
 - `GET /v1/app-storage/kv/{key}` / `PUT /v1/app-storage/kv/{key}` (body `{ value }`) / `DELETE /v1/app-storage/kv/{key}`
 
-Everything else on `/v1/*` (CRM, tasks, tickets, …) works with the same token, **subject to granted scopes**.
+Everything else on `/v1/*` (CRM, tasks, tickets, …) works the same way, **subject to granted scopes**.
 
 ## 5. Scopes
 
@@ -195,5 +198,5 @@ Env: `WELD_API_KEY` (a `wsk_…` workspace API key with `user-apps:manage`, from
 - [ ] UI respects both themes (`light` and `dark` via `data-theme`) and renders sensibly while `status` is `connecting` / `error`.
 - [ ] `update()` calls send the **full document** (PATCH replaces, not merges).
 - [ ] `version` in `weldapp.json` bumped (semver) before `weld app deploy`.
-- [ ] No hand-rolled token handling, all API access goes through `WeldApi` / the bridge.
+- [ ] No hand-rolled token handling or direct `fetch` to WeldSuite, all API access goes through `WeldApi` / the bridge.
 - [ ] Deployed with `weld app deploy` (or verified via `weld app dev`) inside a workspace, not just in a local tab.

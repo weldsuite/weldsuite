@@ -10,6 +10,10 @@ export const weldapps = {
     loading: 'Loading app…',
     developmentBadge: 'Development',
     developmentDescription: 'This is your local preview from `weld app dev`. Other members still see the published bundle.',
+    leaveTitle: 'Leave this app?',
+    leaveDescription: 'You have unsaved changes in this app. If you leave now, they will be lost.',
+    leave: 'Leave',
+    stay: 'Stay',
   },
   store: {
     sectionTitle: 'Custom apps',

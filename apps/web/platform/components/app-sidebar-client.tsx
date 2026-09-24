@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { InstalledApp } from '@/lib/api/apps';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useAppPrefetch } from '@/hooks/use-app-prefetch';
+import { preloadWeldApp } from '@/app/weldapps/host/frame-store';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import {
   DndContext,
@@ -331,6 +332,8 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: AppSid
                       // landing data ourselves on hover.
                       router.prefetch(appPath);
                       prefetchApp(app.appCode);
+                      // WeldApps: start booting the iframe so the click is instant.
+                      if (app.appType === 'user') preloadWeldApp(app.appCode);
                     }}
                     onHoverEnd={() => cancelPrefetch(app.appCode)}
                     isHomePage={isHomePage}
@@ -360,7 +363,10 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: AppSid
                     <Link
                       href={appPath}
                       data-testid={appNavTestId(app.appCode)}
-                      onMouseEnter={() => prefetchApp(app.appCode)}
+                      onMouseEnter={() => {
+                        prefetchApp(app.appCode);
+                        if (app.appType === 'user') preloadWeldApp(app.appCode);
+                      }}
                       onMouseLeave={() => cancelPrefetch(app.appCode)}
                       onFocus={() => prefetchApp(app.appCode)}
                       className={cn(

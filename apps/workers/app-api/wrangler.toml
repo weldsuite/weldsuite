@@ -271,6 +271,14 @@ service = "weldsuite-workspace-test"
 entrypoint = "WorkspaceOnboardEntrypoint"
 remote = true
 
+# external-api — the WeldApps data gateway (/api/user-apps/code/:code/gateway)
+# forwards app requests here with a server-held wsat_ session token. A Worker
+# cannot fetch a same-zone route directly, hence the binding.
+[[services]]
+binding = "EXTERNAL_API"
+service = "weldsuite-external-api-test"
+remote = true
+
 # Cloudflare Email Sending binding for WeldMail outbound delivery. The
 # `destination_address` is the envelope MAIL FROM the binding will accept;
 # Cloudflare requires this address to be verified in the dashboard once per
@@ -432,6 +440,10 @@ service = "weldsuite-realtime-test"
 binding = "WORKSPACE_WORKER"
 service = "weldsuite-workspace-test"
 entrypoint = "WorkspaceOnboardEntrypoint"
+
+[[env.test.services]]
+binding = "EXTERNAL_API"
+service = "weldsuite-external-api-test"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
@@ -599,6 +611,10 @@ service = "weldsuite-realtime-production"
 binding = "WORKSPACE_WORKER"
 service = "weldsuite-workspace"
 entrypoint = "WorkspaceOnboardEntrypoint"
+
+[[env.production.services]]
+binding = "EXTERNAL_API"
+service = "weldsuite-external-api"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
