@@ -1,6 +1,6 @@
 /**
- * Integration smoke for WeldAgent Grok-parity routes (pglite).
- * Tables may be missing until migration is applied — tests skip soft-fail.
+ * Integration smoke for WeldAgent Grok-parity routes (pglite, built from the
+ * real tenant migrations — so a table missing from the migrations fails here).
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -40,7 +40,7 @@ describe('weldagent parity routes', () => {
     expect(typeof body.data.ok).toBe('boolean');
   });
 
-  it('creates agent then attempts skill create (migration-gated)', async () => {
+  it('creates an agent and a skill', async () => {
     const { request } = app();
     const createAgent = await request('/api/weldagent/agents', {
       method: 'POST',
@@ -59,11 +59,54 @@ describe('weldagent parity routes', () => {
         instructions: 'Every Monday summarise open tickets and draft a digest. Require approval before sending.',
       }),
     });
-    // Until weldagent_skills migration is applied, this may 500 — accept either.
-    expect([201, 500]).toContain(skillRes.status);
+    expect(skillRes.status).toBe(201);
   });
 
-  it('helper coverage stays available without tables', () => {
+  it('loads every Configure section and creates a routine', async () => {
+    const { request } = app();
+    const created = await request('/api/weldagent/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Configure Bot', systemPrompt: 'When a ticket arrives, triage it.' }),
+    });
+    const { data: agent } = (await created.json()) as { data: { id: string } };
+
+    // The four calls the Configure tab makes (Approvals, Routines, Skills, Memory).
+    for (const path of [
+      `/api/weldagent/approvals?agentId=${agent.id}&status=pending`,
+      `/api/weldagent/routines?agentId=${agent.id}`,
+      `/api/weldagent/agents/${agent.id}/skills`,
+      `/api/weldagent/agents/${agent.id}/memories`,
+    ]) {
+      const res = await request(path);
+      expect(res.status, path).toBe(200);
+    }
+
+    const routine = await request('/api/weldagent/routines', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: agent.id,
+        name: 'Morning triage',
+        instructions: 'Triage all new tickets from overnight.',
+        scheduleKind: 'cron',
+        cronExpr: '0 8 * * *',
+        timezone: 'Europe/Amsterdam',
+      }),
+    });
+    expect(routine.status).toBe(201);
+    const { data: saved } = (await routine.json()) as { data: { nextRunAt: string | null } };
+    expect(saved.nextRunAt).not.toBeNull();
+
+    const memory = await request('/api/weldagent/memories', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: agent.id, kind: 'preference', content: 'Reply in Dutch.' }),
+    });
+    expect(memory.status).toBe(201);
+  });
+
+  it('exposes pure helpers', () => {
     expect(toolRiskLevel('create_ticket')).toBe('high');
     expect(computeNextHourlyRun(new Date('2026-01-01T00:30:00Z')).getUTCHours()).toBe(1);
   });
