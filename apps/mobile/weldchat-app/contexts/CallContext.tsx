@@ -137,7 +137,7 @@ type IncomingCallData = {
   callerAvatar?: string;
 };
 
-export function CallProvider({ children }: { children: React.ReactNode }) {
+export function CallProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { userId } = useAuth();
 
   const [status, setStatus] = useState<CallStatus>('idle');

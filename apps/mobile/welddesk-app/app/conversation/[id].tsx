@@ -298,7 +298,7 @@ export default function ConversationScreen() {
   );
 }
 
-function MessageBubble({ message }: { message: DeskMessage }) {
+function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
   const { colors } = useTheme();
   const { t } = useI18n();
 
