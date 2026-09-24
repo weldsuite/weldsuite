@@ -104,6 +104,9 @@ test.describe('Error Handling', () => {
 
   test.describe('Error Boundary', () => {
     test('should catch and display React errors gracefully', async ({ widgetPage, page }) => {
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
       // Inject an error-triggering script
       await page.addInitScript(() => {
         // This will be caught by error boundary
@@ -118,6 +121,7 @@ test.describe('Error Handling', () => {
       // Error boundary should prevent complete crash
       const errorBoundary = page.locator('[data-testid="error-boundary"], [class*="error-boundary"]');
       // If error occurs, boundary should catch it
+      expect(pageErrors).toEqual([]);
     });
 
     test('should provide retry option on error', async ({ widgetPage, page }) => {
@@ -177,6 +181,8 @@ test.describe('Error Handling', () => {
         // Field should be marked as invalid
         const ariaInvalid = await emailInput.getAttribute('aria-invalid');
         // Or check for error styling
+        const nativeInvalid = await emailInput.evaluate((el) => !(el as HTMLInputElement).checkValidity());
+        expect(ariaInvalid === 'true' || nativeInvalid).toBe(true);
       }
     });
 
@@ -195,6 +201,9 @@ test.describe('Error Handling', () => {
         await emailInput.blur();
 
         // Error should be cleared
+        const isValid = await emailInput.evaluate((el) => (el as HTMLInputElement).checkValidity());
+        expect(isValid).toBe(true);
+        await expect(emailInput).not.toHaveAttribute('aria-invalid', 'true');
       }
     });
   });
