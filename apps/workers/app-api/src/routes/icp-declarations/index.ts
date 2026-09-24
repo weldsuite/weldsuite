@@ -121,7 +121,7 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
 
     for (const line of lines) {
       if (!line.taxRateId || !icpRateIds.has(line.taxRateId)) continue;
-      const amount = Math.abs(parseFloat(line.credit || '0') - parseFloat(line.debit || '0'));
+      const amount = Math.abs(Number.parseFloat(line.credit || '0') - Number.parseFloat(line.debit || '0'));
       if (amount === 0) continue;
 
       const rawVat = await getContactVatNumber(db, line.contactId);

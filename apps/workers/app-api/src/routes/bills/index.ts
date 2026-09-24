@@ -107,8 +107,8 @@ app.get('/', requirePermission('bills:read'), async (c) => {
   const db = c.get('tenantDb');
   const { bills } = schema;
   const q = c.req.query();
-  const page = Math.max(parseInt(q.page || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(q.pageSize || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(q.page || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(q.pageSize || '25', 10), 1), 100);
 
   try {
     const entityId = await resolveEntityId(c, db);

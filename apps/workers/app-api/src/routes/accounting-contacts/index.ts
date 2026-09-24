@@ -105,8 +105,8 @@ function toPartyColumns(data: ContactPayload): Partial<typeof t.$inferInsert> {
 // GET / — list contacts
 app.get('/', requirePermission('invoices:read'), async (c) => {
   const db = c.get('tenantDb');
-  const page = Math.max(parseInt(c.req.query('page') || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(c.req.query('page') || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
 
   try {
     // `role` is the accounting role (customer | supplier | both). Maps to the
