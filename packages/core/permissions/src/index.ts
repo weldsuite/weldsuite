@@ -44,6 +44,7 @@ export {
   type AppCheckMode,
   type AppPermissionCheck,
 } from './app-scope';
+export { toAppScopedKeys } from './app-migration';
 export {
   buildAppPermissionCatalog,
   type AppPermissionCatalog,

@@ -12,8 +12,12 @@ import { Hono } from 'hono';
 import {
   PERMISSION_APPS,
   PERMISSION_CATALOG_OBJECTS,
+  SYSTEM_ROLES,
   buildAppPermissionCatalog,
   checkAppPermission,
+  getAllPermissionKeys,
+  hasPermission,
+  toAppScopedKeys,
   getAppsForObject,
   isAppCode,
   isAppScopedObject,
@@ -89,8 +93,8 @@ describe('parsePermissionKey / qualifyPermission', () => {
   });
 
   it('qualifies app-scoped keys only', () => {
-    expect(qualifyPermission('companies:read', 'weldbooks')).toBe('weldbooks:companies:read');
-    expect(qualifyPermission('weldcrm:companies:read', 'weldbooks')).toBe('weldcrm:companies:read');
+    expect(qualifyPermission('companies:read', 'welddesk')).toBe('welddesk:companies:read');
+    expect(qualifyPermission('weldcrm:companies:read', 'welddesk')).toBe('weldcrm:companies:read');
     expect(qualifyPermission('team:read', 'weldcrm')).toBe('team:read');
   });
 });
@@ -99,14 +103,14 @@ describe('checkAppPermission', () => {
   it('lets a legacy unqualified grant through in every app (pre-migration)', () => {
     const s = subject(['companies:read']);
     expect(checkAppPermission(s, 'companies:read', 'weldcrm').allowed).toBe(true);
-    expect(checkAppPermission(s, 'companies:read', 'weldbooks').allowed).toBe(true);
+    expect(checkAppPermission(s, 'companies:read', 'welddesk').allowed).toBe(true);
     expect(checkAppPermission(s, 'companies:read', null).allowed).toBe(true);
   });
 
   it('scopes a qualified grant to its app', () => {
     const s = subject(['weldcrm:companies:read']);
     expect(checkAppPermission(s, 'companies:read', 'weldcrm')).toMatchObject({ allowed: true, mode: 'app', app: 'weldcrm' });
-    expect(checkAppPermission(s, 'companies:read', 'weldbooks')).toMatchObject({ allowed: false, mode: 'app', app: 'weldbooks' });
+    expect(checkAppPermission(s, 'companies:read', 'welddesk')).toMatchObject({ allowed: false, mode: 'app', app: 'welddesk' });
     // No app context: allowed because some app grants it.
     expect(checkAppPermission(s, 'companies:read', null)).toMatchObject({ allowed: true, mode: 'any-app' });
   });
@@ -114,13 +118,13 @@ describe('checkAppPermission', () => {
   it('accepts app wildcards and aliases', () => {
     const s = subject(['weldcrm:*']);
     expect(checkAppPermission(s, 'companies:scope:all', 'crm').allowed).toBe(true);
-    expect(checkAppPermission(s, 'companies:scope:all', 'weldbooks').allowed).toBe(false);
+    expect(checkAppPermission(s, 'companies:scope:all', 'welddesk').allowed).toBe(false);
   });
 
   it('lets a qualified deny win over an unqualified grant in that app only', () => {
-    const s = subject(['companies:read'], ['weldbooks:companies:read']);
+    const s = subject(['companies:read'], ['welddesk:companies:read']);
     expect(checkAppPermission(s, 'companies:read', 'weldcrm').allowed).toBe(true);
-    expect(checkAppPermission(s, 'companies:read', 'weldbooks').allowed).toBe(false);
+    expect(checkAppPermission(s, 'companies:read', 'welddesk').allowed).toBe(false);
     expect(checkAppPermission(s, 'companies:read', null).allowed).toBe(true);
   });
 
@@ -142,7 +146,7 @@ describe('checkAppPermission', () => {
   });
 
   it('grants the owner wildcard everywhere', () => {
-    expect(checkAppPermission(subject(['*']), 'companies:delete', 'weldbooks').allowed).toBe(true);
+    expect(checkAppPermission(subject(['*']), 'companies:delete', 'welddesk').allowed).toBe(true);
   });
 });
 
@@ -170,13 +174,13 @@ describe('request app context', () => {
   });
 
   it('only logs a per-app refusal in log mode', async () => {
-    const res = await build(crmOnly).request('/api/companies', { headers: { 'X-Weld-App': 'weldbooks' } });
+    const res = await build(crmOnly).request('/api/companies', { headers: { 'X-Weld-App': 'welddesk' } });
     expect(res.status).toBe(200);
   });
 
   it('refuses in the other app when enforced', async () => {
     const t = build(crmOnly, { PERMISSIONS_APP_ENFORCE: 'true' });
-    expect((await t.request('/api/companies', { headers: { 'X-Weld-App': 'weldbooks' } })).status).toBe(403);
+    expect((await t.request('/api/companies', { headers: { 'X-Weld-App': 'welddesk' } })).status).toBe(403);
     expect((await t.request('/api/companies', { headers: { 'X-Weld-App': 'weldcrm' } })).status).toBe(200);
     expect((await t.request('/api/companies')).status).toBe(200);
   });
@@ -189,7 +193,7 @@ describe('request app context', () => {
   it('applies app context to in-handler checks (scope:all)', async () => {
     const t = build(crmOnly, { PERMISSIONS_APP_ENFORCE: 'true' });
     const inCrm = await t.request('/api/scope', { headers: { 'X-Weld-App': 'weldcrm' } });
-    const inBooks = await t.request('/api/scope', { headers: { 'X-Weld-App': 'weldbooks' } });
+    const inBooks = await t.request('/api/scope', { headers: { 'X-Weld-App': 'welddesk' } });
     expect(await inCrm.json()).toEqual({ all: true });
     expect(await inBooks.json()).toEqual({ all: false });
   });
@@ -198,5 +202,50 @@ describe('request app context', () => {
     const t = build(subject(['companies:read'], ['welddesk:companies:read']), { PERMISSIONS_APP_ENFORCE: 'true' });
     expect((await t.request('/api/companies', { headers: { 'X-Weld-App': 'welddesk' } })).status).toBe(403);
     expect((await t.request('/api/companies', { headers: { 'X-Weld-App': 'weldcrm' } })).status).toBe(200);
+  });
+});
+
+describe('toAppScopedKeys (data migration)', () => {
+  it('expands app-scoped grants into one grant per app', () => {
+    const out = toAppScopedKeys(['companies:read', 'team:read', '*']);
+    for (const app of getAppsForObject('companies')) expect(out).toContain(`${app}:companies:read`);
+    expect(out).not.toContain('companies:read');
+    expect(out).toContain('team:read');
+    expect(out).toContain('*');
+  });
+
+  it('keeps qualified keys, normalizes aliases, collapses old settings keys', () => {
+    expect(toAppScopedKeys(['weldcrm:companies:*'])).toEqual(['weldcrm:companies:*']);
+    expect(toAppScopedKeys(['weldparcel:orders:read'])).toEqual(['weldstash:orders:read']);
+    expect(toAppScopedKeys(['settings:team:read'])).toEqual(['team:read']);
+  });
+
+  it('gives every app its own copy of a cross-object wildcard', () => {
+    const out = toAppScopedKeys(['*:read']);
+    expect(out).toContain('*:read');
+    expect(out).toContain('weldbooks:*:read');
+  });
+
+  it('is idempotent', () => {
+    const once = toAppScopedKeys(SYSTEM_ROLES.MEMBER!.permissions);
+    expect(toAppScopedKeys(once)).toEqual(once);
+  });
+
+  it('grants exactly what the unqualified set granted, per app, for every system role', () => {
+    for (const roleName of ['ADMIN', 'MEMBER', 'VIEWER'] as const) {
+      const before = SYSTEM_ROLES[roleName]!.permissions;
+      const after = toAppScopedKeys(before);
+      for (const key of getAllPermissionKeys()) {
+        const { object } = parsePermissionKey(key);
+        const apps = getAppsForObject(object);
+        if (apps.length === 0) {
+          expect(hasPermission(after, key), `${roleName} ${key}`).toBe(hasPermission(before, key));
+          continue;
+        }
+        for (const app of apps) {
+          expect(hasPermission(after, `${app}:${key}`), `${roleName} ${app}:${key}`).toBe(hasPermission(before, key));
+        }
+      }
+    }
   });
 });

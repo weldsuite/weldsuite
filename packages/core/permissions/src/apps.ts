@@ -7,12 +7,12 @@
  * (`team:read`, `billing:manage`, `weldagent:use`, …).
  *
  * An object may belong to several apps — that is the point: `companies` can
- * be granted in WeldCRM and withheld in WeldBooks. Register an object in an
+ * be granted in WeldCRM and withheld in WeldDesk. Register an object in an
  * app only when that app's screens actually read or write it; the role editor
  * shows one matrix row per (app, object) pair from this list.
  *
  * Drives: app-scoped checks (./app-scope.ts), the role/member editor matrix,
- * and the per-app data migration.
+ * and the per-app data migration (./app-migration.ts).
  */
 
 import type { PermissionAppDefinition } from './types';
@@ -20,71 +20,84 @@ import type { PermissionAppDefinition } from './types';
 /** Request header carrying the caller's app code (platform + mobile apps). */
 export const APP_CONTEXT_HEADER = 'X-Weld-App';
 
+// Object lists follow what each module's screens call: its own hooks plus the
+// shared record panels it opens. Generic cross-module lookups (WeldChat
+// resolving any entity's title, the workspace shell's header widgets) are
+// left out on purpose; those requests fall back to the any-app check.
 export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldcrm',
     label: 'WeldCRM',
     objects: [
-      'companies', 'people', 'customers', 'contacts', 'leads', 'opportunities',
-      'activities', 'pipelines', 'quotes', 'lists', 'telephony', 'products',
+      'companies', 'people', 'contacts', 'leads', 'opportunities', 'activities',
+      'pipelines', 'quotes', 'lists', 'telephony', 'tasks', 'workflows',
     ],
   },
   {
     code: 'weldcommerce',
     label: 'WeldCommerce',
     objects: [
-      'products', 'orders', 'customers', 'companies', 'people', 'categories',
-      'discounts', 'websites', 'inventory', 'returns',
+      'products', 'orders', 'categories', 'discounts', 'websites', 'inventory',
+      'companies', 'people',
     ],
   },
   {
     code: 'weldstash',
     label: 'WeldStash',
     objects: [
-      'products', 'inventory', 'orders', 'picklists', 'locations', 'warehouses',
-      'suppliers', 'parcels', 'carriers', 'boxes', 'returns', 'pickups', 'webhooks',
+      'products', 'inventory', 'warehouses', 'picklists', 'locations', 'suppliers',
+      'orders', 'parcels', 'carriers', 'boxes', 'returns', 'pickups', 'integrations',
     ],
   },
   {
     code: 'weldbooks',
     label: 'WeldBooks',
-    objects: [
-      'entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports',
-      'suppliers', 'customers', 'companies', 'people', 'products',
-    ],
+    objects: ['entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports', 'settings'],
   },
   {
     code: 'welddesk',
     label: 'WeldDesk',
     objects: [
-      'tickets', 'conversations', 'articles', 'agents', 'departments', 'slas',
-      'settings', 'customers', 'companies', 'people',
+      'tickets', 'conversations', 'articles', 'agents', 'departments', 'slas', 'settings',
+      'companies', 'people', 'activities', 'telephony', 'workflows', 'integrations',
     ],
   },
   {
     code: 'weldflow',
     label: 'WeldFlow',
-    objects: ['projects', 'tasks', 'milestones', 'time', 'files'],
+    objects: [
+      'projects', 'tasks', 'milestones', 'time', 'files', 'companies', 'channels',
+      'messages', 'integrations',
+    ],
   },
   {
     code: 'weldmail',
     label: 'WeldMail',
-    objects: ['accounts', 'messages', 'templates', 'campaigns'],
+    objects: [
+      'accounts', 'messages', 'templates', 'campaigns', 'companies', 'people', 'contacts',
+      'opportunities', 'pipelines', 'activities', 'channels', 'tasks', 'events',
+      'calendars', 'domains',
+    ],
   },
   {
     code: 'weldchat',
     label: 'WeldChat',
-    objects: ['channels', 'messages', 'settings'],
+    objects: ['channels', 'messages', 'settings', 'tasks', 'agents'],
   },
   {
     code: 'weldmeet',
     label: 'WeldMeet',
-    objects: ['meetings', 'sessions', 'recordings'],
+    objects: ['meetings', 'sessions', 'recordings', 'people', 'calendars'],
   },
   {
     code: 'weldcalendar',
     label: 'WeldCalendar',
-    objects: ['events', 'calendars', 'bookings'],
+    objects: ['events', 'calendars', 'bookings', 'meetings', 'tasks', 'people', 'integrations'],
+  },
+  {
+    code: 'weldcall',
+    label: 'WeldCall',
+    objects: ['activities', 'telephony'],
   },
   {
     code: 'welddrive',
@@ -95,8 +108,8 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     code: 'weldconnect',
     label: 'WeldConnect',
     objects: [
-      'workflows', 'workflow-executions', 'workflow-templates',
-      'workflow-variables', 'workflow-webhooks', 'integrations',
+      'workflows', 'workflow-executions', 'workflow-templates', 'workflow-variables',
+      'workflow-webhooks', 'integrations', 'entities', 'accounts',
     ],
   },
   {
@@ -122,7 +135,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'welddata',
     label: 'WeldData',
-    objects: ['prospects'],
+    objects: ['prospects', 'lists', 'companies'],
   },
   {
     code: 'weldpass',
@@ -132,31 +145,43 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldhr',
     label: 'WeldHR',
-    objects: ['employees', 'attendance', 'leave', 'coaching', 'evaluations'],
+    objects: ['employees', 'attendance', 'leave', 'coaching', 'evaluations', 'companies', 'people'],
   },
 ];
 
 /**
  * Old / alternative app codes still found in URLs, installed-app rows and
- * mobile clients, mapped onto the canonical code above.
+ * mobile clients, mapped onto the canonical code above. Mirrors
+ * LEGACY_CODE_ALIASES in apps/web/platform/lib/apps/app-registry.ts, plus
+ * the platform's `social` route segment.
  */
 export const APP_CODE_ALIASES: Readonly<Record<string, string>> = {
   crm: 'weldcrm',
   commerce: 'weldcommerce',
   wms: 'weldstash',
+  stash: 'weldstash',
+  weldwms: 'weldstash',
+  weldparcel: 'weldstash',
+  parcel: 'weldstash',
   accounting: 'weldbooks',
+  books: 'weldbooks',
   helpdesk: 'welddesk',
+  desk: 'welddesk',
   projects: 'weldflow',
-  task: 'weldflow',
+  task: 'weldconnect',
+  tasks: 'weldconnect',
+  connect: 'weldconnect',
   mail: 'weldmail',
   chat: 'weldchat',
   meet: 'weldmeet',
   calendar: 'weldcalendar',
+  call: 'weldcall',
   drive: 'welddrive',
+  data: 'welddata',
   host: 'weldhost',
   social: 'weldsocial',
-  weldparcel: 'weldstash',
-  parcel: 'weldstash',
+  knowledge: 'weldknow',
+  know: 'weldknow',
 };
 
 // ---------------------------------------------------------------------------
