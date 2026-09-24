@@ -37,7 +37,7 @@ export function CalendarWidget({
   accentColor,
   onDateSelect,
   onMonthChange,
-}: CalendarWidgetProps) {
+}: Readonly<CalendarWidgetProps>) {
   const gridRef = useRef<HTMLDivElement>(null);
 
   const days = generateCalendarDays(currentMonth);
@@ -244,7 +244,7 @@ function DayCell({
   accentColor,
   onSelect,
   onKeyDown,
-}: DayCellProps) {
+}: Readonly<DayCellProps>) {
   // Make the *cell* the keyboard target so arrow nav works even on disabled
   // dates. Click is only enabled on the inner button when not disabled.
   return (

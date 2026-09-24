@@ -38,7 +38,7 @@ export function ConfirmationCard({
   onReschedule,
   onCancel,
   cancelling,
-}: ConfirmationCardProps) {
+}: Readonly<ConfirmationCardProps>) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
@@ -240,7 +240,7 @@ export function CancelledCard({
   selectedSlot,
   timezone,
   use24h,
-}: CancelledCardProps) {
+}: Readonly<CancelledCardProps>) {
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
   const formatDateInTz = (date: Date, pattern: string) =>
@@ -287,7 +287,7 @@ function AddToCalendar({
   locationValue,
   startIso,
   endIso,
-}: AddToCalendarProps) {
+}: Readonly<AddToCalendarProps>) {
   const start = new Date(startIso);
   const end = new Date(endIso);
   const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
