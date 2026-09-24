@@ -14,10 +14,10 @@ const STATE_VARIANTS: Record<DeskConversationState, Variant> = {
 export function ConversationStateBadge({
   state,
   size = 'sm',
-}: {
+}: Readonly<{
   state: DeskConversationState;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   const label = state === 'open' ? t.inbox.open : t.inbox.closed;
   return (
@@ -30,10 +30,10 @@ export function ConversationStateBadge({
 export function ChannelBadge({
   channel,
   size = 'sm',
-}: {
+}: Readonly<{
   channel: DeskChannel;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   const labels: Record<DeskChannel, string> = {
     messenger: t.channel.messenger,
