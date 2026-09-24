@@ -34,6 +34,7 @@ export default function TrackingMap({ selectedShipment }: TrackingMapProps) {
   useEffect(() => {
     if (map.current) return; // initialize map only once
     if (!mapContainer.current) return;
+    if (!mapboxgl.accessToken) return; // no token configured, Mapbox cannot render
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
