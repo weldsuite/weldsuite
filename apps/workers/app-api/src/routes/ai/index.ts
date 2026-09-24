@@ -20,8 +20,7 @@
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { requirePermission, hasContextPermission } from '@weldsuite/permissions/server';
 import {
   generateText,
   streamText,
@@ -208,8 +207,7 @@ app.post(
 
     // Workspace agent path — tools + agent instructions.
     if (agentId) {
-      const resolved = await ensurePermissionsResolved(c);
-      if (!resolved || !hasPermission(resolved.permissions, 'weldagent:use')) {
+      if (!(await hasContextPermission(c, 'weldagent:use'))) {
         return error.forbidden(c, 'Missing permission: weldagent:use');
       }
       const agent = await getAgent(c.get('tenantDb'), agentId);
@@ -373,8 +371,7 @@ app.post(
     }
 
     if (agentId) {
-      const resolved = await ensurePermissionsResolved(c);
-      if (!resolved || !hasPermission(resolved.permissions, 'weldagent:use')) {
+      if (!(await hasContextPermission(c, 'weldagent:use'))) {
         return error.forbidden(c, 'Missing permission: weldagent:use');
       }
       const agent = await getAgent(c.get('tenantDb'), agentId);

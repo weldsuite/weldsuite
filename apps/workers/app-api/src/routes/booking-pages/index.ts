@@ -17,10 +17,9 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createBookingPageSchema, updateBookingPageSchema } from '@weldsuite/core-api-client/schemas/booking-pages';
 import type { Env, Variables } from '../../types';
@@ -36,9 +35,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.calendarBookingPages;
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'bookings:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'bookings:scope:all')) return undefined;
   return c.get('userId');
 }
 

@@ -14,8 +14,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { requirePermission, hasContextPermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createPersonSchema,
@@ -39,9 +38,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * or their own userId for users who may only see their own records.
  */
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'people:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'people:scope:all')) return undefined;
   return c.get('userId');
 }
 

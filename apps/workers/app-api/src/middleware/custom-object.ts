@@ -15,7 +15,7 @@
  *      `weldobjects:<slug>:<action>` against them.
  *
  * Note this does NOT call `requirePermission` internally — it calls
- * `ensurePermissionsResolved` + `hasPermission` directly, so the permission
+ * `hasContextPermission` directly (deny-aware), so the permission
  * resolution is shared with any other gate on the same request (both read from
  * the same context cache, so there is still exactly one DB round-trip).
  *
@@ -25,8 +25,7 @@
  */
 
 import type { Context, Next } from 'hono';
-import { ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission } from '@weldsuite/permissions/server';
 import {
   customObjectPermission,
   customObjectScopeAllPermission,
@@ -91,9 +90,7 @@ export function requireCustomObject(action: CustomObjectPermissionAction): Route
       return error.notFound(c, 'Custom object', slug);
     }
 
-    const resolved = await ensurePermissionsResolved(c);
-    const permissions = resolved?.permissions ?? [];
-    if (!hasPermission(permissions, customObjectPermission(slug, action))) {
+    if (!(await hasContextPermission(c, customObjectPermission(slug, action)))) {
       return c.json(
         {
           error: {
@@ -124,9 +121,7 @@ export async function customObjectScope(c: AppContext): Promise<string | undefin
   const object = c.get('customObject');
   if (!object) return c.get('userId');
 
-  const resolved = await ensurePermissionsResolved(c);
-  const permissions = resolved?.permissions ?? [];
-  if (hasPermission(permissions, customObjectScopeAllPermission(object.slug))) return undefined;
+  if (await hasContextPermission(c, customObjectScopeAllPermission(object.slug))) return undefined;
   return c.get('userId');
 }
 
@@ -146,8 +141,7 @@ export async function canReadTarget(c: AppContext, targetEntityKey: string): Pro
   const permission = targetReadPermission(targetEntityKey);
   if (!permission) return false;
 
-  const resolved = await ensurePermissionsResolved(c);
-  return hasPermission(resolved?.permissions ?? [], permission);
+  return hasContextPermission(c, permission);
 }
 
 /** The resolved object, for handlers running behind `requireCustomObject`. */

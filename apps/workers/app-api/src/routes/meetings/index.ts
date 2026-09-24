@@ -22,10 +22,9 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import { createMeetingSchema, updateMeetingSchema } from '@weldsuite/core-api-client/schemas/meetings';
 import { hostControlsSchema, DEFAULT_HOST_CONTROLS } from '@weldsuite/core-api-client/schemas/weldmeet';
 import type { Env, Variables } from '../../types';
@@ -72,9 +71,7 @@ function projectHostControls(row: Record<string, unknown>): Record<string, unkno
 }
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'meetings:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'meetings:scope:all')) return undefined;
   return c.get('userId');
 }
 

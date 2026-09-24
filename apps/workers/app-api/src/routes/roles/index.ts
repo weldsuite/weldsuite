@@ -87,7 +87,27 @@ app.get('/permission-catalog', requirePermission('roles:read'), async (c) => {
     console.error('[app-api/roles] custom object permission merge failed:', err);
   }
 
-  return success(c, { objects, customObjects: customObjectGroups });
+  // Per-app matrix: each app with the objects it exposes and app-qualified
+  // keys (`weldcrm:companies:read`), plus the workspace-level objects.
+  // `objects` above stays for the current editor until it moves to this shape.
+  const { buildAppPermissionCatalog } = await import('@weldsuite/permissions');
+  const appCatalog = buildAppPermissionCatalog();
+  const apps = appCatalog.apps.map((entry) => ({
+    app: entry.app,
+    appName: entry.label,
+    objects: entry.objects.map((obj) => {
+      const res = toResponse(obj);
+      // Keys are `<app>:<object>:<action>` here; strip both leading segments.
+      const prefix = `${entry.app}:${obj.key}:`;
+      return {
+        ...res,
+        permissions: res.permissions.map((p) => ({ ...p, action: p.code.slice(prefix.length) || 'read' })),
+      };
+    }),
+  }));
+  const workspace = appCatalog.workspace.map(toResponse);
+
+  return success(c, { objects, customObjects: customObjectGroups, apps, workspace });
 });
 
 // GET /installable-apps — workspace apps that a role can grant. Literal segment

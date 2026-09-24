@@ -8,8 +8,7 @@ import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
-import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema } from '@weldsuite/app-api-client/schemas/projects';
 import type { Env, Variables } from '../../types';
@@ -36,8 +35,7 @@ app.get('/', async (c) => {
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
 
-  const resolved = await ensurePermissionsResolved(c);
-  const canSeeAll = hasPermission(resolved?.permissions ?? [], 'projects:scope:all');
+  const canSeeAll = await hasContextPermission(c, 'projects:scope:all');
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (!canSeeAll) {

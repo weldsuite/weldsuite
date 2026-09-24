@@ -6,6 +6,7 @@ export type {
   SystemRoleDefinition,
   SystemRoleName,
   ResolvedPermissions,
+  PermissionAppDefinition,
 } from './types';
 
 export { PERMISSION_ACTIONS } from './types';
@@ -19,6 +20,35 @@ export {
   hasAnyObjectAccess,
   expandWildcards,
 } from './engine';
+
+// App registry + app-scoped checks (per-app permission matrix)
+export {
+  APP_CONTEXT_HEADER,
+  PERMISSION_APPS,
+  APP_CODE_ALIASES,
+  isAppCode,
+  normalizeAppCode,
+  getPermissionApp,
+  getAppsForObject,
+  isAppScopedObject,
+} from './apps';
+export {
+  LEGACY_UNQUALIFIED_GRANTS,
+  parsePermissionKey,
+  qualifyPermission,
+  checkAppPermission,
+  hasAppPermission,
+  hasAnyAppPermission,
+  type PermissionKeyParts,
+  type PermissionSubject,
+  type AppCheckMode,
+  type AppPermissionCheck,
+} from './app-scope';
+export {
+  buildAppPermissionCatalog,
+  type AppPermissionCatalog,
+  type AppPermissionCatalogEntry,
+} from './app-catalog';
 
 // Catalog
 export {
