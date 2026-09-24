@@ -232,7 +232,7 @@ app.get('/:id/runs', requirePermission('weldagent:read'), async (c) => {
   const id = c.req.param('id');
   const existing = await getAgent(db, id);
   if (!existing) return error.notFound(c, 'Agent not found');
-  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 100);
   const runs = await listAgentRuns(db, id, limit);
   return success(c, runs);
 });
