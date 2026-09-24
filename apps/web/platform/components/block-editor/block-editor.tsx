@@ -328,9 +328,9 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   // Convert HTML to blocks if initialHtml is provided and no JSON content
   useEffect(() => {
     if (initialHtml && (!initialContent || initialContent.length === 0)) {
-      async function convert() {
+      function convert() {
         try {
-          const blocks = await editor.tryParseHTMLToBlocks(initialHtml!);
+          const blocks = editor.tryParseHTMLToBlocks(initialHtml!);
           if (blocks.length > 0) {
             editor.replaceBlocks(editor.document, blocks);
           }

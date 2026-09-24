@@ -102,7 +102,7 @@ interface ApiKeysContentProps {
   showForm: boolean;
   formData: Record<string, unknown>;
   setFormData: (data: Record<string, unknown>) => void;
-  onFormSubmit: (e: React.FormEvent) => void;
+  onFormSubmit: (e: React.FormEvent) => void | Promise<void>;
   setShowForm: (show: boolean) => void;
   formMode: 'add' | 'edit';
   newApiToken?: { token: string; name: string } | null;
