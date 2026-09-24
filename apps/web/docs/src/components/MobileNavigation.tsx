@@ -8,7 +8,7 @@ import { Dialog, DialogPanel } from '@headlessui/react'
 import { Logomark } from '@/components/Logo'
 import { Navigation } from '@/components/Navigation'
 
-function MenuIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function MenuIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg
       aria-hidden="true"
@@ -23,7 +23,7 @@ function MenuIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function CloseIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function CloseIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg
       aria-hidden="true"
