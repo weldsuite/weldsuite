@@ -34,7 +34,7 @@ export function parseRef(ref: string): CellRef | null {
   if (!m) return null;
   return {
     col: colIndex(m[2]),
-    row: parseInt(m[4], 10) - 1,
+    row: Number.parseInt(m[4], 10) - 1,
     absCol: m[1] === '$',
     absRow: m[3] === '$',
   };
@@ -105,7 +105,7 @@ function tokenize(formula: string): Token[] {
     if ((s[i] >= '0' && s[i] <= '9') || (s[i] === '.' && i + 1 < s.length && s[i + 1] >= '0' && s[i + 1] <= '9')) {
       let num = '';
       while (i < s.length && ((s[i] >= '0' && s[i] <= '9') || s[i] === '.')) { num += s[i]; i++; }
-      tokens.push({ type: TokenType.NUMBER, value: num, numValue: parseFloat(num) });
+      tokens.push({ type: TokenType.NUMBER, value: num, numValue: Number.parseFloat(num) });
       continue;
     }
 
@@ -923,7 +923,7 @@ export function adjustFormula(formula: string, rowDelta: number, colDelta: numbe
   const refRe = /(\$?)([A-Z]+)(\$?)(\d+)/gi;
   const adjusted = expr.replace(refRe, (match, absc, col, absr, row) => {
     const colIdx = colIndex(col.toUpperCase());
-    const rowIdx = parseInt(row, 10) - 1;
+    const rowIdx = Number.parseInt(row, 10) - 1;
     const newCol = absc === '$' ? colIdx : Math.max(0, colIdx + colDelta);
     const newRow = absr === '$' ? rowIdx : Math.max(0, rowIdx + rowDelta);
     return `${absc}${colLabel(newCol)}${absr}${newRow + 1}`;
