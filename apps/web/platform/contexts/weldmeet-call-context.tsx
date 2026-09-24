@@ -996,14 +996,16 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       if (newState) next.add(selfPeerId); else next.delete(selfPeerId);
       return next;
     });
-    try {
-      meeting.participants.broadcastMessage(
-        newState ? 'call:hand-raised' : 'call:hand-lowered',
-        { peerId: selfPeerId },
-      );
-    } catch (err) {
-      console.error('[WeldMeet:Call] broadcast hand-raise failed:', err);
-    }
+    Promise.resolve()
+      .then(() =>
+        meeting.participants.broadcastMessage(
+          newState ? 'call:hand-raised' : 'call:hand-lowered',
+          { peerId: selfPeerId },
+        ),
+      )
+      .catch((err: unknown) => {
+        console.error('[WeldMeet:Call] broadcast hand-raise failed:', err);
+      });
     if (newState) playHandRaiseSound(); else playHandLowerSound();
   }, [meeting, handRaised]);
 

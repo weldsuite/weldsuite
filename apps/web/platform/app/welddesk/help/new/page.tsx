@@ -376,7 +376,7 @@ export default function NewHelpArticlePage() {
             return Math.abs(parseInt(curr.value) - currentFontSize) < Math.abs(parseInt(prev.value) - currentFontSize)
               ? curr
               : prev;
-          });
+          }, fontSizes[0]);
           setFontSize(closestSize.value);
         }
       }

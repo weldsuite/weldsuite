@@ -456,10 +456,10 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
         URL.revokeObjectURL(href);
       },
       toggleFullscreen: () => {
-        try {
-          if (document.fullscreenElement) document.exitFullscreen();
-          else document.documentElement.requestFullscreen();
-        } catch { /* noop */ }
+        const toggle = document.fullscreenElement
+          ? document.exitFullscreen()
+          : document.documentElement.requestFullscreen();
+        toggle.catch(() => { /* noop */ });
       },
     }), [exec, setBlock, actions?.fileName, t]);
 
