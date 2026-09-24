@@ -46,11 +46,11 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
 
   const meetingId = q.meetingId;
   const before = q.before;
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   // If no meetingId, fall back to generic list (existing behaviour)
   if (!meetingId) {
-    const cursorLimit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+    const cursorLimit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
     const conditions: any[] = [isNull(t.deletedAt)];
     if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
     if (q.cursor) {

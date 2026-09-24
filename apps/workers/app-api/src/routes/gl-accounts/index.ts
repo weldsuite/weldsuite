@@ -105,8 +105,8 @@ app.get('/:id/transactions', requirePermission('accounts:read'), async (c) => {
   const db = c.get('tenantDb');
   const { journalLines, journalEntries } = schema;
   const accountId = c.req.param('id');
-  const page = Math.max(parseInt(c.req.query('page') || '1', 10), 1);
-  const pageSize = Math.min(Math.max(parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
+  const page = Math.max(Number.parseInt(c.req.query('page') || '1', 10), 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(c.req.query('pageSize') || '25', 10), 1), 100);
 
   try {
     const where = and(
