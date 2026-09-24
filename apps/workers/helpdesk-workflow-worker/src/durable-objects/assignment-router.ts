@@ -38,8 +38,9 @@ export class AssignmentRouter extends DurableObject<Env> {
       state.lastAssignedIndex = nextIndex;
     } else {
       // least_busy: lowest currentActive
-      selected = eligible.reduce((min, a) =>
-        a.currentActive < min.currentActive ? a : min
+      selected = eligible.reduce(
+        (min, a) => (a.currentActive < min.currentActive ? a : min),
+        eligible[0],
       );
     }
 

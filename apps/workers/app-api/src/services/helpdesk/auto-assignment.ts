@@ -88,8 +88,10 @@ export async function autoAssignConversation(
     }
   } else {
     // Balanced: whoever currently holds the fewest.
-    selectedAgent = eligibleAgents.reduce((min, agent) =>
-      (agent.currentActiveTickets ?? 0) < (min.currentActiveTickets ?? 0) ? agent : min,
+    selectedAgent = eligibleAgents.reduce(
+      (min, agent) =>
+        (agent.currentActiveTickets ?? 0) < (min.currentActiveTickets ?? 0) ? agent : min,
+      eligibleAgents[0],
     );
   }
 
