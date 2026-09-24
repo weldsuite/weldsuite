@@ -348,7 +348,7 @@ function toNumber(v: CellValue): number {
   if (v === null || v === '') return 0;
   if (typeof v === 'boolean') return v ? 1 : 0;
   const n = Number(v);
-  if (isNaN(n)) throw new Error('#VALUE!');
+  if (Number.isNaN(n)) throw new Error('#VALUE!');
   return n;
 }
 
@@ -392,7 +392,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n)) sum += n;
+      if (!Number.isNaN(n)) sum += n;
     }
     return sum;
   },
@@ -404,7 +404,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n)) { sum += n; count++; }
+      if (!Number.isNaN(n)) { sum += n; count++; }
     }
     return count === 0 ? '#DIV/0!' : sum / count;
   },
@@ -416,7 +416,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n) && n < min) min = n;
+      if (!Number.isNaN(n) && n < min) min = n;
     }
     return min === Infinity ? 0 : min;
   },
@@ -428,7 +428,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n) && n > max) max = n;
+      if (!Number.isNaN(n) && n > max) max = n;
     }
     return max === -Infinity ? 0 : max;
   },
@@ -437,7 +437,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
     const vals = flattenArgs(args, get, vis, ev);
     let count = 0;
     for (const v of vals) {
-      if (v !== null && v !== '' && !isNaN(Number(v))) count++;
+      if (v !== null && v !== '' && !Number.isNaN(Number(v))) count++;
     }
     return count;
   },
@@ -687,19 +687,19 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
   YEAR: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getFullYear();
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getFullYear();
   },
 
   MONTH: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getMonth() + 1;
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getMonth() + 1;
   },
 
   DAY: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getDate();
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getDate();
   },
 
   COUNTIF: (args, get, vis, ev) => {
@@ -736,7 +736,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
           const colOffset = c - minCol;
           const sv = getCellValue(sumMinCol + colOffset, sumMinRow + rowOffset);
           const n = Number(sv);
-          if (!isNaN(n)) sum += n;
+          if (!Number.isNaN(n)) sum += n;
         }
       }
     }
