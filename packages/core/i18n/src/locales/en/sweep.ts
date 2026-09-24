@@ -2181,6 +2181,28 @@ export const sweep = {
       },
       "comingSoon": "Coming soon"
     },
+    "appPermissions": {
+      "sectionsLabel": "Apps",
+      "workspace": "Workspace",
+      "intro": "Permissions are set per app. An object that appears in several apps, such as companies, can be allowed in one app and not in another.",
+      "workspaceDescription": "Workspace settings and data that don't belong to a single app.",
+      "appDescription": "What members can do with each object inside {app}.",
+      "canOpenApp": "Members with this role can open {app}",
+      "readOnly": "Read only",
+      "copyFrom": "Copy from…",
+      "copyFromApp": "Copy from {app}",
+      "grantedByPattern": "Granted by \"{pattern}\"",
+      "otherApps": "Other apps",
+      "memberTitle": "Permissions per app",
+      "memberDescription": "Click a permission to change it for this member only: allow something the {role} role does not give, or deny something it does. Denied always wins.",
+      "inheritedFrom": "From the {role} role",
+      "allowed": "Allowed for this member",
+      "denied": "Denied for this member",
+      "save": "Save",
+      "saved": "Permission overrides saved",
+      "saveFailed": "Failed to save permission overrides",
+      "resetOverrides": "Reset overrides"
+    },
     "roles": {
       "kind": "Kind",
       "loadFailed": "Failed to load roles",

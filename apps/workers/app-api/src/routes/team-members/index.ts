@@ -658,6 +658,7 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
 
   if (body.name !== undefined) update.name = body.name;
   if (body.permissions !== undefined) update.permissions = body.permissions;
+  if (body.permissionDenies !== undefined) update.permissionDenies = body.permissionDenies;
   if (body.hoursPerWeek !== undefined) update.hoursPerWeek = body.hoursPerWeek;
 
   await db.update(workspaceMembers).set(update).where(eq(workspaceMembers.id, memberId));

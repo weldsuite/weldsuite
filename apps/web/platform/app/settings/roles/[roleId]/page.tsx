@@ -19,65 +19,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
+import { hasPermission, normalizeAppCode, toAppScopedKeys } from '@weldsuite/permissions';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import type { RoleDetail, PermissionCatalog, Permission, ObjectPermissions, InstallableApp } from '@/lib/api/types/rbac.types';
+import type { RoleDetail, InstallableApp } from '@/lib/api/types/rbac.types';
 import { AppIcon } from '@/components/app-icon';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { cn } from '@/lib/utils';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 import {
-  STANDARD_ACTIONS,
-  getActionLabels,
-  COMING_SOON_CATEGORIES,
-  CategoryIcon,
-  ComingSoonBadge,
-  categoryFor,
-  groupByCategory,
-  type StandardAction,
-  type CategoryRow,
-  type CategoryGroup,
-} from '@/components/settings/permission-categories';
-
-// ---------------------------------------------------------------------------
-// Row type — pre-computed per object
-// ---------------------------------------------------------------------------
-
-type Row = CategoryRow<Permission>;
-
-function buildRows(catalog: PermissionCatalog): Row[] {
-  return catalog.objects.map((obj: ObjectPermissions) => {
-    const perAction: Row['perAction'] = {};
-    const extras: Permission[] = [];
-    for (const p of obj.permissions) {
-      if ((STANDARD_ACTIONS as readonly string[]).includes(p.action)) {
-        perAction[p.action as StandardAction] = p;
-      } else {
-        extras.push(p);
-      }
-    }
-    return {
-      object: obj.object,
-      objectName: obj.objectName,
-      category: categoryFor(obj.object),
-      perAction,
-      extras,
-      allPerms: obj.permissions,
-    };
-  });
-}
-
-function capitalizeWords(str: string): string {
-  return str.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
+  PermissionMatrixTable,
+  PermissionSectionNav,
+  SectionIcon,
+  WORKSPACE_SECTION_ID,
+  extraActionLabel,
+  filterSections,
+  usePermissionSections,
+  type MatrixObject,
+  type MatrixPermission,
+  type PermissionSection,
+} from '@/components/settings/app-permission-matrix';
 
 // ---------------------------------------------------------------------------
 // Page component
@@ -85,7 +47,6 @@ function capitalizeWords(str: string): string {
 
 export default function RoleDetailPage() {
   const t = useTranslations();
-  const ACTION_LABELS = React.useMemo(() => getActionLabels(t), [t]);
   const router = useRouter();
   const params = useParams();
   const roleId = params.roleId as string;
@@ -93,15 +54,18 @@ export default function RoleDetailPage() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [role, setRole] = React.useState<RoleDetail | null>(null);
-  const [catalog, setCatalog] = React.useState<PermissionCatalog | null>(null);
   const [installableApps, setInstallableApps] = React.useState<InstallableApp[]>([]);
 
-  // Form state
+  // Form state. Grants are held in the per-app format: a role saved before
+  // the per-app migration (`companies:read`) is shown granted in every app
+  // that has the object, and is saved back app-qualified.
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [initialGrants, setInitialGrants] = React.useState<Set<string>>(new Set());
   const [grantedPermissions, setGrantedPermissions] = React.useState<Set<string>>(new Set());
   const [grantedApps, setGrantedApps] = React.useState<Set<string>>(new Set());
   const [search, setSearch] = React.useState('');
+  const [selectedSectionId, setSelectedSectionId] = React.useState(WORKSPACE_SECTION_ID);
   const { getClient } = useAppApiClient();
   const { can, isOwner } = usePermissions();
   const canManageRoles = can('roles:update') || isOwner;
@@ -109,17 +73,18 @@ export default function RoleDetailPage() {
   const loadData = React.useCallback(async () => {
     try {
       const client = await getClient();
-      const [roleResult, catalogResult, appsResult] = await Promise.all([
+      const [roleResult, appsResult] = await Promise.all([
         client.get<{ data?: RoleDetail }>(`/roles/${roleId}`),
-        client.get<{ data?: PermissionCatalog }>('/roles/permission-catalog'),
         client.get<{ data?: InstallableApp[] }>('/roles/installable-apps'),
       ]);
 
       if (roleResult.data) {
+        const grants = new Set(toAppScopedKeys(roleResult.data.permissions));
         setRole(roleResult.data);
         setName(roleResult.data.name);
         setDescription(roleResult.data.description || '');
-        setGrantedPermissions(new Set(roleResult.data.permissions));
+        setInitialGrants(grants);
+        setGrantedPermissions(new Set(grants));
         setGrantedApps(new Set(roleResult.data.apps || []));
       } else {
         toast.error(t('sweep.settings.roleDetail.loadFailed'));
@@ -127,9 +92,6 @@ export default function RoleDetailPage() {
         return;
       }
 
-      if (catalogResult.data) {
-        setCatalog(catalogResult.data);
-      }
       if (appsResult.data) {
         setInstallableApps(appsResult.data);
       }
@@ -171,6 +133,52 @@ export default function RoleDetailPage() {
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Sections (Workspace + one per installed app)
+  // -------------------------------------------------------------------------
+
+  const installedCodes = React.useMemo(() => installableApps.map((a) => a.appCode), [installableApps]);
+  const sections = usePermissionSections(installedCodes);
+  const visibleSections = React.useMemo(() => filterSections(sections, search), [sections, search]);
+  const selectedSection =
+    visibleSections.find((s) => s.id === selectedSectionId) ?? visibleSections[0] ?? null;
+
+  /** The installable (platform) app code behind a section, if the app can be granted. */
+  const installableFor = React.useCallback(
+    (section: PermissionSection) =>
+      section.app ? installableApps.find((a) => (normalizeAppCode(a.appCode) ?? a.appCode) === section.app) : undefined,
+    [installableApps],
+  );
+
+  /** Installed apps without a permission matrix: only their access switch. */
+  const appsWithoutSection = React.useMemo(() => {
+    const withSection = new Set(sections.map((s) => s.app).filter(Boolean));
+    return installableApps.filter((a) => !withSection.has(normalizeAppCode(a.appCode) ?? a.appCode));
+  }, [installableApps, sections]);
+
+  // Wildcard grants (`weldcrm:*`, `*:read`) cover keys without listing them;
+  // such cells show as granted and locked, with the covering pattern.
+  const wildcardGrants = React.useMemo(
+    () => [...grantedPermissions].filter((k) => k.includes('*')),
+    [grantedPermissions],
+  );
+  const coveringPattern = (key: string) =>
+    grantedPermissions.has(key) ? undefined : wildcardGrants.find((p) => hasPermission([p], key));
+  const isGranted = (key: string) => grantedPermissions.has(key) || coveringPattern(key) !== undefined;
+
+  const setKeys = (keys: string[], grant: boolean) => {
+    setGrantedPermissions((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (grant) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+  };
+
+  const togglePermission = (key: string) => setKeys([key], !grantedPermissions.has(key));
+
   const toggleApp = (appCode: string) => {
     const next = new Set(grantedApps);
     if (next.has(appCode)) next.delete(appCode);
@@ -178,57 +186,53 @@ export default function RoleDetailPage() {
     setGrantedApps(next);
   };
 
-  const togglePermission = (code: string) => {
-    const next = new Set(grantedPermissions);
-    if (next.has(code)) next.delete(code);
-    else next.add(code);
-    setGrantedPermissions(next);
-  };
-
-  const toggleAllInObject = (permissions: Permission[], grant: boolean) => {
-    const next = new Set(grantedPermissions);
-    permissions.forEach((p) => {
-      if (grant) next.add(p.code);
-      else next.delete(p.code);
+  const grantReadOnly = (section: PermissionSection) => {
+    setGrantedPermissions((prev) => {
+      const next = new Set(prev);
+      for (const object of section.objects) {
+        for (const p of object.all) {
+          if (p.action === 'read') next.add(p.key);
+          else next.delete(p.key);
+        }
+      }
+      return next;
     });
-    setGrantedPermissions(next);
   };
 
-  const isObjectFullyGranted = (permissions: Permission[]) =>
-    permissions.length > 0 && permissions.every((p) => grantedPermissions.has(p.code));
+  /** Mirror another app's grants for the objects both apps expose. */
+  const copyFromApp = (section: PermissionSection, sourceApp: string) => {
+    if (!section.app) return;
+    setGrantedPermissions((prev) => {
+      const sourceGrants = [...prev];
+      const next = new Set(prev);
+      for (const object of section.objects) {
+        for (const p of object.all) {
+          const source = `${sourceApp}:${object.object}:${p.action}`;
+          if (hasPermission(sourceGrants, source)) next.add(p.key);
+          else next.delete(p.key);
+        }
+      }
+      return next;
+    });
+  };
 
-  const rows = React.useMemo<Row[]>(() => {
-    if (!catalog) return [];
-    return buildRows(catalog);
-  }, [catalog]);
-
-  const groups = React.useMemo<CategoryGroup<Permission>[]>(() => groupByCategory(rows), [rows]);
-
-  const filteredGroups = React.useMemo<CategoryGroup<Permission>[]>(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        rows: group.rows.filter(
-          (row) =>
-            row.objectName.toLowerCase().includes(q) ||
-            row.object.toLowerCase().includes(q) ||
-            group.category.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((group) => group.rows.length > 0);
-  }, [groups, search]);
+  /** Apps sharing at least one object with the section — valid "copy from" sources. */
+  const copySources = (section: PermissionSection) => {
+    const objects = new Set(section.objects.map((o) => o.object));
+    return sections.filter(
+      (s) => s.app && s.id !== section.id && s.objects.some((o) => objects.has(o.object)),
+    );
+  };
 
   const hasChanges = React.useMemo(() => {
     if (!role) return false;
     return (
       name !== role.name ||
       description !== (role.description || '') ||
-      !areSetsEqual(grantedPermissions, new Set(role.permissions)) ||
+      !areSetsEqual(grantedPermissions, initialGrants) ||
       !areSetsEqual(grantedApps, new Set(role.apps || []))
     );
-  }, [role, name, description, grantedPermissions, grantedApps]);
+  }, [role, name, description, grantedPermissions, initialGrants, grantedApps]);
 
   const { proceed, reset, status } = useBlocker({
     shouldBlockFn: () => hasChanges && !saving,
@@ -247,8 +251,46 @@ export default function RoleDetailPage() {
 
   const editable = canManageRoles && role.canModify;
 
-  const categoryAllPerms = (group: CategoryGroup<Permission>): Permission[] =>
-    group.rows.flatMap((r) => r.allPerms);
+  const linkButton = (label: string, onClick: () => void) => (
+    <Button
+      type="button"
+      variant="ghost"
+      className="h-auto px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors whitespace-nowrap"
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+
+  const renderCheckbox = (perm: MatrixPermission, ariaLabel: string) => {
+    const pattern = coveringPattern(perm.key);
+    return (
+      <Checkbox
+        checked={isGranted(perm.key)}
+        onCheckedChange={() => togglePermission(perm.key)}
+        disabled={!editable || pattern !== undefined}
+        className="h-3.5 w-3.5"
+        aria-label={ariaLabel}
+        title={pattern ? t('sweep.settings.appPermissions.grantedByPattern', { pattern }) : perm.description ?? perm.label}
+      />
+    );
+  };
+
+  const rowAction = (object: MatrixObject) => {
+    if (!editable || object.all.length === 0) return null;
+    const keys = object.all.map((p) => p.key);
+    const allGranted = keys.every((k) => grantedPermissions.has(k));
+    return linkButton(
+      allGranted ? t('sweep.settings.roleDetail.revokeAll') : t('sweep.settings.roleDetail.grantAll'),
+      () => setKeys(keys, !allGranted),
+    );
+  };
+
+  const sectionBadge = (section: PermissionSection) =>
+    `${section.keys.filter(isGranted).length}/${section.keys.length}`;
+
+  const selectedInstallable = selectedSection ? installableFor(selectedSection) : undefined;
+  const sources = selectedSection?.app ? copySources(selectedSection) : [];
 
   return (
     <div className="space-y-8">
@@ -306,182 +348,136 @@ export default function RoleDetailPage() {
 
       <Separator />
 
-      {/* Apps — members with this role get access to the selected apps
-          automatically, without per-user app assignments. */}
+      {/* Permissions — one matrix per app */}
       <div>
-        <div className="mb-1">
-          <h2 className="text-sm font-semibold text-muted-foreground">{t('sweep.settings.roleDetail.appsTitle')}</h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            {t('sweep.settings.roleDetail.appsDescription')}
-          </p>
+        <div className="flex items-center justify-between gap-4 mb-1">
+          <h2 className="text-sm font-semibold text-muted-foreground">{t('sweep.settings.roleDetail.permissionsTitle')}</h2>
+          <ExpandingSearchInput value={search} onChange={setSearch} placeholder={t('sweep.settings.roleDetail.searchPermissionsPlaceholder')} />
         </div>
-        {installableApps.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">
-            {t('sweep.settings.roleDetail.noAppsInstalled')}
-          </p>
+        <p className="text-xs text-muted-foreground mb-4">{t('sweep.settings.appPermissions.intro')}</p>
+
+        {visibleSections.length === 0 || !selectedSection ? (
+          <p className="text-sm text-muted-foreground">{t('sweep.settings.roleDetail.noPermissionsMatch', { query: search })}</p>
         ) : (
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {installableApps.map((app) => {
-              const checked = grantedApps.has(app.appCode);
-              return (
+          <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+            <PermissionSectionNav
+              sections={visibleSections}
+              selectedId={selectedSection.id}
+              onSelect={setSelectedSectionId}
+              badge={sectionBadge}
+            />
+
+            <div className="min-w-0 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <SectionIcon section={selectedSection} className="h-4 w-4 shrink-0" />
+                  {selectedSection.label}
+                </h3>
+                {editable && selectedSection.keys.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {linkButton(t('sweep.settings.roleDetail.grantAll'), () => setKeys(selectedSection.keys, true))}
+                    {linkButton(t('sweep.settings.appPermissions.readOnly'), () => grantReadOnly(selectedSection))}
+                    {linkButton(t('sweep.settings.roleDetail.revokeAll'), () => setKeys(selectedSection.keys, false))}
+                    {sources.length > 0 && (
+                      <Select value="" onValueChange={(app) => copyFromApp(selectedSection, app)}>
+                        <SelectTrigger className="h-7 w-auto gap-1 border-0 px-1.5 text-[11px] text-muted-foreground shadow-none hover:text-foreground">
+                          <SelectValue placeholder={t('sweep.settings.appPermissions.copyFrom')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sources.map((s) => (
+                            <SelectItem key={s.id} value={s.app ?? s.id}>
+                              {t('sweep.settings.appPermissions.copyFromApp', { app: s.label })}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                {selectedSection.app
+                  ? t('sweep.settings.appPermissions.appDescription', { app: selectedSection.label })
+                  : t('sweep.settings.appPermissions.workspaceDescription')}
+              </p>
+
+              {/* Opening the app — members with this role get it without per-user assignment. */}
+              {selectedInstallable && (
                 <label
-                  key={app.appCode}
                   className={cn(
-                    'flex items-center gap-3 rounded-md border border-border/70 px-3 py-2.5 transition-colors',
+                    'flex items-center gap-3 rounded-md border border-border/70 px-3 py-2.5',
                     editable ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default',
-                    checked && 'bg-muted/30',
                   )}
                 >
                   <Checkbox
-                    checked={checked}
-                    onCheckedChange={() => editable && toggleApp(app.appCode)}
+                    checked={grantedApps.has(selectedInstallable.appCode)}
+                    onCheckedChange={() => editable && toggleApp(selectedInstallable.appCode)}
                     disabled={!editable}
                     className="h-4 w-4"
-                    aria-label={t('sweep.settings.roleDetail.grantAppLabel', { name: app.appName })}
                   />
-                  <AppIcon icon={app.appCode} className="h-5 w-5 shrink-0" />
-                  <span className="text-sm font-medium">{app.appName}</span>
+                  <span className="text-sm">
+                    {t('sweep.settings.appPermissions.canOpenApp', { app: selectedSection.label })}
+                  </span>
                 </label>
-              );
-            })}
+              )}
+
+              <PermissionMatrixTable
+                objects={selectedSection.objects}
+                rowAction={rowAction}
+                renderCell={(perm, object, actionLabel) =>
+                  renderCheckbox(
+                    perm,
+                    t('sweep.settings.roleDetail.actionObjectLabel', { action: actionLabel, object: object.objectName }),
+                  )
+                }
+                renderExtra={(perm, object) => (
+                  <label className={cn('flex items-center gap-1.5 text-sm', editable ? 'cursor-pointer' : 'cursor-default')}>
+                    {renderCheckbox(perm, `${extraActionLabel(perm.action)} ${object.objectName}`)}
+                    <span className="text-muted-foreground">{extraActionLabel(perm.action)}</span>
+                  </label>
+                )}
+              />
+            </div>
           </div>
         )}
       </div>
 
-      <Separator />
-
-      {/* Permissions tables */}
-      <div>
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <h2 className="text-sm font-semibold text-muted-foreground">{t('sweep.settings.roleDetail.permissionsTitle')}</h2>
-          <ExpandingSearchInput value={search} onChange={setSearch} placeholder={t('sweep.settings.roleDetail.searchPermissionsPlaceholder')} />
-        </div>
-        <div className="space-y-10">
-          {filteredGroups.length === 0 && (
-            <p className="text-sm text-muted-foreground">{t('sweep.settings.roleDetail.noPermissionsMatch', { query: search })}</p>
-          )}
-          {filteredGroups.map((group) => {
-            const groupPerms = categoryAllPerms(group);
-            const groupAllGranted = isObjectFullyGranted(groupPerms);
-            const groupHasExtras = group.rows.some((r) => r.extras.length > 0);
-            return (
-              <div key={group.category} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <h4 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                      <CategoryIcon category={group.category} className="h-4 w-4 shrink-0" />
-                      <span>{group.category}</span>
-                    </h4>
-                    {COMING_SOON_CATEGORIES.has(group.category) && <ComingSoonBadge />}
-                  </div>
-                  {editable && groupPerms.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-[11px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors whitespace-nowrap"
-                      onClick={() => toggleAllInObject(groupPerms, !groupAllGranted)}
-                    >
-                      {groupAllGranted ? t('sweep.settings.roleDetail.revokeAll') : t('sweep.settings.roleDetail.grantAll')}
-                    </Button>
-                  )}
-                </div>
-                <div className="rounded-md border border-border/70 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader className="bg-background [&_tr]:border-border/70">
-                        <TableRow>
-                          <TableHead className="w-[220px] text-[13px]">{t('sweep.settings.roleDetail.object')}</TableHead>
-                          {STANDARD_ACTIONS.map((action) => (
-                            <TableHead key={action} className="w-[90px] text-center text-[13px]">
-                              {ACTION_LABELS[action]}
-                            </TableHead>
-                          ))}
-                          {groupHasExtras && (
-                            <TableHead className="text-[13px]">{t('sweep.settings.roleDetail.other')}</TableHead>
-                          )}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody className="[&_tr]:border-border/70">
-                        {group.rows.map((row) => {
-                          const allGranted = isObjectFullyGranted(row.allPerms);
-                          return (
-                            <TableRow key={row.object} className="h-10 hover:bg-muted/30">
-                              <TableCell className="py-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm font-medium">{row.objectName}</span>
-                                  {editable && row.allPerms.length > 0 && (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      className="text-[11px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors whitespace-nowrap"
-                                      onClick={() => toggleAllInObject(row.allPerms, !allGranted)}
-                                    >
-                                      {allGranted ? t('sweep.settings.roleDetail.revokeAll') : t('sweep.settings.roleDetail.grantAll')}
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-
-                              {STANDARD_ACTIONS.map((action) => {
-                                const perm = row.perAction[action];
-                                return (
-                                  <TableCell key={action} className="py-2 px-3 text-center [&:has([role=checkbox])]:pr-3 [&:has([role=checkbox])]:pl-3">
-                                    <div className="flex items-center justify-center">
-                                      {perm ? (
-                                        <Checkbox
-                                          checked={grantedPermissions.has(perm.code)}
-                                          onCheckedChange={() => togglePermission(perm.code)}
-                                          disabled={!editable}
-                                          className="h-3.5 w-3.5"
-                                          aria-label={t('sweep.settings.roleDetail.actionObjectLabel', { action: ACTION_LABELS[action], object: row.objectName })}
-                                        />
-                                      ) : (
-                                        <span className="text-muted-foreground/40 text-sm tabular-nums select-none">—</span>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                );
-                              })}
-
-                              {groupHasExtras && (
-                                <TableCell className="py-2">
-                                  {row.extras.length > 0 ? (
-                                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                      {row.extras.map((perm) => (
-                                        <label
-                                          key={perm.code}
-                                          className={cn(
-                                            'flex items-center gap-1.5 text-sm',
-                                            editable ? 'cursor-pointer' : 'cursor-default',
-                                          )}
-                                        >
-                                          <Checkbox
-                                            checked={grantedPermissions.has(perm.code)}
-                                            onCheckedChange={() => togglePermission(perm.code)}
-                                            disabled={!editable}
-                                            className="h-3.5 w-3.5"
-                                          />
-                                          <span className="text-muted-foreground">
-                                            {capitalizeWords(perm.action)}
-                                          </span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                </TableCell>
-                              )}
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* Installed apps without a permission matrix — access switch only. */}
+      {appsWithoutSection.length > 0 && (
+        <>
+          <Separator />
+          <div>
+            <h2 className="text-sm font-semibold text-muted-foreground">{t('sweep.settings.appPermissions.otherApps')}</h2>
+            <p className="text-xs text-muted-foreground mt-1">{t('sweep.settings.roleDetail.appsDescription')}</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {appsWithoutSection.map((app) => {
+                const checked = grantedApps.has(app.appCode);
+                return (
+                  <label
+                    key={app.appCode}
+                    className={cn(
+                      'flex items-center gap-3 rounded-md border border-border/70 px-3 py-2.5 transition-colors',
+                      editable ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default',
+                      checked && 'bg-muted/30',
+                    )}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={() => editable && toggleApp(app.appCode)}
+                      disabled={!editable}
+                      className="h-4 w-4"
+                      aria-label={t('sweep.settings.roleDetail.grantAppLabel', { name: app.appName })}
+                    />
+                    <AppIcon icon={app.appCode} className="h-5 w-5 shrink-0" />
+                    <span className="text-sm font-medium">{app.appName}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       <Dialog
         open={blocked}

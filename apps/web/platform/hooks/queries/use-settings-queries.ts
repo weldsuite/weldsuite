@@ -219,6 +219,10 @@ export interface MemberPermissionsData {
   effective: string[];
   rolePermissions: string[];
   memberOverrides: string[];
+  /** Explicit per-member denies (a deny wins over any grant). */
+  memberDenies?: string[];
+  /** What the role gives, including a bare system tier's defaults. */
+  inheritedPermissions?: string[];
   role: string;
   roleId: string | null;
 }
@@ -401,7 +405,14 @@ export function useUpdateMember() {
   return useMutation({
     mutationFn: async ({ id, data }: {
       id: string;
-      data: { name?: string; role?: string; roleId?: string; permissions?: string[]; hoursPerWeek?: string };
+      data: {
+        name?: string;
+        role?: string;
+        roleId?: string;
+        permissions?: string[];
+        permissionDenies?: string[];
+        hoursPerWeek?: string;
+      };
     }) => {
       const client = await getClient();
       const result = await client.patch<{ data: { id: string } }>(`/team-members/${id}`, data);
