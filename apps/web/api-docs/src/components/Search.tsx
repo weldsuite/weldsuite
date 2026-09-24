@@ -90,7 +90,7 @@ function useAutocomplete({ onNavigate }: { onNavigate: () => void }) {
   return { autocomplete, autocompleteState }
 }
 
-function SearchIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function SearchIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
       <path
@@ -102,7 +102,7 @@ function SearchIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function NoResultsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function NoResultsIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
       <path
@@ -114,7 +114,7 @@ function NoResultsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function LoadingIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function LoadingIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   const id = useId()
 
   return (
@@ -143,7 +143,7 @@ function LoadingIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function HighlightQuery({ text, query }: { text: string; query: string }) {
+function HighlightQuery({ text, query }: Readonly<{ text: string; query: string }>) {
   return (
     <Highlighter
       highlightClassName="underline bg-transparent text-emerald-500"
@@ -160,13 +160,13 @@ function SearchResult({
   autocomplete,
   collection,
   query,
-}: {
+}: Readonly<{
   result: Result
   resultIndex: number
   autocomplete: Autocomplete
   collection: AutocompleteCollection<Result>
   query: string
-}) {
+}>) {
   const id = useId()
 
   const sectionTitle = navigation.find((section) =>
@@ -225,11 +225,11 @@ function SearchResults({
   autocomplete,
   query,
   collection,
-}: {
+}: Readonly<{
   autocomplete: Autocomplete
   query: string
   collection: AutocompleteCollection<Result>
-}) {
+}>) {
   if (collection.items.length === 0) {
     return (
       <div className="p-6 text-center">
@@ -314,12 +314,12 @@ function SearchDialog({
   setOpen,
   className,
   onNavigate = () => {},
-}: {
+}: Readonly<{
   open: boolean
   setOpen: (open: boolean) => void
   className?: string
   onNavigate?: () => void
-}) {
+}>) {
   const formRef = useRef<React.ElementRef<'form'>>(null)
   const panelRef = useRef<React.ElementRef<'div'>>(null)
   const inputRef = useRef<React.ElementRef<typeof SearchInput>>(null)
