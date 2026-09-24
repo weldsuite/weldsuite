@@ -25,6 +25,7 @@ import {
   ListLinkedProjectsQuerySchema,
 } from '@weldsuite/core-api-client/schemas/github';
 import { getConnectionByWorkspace } from '../../services/github/connections';
+import { logSafe } from '../../lib/log-safe';
 import {
   listLinkedProjects,
   getLinkedProject,
@@ -215,9 +216,9 @@ app.post('/:id/sync', requirePermission('integrations:github:manage'), async (c)
     const runId = `github-project-sync-${id}-${bucket}`;
     try {
       await c.env.GITHUB_PROJECT_SYNC.create({ id: runId, params: { workspaceId, projectLinkId: id } });
-      console.log(`[GitHub] Project sync started for link ${id}, runId: ${runId}`);
+      console.log(`[GitHub] Project sync started for link ${logSafe(id)}, runId: ${logSafe(runId)}`);
     } catch {
-      console.log(`[GitHub] Project sync already running for link ${id} (${runId}) — reusing`);
+      console.log(`[GitHub] Project sync already running for link ${logSafe(id)} (${logSafe(runId)}) — reusing`);
     }
 
     return success(c, { runId });

@@ -28,6 +28,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -223,7 +224,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
       });
       if (!credResp.ok) {
         const credErr = await credResp.text();
-        console.error('[app-api/call-intelligence] Telnyx credential creation failed:', credResp.status, credErr);
+        console.error('[app-api/call-intelligence] Telnyx credential creation failed:', credResp.status, logSafe(credErr));
         throw new Error(`Failed to create credential: ${credResp.status}`);
       }
       const credData = (await credResp.json()) as { data: { id: string } };
@@ -236,7 +237,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
     );
     if (!tokenResp.ok) {
       const tokenErr = await tokenResp.text();
-      console.error('[app-api/call-intelligence] Telnyx token generation failed:', tokenResp.status, tokenErr);
+      console.error('[app-api/call-intelligence] Telnyx token generation failed:', tokenResp.status, logSafe(tokenErr));
       throw new Error(`Failed to generate token: ${tokenResp.status}`);
     }
     const token = await tokenResp.text();
