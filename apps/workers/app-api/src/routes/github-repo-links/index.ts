@@ -20,7 +20,7 @@ const t = schema.githubRepoLinks;
 app.get('/', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.connectionId !== undefined && q.connectionId !== '') conditions.push(eq(t.connectionId, q.connectionId));
