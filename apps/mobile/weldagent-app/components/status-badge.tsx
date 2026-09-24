@@ -18,10 +18,10 @@ const AGENT_VARIANTS: Record<string, Variant> = {
 export function StatusBadge({
   status,
   size = 'sm',
-}: {
+}: Readonly<{
   status: string;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <Badge
