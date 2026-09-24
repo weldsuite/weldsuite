@@ -39,6 +39,8 @@ interface WeldAgentMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   toolInvocations?: unknown[];
+  /** `kind: 'approval_outcome'` marks a note posted after an approval, not a turn reply. */
+  metadata?: Record<string, unknown> | null;
   formState?: {
     formId?: string;
     formType?: string;

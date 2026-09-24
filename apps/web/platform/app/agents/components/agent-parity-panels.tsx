@@ -214,12 +214,8 @@ function RoutinesSection({ agentId }: { agentId: string }) {
   const test = async (id: string) => {
     setTestingId(id);
     try {
-      const result = await testRoutine.mutateAsync(id);
-      if (result?.success === false) {
-        toast.error(t.routines.testFailed.replace('{error}', result.error ?? ''));
-      } else {
-        toast.success(t.routines.testDone);
-      }
+      await testRoutine.mutateAsync(id);
+      toast.success(t.routines.testStarted);
     } catch (err) {
       toast.error(t.routines.testFailed.replace('{error}', errorText(err, '')));
     } finally {

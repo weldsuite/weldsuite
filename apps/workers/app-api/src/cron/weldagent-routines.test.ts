@@ -17,9 +17,10 @@ vi.mock('../db', () => ({
 
 vi.mock('../services/weldagent/parity', () => ({
   listDueCronRoutines: vi.fn(async () => []),
-  createRoutineRun: vi.fn(),
+  createRoutineRun: vi.fn(async () => 'rrn_1'),
   completeRoutineRun: vi.fn(),
-  markRoutineScheduled: vi.fn(),
+  claimDueRoutine: vi.fn(async () => true),
+  releaseRoutineClaim: vi.fn(),
 }));
 
 vi.mock('../services/weldagent/jobs', () => ({ enqueueWeldAgentJob: vi.fn() }));
@@ -35,7 +36,17 @@ vi.mock('../lib/weldagent-routine-index', () => ({
   listWorkspacesWithDueRoutines: (...args: unknown[]) => listDue(...(args as [])),
 }));
 
-import { runWeldAgentRoutineSweep, ROUTINE_INDEX_BACKFILL_KEY } from './weldagent-routines';
+import {
+  runWeldAgentRoutineSweep,
+  runWeldAgentRoutineSweepForTenant,
+  ROUTINE_INDEX_BACKFILL_KEY,
+} from './weldagent-routines';
+import {
+  listDueCronRoutines,
+  claimDueRoutine,
+  releaseRoutineClaim,
+  completeRoutineRun,
+} from '../services/weldagent/parity';
 
 function makeEnv(backfilled: boolean, d1: unknown = {}) {
   const kv = new Map<string, string>(backfilled ? [[ROUTINE_INDEX_BACKFILL_KEY, 'done']] : []);
@@ -91,5 +102,59 @@ describe('runWeldAgentRoutineSweep', () => {
     const env = makeEnv(true, null);
     await runWeldAgentRoutineSweep(env as never);
     expect(tenantDbFor).not.toHaveBeenCalled();
+  });
+});
+
+describe('runWeldAgentRoutineSweepForTenant', () => {
+  const routine = {
+    id: 'rtn_1',
+    agentId: 'agt_1',
+    name: 'Digest',
+    instructions: 'Summarise',
+    cronExpr: '0 8 * * *',
+    timezone: 'UTC',
+    requireApproval: true,
+    createdBy: 'usr_1',
+  };
+
+  beforeEach(() => {
+    vi.mocked(listDueCronRoutines).mockResolvedValue([routine] as never);
+    vi.mocked(claimDueRoutine).mockClear();
+    vi.mocked(releaseRoutineClaim).mockClear();
+    vi.mocked(completeRoutineRun).mockClear();
+  });
+
+  it('does not start a routine another sweep already claimed', async () => {
+    vi.mocked(claimDueRoutine).mockResolvedValueOnce(false);
+    const schedule = vi.fn(async () => undefined);
+    const res = await runWeldAgentRoutineSweepForTenant({
+      env: {} as never,
+      workspaceId: 'org_1',
+      db: {} as never,
+      schedule,
+    });
+    expect(res.started).toBe(0);
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('keeps approvals on for routines that require them', async () => {
+    const schedule = vi.fn(async () => undefined);
+    await runWeldAgentRoutineSweepForTenant({ env: {} as never, workspaceId: 'org_1', db: {} as never, schedule });
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({ skipApprovals: false, routineRunId: 'rrn_1' }));
+  });
+
+  it('releases the claim when the run cannot be handed off', async () => {
+    const schedule = vi.fn(async () => {
+      throw new Error('workflow down');
+    });
+    const res = await runWeldAgentRoutineSweepForTenant({
+      env: {} as never,
+      workspaceId: 'org_1',
+      db: {} as never,
+      schedule,
+    });
+    expect(res.started).toBe(0);
+    expect(completeRoutineRun).toHaveBeenCalledWith(expect.anything(), 'rrn_1', expect.objectContaining({ status: 'failed' }));
+    expect(releaseRoutineClaim).toHaveBeenCalledWith(expect.anything(), 'rtn_1', expect.any(Date));
   });
 });

@@ -38,7 +38,6 @@ import {
   deleteRoutine,
   listRoutineRuns,
   createRoutineRun,
-  completeRoutineRun,
   markRoutineScheduled,
   findConnectorRoutines,
   listApprovals,
@@ -56,7 +55,6 @@ import {
   stopTeachSession,
 } from '../../services/weldagent/parity';
 import { getAgent } from '../../services/weldagent/agents';
-import { executeAgentRun } from '../../services/weldagent/run';
 import { enqueueWeldAgentJob } from '../../services/weldagent/jobs';
 import { executeDecidedApproval } from '../../services/weldagent/approvals';
 import { reindexAgentRoutines, routineIndexSync } from '../../lib/weldagent-routine-index';
@@ -151,37 +149,28 @@ app.post('/routines/:id/test', requirePermission('weldagent:update', 'weldagent:
     agentId: routine.agentId,
     trigger: 'test',
   });
-  try {
-    const result = await executeAgentRun({
-      db,
-      env: c.env,
+  // Durable job: a test run is a full agent run and can outlive the request.
+  // The outcome lands on the routine run row and the agent's activity.
+  await enqueueWeldAgentJob(
+    c.env,
+    (p) => c.executionCtx.waitUntil(p),
+    {
+      kind: 'agent-run',
       workspaceId: c.get('workspaceId'),
       actorUserId: c.get('userId'),
       agentId: routine.agentId,
       triggerType: 'manual',
       triggerData: { routineId: routine.id, test: true },
-      userMessage:
-        `Run routine "${routine.name}" as a test.\n\n${routine.instructions}` +
-        (routine.requireApproval ? '\nRequire approval before consequential actions.' : ''),
+      userMessage: `Run routine "${routine.name}" as a test.\n\n${routine.instructions}`,
       extraSystem: 'This is a routine test run. Prefer draft/recommend over irreversible actions.',
-    });
-    await completeRoutineRun(db, runId, {
-      status: result.success ? 'succeeded' : 'failed',
-      summary: result.text,
-      error: result.error,
-      agentRunId: result.runId,
-    });
-    return success(c, { ...result, runId, agentRunId: result.runId });
-  } catch (err) {
-    await completeRoutineRun(db, runId, {
-      status: 'failed',
-      error: err instanceof Error ? err.message : 'Routine test failed',
-    });
-    return error.internal(c, err instanceof Error ? err.message : 'Routine test failed');
-  }
+      routineRunId: runId,
+      skipApprovals: !routine.requireApproval,
+    },
+    db,
+  );
+  return success(c, { queued: true, runId });
 });
 
-// ----- Approvals -----
 app.get('/approvals', requirePermission('weldagent:read'), async (c) => {
   return success(
     c,
@@ -394,9 +383,9 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
         userMessage:
           `Connector event from ${data.provider}.\n` +
           `Match text: ${data.text ?? '(none)'}\n` +
-          `Follow routine "${routine.name}":\n${routine.instructions}\n` +
-          (routine.requireApproval ? 'Do not post outbound without approval.' : ''),
+          `Follow routine "${routine.name}":\n${routine.instructions}`,
         routineRunId: runId,
+        skipApprovals: !routine.requireApproval,
       },
       db,
     );

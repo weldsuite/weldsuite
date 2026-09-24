@@ -270,7 +270,11 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     if (userIdx < 0) return;
     // Persisted user message is in — drop optimistic bubble.
     setPendingUser(null);
-    const reply = messages.slice(userIdx + 1).find((m) => m.role === 'assistant');
+    // Approval outcome notes can land in the thread meanwhile — they are not
+    // the reply to this turn.
+    const reply = messages
+      .slice(userIdx + 1)
+      .find((m) => m.role === 'assistant' && m.metadata?.kind !== 'approval_outcome');
     if (!reply) return;
     setAwaitingReplyAfterId(null);
     if (needsSetup) {

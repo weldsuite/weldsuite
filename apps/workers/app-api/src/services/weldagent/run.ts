@@ -28,6 +28,8 @@ export async function executeAgentRun(params: {
   runId?: string;
   /** Tool-loop budget; see REQUEST_RUN_TIMEOUT_MS / BACKGROUND_RUN_TIMEOUT_MS. */
   timeoutMs?: number;
+  /** Routine with "ask for approval" turned off: act without parking approvals. */
+  skipApprovals?: boolean;
 }): Promise<{ runId: string; text: string; success: boolean; error?: string }> {
   const agent = await getAgent(params.db, params.agentId);
   if (!agent) {
@@ -76,6 +78,7 @@ export async function executeAgentRun(params: {
       messages: [{ role: 'user', content: params.userMessage }],
       extraSystem: params.extraSystem,
       timeoutMs: params.timeoutMs,
+      skipApprovals: params.skipApprovals,
     });
 
     const actionsPerformed = result.toolInvocations

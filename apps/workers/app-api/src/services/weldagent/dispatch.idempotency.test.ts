@@ -7,6 +7,7 @@ vi.mock('./agents', () => ({
 
 vi.mock('./parity', () => ({
   findEventRoutines: vi.fn(async () => []),
+  hasRoutineRunForTrigger: vi.fn(async () => false),
   createRoutineRun: vi.fn(async () => 'rrn_1'),
   markRoutineScheduled: vi.fn(async () => undefined),
 }));
@@ -26,7 +27,7 @@ vi.mock('../../db', () => ({
 }));
 
 import { findAgentsForEvent, createAgentRun } from './agents';
-import { findEventRoutines } from './parity';
+import { findEventRoutines, hasRoutineRunForTrigger, createRoutineRun } from './parity';
 import { dispatchWeldAgentsForEvent } from './dispatch';
 
 const findAgents = vi.mocked(findAgentsForEvent);
@@ -117,6 +118,29 @@ describe('dispatchWeldAgentsForEvent idempotency', () => {
     expect(executeRun).not.toHaveBeenCalled();
   });
 
+  it('skips an event routine already run for this eventId (hub redelivery)', async () => {
+    findAgents.mockResolvedValue([] as never);
+    findRoutines.mockResolvedValueOnce([
+      { id: 'rtn_1', agentId: 'agt_2', name: 'Triage', instructions: 'Tag it', requireApproval: true },
+    ] as never);
+    vi.mocked(hasRoutineRunForTrigger).mockResolvedValueOnce(true);
+    vi.mocked(createRoutineRun).mockClear();
+
+    await dispatchWeldAgentsForEvent({} as never, mockDb(false) as never, {
+      workspaceId: 'org_1',
+      userId: 'usr_1',
+      entityType: 'ticket',
+      action: 'created',
+      entityId: 'tkt_1',
+      data: { id: 'tkt_1' },
+      eventId: 'evt_again',
+    }, executeRun);
+
+    expect(hasRoutineRunForTrigger).toHaveBeenCalledWith(expect.anything(), 'rtn_1', 'evt:evt_again');
+    expect(createRoutineRun).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
   it('schedules event routines listening for the event key', async () => {
     findAgents.mockResolvedValue([] as never);
     findRoutines.mockResolvedValueOnce([
@@ -133,7 +157,13 @@ describe('dispatchWeldAgentsForEvent idempotency', () => {
     }, executeRun);
 
     expect(executeRun).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'agent-run', agentId: 'agt_2', routineRunId: 'rrn_1' }),
+      expect.objectContaining({
+        kind: 'agent-run',
+        agentId: 'agt_2',
+        routineRunId: 'rrn_1',
+        // requireApproval: false → the routine may act without parking approvals
+        skipApprovals: true,
+      }),
     );
   });
 });

@@ -12,6 +12,7 @@ import { schema } from '../../db';
 import type { Env } from '../../types';
 import { runAgentOnce } from '../weldagent/executor';
 import { explicitToolAllowList } from '../weldagent/tools';
+import { resolveActorPermissions } from '../weldagent/actor-permissions';
 import { createAgentRun, completeAgentRun, markRunRunning } from '../weldagent/agents';
 import {
   parseAgentRoomPolicy,
@@ -29,6 +30,11 @@ export interface DispatchAgentMentionsContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   /** Tool-loop budget per reply (longer inside the durable job workflow). */
   timeoutMs?: number;
+  /**
+   * Permissions of the human who started the chain. Agents never act beyond
+   * them; resolved from `invokerUserId` when not supplied.
+   */
+  actorPermissions?: string[];
 }
 
 export interface DispatchAgentMentionsInput {
@@ -152,12 +158,17 @@ export async function dispatchAgentRoomReplies(
 
   const activeById = new Map(activeAgents.map((a) => [a.id, a]));
   const recent = await loadRecentChannelContext(db, input.channelId, input.messageId);
+  // Resolve once per dispatch; hop replies reuse it through ctx.
+  const actorCtx: DispatchAgentMentionsContext = {
+    ...ctx,
+    actorPermissions: ctx.actorPermissions ?? (await resolveActorPermissions(db as never, ctx.invokerUserId)),
+  };
 
   for (const agentId of toReply) {
     const agent = activeById.get(agentId);
     if (!agent) continue;
 
-    const runPromise = replyAsAgent({ ctx, agent, input, recent });
+    const runPromise = replyAsAgent({ ctx: actorCtx, agent, input, recent });
 
     if (ctx.waitUntil) {
       ctx.waitUntil(
@@ -285,6 +296,7 @@ async function replyAsAgent(params: {
       ],
       extraSystem,
       timeoutMs: ctx.timeoutMs,
+      actorPermissions: ctx.actorPermissions ?? [],
     });
 
     const text = (result.text || '').trim();

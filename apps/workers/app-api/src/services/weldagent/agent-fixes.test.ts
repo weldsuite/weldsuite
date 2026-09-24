@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveAgentTools, effectiveAgentPermissions, explicitToolAllowList } from './tools';
-import { computeRoutineNextRun } from './parity';
+import { computeRoutineNextRun, toolRiskLevel, allowsAutoReview } from './parity';
 import { toModelHistory } from './complete-turn';
 
 describe('resolveAgentTools', () => {
@@ -74,5 +74,21 @@ describe('toModelHistory', () => {
     expect(history).toHaveLength(2);
     expect(history[1].content).toContain('list_people');
     expect(history[1].content).toContain('per_1');
+  });
+});
+
+describe('approval gate', () => {
+  it('treats mutating browser actions as high risk, read-only ones as low', () => {
+    expect(toolRiskLevel('browser_act', { action: 'click' })).toBe('high');
+    expect(toolRiskLevel('browser_act', { action: 'type' })).toBe('high');
+    expect(toolRiskLevel('browser_act', { action: 'extract' })).toBe('low');
+    expect(toolRiskLevel('browser_open', { url: 'https://example.com' })).toBe('low');
+  });
+
+  it('never lets one past approval auto-approve arbitrary code or browser input', () => {
+    expect(allowsAutoReview('computer_exec')).toBe(false);
+    expect(allowsAutoReview('computer_run_code')).toBe(false);
+    expect(allowsAutoReview('browser_act')).toBe(false);
+    expect(allowsAutoReview('create_task')).toBe(true);
   });
 });

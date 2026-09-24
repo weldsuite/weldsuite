@@ -11,7 +11,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { Env, Variables } from '../../types';
 import { findAgentsForEvent, createAgentRun } from './agents';
-import { findEventRoutines, createRoutineRun, markRoutineScheduled } from './parity';
+import {
+  findEventRoutines,
+  createRoutineRun,
+  markRoutineScheduled,
+  hasRoutineRunForTrigger,
+} from './parity';
 import { enqueueWeldAgentJob, type WeldAgentJob } from './jobs';
 
 type AgentDb = Variables['tenantDb'];
@@ -133,10 +138,16 @@ export async function dispatchWeldAgentsForEvent(
 
   for (const routine of routines) {
     try {
+      // Hub retries re-deliver the same evt_ id: key the run on it so a
+      // redelivery never starts the routine twice.
+      const trigger = message.eventId ? `evt:${message.eventId}` : `event:${eventKey}`;
+      if (message.eventId && (await hasRoutineRunForTrigger(db, routine.id, trigger))) {
+        continue;
+      }
       const routineRunId = await createRoutineRun(db, {
         routineId: routine.id,
         agentId: routine.agentId,
-        trigger: `event:${eventKey}`,
+        trigger,
       });
       await markRoutineScheduled(db, routine);
       await schedule({
@@ -148,10 +159,8 @@ export async function dispatchWeldAgentsForEvent(
         triggerData: { ...baseTrigger, routineId: routine.id },
         userMessage:
           `${eventPrompt}Follow routine "${routine.name}":\n${routine.instructions}`,
-        extraSystem: routine.requireApproval
-          ? 'Require approval before consequential outbound actions.'
-          : undefined,
         routineRunId,
+        skipApprovals: !routine.requireApproval,
       });
     } catch (err) {
       console.error(`[weldagent/dispatch] routine ${routine.id} failed:`, err);

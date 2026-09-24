@@ -38,6 +38,8 @@ export type WeldAgentJob =
       runId?: string;
       /** Routine run to close out with the agent result. */
       routineRunId?: string;
+      /** Routine with "ask for approval" off — see AgentExecutorInput.skipApprovals. */
+      skipApprovals?: boolean;
     }
   | {
       kind: 'chat-room';
@@ -49,7 +51,11 @@ export type WeldAgentJob =
       messageContent: string;
     };
 
-/** Run a job to completion in the current invocation. Never throws. */
+/**
+ * Run a job to completion in the current invocation. Throws on failure so the
+ * workflow step is marked errored (visible in the dashboard); user-facing
+ * failure state (error reply, failed run row) is persisted before that.
+ */
 export async function runWeldAgentJob(env: Env, job: WeldAgentJob, db?: AgentDb): Promise<void> {
   try {
     const tenantDb = db ?? ((await getTenantDbForWorkspace(env, job.workspaceId)) as AgentDb);
@@ -80,6 +86,7 @@ export async function runWeldAgentJob(env: Env, job: WeldAgentJob, db?: AgentDb)
             extraSystem: job.extraSystem,
             runId: job.runId,
             timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
+            skipApprovals: job.skipApprovals,
           });
           if (job.routineRunId) {
             await completeRoutineRun(tenantDb, job.routineRunId, {
@@ -122,6 +129,16 @@ export async function runWeldAgentJob(env: Env, job: WeldAgentJob, db?: AgentDb)
     }
   } catch (err) {
     console.error(`[weldagent/jobs] ${job.kind} job failed:`, err);
+    throw err;
+  }
+}
+
+async function instanceExists(binding: Workflow<WeldAgentJob>, id: string): Promise<boolean> {
+  try {
+    await binding.get(id);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -142,14 +159,18 @@ export async function enqueueWeldAgentJob(
   db?: AgentDb,
 ): Promise<void> {
   if (env.WELDAGENT_JOB) {
+    const id = instanceIdFor(job);
     try {
-      await env.WELDAGENT_JOB.create({ id: instanceIdFor(job), params: job });
+      await env.WELDAGENT_JOB.create({ id, params: job });
       return;
     } catch (err) {
+      // A retried request re-creates the same instance id: the job is already
+      // queued, so running it inline too would answer (and act) twice.
+      if (id && (await instanceExists(env.WELDAGENT_JOB, id))) return;
       console.error('[weldagent/jobs] workflow create failed, running inline:', err);
     }
   }
-  const work = runWeldAgentJob(env, job, db);
+  const work = runWeldAgentJob(env, job, db).catch(() => undefined);
   if (waitUntil) waitUntil(work);
   else await work;
 }

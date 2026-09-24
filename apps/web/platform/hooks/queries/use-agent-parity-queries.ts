@@ -159,8 +159,9 @@ export function useTestAgentRoutine(agentId: string) {
   const { weldAgentParity } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
+    /** Queues a durable test run; the outcome shows up in the agent's activity. */
     mutationFn: async (id: string) =>
-      (await weldAgentParity.testRoutine(id)).data as { success?: boolean; text?: string; error?: string },
+      (await weldAgentParity.testRoutine(id)).data as { queued?: boolean; runId?: string },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: agentParityKeys.routines(agentId) });
       void qc.invalidateQueries({ queryKey: ['workspace-agents'] });

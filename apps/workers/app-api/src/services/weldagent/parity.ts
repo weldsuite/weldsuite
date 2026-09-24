@@ -5,7 +5,7 @@
 import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
-import { computeNextRunAt } from '../../lib/cron';
+import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import type { AgentDb } from './agents';
 import { getAgent, createAgent, updateAgent } from './agents';
 
@@ -453,6 +453,52 @@ export async function markRoutineScheduled(
     .where(eq(schema.weldagentRoutines.id, routine.id));
 }
 
+/**
+ * Atomically claim a due cron routine: advance `next_run_at` only if it is
+ * still due. Overlapping sweeps can both list the same routine, but only one
+ * claim succeeds, so each occurrence runs once.
+ */
+export async function claimDueRoutine(
+  db: AgentDb,
+  routine: { id: string; cronExpr: string | null; timezone: string },
+  asOf = new Date(),
+): Promise<boolean> {
+  const { weldagentRoutines: r } = schema;
+  const claimed = await db
+    .update(r)
+    .set({
+      lastRunAt: now(),
+      nextRunAt: computeRoutineNextRun(routine.cronExpr, routine.timezone, asOf),
+      updatedAt: now(),
+    })
+    .where(and(eq(r.id, routine.id), lte(r.nextRunAt, asOf)))
+    .returning({ id: r.id });
+  return claimed.length > 0;
+}
+
+/** Give back a claimed occurrence that could not be started (retried next sweep). */
+export async function releaseRoutineClaim(db: AgentDb, routineId: string, dueAt = new Date()) {
+  await db
+    .update(schema.weldagentRoutines)
+    .set({ nextRunAt: dueAt, updatedAt: now() })
+    .where(eq(schema.weldagentRoutines.id, routineId));
+}
+
+/** True when this routine already has a run for this trigger key (redelivery guard). */
+export async function hasRoutineRunForTrigger(
+  db: AgentDb,
+  routineId: string,
+  trigger: string,
+): Promise<boolean> {
+  const { weldagentRoutineRuns: rr } = schema;
+  const [existing] = await db
+    .select({ id: rr.id })
+    .from(rr)
+    .where(and(eq(rr.routineId, routineId), eq(rr.trigger, trigger)))
+    .limit(1);
+  return Boolean(existing);
+}
+
 /** Enabled event routines (of active agents) listening for `eventKey`. */
 export async function findEventRoutines(db: AgentDb, eventKey: string) {
   const { weldagentRoutines: r, weldagentAgents: a } = schema;
@@ -513,13 +559,35 @@ const HIGH_RISK_TOOLS = new Set([
   'create_person',
   'create_ticket',
   'create_task',
-  'send_chat_message',
   'message_agent',
   'create_agent_group_chat',
 ]);
 
-export function toolRiskLevel(toolName: string): 'low' | 'high' {
+/** browser_act actions that can submit forms or navigate on the user's behalf. */
+const MUTATING_BROWSER_ACTIONS = new Set(['goto', 'click', 'type', 'press']);
+
+/**
+ * Tools a past approval must never auto-approve: each call is arbitrary code or
+ * browser input, so approving one command says nothing about the next.
+ */
+const NEVER_AUTO_REVIEW = new Set([
+  'computer_exec',
+  'computer_write_file',
+  'computer_run_code',
+  'browser_act',
+]);
+
+export function toolRiskLevel(toolName: string, args?: unknown): 'low' | 'high' {
+  if (toolName === 'browser_act') {
+    const action = args && typeof args === 'object' ? (args as { action?: unknown }).action : undefined;
+    return typeof action === 'string' && MUTATING_BROWSER_ACTIONS.has(action) ? 'high' : 'low';
+  }
   return HIGH_RISK_TOOLS.has(toolName) ? 'high' : 'low';
+}
+
+/** Whether a prior approval of the same tool may auto-approve this call. */
+export function allowsAutoReview(toolName: string): boolean {
+  return !NEVER_AUTO_REVIEW.has(toolName);
 }
 
 function serializeApproval(row: typeof schema.weldagentApprovals.$inferSelect) {

@@ -11,7 +11,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { Env } from '../../types';
 import { getAgent, type AgentDb } from './agents';
-import { persistAssistantMessage } from './complete-turn';
+import { APPROVAL_OUTCOME_KIND, persistAssistantMessage } from './complete-turn';
 import type { StoredToolInvocation } from './executor';
 import { effectiveAgentPermissions, findAgentToolByName } from './tools';
 
@@ -31,15 +31,26 @@ interface DecidedApproval {
   status: string;
 }
 
-async function isAgentConversation(db: AgentDb, conversationId: string | null): Promise<boolean> {
-  if (!conversationId) return false;
-  const { weldagentConversations: c } = schema;
-  const [row] = await db
+type ApprovalOrigin =
+  | { kind: 'conversation'; id: string }
+  | { kind: 'channel'; id: string }
+  | { kind: 'none' };
+
+/**
+ * Where the approval was requested: a WeldAgent conversation (chat panel) or a
+ * WeldChat room (`conversationId` then holds the channel id).
+ */
+async function resolveOrigin(db: AgentDb, id: string | null): Promise<ApprovalOrigin> {
+  if (!id) return { kind: 'none' };
+  const { weldagentConversations: c, chatChannels: ch } = schema;
+  const [conversation] = await db
     .select({ id: c.id })
     .from(c)
-    .where(and(eq(c.id, conversationId), isNull(c.deletedAt)))
+    .where(and(eq(c.id, id), isNull(c.deletedAt)))
     .limit(1);
-  return Boolean(row);
+  if (conversation) return { kind: 'conversation', id };
+  const [channel] = await db.select({ id: ch.id }).from(ch).where(eq(ch.id, id)).limit(1);
+  return channel ? { kind: 'channel', id } : { kind: 'none' };
 }
 
 function describeResult(result: unknown): string {
@@ -60,20 +71,45 @@ export async function executeDecidedApproval(params: {
   deciderPermissions: string[];
 }): Promise<ApprovalExecution> {
   const { db, approval } = params;
-  const postToConversation = await isAgentConversation(db, approval.conversationId);
+  const origin = await resolveOrigin(db, approval.conversationId);
+  const agent = await getAgent(db, approval.agentId);
+
+  /** Post the outcome back where the approval was requested. */
+  const report = async (content: string, invocation?: StoredToolInvocation) => {
+    try {
+      if (origin.kind === 'conversation') {
+        await persistAssistantMessage({
+          db,
+          conversationId: origin.id,
+          content,
+          toolInvocations: invocation ? [invocation] : undefined,
+          metadata: { kind: APPROVAL_OUTCOME_KIND, approvalId: approval.id },
+        });
+      } else if (origin.kind === 'channel' && agent) {
+        const { postAgentChatMessage } = await import('../chat/post-agent-message');
+        await postAgentChatMessage(
+          {
+            db: db as never,
+            env: params.env,
+            orgId: params.workspaceId,
+            channelId: origin.id,
+            agentId: agent.id,
+            agentName: agent.name,
+            invokerUserId: params.deciderUserId,
+          },
+          { content, hop: 0 },
+        );
+      }
+    } catch (err) {
+      console.error('[weldagent/approvals] posting outcome failed:', err);
+    }
+  };
 
   if (approval.status !== 'approved') {
-    if (postToConversation) {
-      await persistAssistantMessage({
-        db,
-        conversationId: approval.conversationId!,
-        content: `The "${approval.toolName}" action was rejected, so I did not run it.`,
-      });
-    }
+    await report(`The "${approval.toolName}" action was rejected, so I did not run it.`);
     return { ran: false, ok: true };
   }
 
-  const agent = await getAgent(db, approval.agentId);
   if (!agent) return { ran: false, ok: false, error: 'Agent not found' };
 
   const tool = findAgentToolByName(
@@ -84,13 +120,7 @@ export async function executeDecidedApproval(params: {
   if (!tool) {
     const error =
       `"${approval.toolName}" is no longer available to this agent, or you lack the permission it needs.`;
-    if (postToConversation) {
-      await persistAssistantMessage({
-        db,
-        conversationId: approval.conversationId!,
-        content: `Approved, but I could not run it: ${error}`,
-      });
-    }
+    await report(`Approved, but I could not run it: ${error}`);
     return { ran: false, ok: false, error };
   }
 
@@ -104,7 +134,8 @@ export async function executeDecidedApproval(params: {
         actorUserId: params.deciderUserId,
         workspaceId: params.workspaceId,
         env: params.env,
-        conversationId: approval.conversationId ?? undefined,
+        conversationId: origin.kind === 'conversation' ? origin.id : undefined,
+        channelId: origin.kind === 'channel' ? origin.id : undefined,
       },
       approval.args,
     );
@@ -120,15 +151,11 @@ export async function executeDecidedApproval(params: {
     execution = { ran: true, ok: false, error: message };
   }
 
-  if (postToConversation) {
-    await persistAssistantMessage({
-      db,
-      conversationId: approval.conversationId!,
-      content: execution.ok
-        ? `Approved and done: ran "${tool.name}"${describeResult(execution.result)}.`
-        : `Approved, but "${tool.name}" failed: ${execution.error}`,
-      toolInvocations: [invocation],
-    });
-  }
+  await report(
+    execution.ok
+      ? `Approved and done: ran "${tool.name}"${describeResult(execution.result)}.`
+      : `Approved, but "${tool.name}" failed: ${execution.error}`,
+    invocation,
+  );
   return execution;
 }

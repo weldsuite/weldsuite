@@ -397,7 +397,8 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
   const index = rows.findIndex((m) => m.id === ref.userMessageId);
   if (index === -1) return null;
   // A reply already landed after this user message (e.g. a duplicate job).
-  if (rows.slice(index + 1).some((m) => m.role === 'assistant')) return null;
+  // Approval outcomes posted meanwhile are not replies.
+  if (rows.slice(index + 1).some(isTurnReply)) return null;
 
   return {
     conversationId: ref.conversationId,
@@ -413,11 +414,25 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
 /**
  * Generate the assistant reply for an already-accepted user turn and persist it.
  */
+/**
+ * `metadata.kind` of assistant rows that are NOT the reply to a user turn
+ * (e.g. an approval outcome posted later). Turn completion ignores them.
+ */
+export const APPROVAL_OUTCOME_KIND = 'approval_outcome';
+
+function isTurnReply(row: MessageRow): boolean {
+  return (
+    row.role === 'assistant' &&
+    (row.metadata as { kind?: unknown } | null)?.kind !== APPROVAL_OUTCOME_KIND
+  );
+}
+
 export async function persistAssistantMessage(params: {
   db: AgentDb;
   conversationId: string;
   content: string;
   toolInvocations?: unknown;
+  metadata?: Record<string, unknown>;
 }): Promise<WeldAgentMessageRow> {
   const { weldagentConversations, weldagentMessages } = schema;
   const assistantMessageId = generateId('msg');
@@ -430,6 +445,7 @@ export async function persistAssistantMessage(params: {
     content,
     toolInvocations:
       (params.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
+    metadata: params.metadata ?? null,
   });
 
   await params.db

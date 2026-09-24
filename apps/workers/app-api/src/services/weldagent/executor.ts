@@ -83,6 +83,11 @@ export interface AgentExecutorInput {
    */
   actorPermissions?: string[] | null;
   /**
+   * Run high-risk tools without parking an approval. Only for routines whose
+   * owner explicitly turned "ask for approval" off.
+   */
+  skipApprovals?: boolean;
+  /**
    * Wall-clock budget for the whole tool loop. Defaults to 75s, which suits a
    * blocking HTTP request; durable jobs (Workflows) pass a longer budget.
    */
@@ -166,7 +171,7 @@ function toSdkTools(
   defs: PlatformToolDefinition[],
   ctx: ToolContext,
   invocations: StoredToolInvocation[],
-  opts?: { autoReviewEnabled?: boolean },
+  opts?: { autoReviewEnabled?: boolean; skipApprovals?: boolean },
 ): Record<string, unknown> {
   const tools: Record<string, unknown> = {};
   for (const def of defs) {
@@ -177,11 +182,14 @@ function toSdkTools(
         const input = args as unknown;
         invocations.push({ toolName: def.name, state: 'call', args: input });
         try {
-          const { toolRiskLevel, createApproval, findPriorApproval } = await import('./parity');
-          const risk = toolRiskLevel(def.name);
-          if (risk === 'high') {
+          const { toolRiskLevel, createApproval, findPriorApproval, allowsAutoReview } = await import(
+            './parity'
+          );
+          const risk = toolRiskLevel(def.name, input);
+          if (risk === 'high' && !opts?.skipApprovals) {
             const autoOk =
               opts?.autoReviewEnabled &&
+              allowsAutoReview(def.name) &&
               (await findPriorApproval(ctx.db, ctx.agentId, def.name));
             if (!autoOk) {
               const approval = await createApproval(ctx.db, {
@@ -264,6 +272,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
     autoReviewEnabled: input.agent.autoReviewEnabled,
+    skipApprovals: input.skipApprovals,
   });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
@@ -342,6 +351,7 @@ export async function streamAgentChat(input: StreamAgentParams) {
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations, {
     autoReviewEnabled: input.agent.autoReviewEnabled,
+    skipApprovals: input.skipApprovals,
   });
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;

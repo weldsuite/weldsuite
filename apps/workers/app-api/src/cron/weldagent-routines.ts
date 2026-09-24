@@ -15,7 +15,8 @@ import {
   listDueCronRoutines,
   createRoutineRun,
   completeRoutineRun,
-  markRoutineScheduled,
+  claimDueRoutine,
+  releaseRoutineClaim,
 } from '../services/weldagent/parity';
 import { enqueueWeldAgentJob, type WeldAgentJob } from '../services/weldagent/jobs';
 import type { AgentDb } from '../services/weldagent/agents';
@@ -33,16 +34,17 @@ export async function runWeldAgentRoutineSweepForTenant(params: {
 }): Promise<{ started: number }> {
   const schedule =
     params.schedule ?? ((job: WeldAgentJob) => enqueueWeldAgentJob(params.env, undefined, job, params.db));
-  const due = await listDueCronRoutines(params.db);
+  const asOf = new Date();
+  const due = await listDueCronRoutines(params.db, asOf);
   let started = 0;
   for (const routine of due) {
+    // Claim first: a concurrent sweep that listed the same routine loses here.
+    if (!(await claimDueRoutine(params.db, routine, asOf))) continue;
     const runId = await createRoutineRun(params.db, {
       routineId: routine.id,
       agentId: routine.agentId,
       trigger: 'schedule',
     });
-    await markRoutineScheduled(params.db, routine);
-    started += 1;
     try {
       await schedule({
         kind: 'agent-run',
@@ -52,16 +54,18 @@ export async function runWeldAgentRoutineSweepForTenant(params: {
         triggerType: 'event',
         triggerData: { routineId: routine.id, schedule: true },
         userMessage: `Scheduled routine "${routine.name}" is due.\n\n${routine.instructions}`,
-        extraSystem: routine.requireApproval
-          ? 'Require approval before consequential outbound actions.'
-          : undefined,
         routineRunId: runId,
+        skipApprovals: !routine.requireApproval,
       });
+      started += 1;
     } catch (err) {
+      // Couldn't hand it off: fail this run row and make the routine due again
+      // so the next sweep retries instead of silently skipping the occurrence.
       await completeRoutineRun(params.db, runId, {
         status: 'failed',
         error: err instanceof Error ? err.message : 'Routine sweep failed',
       });
+      await releaseRoutineClaim(params.db, routine.id, asOf);
     }
   }
   return { started };
