@@ -14,8 +14,9 @@ import type { Env, Variables } from '../../types';
 import { verifyWebhookToken } from '../../lib/webhook-token';
 import { logSafe } from '../../lib/log-safe';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
-import { getTenantDbForWorkspace } from '../../db';
+import { getMasterDb, getTenantDbForWorkspace } from '../../db';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
+import { reindexWorkspaceDomainRenewals } from '@weldsuite/db/lib/domain-renewal-index';
 import * as domainsService from '../../services/domains';
 import * as transfersService from '../../services/domain-transfers';
 
@@ -124,6 +125,7 @@ app.post('/', async (c) => {
       await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
       console.log(`[RTR Webhook] synced transfer ${logSafe(mapping.transferId)} for process ${logSafe(processId)}`);
     }
+    await reindexWorkspaceDomainRenewals(getMasterDb(c.env), tenantDb, mapping.workspaceId);
 
     const outcome = await rtr.pollProcess(processId);
     if (outcome !== 'pending' && c.env.WORKSPACE_CACHE) {

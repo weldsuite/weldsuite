@@ -20,13 +20,19 @@ it has real work:
   (`SCHEDULE_INDEX` binding). WeldConnect schedules use `schedule_index`
   (`app-api/src/lib/schedule-index.ts` → `workflow-worker` sweep); WeldAgent
   routines use `weldagent_routine_index`
-  (`app-api/src/lib/weldagent-routine-index.ts` → `app-api/src/cron/weldagent-routines.ts`).
+  (`app-api/src/lib/weldagent-routine-index.ts` → `app-api/src/cron/weldagent-routines.ts`);
+  the daily calendar replan uses `calendar_replan_index`
+  (`app-api/src/lib/calendar-replan-index.ts` → `app-api/src/cron/calendar-replan.ts`).
   Write the row on every create / update / pause / delete and re-derive it
   from the tenant when the tenant is open anyway; the sweep reads only D1.
   Migrations live in `apps/workers/workflow-worker/migrations/d1/` and
   `deploy.yml` applies them.
 - **Master DB** (single always-on Neon), when the data already lives there,
-  e.g. the digest sweep filters on master `digest_schedules` first.
+  e.g. the digest sweep filters on master `digest_schedules` first, or when
+  workers without the D1 binding write the source rows: WeldHost auto-renew
+  uses master `domain_renewal_index` (`@weldsuite/db/lib/domain-renewal-index`,
+  re-derived by every worker that writes `host_domains` →
+  `app-api/src/cron/domain-auto-renew.ts`).
 - **Event-driven** work (entity-event queues, Workflows started by a request)
   only touches the tenant that produced the event, which is fine.
 
@@ -34,9 +40,6 @@ If a D1 read fails, skip the tick and log it — never fall back to a tenant
 fan-out. A one-time backfill that opens every tenant (guarded by a KV flag,
 like `weldagent:routine-index:backfill:v1`) is acceptable when introducing a
 new index.
-
-Known offenders still to migrate: `app-api/src/cron/calendar-replan.ts` and
-`app-api/src/cron/domain-auto-renew.ts` open every active tenant daily.
 
 ## Cursor Cloud specific instructions
 

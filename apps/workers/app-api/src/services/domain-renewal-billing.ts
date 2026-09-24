@@ -18,14 +18,16 @@ import {
   isDefiniteStripeFailure,
   type StripeInvoice,
 } from '../lib/stripe';
+import {
+  DOMAIN_AUTO_RENEW_GRACE_DAYS,
+  DOMAIN_AUTO_RENEW_WINDOW_DAYS,
+  autoRenewCandidateFilter,
+} from '@weldsuite/db/lib/domain-renewal-index';
 import { applyMarkup, pollRenewalProcess, renewDomain } from './domains';
 
 const { hostDomains } = schema;
 
-/** How far ahead of expiry we raise the renewal invoice. */
-export const DOMAIN_AUTO_RENEW_WINDOW_DAYS = 14;
-/** Don't chase domains that expired this many days ago (redemption is manual). */
-export const DOMAIN_AUTO_RENEW_GRACE_DAYS = 7;
+export { DOMAIN_AUTO_RENEW_GRACE_DAYS, DOMAIN_AUTO_RENEW_WINDOW_DAYS };
 
 export const DOMAIN_RENEWAL_INVOICE_KIND = 'domain_renewal';
 
@@ -111,10 +113,7 @@ export async function listDomainsDueForAutoRenew(
     .from(hostDomains)
     .where(
       and(
-        isNull(hostDomains.deletedAt),
-        eq(hostDomains.autoRenew, true),
-        eq(hostDomains.registrar, 'realtimeregister'),
-        or(eq(hostDomains.status, 'active'), eq(hostDomains.status, 'expired')),
+        autoRenewCandidateFilter(),
         or(
           eq(hostDomains.registrationStatus, 'pending_renewal'),
           and(gte(hostDomains.expiresAt, windowStart), lte(hostDomains.expiresAt, windowEnd)),

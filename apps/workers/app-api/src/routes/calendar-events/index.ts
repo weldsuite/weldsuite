@@ -55,8 +55,12 @@ import {
   type AttendeeLike,
 } from '../../services/calendar-mail';
 import { pushCalendarEventToGoogle } from '../../lib/integrations/sync/outbound-calendar-sync';
+import { calendarReplanIndexMiddleware } from '../../lib/calendar-replan-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Any event write can change what the daily replan sweep has to pick up.
+app.use('*', calendarReplanIndexMiddleware({ everyWrite: true }));
 const t = schema.calendarEvents;
 
 // ── Validation ───────────────────────────────────────────────────────────

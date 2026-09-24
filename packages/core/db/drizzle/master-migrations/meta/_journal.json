@@ -337,6 +337,13 @@
       "when": 1789700000000,
       "tag": "0047_user_apps_icon_logo_url",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790273459791,
+      "tag": "0048_domain_renewal_index",
+      "breakpoints": true
     }
   ]
 }

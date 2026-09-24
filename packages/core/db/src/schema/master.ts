@@ -647,6 +647,30 @@ export const postpeerPostIndex = pgTable('postpeer_post_index', {
 export type PostpeerPostIndex = typeof postpeerPostIndex.$inferSelect;
 export type NewPostpeerPostIndex = typeof postpeerPostIndex.$inferInsert;
 
+// ----------------------------------------------------------------------------
+// Domain renewal index: daily auto-renew sweep timing
+// ----------------------------------------------------------------------------
+// One row per workspace that owns at least one auto-renewing WeldHost domain:
+// the earliest moment one of them enters the renewal window (or "now" while a
+// renewal is pending). The daily auto-renew sweep reads due workspaces from
+// here and opens only those tenant DBs, so idle Neon computes stay suspended.
+//
+// The tenant host_domains table stays the source of truth. Rows are re-derived
+// from it after every domain write (@weldsuite/db/lib/domain-renewal-index),
+// by any worker. That is why this lives in master rather than D1: app-api,
+// billing-worker, external-api, mcp-server and workflow-worker all write
+// host_domains, and all of them already reach master.
+export const domainRenewalIndex = pgTable('domain_renewal_index', {
+  clerkOrgId: varchar('clerk_org_id', { length: 255 }).primaryKey(),
+  nextDueAt: timestamp('next_due_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('domain_renewal_index_due_idx').on(table.nextDueAt),
+]);
+
+export type DomainRenewalIndex = typeof domainRenewalIndex.$inferSelect;
+export type NewDomainRenewalIndex = typeof domainRenewalIndex.$inferInsert;
+
 // ============================================================================
 // BILLING INVOICES
 // ============================================================================

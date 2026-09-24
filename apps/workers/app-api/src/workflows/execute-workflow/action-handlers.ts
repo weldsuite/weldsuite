@@ -14,7 +14,8 @@
  */
 
 import { eq, and, isNull, asc, sql } from 'drizzle-orm';
-import { schema } from '../../db';
+import { reindexWorkspaceDomainRenewals } from '@weldsuite/db/lib/domain-renewal-index';
+import { getMasterDb, schema } from '../../db';
 import { generateId } from '../../lib/id';
 import { getEntityTable, getEntityIdPrefix } from './entity-tables';
 import * as cfEmail from '../../lib/cloudflare-email';
@@ -196,6 +197,19 @@ async function handleSendNotification(
   return { sent: true, notificationIds, count: notificationIds.length };
 }
 
+/**
+ * Generic record writes bypass the domain routes: keep the master
+ * domain_renewal_index in step so the daily auto-renew sweep sees them.
+ */
+async function reindexAfterRecordWrite(entityType: string, ctx: ActionContext): Promise<void> {
+  if (entityType !== 'host_domain') return;
+  try {
+    await reindexWorkspaceDomainRenewals(getMasterDb(ctx.env), ctx.db, ctx.tenant.workspaceId);
+  } catch (err) {
+    console.warn('[domain-renewal-index] reindex after workflow write failed:', err);
+  }
+}
+
 async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const entityType = String(inputs.entity || inputs.entityType || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
@@ -209,6 +223,7 @@ async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   // `table` is dynamically resolved (any), so drizzle's insert typing
   // degrades to a non-iterable union — normalise the returning() shape.
   const created = (await ctx.db.insert(table).values(insertData).returning()) as unknown as Record<string, unknown>[];
+  await reindexAfterRecordWrite(entityType, ctx);
   return { created: true, record: created[0] };
 }
 
@@ -225,6 +240,7 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
 
   const [updated] = await ctx.db.update(table).set({ ...data, updatedAt: new Date() }).where(and(...whereConditions)).returning();
   if (!updated) throw new Error(`Record ${recordId} not found`);
+  await reindexAfterRecordWrite(entityType, ctx);
   return { updated: true, record: updated };
 }
 
@@ -244,6 +260,7 @@ async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionCo
   } else {
     await ctx.db.update(table).set({ deletedAt: new Date(), updatedAt: new Date() }).where(and(...whereConditions));
   }
+  await reindexAfterRecordWrite(entityType, ctx);
   return { deleted: true, id: recordId };
 }
 

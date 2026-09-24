@@ -1,11 +1,13 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { reindexWorkspaceDomainRenewals } from '@weldsuite/db/lib/domain-renewal-index';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
+import { createMasterDb } from '../../../lib/master-db';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -34,6 +36,20 @@ function coerceDates(data: Record<string, unknown>, fields: readonly string[]): 
   const out = { ...data };
   for (const f of fields) if (typeof out[f] === 'string') out[f] = new Date(out[f] as string);
   return out;
+}
+
+/**
+ * Keep the master domain_renewal_index in step with host_domains, so the
+ * daily auto-renew sweep only opens tenants with a renewal due.
+ */
+function reindexDomainRenewals(c: Context<HonoEnv>): void {
+  const db = c.get('tenantDb');
+  const workspaceId = c.get('workspaceId');
+  c.executionCtx.waitUntil(
+    (async () => {
+      await reindexWorkspaceDomainRenewals(createMasterDb(c.env.HYPERDRIVE_MASTER), db, workspaceId);
+    })().catch((err) => console.warn('[domain-renewal-index] reindex failed:', err)),
+  );
 }
 
 const app = new Hono<HonoEnv>();
@@ -78,6 +94,7 @@ app.post('/', requireScope('domains:write'), zValidator('json', createDomainSche
     .returning();
   if (!row) return error.internal(c, 'Failed to create domain');
   publishEntityEvent({ c, entityType: 'domain', entityId: id, action: 'created', data: { id, name: row.fullDomain, status: row.status } });
+  reindexDomainRenewals(c);
   return success(c, toPublicDomain(row), 201);
 });
 
@@ -92,6 +109,7 @@ app.patch('/:id', requireScope('domains:write'), zValidator('json', updateDomain
     .returning();
   if (!row) return error.notFound(c, 'Domain', id);
   publishEntityEvent({ c, entityType: 'domain', entityId: id, action: 'updated', data: { id, name: row.fullDomain, status: row.status } });
+  reindexDomainRenewals(c);
   return success(c, toPublicDomain(row));
 });
 
@@ -105,6 +123,7 @@ app.delete('/:id', requireScope('domains:write'), async (c) => {
     .returning();
   if (!row) return error.notFound(c, 'Domain', id);
   publishEntityEvent({ c, entityType: 'domain', entityId: id, action: 'deleted', data: { id, name: row.fullDomain, status: row.status } });
+  reindexDomainRenewals(c);
   return noContent(c);
 });
 

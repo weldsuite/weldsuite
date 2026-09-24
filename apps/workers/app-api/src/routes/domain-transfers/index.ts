@@ -16,12 +16,17 @@ import {
 } from '@weldsuite/core-api-client/schemas/domain-transfers';
 import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
 import type { Env, Variables } from '../../types';
+import { domainRenewalIndexMiddleware } from '../../middleware/domain-renewal-index';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import * as transfersService from '../../services/domain-transfers';
 import * as domainsService from '../../services/domains';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Domain writes refresh the master renewal index so the daily auto-renew
+// sweep only opens tenants with a renewal due.
+app.use('*', domainRenewalIndexMiddleware());
 
 app.get(
   '/',

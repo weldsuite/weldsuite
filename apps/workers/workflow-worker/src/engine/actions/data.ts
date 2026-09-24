@@ -6,9 +6,24 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import type { ActionHandler } from '../types';
+import { reindexWorkspaceDomainRenewals } from '@weldsuite/db/lib/domain-renewal-index';
+import type { ActionContext, ActionHandler } from '../types';
 import { getEntityTable, getEntityIdPrefix } from '../entity-tables';
 import { generateId } from '../../lib/id';
+import { getMasterDb } from '../../db';
+
+/**
+ * Generic record writes bypass the domain routes: keep the master
+ * domain_renewal_index in step so the daily auto-renew sweep sees them.
+ */
+async function reindexAfterRecordWrite(entityType: string, ctx: ActionContext): Promise<void> {
+  if (entityType !== 'host_domain') return;
+  try {
+    await reindexWorkspaceDomainRenewals(getMasterDb(ctx.env), ctx.db, ctx.tenant.workspaceId);
+  } catch (err) {
+    console.warn('[domain-renewal-index] reindex after workflow write failed:', err);
+  }
+}
 
 export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
   const entityType = String(inputs.entity || inputs.entityType || '');
@@ -26,6 +41,7 @@ export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
   if ('workspaceId' in table) insertData.workspaceId = ctx.tenant.workspaceId;
 
   const [created] = (await ctx.db.insert(table).values(insertData).returning()) as any[];
+  await reindexAfterRecordWrite(entityType, ctx);
   return { created: true, record: created };
 };
 
@@ -46,6 +62,7 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
     .where(and(...whereConditions))
     .returning()) as any[];
   if (!updated) throw new Error(`Record ${recordId} not found`);
+  await reindexAfterRecordWrite(entityType, ctx);
   return { updated: true, record: updated };
 };
 
@@ -68,6 +85,7 @@ export const handleDeleteRecord: ActionHandler = async (inputs, ctx) => {
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(...whereConditions));
   }
+  await reindexAfterRecordWrite(entityType, ctx);
   return { deleted: true, id: recordId };
 };
 

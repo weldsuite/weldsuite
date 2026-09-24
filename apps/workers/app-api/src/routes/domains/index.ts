@@ -29,6 +29,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/domains';
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
+import { domainRenewalIndexMiddleware } from '../../middleware/domain-renewal-index';
 import { error, list, noContent, success } from '../../lib/response';
 import * as domainsService from '../../services/domains';
 import { chargeAndRenewDomain, voidPendingRenewalInvoice } from '../../services/domain-renewal-billing';
@@ -39,6 +40,10 @@ import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Domain writes refresh the master renewal index so the daily auto-renew
+// sweep only opens tenants with a renewal due.
+app.use('*', domainRenewalIndexMiddleware());
 
 // ============================================================================
 // Registrar clients

@@ -45,6 +45,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { calendarReplanIndexMiddleware, trackCalendarWrite } from '../../lib/calendar-replan-index';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
@@ -604,6 +605,10 @@ function dispatchGithubOutboundSync(
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Auto-scheduled calendar writes below refresh the replan index (D1) so the
+// daily replan sweep only opens tenants with stale events.
+app.use('*', calendarReplanIndexMiddleware());
+
 // ============================================================================
 // GET / — List tasks with full filter support
 // ============================================================================
@@ -1011,6 +1016,7 @@ app.post(
         if (eventId) {
           await db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, row.id));
         }
+        trackCalendarWrite(c);
       } catch (calErr) {
         console.error('[app-api/tasks] calendar auto-schedule failed:', calErr);
       }
@@ -1324,6 +1330,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskSc
       if (eventId) {
         await db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, row.id));
       }
+      trackCalendarWrite(c);
     } catch (calErr) {
       console.error('[app-api/tasks] calendar auto-schedule failed:', calErr);
     }
@@ -1395,7 +1402,7 @@ app.patch(
       // Calendar sync
       if ((currentTask as any).calendarEventId) {
         if (newStatus === 'done' || newStatus === 'cancelled') {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             cancelCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar cancel failed:', err),
             ),
@@ -1404,7 +1411,7 @@ app.patch(
           (currentTask as any).status === 'done' ||
           (currentTask as any).status === 'cancelled'
         ) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             confirmCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar confirm failed:', err),
             ),
@@ -1480,13 +1487,13 @@ app.patch(
           (currentTask as any).status === 'cancelled';
         const isTerminal = status === 'done' || status === 'cancelled';
         if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             cancelCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar cancel failed:', err),
             ),
           );
         } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             confirmCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar confirm failed:', err),
             ),
@@ -1574,13 +1581,13 @@ app.patch(
           currentTask.status === 'done' || currentTask.status === 'cancelled';
         const isTerminal = data.status === 'done' || data.status === 'cancelled';
         if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             cancelCalendarEvent(db, currentTask.calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar cancel failed:', err),
             ),
           );
         } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             confirmCalendarEvent(db, currentTask.calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar confirm failed:', err),
             ),
@@ -1983,7 +1990,7 @@ app.patch(
           data.title !== undefined ||
           data.duration !== undefined)
       ) {
-        c.executionCtx.waitUntil(
+        trackCalendarWrite(c,
           rescheduleCalendarEvent(db, {
             calendarEventId,
             userId,
@@ -2009,7 +2016,7 @@ app.patch(
             ),
         );
       } else if (!calendarEventId) {
-        c.executionCtx.waitUntil(
+        trackCalendarWrite(c,
           createCalendarEventForTask(db, {
             userId,
             taskId: id,
@@ -2041,13 +2048,13 @@ app.patch(
         const wasTerminal = oldStatus === 'done' || oldStatus === 'cancelled';
         const isTerminal = resolvedStatus === 'done' || resolvedStatus === 'cancelled';
         if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             cancelCalendarEvent(db, calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar cancel failed:', err),
             ),
           );
         } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             confirmCalendarEvent(db, calendarEventId).catch((err) =>
               console.error('[app-api/tasks] calendar confirm failed:', err),
             ),
@@ -2059,7 +2066,7 @@ app.patch(
           data.priority !== undefined && data.priority !== (existing as any).priority;
         const datesChanged = data.dueDate !== undefined || data.startDate !== undefined;
         if (priorityChanged && !datesChanged) {
-          c.executionCtx.waitUntil(
+          trackCalendarWrite(c,
             rescheduleCalendarEvent(db, {
               calendarEventId,
               userId,
@@ -2187,7 +2194,7 @@ app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
 
     // Delete linked calendar event
     if ((existing as any).calendarEventId) {
-      c.executionCtx.waitUntil(
+      trackCalendarWrite(c,
         deleteCalendarEvent(db, (existing as any).calendarEventId).catch((err) =>
           console.error('[app-api/tasks] calendar event delete failed:', err),
         ),

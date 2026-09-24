@@ -11,6 +11,7 @@ import { eq, and, isNull, or, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Env } from '../index';
 import { getMasterDb, masterSchema } from '../lib/db';
+import { reindexWorkspaceDomainRenewals } from '@weldsuite/db/lib/domain-renewal-index';
 import {
   verifyStripeSignature,
   isOurOwnSync,
@@ -2063,6 +2064,10 @@ async function handleDomainRegistrationCheckout(
     }
   }
 
+  // New registrations get an expiry: index it so the daily auto-renew sweep
+  // (app-api) opens this tenant when the renewal window arrives.
+  await reindexWorkspaceDomainRenewals(getMasterDb(env), tenantDb, workspaceId);
+
   // Never auto-refund a domain Checkout. Registration failures (RTR, DNS,
   // contacts) and paid sessions that lost every claim to unpaid abandon
   // need a human look — a live registration can still complete after the
@@ -2206,6 +2211,7 @@ async function handleDomainRenewalInvoicePaid(
   } catch (err) {
     console.error(`[Domain Renewal] Failed for ${domainRow.fullDomain}:`, err);
   }
+  await reindexWorkspaceDomainRenewals(getMasterDb(env), tenantDb, workspaceId);
 }
 
 // ============================================================================
