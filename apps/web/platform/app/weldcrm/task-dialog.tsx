@@ -104,9 +104,9 @@ function readableLabelTextColor(bgHex: string): string {
         ? raw
         : null;
   if (!hex) return '#ffffff';
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
   if ([r, g, b].some(Number.isNaN)) return '#ffffff';
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq >= 160 ? '#1f2937' : '#ffffff';
@@ -938,7 +938,7 @@ export function TaskDialog({
                       type="number"
                       min="0"
                       value={duration != null && ![15, 30, 45, 60, 90, 120].includes(duration) ? duration : ''}
-                      onChange={(e) => setDuration(e.target.value ? parseInt(e.target.value, 10) : null)}
+                      onChange={(e) => setDuration(e.target.value ? Number.parseInt(e.target.value, 10) : null)}
                       placeholder=""
                       className="h-7 text-sm mt-1"
                     />
