@@ -31,7 +31,7 @@ interface GridSelectionBarProps {
   onAddToList?: (listId: string) => Promise<void>;
   onSendEmail?: () => void;
   onBulkEdit?: () => void;
-  onBulkDelete?: () => void;
+  onBulkDelete?: () => void | Promise<void>;
   onLoadLists?: () => Promise<void>;
   isDeleting?: boolean;
   listName?: string;
