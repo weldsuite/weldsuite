@@ -188,23 +188,14 @@ function flattenTree(
   return result;
 }
 
+// This view renders a client-built folder/article tree via EntityList rather
+// than the server-paginated/filtered list, so `pagination`, `params`,
+// `statusFilters`, `additionalFilters` and `counts` are accepted for interface
+// parity with other list pages but aren't consumed here.
 export function KnowledgeClient({
   items,
-  pagination: initialPagination,
-  params: initialSearchParams,
-  statusFilters,
-  additionalFilters,
-  counts: initialCounts,
   isLoading = false,
 }: KnowledgeClientProps) {
-  // This view renders a client-built folder/article tree via EntityList rather than
-  // the server-paginated/filtered list, so these props are accepted for interface
-  // parity with other list pages but aren't consumed here.
-  void initialPagination;
-  void initialSearchParams;
-  void statusFilters;
-  void additionalFilters;
-  void initialCounts;
   const { t } = useI18n();
   const st = useTranslations();
   const router = useRouter();

@@ -38,7 +38,6 @@ app.onError((err, c) => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    void ctx;
     try {
       const proxied = await proxyToSandbox(request, env as never);
       if (proxied) return proxied;
