@@ -5,6 +5,7 @@
 import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
+import { computeNextRunAt } from '../../lib/cron';
 import type { AgentDb } from './agents';
 import { getAgent, createAgent, updateAgent } from './agents';
 
@@ -213,12 +214,26 @@ function serializeRoutine(row: typeof schema.weldagentRoutines.$inferSelect) {
   };
 }
 
-/** Minimal next-hour bump for cron routines until a full cron parser is wired. */
+/** Top of the next UTC hour — fallback when a cron expression can't be parsed. */
 export function computeNextHourlyRun(from = new Date()): Date {
   const next = new Date(from);
   next.setUTCMinutes(0, 0, 0);
   next.setUTCHours(next.getUTCHours() + 1);
   return next;
+}
+
+/**
+ * Next due time for a cron routine, honouring its expression + timezone. The
+ * app-api sweep runs hourly, so a routine fires at the first sweep at or after
+ * this instant.
+ */
+export function computeRoutineNextRun(
+  cronExpr: string | null | undefined,
+  timezone: string | null | undefined,
+  from = new Date(),
+): Date {
+  const expr = cronExpr?.trim() || '0 * * * *';
+  return computeNextRunAt(expr, timezone || 'UTC', from) ?? computeNextHourlyRun(from);
 }
 
 export async function listRoutines(db: AgentDb, agentId?: string) {
@@ -260,7 +275,9 @@ export async function createRoutine(
 ) {
   const id = generateId('rtn');
   const scheduleKind = input.scheduleKind ?? 'cron';
-  const nextRunAt = scheduleKind === 'cron' ? computeNextHourlyRun() : null;
+  const cronExpr = input.cronExpr ?? (scheduleKind === 'cron' ? '0 * * * *' : null);
+  const timezone = input.timezone ?? 'UTC';
+  const nextRunAt = scheduleKind === 'cron' ? computeRoutineNextRun(cronExpr, timezone) : null;
   await db.insert(schema.weldagentRoutines).values({
     id,
     agentId: input.agentId,
@@ -268,8 +285,8 @@ export async function createRoutine(
     instructions: input.instructions.trim(),
     skillId: input.skillId ?? null,
     scheduleKind,
-    cronExpr: input.cronExpr ?? (scheduleKind === 'cron' ? '0 * * * *' : null),
-    timezone: input.timezone ?? 'UTC',
+    cronExpr,
+    timezone,
     eventKey: input.eventKey ?? null,
     connectorConfig: input.connectorConfig ?? null,
     enabled: input.enabled ?? true,
@@ -313,8 +330,19 @@ export async function updateRoutine(
   ] as const) {
     if (input[key] !== undefined) patch[key] = input[key];
   }
-  if (input.enabled === true && existing.scheduleKind === 'cron') {
-    patch.nextRunAt = computeNextHourlyRun();
+  const scheduleKind = input.scheduleKind ?? existing.scheduleKind;
+  const scheduleChanged =
+    input.enabled === true ||
+    input.scheduleKind !== undefined ||
+    input.cronExpr !== undefined ||
+    input.timezone !== undefined;
+  if (scheduleKind === 'cron' && scheduleChanged) {
+    patch.nextRunAt = computeRoutineNextRun(
+      input.cronExpr !== undefined ? input.cronExpr : existing.cronExpr,
+      input.timezone ?? existing.timezone,
+    );
+  } else if (scheduleKind !== 'cron' && input.scheduleKind !== undefined) {
+    patch.nextRunAt = null;
   }
   await db.update(schema.weldagentRoutines).set(patch).where(eq(schema.weldagentRoutines.id, id));
   return getRoutine(db, id);
@@ -385,31 +413,64 @@ export async function completeRoutineRun(
     .where(eq(schema.weldagentRoutineRuns.id, runId));
 }
 
+/**
+ * Enabled cron routines whose `next_run_at` has passed. Routines of paused,
+ * draft or deleted agents are skipped — pausing an agent pauses its schedule.
+ */
 export async function listDueCronRoutines(db: AgentDb, asOf = new Date()) {
+  const { weldagentRoutines: r, weldagentAgents: a } = schema;
   const rows = await db
-    .select()
-    .from(schema.weldagentRoutines)
+    .select({ routine: r })
+    .from(r)
+    .innerJoin(a, eq(a.id, r.agentId))
     .where(
       and(
-        eq(schema.weldagentRoutines.enabled, true),
-        eq(schema.weldagentRoutines.scheduleKind, 'cron'),
-        isNull(schema.weldagentRoutines.deletedAt),
-        lte(schema.weldagentRoutines.nextRunAt, asOf),
+        eq(r.enabled, true),
+        eq(r.scheduleKind, 'cron'),
+        isNull(r.deletedAt),
+        lte(r.nextRunAt, asOf),
+        eq(a.status, 'active'),
+        isNull(a.deletedAt),
       ),
     )
     .limit(50);
-  return rows.map(serializeRoutine);
+  return rows.map((row) => serializeRoutine(row.routine));
 }
 
-export async function markRoutineScheduled(db: AgentDb, id: string) {
+/** Record a routine run; cron routines also advance past it. */
+export async function markRoutineScheduled(
+  db: AgentDb,
+  routine: { id: string; cronExpr: string | null; timezone: string; scheduleKind?: string },
+) {
+  const isCron = (routine.scheduleKind ?? 'cron') === 'cron';
   await db
     .update(schema.weldagentRoutines)
     .set({
       lastRunAt: now(),
-      nextRunAt: computeNextHourlyRun(),
+      ...(isCron ? { nextRunAt: computeRoutineNextRun(routine.cronExpr, routine.timezone) } : {}),
       updatedAt: now(),
     })
-    .where(eq(schema.weldagentRoutines.id, id));
+    .where(eq(schema.weldagentRoutines.id, routine.id));
+}
+
+/** Enabled event routines (of active agents) listening for `eventKey`. */
+export async function findEventRoutines(db: AgentDb, eventKey: string) {
+  const { weldagentRoutines: r, weldagentAgents: a } = schema;
+  const rows = await db
+    .select({ routine: r })
+    .from(r)
+    .innerJoin(a, eq(a.id, r.agentId))
+    .where(
+      and(
+        eq(r.enabled, true),
+        eq(r.scheduleKind, 'event'),
+        eq(r.eventKey, eventKey),
+        isNull(r.deletedAt),
+        eq(a.status, 'active'),
+        isNull(a.deletedAt),
+      ),
+    );
+  return rows.map((row) => serializeRoutine(row.routine));
 }
 
 export async function findConnectorRoutines(
@@ -533,7 +594,8 @@ export async function decideApproval(
     .where(eq(schema.weldagentApprovals.id, id))
     .limit(1);
   if (!row || row.status !== 'pending') return null;
-  await db
+  // Conditional on still-pending so a double click can't run the action twice.
+  const claimed = await db
     .update(schema.weldagentApprovals)
     .set({
       status: input.decision,
@@ -542,7 +604,9 @@ export async function decideApproval(
       reason: input.reason ?? null,
       updatedAt: now(),
     })
-    .where(eq(schema.weldagentApprovals.id, id));
+    .where(and(eq(schema.weldagentApprovals.id, id), eq(schema.weldagentApprovals.status, 'pending')))
+    .returning({ id: schema.weldagentApprovals.id });
+  if (claimed.length === 0) return null;
   const [updated] = await db
     .select()
     .from(schema.weldagentApprovals)

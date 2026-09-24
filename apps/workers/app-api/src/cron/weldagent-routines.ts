@@ -11,18 +11,22 @@ import {
   completeRoutineRun,
   markRoutineScheduled,
 } from '../services/weldagent/parity';
-import { executeAgentRun } from '../services/weldagent/run';
+import { enqueueWeldAgentJob, type WeldAgentJob } from '../services/weldagent/jobs';
 import type { AgentDb } from '../services/weldagent/agents';
 
 /**
- * Run due cron routines for one tenant.
+ * Start due cron routines for one tenant. Each run goes to the durable
+ * WeldAgent job workflow, so one slow agent can't hold up the sweep.
  */
 export async function runWeldAgentRoutineSweepForTenant(params: {
   env: Env;
   workspaceId: string;
   db: AgentDb;
   actorUserId?: string;
+  schedule?: (job: WeldAgentJob) => Promise<void>;
 }): Promise<{ started: number }> {
+  const schedule =
+    params.schedule ?? ((job: WeldAgentJob) => enqueueWeldAgentJob(params.env, undefined, job, params.db));
   const due = await listDueCronRoutines(params.db);
   let started = 0;
   for (const routine of due) {
@@ -31,14 +35,13 @@ export async function runWeldAgentRoutineSweepForTenant(params: {
       agentId: routine.agentId,
       trigger: 'schedule',
     });
-    await markRoutineScheduled(params.db, routine.id);
+    await markRoutineScheduled(params.db, routine);
     started += 1;
     try {
-      const result = await executeAgentRun({
-        db: params.db,
-        env: params.env,
+      await schedule({
+        kind: 'agent-run',
         workspaceId: params.workspaceId,
-        actorUserId: params.actorUserId || 'system',
+        actorUserId: params.actorUserId || routine.createdBy || 'system',
         agentId: routine.agentId,
         triggerType: 'event',
         triggerData: { routineId: routine.id, schedule: true },
@@ -46,12 +49,7 @@ export async function runWeldAgentRoutineSweepForTenant(params: {
         extraSystem: routine.requireApproval
           ? 'Require approval before consequential outbound actions.'
           : undefined,
-      });
-      await completeRoutineRun(params.db, runId, {
-        status: result.success ? 'succeeded' : 'failed',
-        summary: result.text,
-        error: result.error,
-        agentRunId: result.runId,
+        routineRunId: runId,
       });
     } catch (err) {
       await completeRoutineRun(params.db, runId, {

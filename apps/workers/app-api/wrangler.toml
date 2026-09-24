@@ -326,6 +326,13 @@ name = "unpin-expired-message-v2-dev"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
+# WeldAgent background runs (chat replies, routines, WeldChat room replies)
+# beyond the ~30s waitUntil budget. Self-hosted; class in src/workflows/.
+[[workflows]]
+name = "weldagent-job-dev"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
+
 [[workflows]]
 name = "deferred-notification-email-dev"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
@@ -459,6 +466,11 @@ class_name = "TranscribeRecordingWorkflow"
 name = "unpin-expired-message-v2"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
+
+[[env.test.workflows]]
+name = "weldagent-job"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
 
 [[env.test.workflows]]
 name = "deferred-notification-email"
@@ -635,6 +647,11 @@ class_name = "UnpinExpiredMessageWorkflow"
 # Notification email defer window — hosted in this worker. Holds mail back
 # until the recipient has been away for the defer window, so an online user
 # never gets emailed about something already on their screen.
+[[env.production.workflows]]
+name = "weldagent-job"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
+
 [[env.production.workflows]]
 name = "deferred-notification-email"
 binding = "DEFERRED_NOTIFICATION_EMAIL"

@@ -7,11 +7,13 @@
  */
 
 import { z } from 'zod';
-import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
 import { hasPermission } from '@weldsuite/permissions';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
+import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson } from '../people';
+import { allocateTaskNumber } from '../task-numbering';
 import type { Variables } from '../../types';
 
 export type AgentDb = Variables['tenantDb'];
@@ -25,6 +27,8 @@ export interface ToolContext {
   workspaceId: string;
   /** When running inside a WeldChat room reply. */
   channelId?: string;
+  /** When running inside a WeldAgent conversation (chat panel / new-chat). */
+  conversationId?: string;
   env?: import('../../types').Env;
   agentHop?: number;
   maxAgentHops?: number;
@@ -37,6 +41,33 @@ export interface PlatformToolDefinition {
   requiredPermissions: string[];
   parameters: z.ZodTypeAny;
   execute: (ctx: ToolContext, args: unknown) => Promise<unknown>;
+}
+
+/**
+ * Publish the entity event for a record an agent created, so audit logs,
+ * workflows, analytics and realtime see it like any other mutation. The
+ * `triggeredByAgentId` marker stops agents from re-triggering on it.
+ */
+async function emitAgentEntityEvent(
+  ctx: ToolContext,
+  entityType: EntityType,
+  entityId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (!ctx.env) return;
+  try {
+    await publishEntityEventRaw({
+      env: ctx.env as never,
+      workspaceId: ctx.workspaceId,
+      userId: ctx.actorUserId,
+      entityType,
+      action: 'created',
+      entityId,
+      data: { ...data, triggeredByAgentId: ctx.agentId },
+    });
+  } catch (err) {
+    console.warn(`[weldagent/tools] ${entityType}.created event failed:`, err);
+  }
 }
 
 function agentHasGrants(agentPermissions: string[], required: string[]): boolean {
@@ -384,6 +415,11 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         ownerId: ctx.actorUserId,
         inCrm: true,
       });
+      await emitAgentEntityEvent(ctx, 'person', person.id, {
+        id: person.id,
+        fullName: person.fullName,
+        email: person.email,
+      });
       return {
         id: person.id,
         fullName: person.fullName,
@@ -453,6 +489,13 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         createdAt: now,
         updatedAt: now,
       });
+      await emitAgentEntityEvent(ctx, 'ticket', id, {
+        id,
+        ticketNumber,
+        subject: args.subject,
+        status: args.status ?? 'new',
+        priority: args.priority ?? 'medium',
+      });
       return { id, ticketNumber, subject: args.subject, status: args.status ?? 'new' };
     },
   },
@@ -497,14 +540,10 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       const { tasks: t } = schema;
       const id = generateId('task');
       const now = new Date();
-      const [{ next }] = await ctx.db
-        .select({
-          next: sql<number>`coalesce(max(${t.number}), 0) + 1`,
-        })
-        .from(t);
+      const number = await allocateTaskNumber(ctx.db);
       await ctx.db.insert(t).values({
         id,
-        number: next ?? 1,
+        number,
         title: args.title,
         description: args.description ?? null,
         projectId: args.projectId ?? null,
@@ -515,6 +554,12 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         position: 0,
         createdAt: now,
         updatedAt: now,
+      });
+      await emitAgentEntityEvent(ctx, 'project_task', id, {
+        id,
+        title: args.title,
+        projectId: args.projectId ?? null,
+        status: args.status ?? 'todo',
       });
       return { id, title: args.title, status: args.status ?? 'todo' };
     },
@@ -828,6 +873,37 @@ export function listToolCatalog(): Array<{
   }));
 }
 
+const TOOL_IDS = new Set(PLATFORM_TOOLS.map((t) => t.id));
+
+/**
+ * `enabledTools` also carries non-tool flags (e.g. `agent.auto_review`). Only
+ * real tool ids count toward the allow-list — otherwise turning on a flag would
+ * silently strip every platform tool from the agent.
+ */
+export function explicitToolAllowList(enabledTools: string[] = []): string[] {
+  return enabledTools.filter((id) => TOOL_IDS.has(id));
+}
+
+/**
+ * Narrow an agent's grants to what the human driving this turn may do. An agent
+ * never lets a user act beyond their own role; unattended runs (events,
+ * routines) pass no actor permissions and use the agent's grants as-is.
+ */
+export function effectiveAgentPermissions(
+  agentPermissions: string[],
+  actorPermissions?: string[] | null,
+): string[] {
+  if (!actorPermissions) return agentPermissions;
+  // Keep the narrower side of each overlap so wildcards intersect correctly
+  // (agent `people:*` ∩ user `people:read` → `people:read`).
+  return Array.from(
+    new Set([
+      ...agentPermissions.filter((perm) => hasPermission(actorPermissions, perm)),
+      ...actorPermissions.filter((perm) => hasPermission(agentPermissions, perm)),
+    ]),
+  );
+}
+
 /**
  * Filter the registry to tools the agent may use given its grants and optional
  * explicit enabledTools allow-list.
@@ -843,11 +919,21 @@ export function resolveAgentTools(
     'agent.remember',
     'agent.create_routine',
   ]);
+  const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {
     if (alwaysOn.has(tool.id)) return true;
-    if (enabledTools.length > 0 && !enabledTools.includes(tool.id)) return false;
+    if (allowList.length > 0 && !allowList.includes(tool.id)) return false;
     return agentHasGrants(agentPermissions, tool.requiredPermissions);
   });
+}
+
+/** Look up a tool the agent may run by its model-facing name. */
+export function findAgentToolByName(
+  agentPermissions: string[],
+  enabledTools: string[],
+  toolName: string,
+): PlatformToolDefinition | undefined {
+  return resolveAgentTools(agentPermissions, enabledTools).find((t) => t.name === toolName);
 }
 
 export { agentHasGrants };

@@ -5,8 +5,14 @@ vi.mock('./agents', () => ({
   createAgentRun: vi.fn(async () => 'run_1'),
 }));
 
-vi.mock('./run', () => ({
-  executeAgentRun: vi.fn(async () => undefined),
+vi.mock('./parity', () => ({
+  findEventRoutines: vi.fn(async () => []),
+  createRoutineRun: vi.fn(async () => 'rrn_1'),
+  markRoutineScheduled: vi.fn(async () => undefined),
+}));
+
+vi.mock('./jobs', () => ({
+  enqueueWeldAgentJob: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../db', () => ({
@@ -20,12 +26,13 @@ vi.mock('../../db', () => ({
 }));
 
 import { findAgentsForEvent, createAgentRun } from './agents';
-import { executeAgentRun } from './run';
+import { findEventRoutines } from './parity';
 import { dispatchWeldAgentsForEvent } from './dispatch';
 
 const findAgents = vi.mocked(findAgentsForEvent);
 const createRun = vi.mocked(createAgentRun);
-const executeRun = vi.mocked(executeAgentRun);
+const findRoutines = vi.mocked(findEventRoutines);
+const executeRun = vi.fn(async () => undefined);
 
 function mockDb(existing: boolean) {
   return {
@@ -42,6 +49,7 @@ function mockDb(existing: boolean) {
 describe('dispatchWeldAgentsForEvent idempotency', () => {
   beforeEach(() => {
     findAgents.mockReset();
+    findRoutines.mockClear();
     createRun.mockClear();
     executeRun.mockClear();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -59,7 +67,7 @@ describe('dispatchWeldAgentsForEvent idempotency', () => {
       entityId: 'cus_1',
       data: { id: 'cus_1' },
       eventId: 'evt_dup',
-    });
+    }, executeRun);
 
     expect(createRun).not.toHaveBeenCalled();
     expect(executeRun).not.toHaveBeenCalled();
@@ -76,7 +84,7 @@ describe('dispatchWeldAgentsForEvent idempotency', () => {
       entityId: 'cus_1',
       data: { id: 'cus_1' },
       eventId: 'evt_new',
-    });
+    }, executeRun);
 
     expect(createRun).toHaveBeenCalledWith(
       expect.anything(),
@@ -86,6 +94,46 @@ describe('dispatchWeldAgentsForEvent idempotency', () => {
         triggerData: expect.objectContaining({ eventId: 'evt_new' }),
       }),
     );
-    expect(executeRun).toHaveBeenCalled();
+    expect(executeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'agent-run', agentId: 'agt_1', runId: 'run_1' }),
+    );
+  });
+
+  it('ignores events caused by an agent (no agent → event → agent loops)', async () => {
+    findAgents.mockResolvedValue([{ id: 'agt_1', createdBy: 'usr_1' }] as never);
+
+    await dispatchWeldAgentsForEvent({} as never, mockDb(false) as never, {
+      workspaceId: 'org_1',
+      userId: 'usr_1',
+      entityType: 'ticket',
+      action: 'created',
+      entityId: 'tkt_1',
+      data: { id: 'tkt_1', triggeredByAgentId: 'agt_1' },
+      eventId: 'evt_loop',
+    }, executeRun);
+
+    expect(findAgents).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
+  it('schedules event routines listening for the event key', async () => {
+    findAgents.mockResolvedValue([] as never);
+    findRoutines.mockResolvedValueOnce([
+      { id: 'rtn_1', agentId: 'agt_2', name: 'Triage', instructions: 'Tag it', requireApproval: false, createdBy: 'usr_1' },
+    ] as never);
+
+    await dispatchWeldAgentsForEvent({} as never, mockDb(false) as never, {
+      workspaceId: 'org_1',
+      userId: 'usr_1',
+      entityType: 'ticket',
+      action: 'created',
+      entityId: 'tkt_1',
+      data: { id: 'tkt_1' },
+    }, executeRun);
+
+    expect(executeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'agent-run', agentId: 'agt_2', routineRunId: 'rrn_1' }),
+    );
   });
 });

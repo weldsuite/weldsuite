@@ -18,7 +18,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   createConversationSchema,
@@ -31,10 +31,11 @@ import {
 import { InsufficientAiCreditsError } from '../../services/ai/billing';
 import {
   acceptConversationTurn,
-  finishAcceptedTurn,
   completeConversationTurn,
+  toAcceptedTurnRef,
   ConversationNotFoundError,
 } from '../../services/weldagent/complete-turn';
+import { enqueueWeldAgentJob } from '../../services/weldagent/jobs';
 import { getAgent } from '../../services/weldagent/agents';
 import {
   AllGatewaysFailedError,
@@ -281,6 +282,8 @@ app.post(
     const env = c.env;
     const workspaceId = c.get('workspaceId');
     const userId = c.get('userId');
+    // The agent acts on the user's behalf: its grants are narrowed to theirs.
+    const actorPermissions = (await ensurePermissionsResolved(c))?.permissions ?? [];
 
     try {
       if (wait) {
@@ -292,6 +295,7 @@ app.post(
           conversationId,
           content,
           agentId,
+          actorPermissions,
         });
 
         c.executionCtx.waitUntil(
@@ -315,25 +319,16 @@ app.post(
         conversationId,
         content,
         agentId,
+        actorPermissions,
       });
 
-      c.executionCtx.waitUntil(
-        finishAcceptedTurn({ db, env, accepted }).catch(async (err) => {
-          // finishAcceptedTurn already persists failures internally; this is a
-          // last-resort write if something escapes that try/catch.
-          console.error('[app-api/weldagent] complete-turn background finish failed:', err);
-          try {
-            const { persistFailedAssistantTurn } = await import(
-              '../../services/weldagent/complete-turn'
-            );
-            await persistFailedAssistantTurn({ db, accepted, error: err });
-          } catch (persistErr) {
-            console.error(
-              '[app-api/weldagent] complete-turn failed to persist error reply:',
-              persistErr,
-            );
-          }
-        }),
+      // Generate the reply in the durable WeldAgent job workflow — a tool loop
+      // routinely outlives the ~30s waitUntil budget after this response.
+      await enqueueWeldAgentJob(
+        env,
+        (p) => c.executionCtx.waitUntil(p),
+        { kind: 'chat-turn', ...toAcceptedTurnRef(accepted) },
+        db,
       );
 
       return success(c, {

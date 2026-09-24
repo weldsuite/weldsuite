@@ -26,10 +26,16 @@ export async function executeAgentRun(params: {
   extraSystem?: string;
   /** When set, reuse an existing queued run id. */
   runId?: string;
+  /** Tool-loop budget; see REQUEST_RUN_TIMEOUT_MS / BACKGROUND_RUN_TIMEOUT_MS. */
+  timeoutMs?: number;
 }): Promise<{ runId: string; text: string; success: boolean; error?: string }> {
   const agent = await getAgent(params.db, params.agentId);
   if (!agent) {
     throw new Error('Agent not found');
+  }
+  // Unattended runs only fire for live agents; manual runs work in any state.
+  if (params.triggerType === 'event' && agent.status !== 'active') {
+    return { runId: params.runId ?? '', text: '', success: false, error: `Agent is ${agent.status}` };
   }
 
   const runId =
@@ -69,6 +75,7 @@ export async function executeAgentRun(params: {
       },
       messages: [{ role: 'user', content: params.userMessage }],
       extraSystem: params.extraSystem,
+      timeoutMs: params.timeoutMs,
     });
 
     const actionsPerformed = result.toolInvocations

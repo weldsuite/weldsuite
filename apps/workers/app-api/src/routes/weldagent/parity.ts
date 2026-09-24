@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
 import {
   createSkillSchema,
   updateSkillSchema,
@@ -57,6 +57,8 @@ import {
 } from '../../services/weldagent/parity';
 import { getAgent } from '../../services/weldagent/agents';
 import { executeAgentRun } from '../../services/weldagent/run';
+import { enqueueWeldAgentJob } from '../../services/weldagent/jobs';
+import { executeDecidedApproval } from '../../services/weldagent/approvals';
 import {
   browserAct,
   browserOpen,
@@ -193,7 +195,16 @@ app.post('/approvals/:id/decide', requirePermission('weldagent:update', 'weldage
     reason: data.reason,
   });
   if (!approval) return error.notFound(c, 'Approval not found or already decided');
-  return success(c, approval);
+  const resolved = await ensurePermissionsResolved(c);
+  const execution = await executeDecidedApproval({
+    db: c.get('tenantDb'),
+    env: c.env,
+    workspaceId: c.get('workspaceId'),
+    approval,
+    deciderUserId: c.get('userId'),
+    deciderPermissions: resolved?.permissions ?? [],
+  });
+  return success(c, { ...approval, execution });
 });
 
 // ----- Memory -----
@@ -362,39 +373,26 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
       agentId: routine.agentId,
       trigger: `connector:${data.provider}`,
     });
-    c.executionCtx.waitUntil(
-      (async () => {
-        try {
-          const result = await executeAgentRun({
-            db,
-            env: c.env,
-            workspaceId: c.get('workspaceId'),
-            actorUserId: c.get('userId'),
-            agentId: routine.agentId,
-            triggerType: 'event',
-            triggerData: { routineId: routine.id, connector: data },
-            userMessage:
-              `Connector event from ${data.provider}.\n` +
-              `Match text: ${data.text ?? '(none)'}\n` +
-              `Follow routine "${routine.name}":\n${routine.instructions}\n` +
-              (routine.requireApproval
-                ? 'Do not post outbound without approval.'
-                : ''),
-          });
-          await completeRoutineRun(db, runId, {
-            status: result.success ? 'succeeded' : 'failed',
-            summary: result.text,
-            error: result.error,
-            agentRunId: result.runId,
-          });
-          await markRoutineScheduled(db, routine.id);
-        } catch (err) {
-          await completeRoutineRun(db, runId, {
-            status: 'failed',
-            error: err instanceof Error ? err.message : 'Connector routine failed',
-          });
-        }
-      })(),
+    await markRoutineScheduled(db, routine);
+    // Durable job: the agent run outlives the ~30s waitUntil budget.
+    await enqueueWeldAgentJob(
+      c.env,
+      (p) => c.executionCtx.waitUntil(p),
+      {
+        kind: 'agent-run',
+        workspaceId: c.get('workspaceId'),
+        actorUserId: c.get('userId'),
+        agentId: routine.agentId,
+        triggerType: 'event',
+        triggerData: { routineId: routine.id, connector: data },
+        userMessage:
+          `Connector event from ${data.provider}.\n` +
+          `Match text: ${data.text ?? '(none)'}\n` +
+          `Follow routine "${routine.name}":\n${routine.instructions}\n` +
+          (routine.requireApproval ? 'Do not post outbound without approval.' : ''),
+        routineRunId: runId,
+      },
+      db,
     );
     started.push({ routineId: routine.id, runId });
   }

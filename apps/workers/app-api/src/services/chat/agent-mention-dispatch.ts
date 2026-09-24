@@ -11,6 +11,7 @@ import type { Database } from '../../db';
 import { schema } from '../../db';
 import type { Env } from '../../types';
 import { runAgentOnce } from '../weldagent/executor';
+import { explicitToolAllowList } from '../weldagent/tools';
 import { createAgentRun, completeAgentRun, markRunRunning } from '../weldagent/agents';
 import {
   parseAgentRoomPolicy,
@@ -26,6 +27,8 @@ export interface DispatchAgentMentionsContext {
   /** The user whose message started the chain (credits / audit). */
   invokerUserId: string;
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Tool-loop budget per reply (longer inside the durable job workflow). */
+  timeoutMs?: number;
 }
 
 export interface DispatchAgentMentionsInput {
@@ -252,12 +255,15 @@ async function replyAsAgent(params: {
         maxTokens: agent.maxTokens,
         maxIterations: Math.min(agent.maxIterations, 8),
         permissions: (agent.permissions ?? []) as string[],
+        autoReviewEnabled: ((agent.enabledTools ?? []) as string[]).includes('agent.auto_review'),
         enabledTools:
           (() => {
-            const base = (agent.enabledTools ?? []) as string[];
+            const flags = (agent.enabledTools ?? []) as string[];
+            const base = explicitToolAllowList(flags);
             const chatTools = ['chat.message_agent', 'chat.create_agent_group'];
-            if (base.length === 0) return [];
-            return Array.from(new Set([...base, ...chatTools]));
+            // No explicit allow-list: keep flags only, so every granted tool stays on.
+            if (base.length === 0) return flags;
+            return Array.from(new Set([...flags, ...chatTools]));
           })(),
       },
       toolContext: {
@@ -278,6 +284,7 @@ async function replyAsAgent(params: {
         },
       ],
       extraSystem,
+      timeoutMs: ctx.timeoutMs,
     });
 
     const text = (result.text || '').trim();
