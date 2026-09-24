@@ -35,7 +35,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export function NotificationProvider({ children }: { children: React.ReactNode }) {
+export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [badgeCount, setBadgeCount] = useState(0);
 
   const registerForPushNotifications = useCallback(async () => {

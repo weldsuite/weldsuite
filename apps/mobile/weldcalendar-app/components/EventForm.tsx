@@ -119,7 +119,7 @@ export function EventForm({
   onSubmit,
   isSubmitting = false,
   hasAttendees = false,
-}: Props) {
+}: Readonly<Props>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { t, intlLocale } = useI18n();
@@ -670,13 +670,13 @@ function OptionSheet({
   onClose,
   bottomInset,
   children,
-}: {
+}: Readonly<{
   visible: boolean;
   title: string;
   onClose: () => void;
   bottomInset: number;
   children: React.ReactNode;
-}) {
+}>) {
   const { colors } = useTheme();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
