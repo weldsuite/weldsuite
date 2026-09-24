@@ -30,7 +30,7 @@ type Story = StoryObj<typeof meta>;
 
 /* ----------------------------- helpers ----------------------------- */
 
-function MockAvatar({ label }: { label: string }) {
+function MockAvatar({ label }: Readonly<{ label: string }>) {
   return (
     <Avatar className="h-8 w-8">
       <AvatarFallback>{label}</AvatarFallback>
@@ -40,9 +40,9 @@ function MockAvatar({ label }: { label: string }) {
 
 function MockTabs({
   items = ["Overview", "Activity", "Notes", "Files"],
-}: {
+}: Readonly<{
   items?: string[];
-}) {
+}>) {
   return (
     <Tabs defaultValue={items[0]} className="w-full">
       <TabsList className="bg-transparent h-10 px-2">
@@ -56,7 +56,7 @@ function MockTabs({
   );
 }
 
-function MockContent({ rows = 30 }: { rows?: number }) {
+function MockContent({ rows = 30 }: Readonly<{ rows?: number }>) {
   return (
     <div className="p-6 space-y-3 text-sm text-muted-foreground">
       {Array.from({ length: rows }).map((_, i) => (
