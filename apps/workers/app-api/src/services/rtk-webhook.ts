@@ -90,7 +90,7 @@ export async function handleMeetingEnded(
     }
 
     await endChatCall(db, env, mapping.orgId, mapping.callId, call, call.initiatorId);
-    console.log(`[RTK Webhook] Ended call ${mapping.callId} for RTK meeting ${rtkMeetingId}`);
+    console.log(`[RTK Webhook] Ended call ${logSafe(mapping.callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
   }
 }
 
@@ -134,7 +134,9 @@ export async function handleParticipantLeft(
         participants,
         updatedAt: new Date(),
       }).where(eq(meetingSessions.id, mapping.sessionId));
-      console.log(`[RTK Webhook] Marked participant ${cfSessionId ?? customId} as left in session ${mapping.sessionId}`);
+      console.log(
+        `[RTK Webhook] Marked participant ${logSafe(cfSessionId ?? customId)} as left in session ${logSafe(mapping.sessionId)}`,
+      );
 
       try {
         await publishEntityEventRaw({
@@ -173,7 +175,9 @@ export async function handleParticipantLeft(
         participants,
         updatedAt: new Date(),
       }).where(eq(chatCalls.id, mapping.callId));
-      console.log(`[RTK Webhook] Marked participant ${cfSessionId ?? customId} as left in call ${mapping.callId}`);
+      console.log(
+        `[RTK Webhook] Marked participant ${logSafe(cfSessionId ?? customId)} as left in call ${logSafe(mapping.callId)}`,
+      );
 
       try {
         await publishEntityEventRaw({

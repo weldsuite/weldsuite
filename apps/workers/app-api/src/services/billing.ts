@@ -18,6 +18,7 @@ import { eq } from 'drizzle-orm';
 import { masterSchema, type MasterDatabase } from '../db';
 import type { Env } from '../types';
 import { fetchBillingWorker } from '../lib/billing-worker';
+import { logSafe } from '../lib/log-safe';
 
 export { getAccurateMemberCount, syncUserWorkspacesFromClerk } from './member-count';
 export type { ClerkMembershipListItem } from './member-count';
@@ -94,7 +95,7 @@ export async function syncClerkSeatLimit(
     if (!res.ok) {
       const text = await res.text();
       console.error(
-        `[Clerk Sync] Failed to update max_allowed_memberships for ${clerkOrgId}: ${res.status} ${text}`,
+        `[Clerk Sync] Failed to update max_allowed_memberships for ${logSafe(clerkOrgId)}: ${res.status} ${logSafe(text)}`,
       );
     }
   } catch (err) {

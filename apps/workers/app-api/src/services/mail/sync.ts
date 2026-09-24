@@ -16,6 +16,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { Database } from '../../db';
+import { logSafe } from '../../lib/log-safe';
 
 const { mailAccounts } = schema;
 
@@ -84,7 +85,7 @@ export async function setSyncStatus(
   // wire it here and skip the warning.
   if (update.errorMessage) {
     console.warn(
-      `[mail-sync] error on ${accountId} (no errorMessage column yet): ${update.errorMessage}`,
+      `[mail-sync] error on ${logSafe(accountId)} (no errorMessage column yet): ${logSafe(update.errorMessage)}`,
     );
   }
 
