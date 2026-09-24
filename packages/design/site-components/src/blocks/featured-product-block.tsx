@@ -100,7 +100,7 @@ export function FeaturedProductBlock({
     { name: 'Green', color: '#10B981' },
   ];
 
-  const hasCompareAtPrice = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(String(finalPrice));
+  const hasCompareAtPrice = compareAtPrice && Number.parseFloat(compareAtPrice) > Number.parseFloat(String(finalPrice));
 
   return (
     <div
