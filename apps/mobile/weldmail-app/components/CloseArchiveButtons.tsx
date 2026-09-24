@@ -13,13 +13,13 @@ export default function CloseArchiveButtons({
   borderColor,
   iconColor,
   archiveDisabled,
-}: {
+}: Readonly<{
   onClose: () => void;
   onArchiveAndNext: () => void;
   borderColor: string;
   iconColor: string;
   archiveDisabled?: boolean;
-}) {
+}>) {
   return (
     <View style={[styles.group, { borderColor }]}>
       <TouchableOpacity
