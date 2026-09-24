@@ -27,7 +27,7 @@ const t = schema.crmPipelineStages;
 app.get('/', requirePermission('pipelines:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 100, 200);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 100, 200);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.pipeline) conditions.push(eq(t.pipeline, q.pipeline));
