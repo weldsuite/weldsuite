@@ -899,7 +899,7 @@ function DelayForm({ config, onChange }: { config: Record<string, unknown>; onCh
             type="number"
             min={0}
             value={currentValue}
-            onChange={(e) => handleChange(parseInt(e.target.value) || 0, unit)}
+            onChange={(e) => handleChange(Number.parseInt(e.target.value) || 0, unit)}
             className="flex-1"
           />
           <Select value={unit} onValueChange={(v) => handleChange(currentValue, v as 'seconds' | 'minutes' | 'hours' | 'days')}>
@@ -1250,7 +1250,7 @@ function QueryDataForm({
           min={1}
           max={1000}
           value={(config.limit as string | undefined) || 100}
-          onChange={(e) => onChange({ ...config, limit: parseInt(e.target.value) || 100 })}
+          onChange={(e) => onChange({ ...config, limit: Number.parseInt(e.target.value) || 100 })}
         />
       </FormField>
     </div>
@@ -1880,7 +1880,7 @@ function ChangeConversationStatusForm({ config, onChange }: {
           <Input
             type="number"
             value={(config.snoozeDurationMinutes as string | undefined) || ''}
-            onChange={(e) => onChange({ ...config, snoozeDurationMinutes: parseInt(e.target.value) || undefined })}
+            onChange={(e) => onChange({ ...config, snoozeDurationMinutes: Number.parseInt(e.target.value) || undefined })}
             placeholder="60"
             min={1}
           />
@@ -2046,7 +2046,7 @@ function TriggerCsatForm({ config, onChange }: {
         <Input
           type="number"
           value={(config.delayMinutes as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, delayMinutes: parseInt(e.target.value) || undefined })}
+          onChange={(e) => onChange({ ...config, delayMinutes: Number.parseInt(e.target.value) || undefined })}
           placeholder="0"
           min={0}
         />
@@ -2450,7 +2450,7 @@ function AiGenerateForm({
         <Input
           type="number"
           value={(config.maxTokens as string | undefined) ?? ''}
-          onChange={(e) => onChange({ ...config, maxTokens: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+          onChange={(e) => onChange({ ...config, maxTokens: e.target.value ? Number.parseInt(e.target.value, 10) : undefined })}
           min={1}
           placeholder="1024"
         />
