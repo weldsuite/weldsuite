@@ -40,9 +40,7 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
     return <PageLoader fullScreen={false} label={t('crm.pipeline.loading')} />;
   }
 
-  const opportunities = pipelineId
-    ? (opportunitiesResult?.data || [])
-    : (opportunitiesResult?.data || []);
+  const opportunities = opportunitiesResult?.data || [];
 
   const pipelineStages = stagesResult?.data || [];
   const customers = companiesResult?.data || [];
