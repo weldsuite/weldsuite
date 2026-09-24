@@ -306,7 +306,7 @@ export function AudioPlayer({
 
           {/* Duration */}
           <span className="text-xs font-mono tabular-nums text-gray-500 dark:text-white/50 w-10 flex-shrink-0">
-            {duration > 0 && isFinite(duration) ? formatTimestamp(duration) : '--:--'}
+            {duration > 0 && Number.isFinite(duration) ? formatTimestamp(duration) : '--:--'}
           </span>
         </div>
 
