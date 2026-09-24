@@ -18,7 +18,7 @@ export function VideoCameraIcon({
   color = 'currentColor',
   strokeWidth = 1.5,
   fill = 'none',
-}: VideoCameraIconProps) {
+}: Readonly<VideoCameraIconProps>) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
