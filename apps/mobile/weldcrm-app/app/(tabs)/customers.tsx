@@ -116,7 +116,7 @@ export default function CustomersScreen() {
 
   const formatCurrency = (value?: string) => {
     if (!value) return undefined;
-    const num = parseFloat(value);
+    const num = Number.parseFloat(value);
     if (isNaN(num)) return value;
     return `$${num.toLocaleString()}`;
   };
@@ -222,7 +222,7 @@ export default function CustomersScreen() {
       }
 
       // Parse probability from chance string (e.g., "50%" -> 50)
-      const probability = newDealChance ? parseInt(newDealChance.replace('%', '')) : undefined;
+      const probability = newDealChance ? Number.parseInt(newDealChance.replace('%', '')) : undefined;
 
       // Get the first pipeline ID if available
       const pipelineId = pipelines.length > 0 ? pipelines[0].id : undefined;
@@ -231,7 +231,7 @@ export default function CustomersScreen() {
       const response = await api.createOpportunity({
         name: newDealTitle.trim(),
         customerId: selectedCustomer.id,
-        amount: newDealValue ? parseFloat(newDealValue) : 0,
+        amount: newDealValue ? Number.parseFloat(newDealValue) : 0,
         stageId: selectedColumnId,
         probability,
         closeDate,
@@ -244,7 +244,7 @@ export default function CustomersScreen() {
         const newDeal: Deal = {
           id: response.data.id,
           title: newDealTitle,
-          value: newDealValue ? `$${parseFloat(newDealValue).toLocaleString()}` : undefined,
+          value: newDealValue ? `$${Number.parseFloat(newDealValue).toLocaleString()}` : undefined,
           date: formatDate(closeDate),
           customerId: selectedCustomer.id,
         };
