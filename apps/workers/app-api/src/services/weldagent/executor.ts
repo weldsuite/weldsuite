@@ -28,6 +28,7 @@ import {
   type ToolContext,
   type PlatformToolDefinition,
 } from './tools';
+import { logSafe } from '../../lib/log-safe';
 
 /**
  * Third-party models (`anthropic/…`, `openai/…`) need Cloudflare AI Gateway
@@ -42,7 +43,7 @@ export function resolveAgentModelId(env: Env, requested: string | null | undefin
   );
   if (hasGateway || modelId.startsWith('@cf/')) return modelId;
   console.warn(
-    `[weldagent] Model "${modelId}" needs CF_AI_GATEWAY; falling back to ${fallback}`,
+    `[weldagent] Model "${logSafe(modelId)}" needs CF_AI_GATEWAY; falling back to ${logSafe(fallback)}`,
   );
   return fallback;
 }

@@ -212,6 +212,6 @@ export async function fetchAndStoreLogo({
   });
 
   const publicUrl = `${r2PublicUrl}/${r2Key}`;
-  console.log('[LogoFetch] Stored initials avatar for', customerName, 'at', publicUrl);
+  console.log('[LogoFetch] Stored initials avatar for', logSafe(customerName), 'at', logSafe(publicUrl));
   return publicUrl;
 }
