@@ -7,6 +7,7 @@ import {
   integrationTriggerMatches,
   matchAndDispatchIntegrationTriggers,
   workflowInstanceIdForEvent,
+  MAX_ENTITY_WORKFLOW_DEPTH,
 } from './workflow-dispatch';
 
 describe('workflowInstanceIdForEvent', () => {
@@ -127,6 +128,72 @@ describe('matchAndDispatchWorkflowTriggers', () => {
         }),
       }),
     );
+  });
+
+  it('starts a user-initiated event at chain depth 0', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      { workflowId: 'wf_1', triggerId: 'trg_1', eventType: 'created', filters: null, workflowName: 'A' },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ chainDepth: 0 }) }),
+    );
+  });
+
+  it('dispatches one level deeper than the run that caused the event', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      { workflowId: 'wf_1', triggerId: 'trg_1', eventType: 'created', filters: null, workflowName: 'A' },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+      workflowDepth: 0,
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ chainDepth: 1 }) }),
+    );
+  });
+
+  it('stops dispatching once the chain reaches MAX_ENTITY_WORKFLOW_DEPTH', async () => {
+    const create = vi.fn(async () => undefined);
+    const select = vi.fn();
+    const db = { select } as any;
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+      workflowDepth: MAX_ENTITY_WORKFLOW_DEPTH - 1,
+    });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
   });
 
   it('passes a stable CF Workflow instance id when eventId is set', async () => {

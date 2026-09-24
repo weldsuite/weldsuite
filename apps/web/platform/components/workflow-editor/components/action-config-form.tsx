@@ -791,6 +791,87 @@ function ConditionForm({
 // ============================================================================
 // Delay Form
 // ============================================================================
+// Statuses offered for a workflow-created customer — a subset of the CRM
+// company statuses. The server defaults to `active` when none is chosen
+// (apps/workers/app-api/src/services/workflow-actions.ts).
+const CUSTOMER_STATUS_OPTIONS = ['active', 'prospect', 'inactive'] as const;
+
+function CreateCustomerForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const textField = (key: 'name' | 'email' | 'phone' | 'website', label: string, required = false, description?: string) => (
+    <FormField label={label} required={required} description={description}>
+      <VariableInput
+        value={(config[key] as string | undefined) || ''}
+        onChange={(v) => onChange({ ...config, [key]: v })}
+        {...variableProps}
+      />
+    </FormField>
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{acf.customerVariablesHint}</p>
+      {textField('name', acf.customerName, true, acf.customerNameDesc)}
+      {textField('email', acf.customerEmail)}
+      {textField('phone', acf.customerPhone)}
+      {textField('website', acf.customerWebsite)}
+
+      <FormField label={acf.customerNotes}>
+        <VariableInput
+          value={(config.notes as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, notes: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={acf.customerStatus} description={acf.customerStatusDesc}>
+        <Select
+          value={(config.status as string | undefined) || 'active'}
+          onValueChange={(value) => onChange({ ...config, status: value })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CUSTOMER_STATUS_OPTIONS.map((status) => (
+              <SelectItem key={status} value={status}>
+                {acf.customerStatuses[status]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <FormField label={acf.skipIfEmailExists} description={acf.skipIfEmailExistsDesc}>
+        <Switch
+          checked={config.skipIfEmailExists !== false}
+          onCheckedChange={(checked) => onChange({ ...config, skipIfEmailExists: checked })}
+        />
+      </FormField>
+    </div>
+  );
+}
+
 function DelayForm({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
@@ -2781,6 +2862,19 @@ export function ActionConfigForm({
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}
+          />
+        );
+
+      case 'create_customer':
+        return (
+          <CreateCustomerForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
           />
         );
 

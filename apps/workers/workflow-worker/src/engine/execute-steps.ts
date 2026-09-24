@@ -17,8 +17,20 @@ import type {
   WaitingForInputResult,
 } from './types';
 import { isWaitingForInput, getDelayMs } from './types';
-import { resolveInputs } from './resolve-inputs';
+import { resolveInputs, type ResolveInputsOptions } from './resolve-inputs';
 import { evaluateCondition } from './evaluate-condition';
+
+/**
+ * Per-action template options. An HTML email body is markup the author wrote
+ * with record data spliced in, so the spliced values are escaped. Plain-text
+ * bodies (`isHtml: false`) are escaped wholesale by the send_email handler.
+ */
+function resolveOptionsFor(type: string, rawInputs: Record<string, unknown>): ResolveInputsOptions | undefined {
+  if ((type === 'send_email' || type === 'email') && rawInputs.isHtml !== false) {
+    return { escapeHtmlKeys: ['body', 'html'] };
+  }
+  return undefined;
+}
 
 /** Optional resume state — lets the durable wrapper restart after a pause. */
 export interface ResumeState {
@@ -56,7 +68,14 @@ export async function executeWorkflowSteps(
 
     // 2. Resolve inputs (UI persists to `config`; fall back to `inputs`).
     const rawInputs = (step.config ?? step.inputs ?? {}) as Record<string, unknown>;
-    const inputs = resolveInputs(rawInputs, output, triggerData, variables, contactData);
+    const inputs = resolveInputs(
+      rawInputs,
+      output,
+      triggerData,
+      variables,
+      contactData,
+      resolveOptionsFor(step.type, rawInputs),
+    );
 
     const actionCtx: ActionContext = {
       tenant: context.tenant,
@@ -68,6 +87,7 @@ export async function executeWorkflowSteps(
       triggerData,
       variables,
       contactData,
+      chainDepth: context.chainDepth ?? 0,
     };
 
     // 3. Execute with retry. maxAttempts comes from retryPolicy or onError=retry.

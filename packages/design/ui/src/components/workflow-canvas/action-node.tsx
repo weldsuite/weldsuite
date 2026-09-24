@@ -12,6 +12,7 @@ import {
   Variable,
   Wand2,
   Plus,
+  Building2,
   Pencil,
   Trash2,
   Search,
@@ -63,6 +64,7 @@ const ACTION_CATEGORY_LABELS_DEFAULT: Record<string, string> = {
   set_variable: 'Variables',
   transform_data: 'Data',
   create_record: 'Records',
+  create_customer: 'CRM',
   update_record: 'Records',
   delete_record: 'Records',
   query_data: 'Records',
@@ -97,6 +99,7 @@ const actionIcons: Record<string, React.ElementType> = {
   set_variable: Variable,
   transform_data: Wand2,
   create_record: Plus,
+  create_customer: Building2,
   update_record: Pencil,
   delete_record: Trash2,
   query_data: Search,
@@ -166,6 +169,9 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
         }
         break;
       }
+      case 'create_customer':
+        if (typeof config.name === 'string' && config.name) return config.name;
+        break;
       case 'create_record':
       case 'update_record':
       case 'delete_record':

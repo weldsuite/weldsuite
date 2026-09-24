@@ -124,6 +124,12 @@ export interface ActionContext {
   variables: Record<string, unknown>;
   /** Optional contact/customer context used by `{{contact.*}}`. */
   contactData?: Record<string, unknown>;
+  /**
+   * Chain depth of this run (0 = started by a user action or a schedule).
+   * Actions that mutate records forward it so the entity events they cause
+   * carry `workflowDepth`, which caps workflow → event → workflow loops.
+   */
+  chainDepth?: number;
   loopItem?: unknown;
   loopIndex?: number;
 }
@@ -197,6 +203,7 @@ export interface WorkflowRunContext {
   triggerData?: unknown;
   variables?: Record<string, unknown>;
   contactData?: Record<string, unknown>;
+  chainDepth?: number;
 }
 
 export interface ExecuteStepsDeps {

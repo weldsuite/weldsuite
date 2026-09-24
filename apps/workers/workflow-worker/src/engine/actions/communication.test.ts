@@ -113,6 +113,27 @@ describe('send_email', () => {
     expect(calls[0].url).toBe('https://app-api.weldsuite.org/api/internal/send-email');
   });
 
+  it('keeps plain-text line breaks and escapes the text for the HTML part', async () => {
+    const { calls } = stubFetch(() => new Response(JSON.stringify({ success: true, messageId: 'm4' }), { status: 200 }));
+    const ctx = makeActionContext({
+      db: dbReturningAccounts([{ id: 'mac_1', email: 'sender@test.com', isDefault: true }]),
+      env: { INTERNAL_API_SECRET: 'secret' },
+    });
+
+    await handleSendEmail({ to: 'a@b.com', subject: 'Hi', body: 'Line 1\nA < B', isHtml: false }, ctx);
+    const sent = JSON.parse(String(calls[0].init?.body));
+    expect(sent.html).toBe('Line 1<br>A &lt; B');
+    expect(sent.text).toBe('Line 1\nA < B');
+  });
+
+  it('throws when the subject is empty', async () => {
+    const ctx = makeActionContext({
+      db: dbReturningAccounts([{ id: 'mac_1', email: 'sender@test.com', isDefault: true }]),
+      env: { INTERNAL_API_SECRET: 's' },
+    });
+    await expect(handleSendEmail({ to: 'a@b.com', subject: '  ' }, ctx)).rejects.toThrow(/subject/i);
+  });
+
   it('throws when there are no recipients', async () => {
     const ctx = makeActionContext({ db: dbReturningAccounts([]) });
     await expect(handleSendEmail({ to: '' }, ctx)).rejects.toThrow(/recipient/i);

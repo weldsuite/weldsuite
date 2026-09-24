@@ -4,7 +4,7 @@
  * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -17,10 +17,38 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as workflowsService from '../../services/workflows';
+import { isSequenceWorkflow, validateWeldConnectWorkflow } from '../../services/weldconnect-mvp';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
+import type { ScheduleIndexSync } from '../../lib/schedule-index';
 import { registerGenerateWorkflowRoute } from './generate';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type WorkflowsContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** D1 schedule-index handle for keeping schedule triggers firing (see services/workflow-schedule-sync.ts). */
+function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
+  return { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+}
+
+/**
+ * The WeldConnect MVP gate: a workflow may only go live with the supported
+ * triggers/actions, fully configured (services/weldconnect-mvp.ts). Returns a
+ * 400 response when it may not, `null` when it may. CRM sequences share this
+ * table and route but are exempt.
+ */
+function rejectUnsupportedActivation(
+  c: WorkflowsContext,
+  workflow: { triggers?: unknown; steps?: unknown; tags?: unknown },
+) {
+  if (isSequenceWorkflow(workflow.tags)) return null;
+  const issues = validateWeldConnectWorkflow(workflow);
+  if (issues.length === 0) return null;
+  return error.badRequest(c, 'This workflow cannot be activated: it uses unsupported or incomplete triggers or actions', {
+    reason: 'weldconnect_unsupported',
+    issues,
+  });
+}
 
 // POST /generate — AI workflow generation (draft only, not persisted). See
 // ./generate.ts. Registered first so its static path can't be shadowed by
@@ -102,8 +130,12 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
+  if (data.status === 'active') {
+    const rejection = rejectUnsupportedActivation(c, data);
+    if (rejection) return rejection;
+  }
   try {
-    const result = await workflowsService.createWorkflow(db, data, userId);
+    const result = await workflowsService.createWorkflow(db, data, userId, scheduleSyncFor(c));
     await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,
@@ -125,7 +157,25 @@ for (const method of ['put', 'patch'] as const) {
     const id = c.req.param('id');
     const data = c.req.valid('json') as Record<string, unknown>;
     try {
-      const result = await workflowsService.updateWorkflow(db, id, data);
+      const existing = await workflowsService.getWorkflow(db, id);
+      if (!existing) return error.notFound(c, 'Workflow', id);
+
+      // Gate the result when it will be live: on activation, or when the
+      // triggers/steps of an already-active workflow change. Metadata-only
+      // edits (rename, folder) of an active workflow pass through.
+      const nextStatus = (data.status as string | undefined) ?? existing.status;
+      const activating = nextStatus === 'active' && existing.status !== 'active';
+      const flowChanged = data.triggers !== undefined || data.steps !== undefined;
+      if (nextStatus === 'active' && (activating || flowChanged)) {
+        const rejection = rejectUnsupportedActivation(c, {
+          triggers: data.triggers ?? existing.triggers,
+          steps: data.steps ?? existing.steps,
+          tags: data.tags ?? existing.tags,
+        });
+        if (rejection) return rejection;
+      }
+
+      const result = await workflowsService.updateWorkflow(db, id, data, scheduleSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
       await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
@@ -153,7 +203,13 @@ app.patch(
     const id = c.req.param('id');
     const { status } = c.req.valid('json');
     try {
-      const result = await workflowsService.updateWorkflowStatus(db, id, status);
+      if (status === 'active') {
+        const existing = await workflowsService.getWorkflow(db, id);
+        if (!existing) return error.notFound(c, 'Workflow', id);
+        const rejection = rejectUnsupportedActivation(c, existing);
+        if (rejection) return rejection;
+      }
+      const result = await workflowsService.updateWorkflowStatus(db, id, status, scheduleSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
       await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
@@ -201,7 +257,7 @@ app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   try {
     const existing = await workflowsService.getWorkflow(db, id);
     if (!existing) return error.notFound(c, 'Workflow', id);
-    await workflowsService.deleteWorkflow(db, id);
+    await workflowsService.deleteWorkflow(db, id, scheduleSyncFor(c));
     await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,
@@ -243,6 +299,9 @@ app.post(
           triggerType: 'manual' as const,
           triggerData: body.testData ?? body.data ?? {},
           source,
+          // Lets the editor try a draft before publishing — the worker skips
+          // runs of non-active workflows otherwise.
+          isTest: true,
         },
       });
       return success(c, { executionId: instance.id, instanceId: instance.id });

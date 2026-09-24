@@ -23,6 +23,7 @@ import type {
   WorkflowRunContext,
 } from './engine/types';
 import { executeWorkflowSteps } from './engine/execute-steps';
+import { buildTriggerData } from './engine/trigger-data';
 import { executeAction } from './engine/actions';
 import { buildExecutionHooks, type RealtimeLike } from './engine/persistence';
 import { updateWorkflowStats } from './engine/stats';
@@ -42,6 +43,13 @@ export interface ExecuteWorkflowParams {
   triggerData?: Record<string, unknown>;
   chainDepth?: number;
   source?: 'weldconnect' | 'helpdesk';
+  /**
+   * Set by the editor's "Test" button (app-api POST /workflows/:id/test): run
+   * the workflow even though it isn't active yet, so it can be tried before
+   * publishing. Every other dispatcher leaves this unset, and those runs are
+   * skipped for non-active workflows.
+   */
+  isTest?: boolean;
 }
 
 export type Env = WorkflowEnv;
@@ -81,7 +89,9 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         .where(and(eq(schema.workflows.id, params.workflowId), isNull(schema.workflows.deletedAt)))
         .limit(1);
       if (!workflow) throw new Error(`Workflow ${params.workflowId} not found`);
-      if (workflow.status !== 'active') return { skipped: true, reason: 'Workflow not active' } as const;
+      if (workflow.status !== 'active' && !params.isTest) {
+        return { skipped: true, reason: 'Workflow not active' } as const;
+      }
 
       const variableRecords = await db
         .select()
@@ -143,17 +153,14 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       return execId;
     });
 
-    const enrichedTriggerData = {
-      ...(typeof params.triggerData === 'object' && params.triggerData !== null
-        ? params.triggerData
-        : { data: params.triggerData }),
+    const enrichedTriggerData = buildTriggerData(params.triggerType || 'manual', params.triggerData, {
       userId: params.userId,
       workspaceId: params.workspaceId,
-      triggerType: params.triggerType || 'manual',
       workflowId: params.workflowId,
       workflowName,
       executionId,
-    };
+      startedAt: event.timestamp,
+    });
 
     // 3. Run the engine (durable via the step runtime; persistence via hooks).
     const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
@@ -173,6 +180,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       triggerData: enrichedTriggerData,
       variables,
       contactData: {},
+      chainDepth: params.chainDepth ?? 0,
     };
     const workflow: WorkflowDefinition = { id: params.workflowId, name: workflowName, version, steps };
 

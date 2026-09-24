@@ -166,8 +166,11 @@ app.post(
         data: {
           id: created.id,
           name: created.name,
+          email: created.email,
+          phone: created.phone,
           website: created.website,
           industry: created.industry,
+          status: created.status,
         },
       });
       return success(c, created, 201);

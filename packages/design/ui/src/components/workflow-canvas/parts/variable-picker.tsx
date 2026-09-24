@@ -91,6 +91,12 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'record', label: 'Created Record', type: 'object' },
       { path: 'record.id', label: 'Record ID', type: 'string' },
     ],
+    create_customer: [
+      { path: 'created', label: 'Created', type: 'boolean' },
+      { path: 'customerId', label: 'Customer ID', type: 'string' },
+      { path: 'name', label: 'Customer Name', type: 'string' },
+      { path: 'email', label: 'Customer Email', type: 'string' },
+    ],
     update_record: [
       { path: 'updated', label: 'Updated', type: 'boolean' },
       { path: 'record', label: 'Updated Record', type: 'object' },
@@ -169,6 +175,7 @@ function getTriggerVariables(
       { path: 'event', label: 'Event Type', type: 'string' },
       { path: 'recordId', label: 'Record ID', type: 'string' },
       { path: 'record', label: 'Record Data', type: 'object' },
+      { path: 'record.email', label: 'Record Email', type: 'string' },
       { path: 'previousRecord', label: 'Previous Data', type: 'object' },
       { path: 'changes', label: 'Changed Fields', type: 'object' },
     ],

@@ -6,7 +6,8 @@
  * PUBLIC mount (must be registered BEFORE the global /api/* Clerk guard in
  * src/index.ts) — auth is enforced in-route via a shared-secret bearer:
  * `Authorization: Bearer <INTERNAL_API_SECRET>`. Callers: workflow-worker's
- * send_email action (apps/workers/workflow-worker/src/engine/actions/communication.ts).
+ * send_email and create_customer actions
+ * (apps/workers/workflow-worker/src/engine/actions/{communication,customer}.ts).
  * The caller's INTERNAL_API_SECRET must match this worker's (ops contract).
  *
  * Deliberately NOT ported from the legacy surface: the workspace-database
@@ -22,11 +23,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import type { Env } from '../../types';
+import { getTenantDbForWorkspace } from '../../db';
 import {
   sendInternalEmail,
   sendInternalTransactionalEmail,
 } from '../../services/internal-email';
+import { createCustomerFromWorkflow } from '../../services/workflow-actions';
 
 export const internalRoutes = new Hono<{ Bindings: Env }>();
 
@@ -133,6 +137,83 @@ internalRoutes.post(
       return c.json({ success: true, messageId: result.messageId });
     } catch (err) {
       console.error('[Internal] Send transactional email failed:', err);
+      return c.json({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /workflow-actions/create-customer — WeldConnect `create_customer` step
+// (apps/workers/workflow-worker/src/engine/actions/customer.ts). Creates a CRM
+// company through the companies service and publishes `company:created` with
+// the run's chain depth so workflows listening to it can't loop forever.
+// ---------------------------------------------------------------------------
+
+const optionalTrimmed = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .optional()
+    .transform((v) => (v?.trim() ? v.trim() : undefined));
+
+const createCustomerSchema = z.object({
+  workspaceId: z.string().min(1),
+  userId: z.string().min(1),
+  chainDepth: z.number().int().min(0).default(0),
+  skipIfEmailExists: z.boolean().default(true),
+  customer: z.object({
+    name: z.string().trim().min(1).max(255),
+    email: optionalTrimmed(255).refine((v) => v === undefined || z.string().email().safeParse(v).success, {
+      message: 'Invalid email address',
+    }),
+    phone: optionalTrimmed(50),
+    website: optionalTrimmed(500),
+    notes: optionalTrimmed(10000),
+    status: optionalTrimmed(50),
+  }),
+});
+
+internalRoutes.post(
+  '/workflow-actions/create-customer',
+  zValidator('json', createCustomerSchema),
+  async (c) => {
+    const { workspaceId, userId, chainDepth, skipIfEmailExists, customer } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      const { created, company } = await createCustomerFromWorkflow(db, {
+        ...customer,
+        userId,
+        skipIfEmailExists,
+      });
+
+      if (created) {
+        await publishEntityEventRaw({
+          env: c.env,
+          workspaceId,
+          userId,
+          entityType: 'company',
+          action: 'created',
+          entityId: company.id,
+          data: {
+            id: company.id,
+            name: company.name,
+            email: company.email,
+            phone: company.phone,
+            website: company.website,
+            industry: company.industry,
+            status: company.status,
+          },
+          workflowDepth: chainDepth,
+        });
+      }
+
+      return c.json({
+        success: true,
+        created,
+        customer: { id: company.id, name: company.name, email: company.email, status: company.status },
+      });
+    } catch (err) {
+      console.error('[Internal] Workflow create-customer failed:', err);
       return c.json({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }, 500);
     }
   },

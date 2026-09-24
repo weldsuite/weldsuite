@@ -58,5 +58,13 @@ export interface EntityEventMessage<T = Record<string, unknown>> {
     userId: string;
     timestamp: string;
     source: EventSource;
+    /**
+     * Set when the mutation was performed by a WeldConnect workflow step: the
+     * chain depth of the run that caused it (0 = a run started by a user
+     * action or a schedule). The workflow matcher refuses to dispatch at or
+     * beyond `MAX_ENTITY_WORKFLOW_DEPTH`, so a workflow that creates the very
+     * record type it listens to can't loop forever.
+     */
+    workflowDepth?: number;
   };
 }

@@ -135,7 +135,8 @@ export default function WeldConnectDashboard() {
     {
       title: t.weldconnect.dashboard.stats.successfulExecutions.replace('{count}', String(stats?.successfulExecutions ?? 0)),
       icon: BarChart3,
-      href: '/weldconnect/analytics',
+      // Analytics is hidden for the MVP (see app/weldconnect/mvp.ts).
+      href: '/weldconnect/executions?status=completed',
     },
   ];
 

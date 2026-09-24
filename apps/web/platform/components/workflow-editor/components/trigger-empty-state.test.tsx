@@ -55,6 +55,16 @@ describe('TriggerEmptyState', () => {
     expect(entityTile.className).not.toMatch(/\bwhitespace-nowrap\b/);
   });
 
+  it('only renders the allowed trigger types', () => {
+    render(<TriggerEmptyState onSelectType={() => {}} allowedTypes={['entity_event', 'schedule']} />);
+
+    expect(screen.getByRole('button', { name: /Entity Event/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Schedule/i })).toBeInTheDocument();
+    expect(screen.queryByText('Webhook')).not.toBeInTheDocument();
+    expect(screen.queryByText('Integration Event')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+  });
+
   it('calls onSelectType with the chosen trigger type', async () => {
     const onSelectType = vi.fn();
     const user = userEvent.setup();
