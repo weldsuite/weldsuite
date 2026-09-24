@@ -24,7 +24,7 @@ interface ComposeOverlayContextValue {
 
 const ComposeOverlayContext = createContext<ComposeOverlayContextValue | undefined>(undefined);
 
-export function ComposeOverlayProvider({ children }: { children: React.ReactNode }) {
+export function ComposeOverlayProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const toast = useToast();

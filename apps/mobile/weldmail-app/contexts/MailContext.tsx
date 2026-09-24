@@ -93,7 +93,7 @@ interface MailContextValue {
 
 const MailContext = createContext<MailContextValue | undefined>(undefined);
 
-export function MailProvider({ children }: { children: React.ReactNode }) {
+export function MailProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   // Gate data fetching on auth readiness. The app-api client throws when no
   // Clerk token is available yet; MailProvider mounts above the AuthGuard, so
   // without this gate the initial fetch fires before the token is wired and
