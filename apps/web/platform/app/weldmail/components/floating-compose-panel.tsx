@@ -668,7 +668,7 @@ export function FloatingComposePanel() {
                     <Select
                       value={String(scheduledTime?.getHours() ?? 9)}
                       onValueChange={(value) => {
-                        const hours = parseInt(value);
+                        const hours = Number.parseInt(value);
                         const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
                         if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
                         newDate.setHours(hours, scheduledTime?.getMinutes() ?? 0, 0, 0);
@@ -690,7 +690,7 @@ export function FloatingComposePanel() {
                     <Select
                       value={String(scheduledTime?.getMinutes() ?? 0)}
                       onValueChange={(value) => {
-                        const minutes = parseInt(value);
+                        const minutes = Number.parseInt(value);
                         const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
                         if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
                         newDate.setHours(scheduledTime?.getHours() ?? 9, minutes, 0, 0);

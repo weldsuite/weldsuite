@@ -176,7 +176,7 @@ export function formatGroupLabel(value: string, groupBy: string): string {
     case 'month':
       try {
         const [year, month] = value.split('-');
-        const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+        const date = new Date(Number.parseInt(year), Number.parseInt(month) - 1, 1);
         return date.toLocaleDateString('en-US', { month: 'short' });
       } catch {
         return value;

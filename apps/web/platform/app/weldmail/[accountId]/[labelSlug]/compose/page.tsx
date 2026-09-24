@@ -689,7 +689,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
                     <Select
                       value={String(scheduledTime?.getHours() ?? new Date().getHours())}
                       onValueChange={(value) => {
-                        const hours = parseInt(value);
+                        const hours = Number.parseInt(value);
                         const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
                         const mins = scheduledTime?.getMinutes() ?? new Date().getMinutes();
                         newDate.setHours(hours, mins, 0, 0);
@@ -722,7 +722,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
                     <Select
                       value={String(scheduledTime?.getMinutes() ?? Math.min(new Date().getMinutes() + 1, 59))}
                       onValueChange={(value) => {
-                        const minutes = parseInt(value);
+                        const minutes = Number.parseInt(value);
                         const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
                         newDate.setHours(scheduledTime?.getHours() ?? new Date().getHours(), minutes, 0, 0);
                         setScheduledTime(newDate);

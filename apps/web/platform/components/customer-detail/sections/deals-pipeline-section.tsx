@@ -59,7 +59,7 @@ function mapOpportunityToDeal(opp: Opportunity, customer: Customer) {
   return {
     id: opp.id,
     title: opp.name,
-    value: opp.amount ? parseFloat(opp.amount) : 0,
+    value: opp.amount ? Number.parseFloat(opp.amount) : 0,
     stage: opp.stage,
     company: {
       id: customer.id,
@@ -159,7 +159,7 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
           // Only count deals that have a matching stage in this pipeline
           const matchedOpps = opps.filter(opp => stageIds.has(opp.stage));
           const totalValue = matchedOpps.reduce(
-            (sum, opp) => sum + (opp.amount ? parseFloat(opp.amount) : 0), 0
+            (sum, opp) => sum + (opp.amount ? Number.parseFloat(opp.amount) : 0), 0
           );
           return {
             id: pipelineId,
