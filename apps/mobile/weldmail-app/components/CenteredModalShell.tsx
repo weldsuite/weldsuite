@@ -21,7 +21,7 @@ export default function CenteredModalShell({
   onClose,
   keyboardAvoiding = false,
   children,
-}: CenteredModalShellProps) {
+}: Readonly<CenteredModalShellProps>) {
   const body = (
     <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
       <TouchableOpacity activeOpacity={1} onPress={() => {}}>

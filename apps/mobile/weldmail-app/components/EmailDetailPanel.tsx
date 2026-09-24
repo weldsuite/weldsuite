@@ -76,7 +76,7 @@ function getInitialColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, _router }: {
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, _router }: Readonly<{
   message: any;
   colors: any;
   isExpanded: boolean;
@@ -85,7 +85,7 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   onReplyAll: (msg: any) => void;
   onForward: (msg: any) => void;
   router: any;
-}) {
+}>) {
   const senderName = getSenderName(message.from);
   const _senderEmail = getSenderEmail(message.from);
   const avatarColor = getInitialColor(senderName);
@@ -199,7 +199,7 @@ interface EmailDetailPanelProps {
   onSkipToNext?: (id: string) => void;
 }
 
-export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchived, onSkipToNext }: EmailDetailPanelProps) {
+export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchived, onSkipToNext }: Readonly<EmailDetailPanelProps>) {
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();

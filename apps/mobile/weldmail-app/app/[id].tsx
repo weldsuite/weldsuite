@@ -102,7 +102,7 @@ function getInitialColor(name: string): string {
 }
 
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: {
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: Readonly<{
   message: any;
   colors: any;
   isExpanded: boolean;
@@ -111,7 +111,7 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   onReplyAll: (msg: any) => void;
   onForward: (msg: any) => void;
   router: any;
-}) {
+}>) {
   const senderName = getSenderName(message.from);
   const senderEmail = getSenderEmail(message.from);
   const avatarColor = getInitialColor(senderName);
