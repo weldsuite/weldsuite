@@ -503,7 +503,7 @@ async function handleWorkflowInteraction(button: ButtonInteraction): Promise<voi
       responseData.selectedValue = value;
       responseData.selectedLabel = button.component.label || value;
     } else if (action === 'wf_csat') {
-      responseData.rating = parseInt(value, 10);
+      responseData.rating = Number.parseInt(value, 10);
     }
 
     console.log(`[Discord] Workflow interaction: ${action} → ${conversationId}/${stepId}/${value}`);

@@ -66,7 +66,7 @@ function parseArgs(): CliOptions {
     const arg = args[i];
     if (arg === '--execute') options.execute = true;
     else if (arg === '--region' && args[i + 1]) options.region = args[++i] ?? null;
-    else if (arg === '--keep-per-region' && args[i + 1]) options.keepPerRegion = Math.max(0, parseInt(args[++i] ?? '0', 10) || 0);
+    else if (arg === '--keep-per-region' && args[i + 1]) options.keepPerRegion = Math.max(0, Number.parseInt(args[++i] ?? '0', 10) || 0);
     else if (arg === '--no-orphans') options.includeOrphans = false;
     else if (arg === '--verbose') options.verbose = true;
     else if (arg === '--help' || arg === '-h') { printHelp(); process.exit(0); }

@@ -214,7 +214,7 @@ function ConnectionCard({
             onValueChange={(v) => {
               updateSettings.mutate({
                 connectionId: connection.id,
-                syncSettings: { syncIntervalHours: parseInt(v, 10) },
+                syncSettings: { syncIntervalHours: Number.parseInt(v, 10) },
               });
             }}
           >

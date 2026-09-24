@@ -19,7 +19,7 @@ export function TableOfContents({ headings }: { headings: Heading[] }) {
         const el = document.getElementById(id)
         if (!el) return null
         const style = window.getComputedStyle(el)
-        const scrollMt = parseFloat(style.scrollMarginTop)
+        const scrollMt = Number.parseFloat(style.scrollMarginTop)
         const top = window.scrollY + el.getBoundingClientRect().top - scrollMt
         return { id, top }
       })
