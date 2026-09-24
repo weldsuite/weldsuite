@@ -34,7 +34,7 @@ export default function SendTimePickerModal({
   onClose,
   onSelect,
   onCustom,
-}: SendTimePickerModalProps) {
+}: Readonly<SendTimePickerModalProps>) {
   const { colors } = useTheme();
   // Rebuilt per open so "In 1 hour" is relative to now, not to mount time.
   const presets = React.useMemo(

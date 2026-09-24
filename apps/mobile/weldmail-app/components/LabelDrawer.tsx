@@ -69,7 +69,7 @@ interface LabelDrawerProps {
   onClose: () => void;
 }
 
-export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
+export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerProps>) {
   const insets = useSafeAreaInsets();
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';

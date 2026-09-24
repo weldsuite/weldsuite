@@ -51,7 +51,7 @@ export default function EmailHtmlView({
   hideQuotes,
   initialHeight = 200,
   style,
-}: EmailHtmlViewProps) {
+}: Readonly<EmailHtmlViewProps>) {
   const [height, setHeight] = useState(initialHeight);
   // Once the injected probe reports a sane height, it wins over the native
   // content-size callback (which can lag or clamp on iOS).

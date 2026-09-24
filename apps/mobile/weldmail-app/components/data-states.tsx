@@ -11,7 +11,7 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Skeleton } from '@weldsuite/mobile-ui/components/Skeleton';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 
-export function LoadingState({ label }: { label?: string }) {
+export function LoadingState({ label }: Readonly<{ label?: string }>) {
   return (
     <View style={styles.center}>
       <Spinner size="large" label={label} />
@@ -23,11 +23,11 @@ export function ErrorState({
   message,
   onRetry,
   retrying = false,
-}: {
+}: Readonly<{
   message?: string;
   onRetry?: () => void;
   retrying?: boolean;
-}) {
+}>) {
   const { colors } = useTheme();
   return (
     <View style={styles.center}>
@@ -43,7 +43,7 @@ export function ErrorState({
 }
 
 /** Full-bleed row placeholders matching inbox density. */
-export function ListSkeleton({ count = 8 }: { count?: number }) {
+export function ListSkeleton({ count = 8 }: Readonly<{ count?: number }>) {
   const { colors } = useTheme();
   return (
     <View>
