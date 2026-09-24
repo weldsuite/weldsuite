@@ -56,8 +56,8 @@ app.get('/', requirePermission('general:read'), async (c) => {
   // Clamp rather than reject, matching this route's existing behaviour — a
   // stricter validator would start 400ing requests that succeed today.
   const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
-  const rawPage = q.page !== undefined && q.page !== '' ? Number.parseInt(q.page, 10) : NaN;
-  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? Number.parseInt(q.pageSize, 10) : NaN;
+  const rawPage = q.page !== undefined && q.page !== '' ? Number.parseInt(q.page, 10) : Number.NaN;
+  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? Number.parseInt(q.pageSize, 10) : Number.NaN;
   // A cursor always wins; offset mode engages only on an explicit, valid `page`.
   const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
   const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);

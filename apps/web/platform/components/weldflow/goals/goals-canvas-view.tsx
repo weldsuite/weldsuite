@@ -393,7 +393,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       // Check if goals need positioning (have invalid x/y)
       const needsOrganizing = goals.some(g =>
         typeof g.x !== 'number' || typeof g.y !== 'number' ||
-        isNaN(g.x) || isNaN(g.y) || !isFinite(g.x) || !isFinite(g.y)
+        Number.isNaN(g.x) || Number.isNaN(g.y) || !Number.isFinite(g.x) || !Number.isFinite(g.y)
       );
 
       if (needsOrganizing) {
@@ -485,8 +485,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       }))
     ].filter(c =>
       // Filter out cards with invalid positions
-      typeof c.x === 'number' && !isNaN(c.x) && isFinite(c.x) &&
-      typeof c.y === 'number' && !isNaN(c.y) && isFinite(c.y)
+      typeof c.x === 'number' && !Number.isNaN(c.x) && Number.isFinite(c.x) &&
+      typeof c.y === 'number' && !Number.isNaN(c.y) && Number.isFinite(c.y)
     );
 
     // If no valid cards, just center on mission default position
@@ -513,7 +513,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const newX = viewportCenterX - contentCenterX;
     const newY = viewportCenterY - contentCenterY;
 
-    if (isFinite(newX) && isFinite(newY)) {
+    if (Number.isFinite(newX) && Number.isFinite(newY)) {
       setPanPosition({ x: newX, y: newY });
     }
   }, [mission, goals]);
@@ -1516,7 +1516,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   // Helper function to check if a position is valid
   const isValidPosition = (pos: { x: number; y: number }) => {
     return typeof pos.x === 'number' && typeof pos.y === 'number' &&
-           !isNaN(pos.x) && !isNaN(pos.y) && isFinite(pos.x) && isFinite(pos.y);
+           !Number.isNaN(pos.x) && !Number.isNaN(pos.y) && Number.isFinite(pos.x) && Number.isFinite(pos.y);
   };
 
   // Helper function to get goal position (considering drag state)
