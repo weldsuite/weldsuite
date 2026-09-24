@@ -189,7 +189,7 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
 /** Live audio waveform driven by the recorder's meter (dB). Bars shift left
  *  each tick; the newest bar is sized by the current input level. Silent
  *  input → all bars collapse to a flat baseline. */
-function Waveform({ active, color, level }: { active: boolean; color: string; level: number }) {
+function Waveform({ active, color, level }: Readonly<{ active: boolean; color: string; level: number }>) {
   const BAR_COUNT = 56;
   const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
   const levelRef = useRef(level);
@@ -243,11 +243,11 @@ function SwipeableMessage({
   onLongPress,
   onSwipeReply,
   children,
-}: {
+}: Readonly<{
   onLongPress: () => void;
   onSwipeReply: () => void;
   children: React.ReactNode;
-}) {
+}>) {
   const { colors } = useTheme();
   const translateX = useSharedValue(0);
   const crossedThreshold = useSharedValue(false);
@@ -374,7 +374,7 @@ interface ChannelViewProps {
   hideHeader?: boolean;
 }
 
-export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelViewProps) {
+export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<ChannelViewProps>) {
   const { markInteractive } = useObserve();
   const { userId } = useAuth();
   const { organization } = useOrganization();

@@ -19,7 +19,7 @@ interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
 }
 
-export function EmojiPicker({ visible, onClose, onSelect }: EmojiPickerProps) {
+export function EmojiPicker({ visible, onClose, onSelect }: Readonly<EmojiPickerProps>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.bottom), [colors, insets.bottom]);
