@@ -35,7 +35,7 @@ export function RecordPaymentSheet({
   currency,
   submitting = false,
   onSubmit,
-}: RecordPaymentSheetProps) {
+}: Readonly<RecordPaymentSheetProps>) {
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const { formatCurrency: money } = useLocaleFormatters();

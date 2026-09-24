@@ -49,12 +49,12 @@ export function InvoiceStatusBadge({
   dueDate,
   balanceDue,
   size = 'sm',
-}: {
+}: Readonly<{
   status: InvoiceStatus;
   dueDate?: string;
   balanceDue?: string | number;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   // app-api never returns `overdue`; derive it so the pill matches the platform.
   const derived: InvoiceStatus =
@@ -77,12 +77,12 @@ export function BillStatusBadge({
   dueDate,
   balanceDue,
   size = 'sm',
-}: {
+}: Readonly<{
   status: BillStatus;
   dueDate?: string;
   balanceDue?: string | number;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   const derived: BillStatus =
     (status === 'approved' || status === 'partially_paid') &&
@@ -102,10 +102,10 @@ export function BillStatusBadge({
 export function VatStatusBadge({
   status,
   size = 'sm',
-}: {
+}: Readonly<{
   status: VatReturnStatus;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <Badge
