@@ -27,7 +27,7 @@ function ForegroundReconnect() {
   return null;
 }
 
-export function RealtimeProvider({ children }: { children: React.ReactNode }) {
+export function RealtimeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken, organizationId, user } = useClerkAuth();
 
   // Persist the last-seen eventId per workspace so reconnects replay missed

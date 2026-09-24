@@ -4,7 +4,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
 const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
-export function RealtimeProvider({ children }: { children: React.ReactNode }) {
+export function RealtimeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken } = useClerkAuth();
 
   return (
