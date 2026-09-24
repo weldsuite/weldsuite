@@ -1,6 +1,6 @@
 /** Small pieces shared across the WeldHR pages. */
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -20,39 +20,6 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 
-// ---------------------------------------------------------------------------
-// Layout primitives
-// ---------------------------------------------------------------------------
-
-export function PageHeader({
-  title,
-  subtitle,
-  actions,
-}: {
-  title: ReactNode;
-  subtitle?: ReactNode;
-  actions?: ReactNode;
-}) {
-  return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-lg font-semibold">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </header>
-  );
-}
-
-/** Standard page frame: padded, scrollable, max width. */
-export function PageBody({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className={cn('mx-auto w-full space-y-4 p-6', wide ? 'max-w-7xl' : 'max-w-5xl')}>{children}</div>
-    </div>
-  );
-}
-
 export function ErrorBanner({ error, onDismiss }: { error: string | null; onDismiss?: () => void }) {
   if (!error) return null;
   return (
@@ -64,44 +31,6 @@ export function ErrorBanner({ error, onDismiss }: { error: string | null; onDism
           <X className="h-4 w-4" />
         </button>
       )}
-    </div>
-  );
-}
-
-export function InlineSpinner() {
-  return (
-    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-    </div>
-  );
-}
-
-export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      {description && <p className="max-w-md text-sm text-muted-foreground">{description}</p>}
-      {action && <div className="pt-2">{action}</div>}
-    </div>
-  );
-}
-
-/** Small labelled number, used on dashboards and summary rows. */
-export function StatTile({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: 'default' | 'warning' | 'danger' | 'success' }) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          'mt-1 text-2xl font-semibold tabular-nums',
-          tone === 'warning' && 'text-amber-600 dark:text-amber-400',
-          tone === 'danger' && 'text-destructive',
-          tone === 'success' && 'text-emerald-600 dark:text-emerald-400',
-        )}
-      >
-        {value}
-      </p>
-      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

@@ -7,17 +7,10 @@ import { Card } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrOrgChartNode } from '@weldsuite/app-api-client/domains/weldhr';
+import { PageLoader } from '@/components/page-loader';
 import { useHrOrgChart } from '@/hooks/queries/use-weldhr-queries';
-import {
-  EmployeeAvatar,
-  EmptyState,
-  ErrorBanner,
-  InlineSpinner,
-  PageBody,
-  PageHeader,
-  StatusBadge,
-  errorMessage,
-} from '../components/shared';
+import { DashboardPage, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
+import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage } from '../components/shared';
 
 interface TreeNode extends HrOrgChartNode {
   children: TreeNode[];
@@ -44,6 +37,7 @@ function nodeMatches(node: TreeNode, query: string): boolean {
 
 export default function WeldHrOrgChartPage() {
   const t = useTranslations();
+  useHrBreadcrumbs({ label: t('weldhr.orgChart.title') });
   const { data, isLoading, error } = useHrOrgChart();
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -60,17 +54,22 @@ export default function WeldHrOrgChartPage() {
     });
   }
 
+  if (isLoading) return <PageLoader fullScreen={false} />;
+
   return (
-    <PageBody wide>
-      <PageHeader title={t('weldhr.orgChart.title')} subtitle={t('weldhr.orgChart.subtitle')} />
+    <DashboardPage
+      title={t('weldhr.orgChart.title')}
+      actions={
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('weldhr.orgChart.search')} className="w-64" />
+      }
+    >
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.orgChart.loadFailed')) : null} />
 
-      <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('weldhr.orgChart.search')} className="max-w-xs" />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : roots.length === 0 ? (
-        <EmptyState title={t('weldhr.orgChart.empty')} />
+      {roots.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+          {emptyIcon(Users)}
+          <p className="text-sm text-muted-foreground">{t('weldhr.orgChart.empty')}</p>
+        </div>
       ) : (
         <Card className="space-y-1 p-4">
           {roots
@@ -80,7 +79,7 @@ export default function WeldHrOrgChartPage() {
             ))}
         </Card>
       )}
-    </PageBody>
+    </DashboardPage>
   );
 }
 

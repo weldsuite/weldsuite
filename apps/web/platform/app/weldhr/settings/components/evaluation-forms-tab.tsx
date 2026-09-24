@@ -1,8 +1,7 @@
 /** WeldHR settings — evaluation (scorecard) forms tab. */
 
-import { useState } from 'react';
-import { Plus, Pencil, Trash2, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
+import { useMemo, useState } from 'react';
+import { ClipboardCheck, Plus, GripVertical, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -19,7 +18,13 @@ import {
   useDeleteHrEvaluationForm,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, errorMessage } from '../../components/shared';
+import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { ErrorBanner, errorMessage } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
+
+function newCriterion(): HrEvaluationCriterion {
+  return { id: crypto.randomUUID(), label: '', description: null, weight: 1, maxScore: 10 };
+}
 
 interface FormState {
   id: string | null;
@@ -27,10 +32,6 @@ interface FormState {
   description: string;
   isActive: boolean;
   criteria: HrEvaluationCriterion[];
-}
-
-function newCriterion(): HrEvaluationCriterion {
-  return { id: crypto.randomUUID(), label: '', description: null, weight: 1, maxScore: 10 };
 }
 
 function emptyForm(): FormState {
@@ -44,88 +45,88 @@ export function EvaluationFormsTab() {
   const { data: forms, isLoading, error } = useHrEvaluationForms();
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrEvaluationForm | null>(null);
+  const [search, setSearch] = useState('');
+
+  const items = useMemo(() => {
+    const all = forms ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter((f) => f.name.toLowerCase().includes(q) || (f.description ?? '').toLowerCase().includes(q));
+  }, [forms, search]);
+
+  const groups: GroupConfig<HrEvaluationForm>[] = [
+    { id: 'active', label: t('weldhr.settings.evaluationForms.active'), sortOrder: 1, filter: (i) => i.isActive },
+    { id: 'inactive', label: t('weldhr.settings.evaluationForms.inactive'), sortOrder: 2, filter: (i) => !i.isActive },
+  ];
+
+  const columns: ColumnDef<HrEvaluationForm>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.settings.evaluationForms.name'),
+      width: 'flex-1',
+      render: (evalForm) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{evalForm.name}</p>
+          {evalForm.description && <p className="truncate text-xs text-muted-foreground">{evalForm.description}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'criteria',
+      header: t('weldhr.settings.evaluationForms.criteria'),
+      width: 'w-[140px]',
+      render: (evalForm) => (
+        <span className="text-muted-foreground">
+          {t(
+            evalForm.criteria.length === 1
+              ? 'weldhr.settings.evaluationForms.criteriaCount'
+              : 'weldhr.settings.evaluationForms.criteriaCountPlural',
+            { count: evalForm.criteria.length },
+          )}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{t('weldhr.settings.evaluationForms.subtitle')}</p>
-        {canManage && (
-          <Button size="sm" onClick={() => setForm(emptyForm())}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldhr.settings.evaluationForms.add')}
-          </Button>
-        )}
-      </div>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !forms || forms.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.settings.evaluationForms.emptyTitle')}
-          description={t('weldhr.settings.evaluationForms.emptyDescription')}
-        />
-      ) : (
-        <div className="space-y-2">
-          {forms.map((evalForm) => (
-            <div key={evalForm.id} className="flex items-center justify-between gap-4 rounded-lg border p-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate font-medium">{evalForm.name}</p>
-                  <Badge variant={evalForm.isActive ? 'default' : 'secondary'}>
-                    {evalForm.isActive ? t('weldhr.settings.evaluationForms.active') : t('weldhr.settings.evaluationForms.inactive')}
-                  </Badge>
-                </div>
-                {evalForm.description && <p className="truncate text-xs text-muted-foreground">{evalForm.description}</p>}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t(
-                    evalForm.criteria.length === 1
-                      ? 'weldhr.settings.evaluationForms.criteriaCount'
-                      : 'weldhr.settings.evaluationForms.criteriaCountPlural',
-                    { count: evalForm.criteria.length },
-                  )}
-                </p>
-              </div>
-              {canManage && (
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() =>
-                      setForm({
-                        id: evalForm.id,
-                        name: evalForm.name,
-                        description: evalForm.description ?? '',
-                        isActive: evalForm.isActive,
-                        criteria: evalForm.criteria.map((c) => ({ ...c })),
-                      })
-                    }
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={() => setDeleteTarget(evalForm)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+    <>
+      <PanelEntityList<HrEvaluationForm>
+        items={items}
+        isLoading={isLoading}
+        error={error as Error | null}
+        columns={columns}
+        groups={groups}
+        onEdit={
+          canManage
+            ? (evalForm) =>
+                setForm({
+                  id: evalForm.id,
+                  name: evalForm.name,
+                  description: evalForm.description ?? '',
+                  isActive: evalForm.isActive,
+                  criteria: evalForm.criteria.map((c) => ({ ...c })),
+                })
+            : undefined
+        }
+        onDelete={canManage ? setDeleteTarget : undefined}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.settings.evaluationForms.name')}
+        createButton={canManage ? { label: t('weldhr.settings.evaluationForms.add'), onClick: () => setForm(emptyForm()) } : undefined}
+        emptyState={{
+          icon: emptyIcon(ClipboardCheck),
+          title: t('weldhr.settings.evaluationForms.emptyTitle'),
+          description: t('weldhr.settings.evaluationForms.emptyDescription'),
+          action: canManage ? { label: t('weldhr.settings.evaluationForms.add'), onClick: () => setForm(emptyForm()) } : undefined,
+        }}
+      />
 
       {form && <EvaluationFormEditor form={form} onClose={() => setForm(null)} />}
 
       {deleteTarget && (
         <DeleteEvaluationFormDialog evalForm={deleteTarget} onClose={() => setDeleteTarget(null)} />
       )}
-    </div>
+    </>
   );
 }
 

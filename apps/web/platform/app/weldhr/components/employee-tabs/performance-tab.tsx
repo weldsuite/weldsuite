@@ -1,7 +1,7 @@
 /** KPI snapshot and milestones for a single employee's profile. */
 
 import { useMemo, useState } from 'react';
-import { Check, CheckCircle2, Plus, X } from 'lucide-react';
+import { Check, CheckCircle2, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -13,15 +13,8 @@ import {
   useUpdateHrMilestone,
 } from '@/hooks/queries/use-weldhr-queries';
 import { MilestoneDialog } from '../../performance/components/milestone-dialog';
-import {
-  EmptyState,
-  ErrorBanner,
-  InlineSpinner,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-  formatKpiValue,
-} from '../shared';
+import { SectionCard, EmptyText } from '../page-kit';
+import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatKpiValue } from '../shared';
 
 export function EmployeePerformanceTab({ employeeId }: { employeeId: string }) {
   const t = useTranslations();
@@ -52,14 +45,15 @@ export function EmployeePerformanceTab({ employeeId }: { employeeId: string }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium">{t('weldhr.performance.tab.kpisTitle')}</h3>
+    <div className="space-y-4">
+      <SectionCard title={t('weldhr.performance.tab.kpisTitle')}>
         <ErrorBanner error={valuesError ? errorMessage(valuesError, t('weldhr.common.loadFailed')) : null} />
         {valuesLoading ? (
-          <InlineSpinner />
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
         ) : latestByKpi.length === 0 ? (
-          <EmptyState title={t('weldhr.performance.tab.empty')} />
+          <EmptyText>{t('weldhr.performance.tab.empty')}</EmptyText>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {latestByKpi.map((v) => (
@@ -86,23 +80,26 @@ export function EmployeePerformanceTab({ employeeId }: { employeeId: string }) {
             ))}
           </div>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium">{t('weldhr.performance.tab.milestonesTitle')}</h3>
-          {canCreate && (
+      <SectionCard
+        title={t('weldhr.performance.tab.milestonesTitle')}
+        action={
+          canCreate && (
             <Button size="sm" onClick={() => setDialog({ kind: 'create' })}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               {t('weldhr.performance.milestones.addMilestone')}
             </Button>
-          )}
-        </div>
+          )
+        }
+      >
         <ErrorBanner error={milestonesError ? errorMessage(milestonesError, t('weldhr.common.loadFailed')) : null} />
         {milestonesLoading ? (
-          <InlineSpinner />
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
         ) : !milestones || milestones.length === 0 ? (
-          <EmptyState title={t('weldhr.performance.tab.empty')} />
+          <EmptyText>{t('weldhr.performance.tab.empty')}</EmptyText>
         ) : (
           <div className="space-y-2">
             {milestones.map((m) => (
@@ -137,7 +134,7 @@ export function EmployeePerformanceTab({ employeeId }: { employeeId: string }) {
             ))}
           </div>
         )}
-      </div>
+      </SectionCard>
 
       {dialog?.kind === 'create' && <MilestoneDialog employeeId={employeeId} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'edit' && (

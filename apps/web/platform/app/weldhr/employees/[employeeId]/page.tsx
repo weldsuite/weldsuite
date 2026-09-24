@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { MoreHorizontal, Plus } from 'lucide-react';
+import { Loader2, MoreHorizontal, Plus } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import {
   Table,
   TableBody,
@@ -26,6 +24,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrAssignment } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@/components/page-loader';
 import {
   useDeleteHrAssignment,
   useDeleteHrEmployee,
@@ -40,16 +39,8 @@ import { EmployeeCoachingTab } from '../../components/employee-tabs/coaching-tab
 import { EmployeeEvaluationsTab } from '../../components/employee-tabs/evaluations-tab';
 import { EmployeePerformanceTab } from '../../components/employee-tabs/performance-tab';
 import { EmployeePortalAccessCard } from '../../components/portal/employee-portal-card';
-import {
-  EmployeeAvatar,
-  ErrorBanner,
-  InlineSpinner,
-  PageBody,
-  PageHeader,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-} from '../../components/shared';
+import { DetailHeader, DetailPage, DetailTabs, FieldGrid, SectionCard, EmptyText, useHrBreadcrumbs } from '../../components/page-kit';
+import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { EditEmployeeDialog } from '../components/edit-employee-dialog';
 import { LifecycleStartDialog } from '../components/lifecycle-start-dialog';
 import { AssignmentDialog } from '../components/assignment-dialog';
@@ -67,6 +58,11 @@ export default function WeldHrEmployeeDetailPage() {
   const { data: employee, isLoading, error } = useHrEmployee(employeeId);
   const deleteEmployee = useDeleteHrEmployee();
 
+  useHrBreadcrumbs(
+    { label: t('weldhr.employees.title'), href: '/weldhr/employees' },
+    employee ? { label: employee.displayName } : null,
+  );
+
   const [dialog, setDialog] = useState<'edit' | 'onboarding' | 'offboarding' | 'delete' | null>(null);
 
   const canUpdate = can('employees:update') || can('employees:manage');
@@ -80,19 +76,13 @@ export default function WeldHrEmployeeDetailPage() {
     void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId }, search: { tab }, replace: true });
   }
 
-  if (isLoading) {
-    return (
-      <PageBody>
-        <InlineSpinner />
-      </PageBody>
-    );
-  }
+  if (isLoading) return <PageLoader fullScreen={false} />;
 
   if (!employee) {
     return (
-      <PageBody>
+      <DetailPage>
         <ErrorBanner error={errorMessage(error, t('weldhr.employees.detail.notFound'))} />
-      </PageBody>
+      </DetailPage>
     );
   }
 
@@ -110,23 +100,35 @@ export default function WeldHrEmployeeDetailPage() {
   const tabs = allTabs.filter((tabDef) => tabDef.visible);
 
   return (
-    <PageBody wide>
-      <PageHeader
-        title={
-          <div className="flex items-center gap-3">
-            <EmployeeAvatar name={employee.displayName} src={employee.avatarUrl} className="h-10 w-10" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-semibold">{employee.displayName}</span>
-                <StatusBadge group="employee" status={employee.status} />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {employee.jobTitle ?? t('weldhr.employees.detail.overview.noJobTitle')}
-                {' · '}
-                {t(`weldhr.status.employmentType.${employee.employmentType}`)}
-                {employee.departmentName && ` · ${employee.departmentName}`}
-              </p>
-            </div>
+    <DetailPage>
+      <DetailHeader
+        leading={<EmployeeAvatar name={employee.displayName} src={employee.avatarUrl} className="h-12 w-12" />}
+        title={employee.displayName}
+        badges={<StatusBadge group="employee" status={employee.status} />}
+        subtitle={
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              {employee.jobTitle ?? t('weldhr.employees.detail.overview.noJobTitle')}
+              {' · '}
+              {t(`weldhr.status.employmentType.${employee.employmentType}`)}
+              {employee.departmentName && ` · ${employee.departmentName}`}
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span>{employee.email}</span>
+            {employee.phone && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span>{employee.phone}</span>
+              </>
+            )}
+            {employee.managerName && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <Link to="/weldhr/employees/$employeeId" params={{ employeeId: employee.managerId as string }} className="hover:underline">
+                  {t('weldhr.employees.detail.overview.manager')}: {employee.managerName}
+                </Link>
+              </>
+            )}
           </div>
         }
         actions={
@@ -163,25 +165,7 @@ export default function WeldHrEmployeeDetailPage() {
         }
       />
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-        <span>{employee.email}</span>
-        {employee.phone && <span>{employee.phone}</span>}
-        {employee.managerName && (
-          <Link to="/weldhr/employees/$employeeId" params={{ employeeId: employee.managerId as string }} className="hover:underline">
-            {t('weldhr.employees.detail.overview.manager')}: {employee.managerName}
-          </Link>
-        )}
-      </div>
-
-      <Tabs value={activeTab} onValueChange={(v) => setTab(v as TabId)}>
-        <TabsList>
-          {tabs.map((tabDef) => (
-            <TabsTrigger key={tabDef.id} value={tabDef.id}>
-              {tabDef.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <DetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(v) => setTab(v as TabId)} />
 
       {activeTab === 'overview' && <OverviewTab employee={employee} canManagePortal={canManagePortal} />}
       {activeTab === 'clients' && <ClientsTab employeeId={employeeId} canUpdate={canUpdate} />}
@@ -212,7 +196,7 @@ export default function WeldHrEmployeeDetailPage() {
           }}
         />
       )}
-    </PageBody>
+    </DetailPage>
   );
 }
 
@@ -226,27 +210,27 @@ function OverviewTab({
   const t = useTranslations();
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card className="space-y-3 p-4">
-        <h2 className="text-sm font-semibold">{t('weldhr.employees.detail.overview.profile')}</h2>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <OverviewField label={t('weldhr.employees.detail.overview.employeeNumber')} value={employee.employeeNumber} />
-          <OverviewField label={t('weldhr.employees.detail.overview.pronouns')} value={employee.pronouns} />
-          <OverviewField label={t('weldhr.employees.create.startDate')} value={formatDate(employee.startDate)} />
-          <OverviewField label={t('weldhr.employees.detail.overview.probationEndDate')} value={formatDate(employee.probationEndDate)} />
-          <OverviewField label={t('weldhr.employees.detail.overview.endDate')} value={formatDate(employee.endDate)} />
-          <OverviewField label={t('weldhr.employees.detail.overview.location')} value={employee.location} />
-          <OverviewField label={t('weldhr.employees.detail.overview.timezone')} value={employee.timezone} />
-          <OverviewField
-            label={t('weldhr.employees.detail.overview.weeklyHours')}
-            value={employee.weeklyHours !== null ? String(employee.weeklyHours) : null}
-          />
-        </div>
-      </Card>
+      <SectionCard title={t('weldhr.employees.detail.overview.profile')}>
+        <FieldGrid
+          fields={[
+            { label: t('weldhr.employees.detail.overview.employeeNumber'), value: employee.employeeNumber },
+            { label: t('weldhr.employees.detail.overview.pronouns'), value: employee.pronouns },
+            { label: t('weldhr.employees.create.startDate'), value: formatDate(employee.startDate) },
+            { label: t('weldhr.employees.detail.overview.probationEndDate'), value: formatDate(employee.probationEndDate) },
+            { label: t('weldhr.employees.detail.overview.endDate'), value: formatDate(employee.endDate) },
+            { label: t('weldhr.employees.detail.overview.location'), value: employee.location },
+            { label: t('weldhr.employees.detail.overview.timezone'), value: employee.timezone },
+            {
+              label: t('weldhr.employees.detail.overview.weeklyHours'),
+              value: employee.weeklyHours !== null ? String(employee.weeklyHours) : null,
+            },
+          ]}
+        />
+      </SectionCard>
 
-      <Card className="space-y-3 p-4">
-        <h2 className="text-sm font-semibold">{t('weldhr.employees.detail.overview.directReports.title')}</h2>
+      <SectionCard title={t('weldhr.employees.detail.overview.directReports.title')}>
         {employee.directReports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('weldhr.employees.detail.overview.directReports.empty')}</p>
+          <EmptyText>{t('weldhr.employees.detail.overview.directReports.empty')}</EmptyText>
         ) : (
           <ul className="space-y-2">
             {employee.directReports.map((report) => (
@@ -264,12 +248,11 @@ function OverviewTab({
             ))}
           </ul>
         )}
-      </Card>
+      </SectionCard>
 
-      <Card className="space-y-3 p-4">
-        <h2 className="text-sm font-semibold">{t('weldhr.employees.detail.overview.clients.title')}</h2>
+      <SectionCard title={t('weldhr.employees.detail.overview.clients.title')}>
         {employee.clients.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('weldhr.employees.detail.overview.clients.empty')}</p>
+          <EmptyText>{t('weldhr.employees.detail.overview.clients.empty')}</EmptyText>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {employee.clients.map((c) => (
@@ -279,18 +262,9 @@ function OverviewTab({
             ))}
           </div>
         )}
-      </Card>
+      </SectionCard>
 
       {canManagePortal && <EmployeePortalAccessCard employeeId={employee.id} employeeStatus={employee.status} />}
-    </div>
-  );
-}
-
-function OverviewField({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p>{value || '—'}</p>
     </div>
   );
 }
@@ -304,23 +278,25 @@ function ClientsTab({ employeeId, canUpdate }: { employeeId: string; canUpdate: 
   const [failure, setFailure] = useState<string | null>(null);
 
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{t('weldhr.employees.detail.clientsTab.title')}</h2>
-        {canUpdate && (
+    <SectionCard
+      title={t('weldhr.employees.detail.clientsTab.title')}
+      action={
+        canUpdate && (
           <Button size="sm" onClick={() => setDialog({ kind: 'create' })}>
             <Plus className="mr-1.5 h-4 w-4" />
             {t('weldhr.employees.detail.clientsTab.addAssignment')}
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       <ErrorBanner error={failure ?? (error ? errorMessage(error, t('weldhr.common.loadFailed')) : null)} onDismiss={() => setFailure(null)} />
 
       {isLoading ? (
-        <InlineSpinner />
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
       ) : !assignments || assignments.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('weldhr.employees.detail.clientsTab.empty')}</p>
+        <EmptyText>{t('weldhr.employees.detail.clientsTab.empty')}</EmptyText>
       ) : (
         <Table>
           <TableHeader>
@@ -412,6 +388,6 @@ function ClientsTab({ employeeId, canUpdate }: { employeeId: string; canUpdate: 
           }}
         />
       )}
-    </Card>
+    </SectionCard>
   );
 }

@@ -60,6 +60,9 @@ export const weldhrAdmin = {
       default: 'Default',
       itemCount: '{count} item',
       itemCountPlural: '{count} items',
+      groupOnboarding: 'Onboarding',
+      groupOffboarding: 'Offboarding',
+      groupOther: 'Other',
       emptyTitle: 'No checklist templates yet',
       emptyDescription: 'Add an onboarding or offboarding template to start automating lifecycle tasks.',
       deleteTitle: 'Delete template?',
@@ -129,6 +132,8 @@ export const weldhrAdmin = {
       clientSpecific: 'Client-specific',
       clientSpecificHint: 'Restrict this KPI to one client account, or leave it open to all clients.',
       allClients: 'All clients',
+      groupWorkspace: 'Workspace-wide',
+      groupClient: 'Client-specific',
       includeInactive: 'Include inactive',
       archivedInstead: '"{name}" has values on record, so it was archived instead of deleted.',
       emptyTitle: 'No KPIs defined yet',
@@ -161,6 +166,7 @@ export const weldhrAdmin = {
       employeeLeaveRequests: 'Employees can request leave from the portal',
       clientCanSeeIndividualScores: 'Clients can see individual scores',
       clientCanSeeIndividualScoresHint: 'Off shows clients team averages only, never a named employee’s score.',
+      saved: 'Portal settings saved',
     },
 
     branding: {

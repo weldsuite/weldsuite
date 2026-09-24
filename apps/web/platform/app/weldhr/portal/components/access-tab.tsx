@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Plus, RotateCcw, Trash2, UserX, X } from 'lucide-react';
+import { Loader2, Plus, RotateCcw, UserX, UserRound, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
@@ -11,14 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPortalAccess } from '@weldsuite/app-api-client/domains/weldhr';
 import {
@@ -31,18 +23,18 @@ import {
   useDeleteHrPortalAccess,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
 import {
   CompanyPicker,
   EmployeePicker,
-  EmptyState,
   ErrorBanner,
-  InlineSpinner,
   PersonPicker,
   StatusBadge,
   errorMessage,
   formatDate,
   formatDateTime,
 } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
 
 /** `base` for count === 1, `${base}Plural` otherwise — matches the repo's i18n plural convention. */
 function pluralKey(base: string, count: number): string {
@@ -52,12 +44,12 @@ function pluralKey(base: string, count: number): string {
 export function PortalAccessTab() {
   const t = useTranslations();
   const settings = useHrPortalSettings();
-  const employeeAccess = useHrPortalAccess({ kind: 'employee' });
-  const clientAccess = useHrPortalAccess({ kind: 'client' });
+  const { data: access, isLoading, error } = useHrPortalAccess({});
   const [inviteEmployees, setInviteEmployees] = useState(false);
   const [inviteClient, setInviteClient] = useState(false);
   const [bulkInviting, setBulkInviting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<HrPortalAccess | null>(null);
+  const [search, setSearch] = useState('');
 
   const revoke = useRevokeHrPortalAccess();
   const restore = useRestoreHrPortalAccess();
@@ -65,180 +57,159 @@ export function PortalAccessTab() {
 
   const portalDisabled = settings.data ? !settings.data.isEnabled : false;
 
-  async function handleRevoke(access: HrPortalAccess) {
+  const items = useMemo(() => {
+    const all = access ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter(
+      (a) => (a.displayName ?? '').toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || (a.companyName ?? '').toLowerCase().includes(q),
+    );
+  }, [access, search]);
+
+  const groups: GroupConfig<HrPortalAccess>[] = [
+    { id: 'employees', label: t('weldhr.portal.access.employeesTitle'), sortOrder: 1, filter: (i) => i.kind === 'employee' },
+    { id: 'clients', label: t('weldhr.portal.access.clientsTitle'), sortOrder: 2, filter: (i) => i.kind === 'client' },
+  ];
+
+  async function handleRevoke(item: HrPortalAccess) {
     setRowFailure(null);
     try {
-      await revoke.mutateAsync(access.id);
+      await revoke.mutateAsync(item.id);
     } catch (err) {
       setRowFailure(errorMessage(err, t('weldhr.portal.access.revokeFailed')));
     }
   }
 
-  async function handleRestore(access: HrPortalAccess) {
+  async function handleRestore(item: HrPortalAccess) {
     setRowFailure(null);
     try {
-      await restore.mutateAsync(access.id);
+      await restore.mutateAsync(item.id);
     } catch (err) {
       setRowFailure(errorMessage(err, t('weldhr.portal.access.restoreFailed')));
     }
   }
 
+  const columns: ColumnDef<HrPortalAccess>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.portal.access.name'),
+      width: 'flex-1',
+      render: (item) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{item.displayName ?? item.email}</p>
+          <p className="truncate text-xs text-muted-foreground">{item.email}</p>
+        </div>
+      ),
+    },
+    {
+      id: 'company',
+      header: t('weldhr.common.client'),
+      width: 'w-[160px]',
+      render: (item) => <span className="text-muted-foreground">{item.companyName ?? '—'}</span>,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.common.status'),
+      width: 'w-[110px]',
+      render: (item) => <StatusBadge group="portalAccess" status={item.status} />,
+    },
+    {
+      id: 'invitedAt',
+      header: t('weldhr.portal.access.invitedAt'),
+      width: 'w-[120px]',
+      render: (item) => <span className="text-muted-foreground">{formatDate(item.invitedAt)}</span>,
+    },
+    {
+      id: 'lastSignIn',
+      header: t('weldhr.portal.access.lastSignIn'),
+      width: 'w-[140px]',
+      render: (item) => <span className="text-muted-foreground">{formatDateTime(item.lastLoginAt)}</span>,
+    },
+    {
+      id: 'quickActions',
+      header: '',
+      width: 'w-[36px]',
+      render: (item) =>
+        item.status === 'revoked' ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={t('weldhr.portal.access.restore')}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleRestore(item);
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={t('weldhr.portal.access.revoke')}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleRevoke(item);
+            }}
+          >
+            <UserX className="h-3.5 w-3.5" />
+          </Button>
+        ),
+    },
+  ];
+
   return (
-    <div className="space-y-8">
+    <div className="flex h-full min-h-0 flex-col">
       {portalDisabled && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
           {t('weldhr.portal.access.portalDisabledNotice')}
         </div>
       )}
-
       <ErrorBanner error={rowFailure} onDismiss={() => setRowFailure(null)} />
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">{t('weldhr.portal.access.employeesTitle')}</h2>
-            <p className="text-xs text-muted-foreground">{t('weldhr.portal.access.employeesSubtitle')}</p>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setBulkInviting(true)}>
-              {t('weldhr.portal.access.inviteAllActive')}
-            </Button>
-            <Button size="sm" onClick={() => setInviteEmployees(true)}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t('weldhr.portal.access.inviteEmployees')}
-            </Button>
-          </div>
-        </div>
-
-        <AccessTable
-          rows={employeeAccess.data}
-          loading={employeeAccess.isLoading}
-          error={employeeAccess.error}
-          showCompany={false}
-          onRevoke={handleRevoke}
-          onRestore={handleRestore}
+      <div className="min-h-0 flex-1">
+        <PanelEntityList<HrPortalAccess>
+          items={items}
+          isLoading={isLoading}
+          error={error as Error | null}
+          columns={columns}
+          groups={groups}
           onDelete={setDeleteTarget}
+          searchQuery={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={t('weldhr.portal.access.name')}
+          actionButtons={
+            <>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setBulkInviting(true)}>
+                {t('weldhr.portal.access.inviteAllActive')}
+              </Button>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setInviteClient(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {t('weldhr.portal.access.inviteClientContact')}
+              </Button>
+            </>
+          }
+          createButton={{ label: t('weldhr.portal.access.inviteEmployees'), onClick: () => setInviteEmployees(true) }}
+          emptyState={{
+            icon: emptyIcon(UserRound),
+            title: t('weldhr.portal.access.emptyTitle'),
+            description: t('weldhr.portal.access.emptyDescription'),
+            action: { label: t('weldhr.portal.access.inviteEmployees'), onClick: () => setInviteEmployees(true) },
+          }}
         />
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">{t('weldhr.portal.access.clientsTitle')}</h2>
-            <p className="text-xs text-muted-foreground">{t('weldhr.portal.access.clientsSubtitle')}</p>
-          </div>
-          <Button size="sm" onClick={() => setInviteClient(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldhr.portal.access.inviteClientContact')}
-          </Button>
-        </div>
-
-        <AccessTable
-          rows={clientAccess.data}
-          loading={clientAccess.isLoading}
-          error={clientAccess.error}
-          showCompany
-          onRevoke={handleRevoke}
-          onRestore={handleRestore}
-          onDelete={setDeleteTarget}
-        />
-      </section>
+      </div>
 
       {inviteEmployees && <InviteEmployeesDialog onClose={() => setInviteEmployees(false)} />}
       {inviteClient && <InviteClientContactDialog onClose={() => setInviteClient(false)} />}
       {bulkInviting && (
         <BulkInviteActiveEmployeesDialog
-          existingEmployeeIds={new Set((employeeAccess.data ?? []).map((a) => a.employeeId).filter(Boolean) as string[])}
+          existingEmployeeIds={new Set((access ?? []).filter((a) => a.kind === 'employee').map((a) => a.employeeId).filter(Boolean) as string[])}
           onClose={() => setBulkInviting(false)}
         />
       )}
       {deleteTarget && <DeleteAccessDialog access={deleteTarget} onClose={() => setDeleteTarget(null)} />}
-    </div>
-  );
-}
-
-function AccessTable({
-  rows,
-  loading,
-  error,
-  showCompany,
-  onRevoke,
-  onRestore,
-  onDelete,
-}: {
-  rows: HrPortalAccess[] | undefined;
-  loading: boolean;
-  error: unknown;
-  showCompany: boolean;
-  onRevoke: (access: HrPortalAccess) => void;
-  onRestore: (access: HrPortalAccess) => void;
-  onDelete: (access: HrPortalAccess) => void;
-}) {
-  const t = useTranslations();
-
-  if (loading) return <InlineSpinner />;
-  if (error) return <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />;
-  if (!rows || rows.length === 0) {
-    return <EmptyState title={t('weldhr.portal.access.emptyTitle')} description={t('weldhr.portal.access.emptyDescription')} />;
-  }
-
-  return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('weldhr.portal.access.name')}</TableHead>
-            <TableHead>{t('weldhr.portal.access.email')}</TableHead>
-            {showCompany && <TableHead>{t('weldhr.common.client')}</TableHead>}
-            <TableHead>{t('weldhr.common.status')}</TableHead>
-            <TableHead>{t('weldhr.portal.access.invitedAt')}</TableHead>
-            <TableHead>{t('weldhr.portal.access.lastSignIn')}</TableHead>
-            <TableHead className="w-32" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((access) => (
-            <TableRow key={access.id}>
-              <TableCell className="font-medium">{access.displayName ?? '—'}</TableCell>
-              <TableCell className="text-muted-foreground">{access.email}</TableCell>
-              {showCompany && <TableCell className="text-muted-foreground">{access.companyName ?? '—'}</TableCell>}
-              <TableCell>
-                <StatusBadge group="portalAccess" status={access.status} />
-              </TableCell>
-              <TableCell className="text-muted-foreground">{formatDate(access.invitedAt)}</TableCell>
-              <TableCell className="text-muted-foreground">{formatDateTime(access.lastLoginAt)}</TableCell>
-              <TableCell>
-                <div className="flex justify-end gap-1">
-                  {access.status === 'revoked' ? (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title={t('weldhr.portal.access.restore')} onClick={() => onRestore(access)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      title={t('weldhr.portal.access.revoke')}
-                      onClick={() => onRevoke(access)}
-                    >
-                      <UserX className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    title={t('weldhr.common.delete')}
-                    onClick={() => onDelete(access)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
     </div>
   );
 }
@@ -459,7 +430,7 @@ function BulkInviteActiveEmployeesDialog({
         <div className="space-y-3">
           <ErrorBanner error={failure} />
           {isLoading ? (
-            <InlineSpinner />
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : eligible.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('weldhr.portal.access.bulkInviteNoneEligible')}</p>
           ) : (

@@ -50,10 +50,7 @@ export const weldhrPeople = {
     loadFailed: 'Medewerkers konden niet worden geladen.',
     loadMore: 'Meer laden',
     filters: {
-      statusActive: 'Actief',
-      statusAll: 'Alle',
-      statusLeft: 'Uit dienst',
-      departmentAll: 'Alle afdelingen',
+      departmentLabel: 'Afdeling',
     },
     table: {
       name: 'Naam',
@@ -211,6 +208,7 @@ export const weldhrPeople = {
     title: 'Klantaccounts',
     subtitle: 'Bezetting en FTE toegewezen aan elk klantaccount.',
     assignEmployee: 'Medewerker toewijzen',
+    searchPlaceholder: 'Klantaccounts zoeken…',
     loadFailed: 'Klantaccounts konden niet worden geladen.',
     table: {
       company: 'Bedrijf',

@@ -1,46 +1,33 @@
 /** Milestones sub-tab: goals, milestones and certifications across the workforce. */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { CheckCircle2, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { CheckCircle2, Target } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import type { HrMilestone, HrMilestoneStatus } from '@weldsuite/app-api-client/domains/weldhr';
+import type { HrMilestone, HrMilestoneStatus, HrMilestoneType } from '@weldsuite/app-api-client/domains/weldhr';
 import {
   useDeleteHrMilestone,
+  useHrEmployees,
   useHrMilestones,
   useUpdateHrMilestone,
 } from '@/hooks/queries/use-weldhr-queries';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
-  CompanyPicker,
-  EmployeePicker,
-  EmptyState,
-  ErrorBanner,
-  InlineSpinner,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-} from '../../components/shared';
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
+import { emptyIcon } from '../../components/page-kit';
+import { StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { MilestoneDialog } from './milestone-dialog';
 import { ShareBadge } from './kpis-tab';
 
+const TYPES: HrMilestoneType[] = ['goal', 'milestone', 'certification'];
 const STATUSES: HrMilestoneStatus[] = ['planned', 'in_progress', 'achieved', 'missed'];
 
 type DialogState = { kind: 'create' } | { kind: 'edit'; milestone: HrMilestone } | null;
@@ -52,173 +39,189 @@ export function MilestonesTab() {
   const canUpdate = can('evaluations:update');
   const canDelete = can('evaluations:delete');
 
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [employeeLabel, setEmployeeLabel] = useState<string | null>(null);
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const [companyLabel, setCompanyLabel] = useState<string | null>(null);
-  const [status, setStatus] = useState('all');
-  const [dialog, setDialog] = useState<DialogState>(null);
+  const { data: employeesData } = useHrEmployees({ limit: 100 });
+  const employeeOptions = employeesData?.data ?? [];
 
-  const { data: milestones, isLoading, error } = useHrMilestones({
-    employeeId: employeeId ?? undefined,
-    companyId: companyId ?? undefined,
-    status: status === 'all' ? undefined : status,
-  });
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [deleteTarget, setDeleteTarget] = useState<HrMilestone | null>(null);
+
+  const filterValue = (field: string) => activeFilters.find((f) => f.field === field)?.value;
+  const employeeId = filterValue('employeeId');
+  const type = filterValue('type');
+
+  const { data: milestones, isLoading, error } = useHrMilestones({ employeeId });
   const updateMilestone = useUpdateHrMilestone();
   const deleteMilestone = useDeleteHrMilestone();
+
+  const items = useMemo(() => {
+    const all = milestones ?? [];
+    return type ? all.filter((m) => m.type === type) : all;
+  }, [milestones, type]);
 
   async function markAchieved(id: string) {
     try {
       await updateMilestone.mutateAsync({ id, status: 'achieved' });
-    } catch {
-      // The list refetches regardless; nothing further to surface inline.
+      toast.success(t('weldhr.performance.milestones.toastAchieved'));
+    } catch (err) {
+      toast.error(errorMessage(err, t('weldhr.common.saveFailed')));
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm(t('weldhr.common.confirmDelete'))) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
     try {
-      await deleteMilestone.mutateAsync(id);
-    } catch {
-      // Same as above.
+      await deleteMilestone.mutateAsync(deleteTarget.id);
+      toast.success(t('weldhr.performance.milestones.toastDeleted'));
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(errorMessage(err, t('weldhr.common.deleteFailed')));
     }
   }
+
+  const filters: FilterConfig[] = [
+    {
+      field: 'employeeId',
+      label: t('weldhr.common.employee'),
+      searchable: true,
+      options: employeeOptions.map((e) => ({ value: e.id, label: e.displayName })),
+    },
+    {
+      field: 'type',
+      label: t('weldhr.performance.milestones.dialog.type'),
+      options: TYPES.map((v) => ({ value: v, label: t(`weldhr.status.milestoneType.${v}`) })),
+    },
+  ];
+
+  const groups: GroupConfig<HrMilestone>[] = [
+    ...STATUSES.map((s, i) => ({
+      id: s,
+      label: t(`weldhr.status.milestone.${s}`),
+      sortOrder: i + 1,
+      filter: (m: HrMilestone) => m.status === s,
+    })),
+    {
+      id: 'other',
+      label: t('weldhr.performance.milestones.groups.other'),
+      sortOrder: STATUSES.length + 1,
+      filter: (m) => !STATUSES.includes(m.status),
+    },
+  ];
+
+  const columns: ColumnDef<HrMilestone>[] = [
+    {
+      id: 'employee',
+      header: t('weldhr.common.employee'),
+      width: 'flex-1',
+      render: (m) => (
+        <Link
+          to="/weldhr/employees/$employeeId"
+          params={{ employeeId: m.employeeId }}
+          className="hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {m.employeeName}
+        </Link>
+      ),
+    },
+    {
+      id: 'title',
+      header: t('weldhr.performance.milestones.table.title'),
+      width: 'flex-1',
+      render: (m) => <span className="truncate font-medium">{m.title}</span>,
+    },
+    {
+      id: 'type',
+      header: t('weldhr.performance.milestones.table.type'),
+      width: 'w-[130px]',
+      render: (m) => <span>{t(`weldhr.status.milestoneType.${m.type}`)}</span>,
+    },
+    {
+      id: 'due',
+      header: t('weldhr.performance.milestones.table.due'),
+      width: 'w-[110px]',
+      render: (m) => <span className="text-muted-foreground">{formatDate(m.dueDate)}</span>,
+    },
+    {
+      id: 'achieved',
+      header: t('weldhr.performance.milestones.table.achieved'),
+      width: 'w-[110px]',
+      render: (m) => <span className="text-muted-foreground">{formatDate(m.achievedAt)}</span>,
+    },
+    {
+      id: 'shared',
+      header: t('weldhr.performance.milestones.table.shared'),
+      width: 'w-[90px]',
+      render: (m) => <ShareBadge shared={m.sharedWithClient} />,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.common.status'),
+      width: 'w-[190px]',
+      render: (m) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge group="milestone" status={m.status} />
+          {canUpdate && m.status !== 'achieved' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              disabled={updateMilestone.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                void markAchieved(m.id);
+              }}
+            >
+              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+              {t('weldhr.performance.milestones.markAchieved')}
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <Card className="flex flex-wrap items-end gap-3 p-4">
-        <div className="w-48 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.coaching.filters.employee')}</p>
-          <EmployeePicker
-            value={employeeId}
-            valueLabel={employeeLabel}
-            onChange={(id, label) => {
-              setEmployeeId(id);
-              setEmployeeLabel(label);
-            }}
-            allowClear
-          />
-        </div>
-        <div className="w-48 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.coaching.filters.client')}</p>
-          <CompanyPicker
-            value={companyId}
-            valueLabel={companyLabel}
-            onChange={(id, label) => {
-              setCompanyId(id);
-              setCompanyLabel(label);
-            }}
-            allowClear
-          />
-        </div>
-        <div className="w-40 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.common.status')}</p>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('weldhr.common.all')}</SelectItem>
-              {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {t(`weldhr.status.milestone.${s}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {canCreate && (
-          <Button className="ml-auto" onClick={() => setDialog({ kind: 'create' })}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldhr.performance.milestones.addMilestone')}
-          </Button>
-        )}
-      </Card>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !milestones || milestones.length === 0 ? (
-        <EmptyState title={t('weldhr.performance.milestones.empty')} />
-      ) : (
-        <Card className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.common.employee')}</TableHead>
-                <TableHead>{t('weldhr.performance.milestones.table.title')}</TableHead>
-                <TableHead>{t('weldhr.performance.milestones.table.type')}</TableHead>
-                <TableHead>{t('weldhr.common.status')}</TableHead>
-                <TableHead>{t('weldhr.performance.milestones.table.due')}</TableHead>
-                <TableHead>{t('weldhr.performance.milestones.table.achieved')}</TableHead>
-                <TableHead>{t('weldhr.performance.milestones.table.shared')}</TableHead>
-                <TableHead className="w-px" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {milestones.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell>
-                    <Link
-                      to="/weldhr/employees/$employeeId"
-                      params={{ employeeId: m.employeeId }}
-                      className="hover:underline"
-                    >
-                      {m.employeeName}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="max-w-xs truncate font-medium">{m.title}</TableCell>
-                  <TableCell>{t(`weldhr.status.milestoneType.${m.type}`)}</TableCell>
-                  <TableCell>
-                    <StatusBadge group="milestone" status={m.status} />
-                  </TableCell>
-                  <TableCell>{formatDate(m.dueDate)}</TableCell>
-                  <TableCell>{formatDate(m.achievedAt)}</TableCell>
-                  <TableCell>
-                    <ShareBadge shared={m.sharedWithClient} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      {canUpdate && m.status !== 'achieved' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void markAchieved(m.id)}
-                          disabled={updateMilestone.isPending}
-                        >
-                          <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                          {t('weldhr.performance.milestones.markAchieved')}
-                        </Button>
-                      )}
-                      {canUpdate && (
-                        <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'edit', milestone: m })}>
-                          {t('weldhr.common.edit')}
-                        </Button>
-                      )}
-                      {canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void remove(m.id)}
-                          disabled={deleteMilestone.isPending}
-                        >
-                          {t('weldhr.common.delete')}
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
+    <>
+      <PanelEntityList<HrMilestone>
+        items={items}
+        isLoading={isLoading}
+        error={(error as Error) ?? null}
+        columns={columns}
+        groups={groups}
+        filters={filters}
+        activeFilters={activeFilters}
+        onFiltersChange={setActiveFilters}
+        onRowClick={canUpdate ? (m) => setDialog({ kind: 'edit', milestone: m }) : undefined}
+        onEdit={canUpdate ? (m) => setDialog({ kind: 'edit', milestone: m }) : undefined}
+        onDelete={canDelete ? (m) => setDeleteTarget(m) : undefined}
+        createButton={
+          canCreate ? { label: t('weldhr.performance.milestones.addMilestone'), onClick: () => setDialog({ kind: 'create' }) } : undefined
+        }
+        emptyState={{
+          icon: emptyIcon(Target),
+          title: t('weldhr.performance.milestones.empty'),
+          description: t('weldhr.performance.milestones.empty'),
+          action: canCreate
+            ? { label: t('weldhr.performance.milestones.addMilestone'), onClick: () => setDialog({ kind: 'create' }) }
+            : undefined,
+        }}
+      />
 
       {dialog?.kind === 'create' && <MilestoneDialog onClose={() => setDialog(null)} />}
-      {dialog?.kind === 'edit' && (
-        <MilestoneDialog milestone={dialog.milestone} onClose={() => setDialog(null)} />
-      )}
-    </div>
+      {dialog?.kind === 'edit' && <MilestoneDialog milestone={dialog.milestone} onClose={() => setDialog(null)} />}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('weldhr.common.confirmDelete')}
+        description={deleteTarget?.title ?? ''}
+        confirmLabel={t('weldhr.common.delete')}
+        cancelLabel={t('weldhr.common.cancel')}
+        variant="destructive"
+        loading={deleteMilestone.isPending}
+        onConfirm={confirmDelete}
+      />
+    </>
   );
 }

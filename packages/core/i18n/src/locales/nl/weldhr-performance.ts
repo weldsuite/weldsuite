@@ -8,12 +8,18 @@ export const weldhrPerformance = {
     title: 'Coaching',
     subtitle: 'Coachingsessies binnen het hele team, van korte check-ins tot formele reviews.',
     logSession: 'Sessie registreren',
+    searchPlaceholder: 'Coachingsessies zoeken…',
     filters: {
       employee: 'Medewerker',
       client: 'Klantaccount',
       category: 'Categorie',
       followUpDue: 'Opvolging vereist',
     },
+    groups: {
+      other: 'Overig',
+    },
+    toastClosed: 'Sessie afgesloten',
+    toastDeleted: 'Coachingsessie verwijderd',
     table: {
       date: 'Datum',
       employee: 'Medewerker',
@@ -64,10 +70,14 @@ export const weldhrPerformance = {
     title: 'Beoordelingen',
     subtitle: 'Scorecardbeoordelingen en hun verloop over tijd.',
     newEvaluation: 'Nieuwe beoordeling',
+    searchPlaceholder: 'Beoordelingen zoeken…',
     filters: {
       employee: 'Medewerker',
       client: 'Klantaccount',
       form: 'Formulier',
+    },
+    groups: {
+      other: 'Overig',
     },
     table: {
       employee: 'Medewerker',
@@ -138,6 +148,7 @@ export const weldhrPerformance = {
       selectKpi: 'Kies een KPI',
       addValue: 'Waarde toevoegen',
       empty: 'Nog geen KPI-waarden voor deze selectie.',
+      toastDeleted: 'KPI-waarde verwijderd',
       table: {
         employee: 'Medewerker',
         kpi: 'KPI',
@@ -174,6 +185,11 @@ export const weldhrPerformance = {
       addMilestone: 'Mijlpaal toevoegen',
       empty: 'Nog geen mijlpalen.',
       markAchieved: 'Markeer als behaald',
+      toastAchieved: 'Mijlpaal gemarkeerd als behaald',
+      toastDeleted: 'Mijlpaal verwijderd',
+      groups: {
+        other: 'Overig',
+      },
       table: {
         title: 'Titel',
         type: 'Type',

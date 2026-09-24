@@ -1,9 +1,8 @@
 /** Employee detail — leave tab: this year's balances, request history, and a new request. */
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -11,7 +10,8 @@ import type { HrLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrEmployee, useHrLeaveBalances, useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
 import { LeaveRequestDialog } from '../../leave/components/request-dialog';
 import { LeaveReviewDialog } from '../../leave/components/review-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
+import { EmptyText, SectionCard } from '../page-kit';
+import { ErrorBanner, StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 
@@ -29,49 +29,54 @@ export function EmployeeLeaveTab({ employeeId }: { employeeId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">{t('weldhr.leave.tabs.balances')}</p>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          {t('weldhr.leave.requests.newRequest')}
-        </Button>
-      </div>
+      <SectionCard
+        title={t('weldhr.leave.tabs.balances')}
+        action={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            {t('weldhr.leave.requests.newRequest')}
+          </Button>
+        }
+      >
+        <ErrorBanner error={balancesError ? errorMessage(balancesError, t('weldhr.leave.balances.loadFailed')) : null} />
 
-      <ErrorBanner error={balancesError ? errorMessage(balancesError, t('weldhr.leave.balances.loadFailed')) : null} />
-
-      {balancesLoading ? (
-        <InlineSpinner />
-      ) : !balances || balances.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('weldhr.leave.balances.empty')}</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {balances.map((balance) => (
-            <Card key={balance.leaveTypeId} className="p-3">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
-                {balance.name}
+        {balancesLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : !balances || balances.length === 0 ? (
+          <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {balances.map((balance) => (
+              <div key={balance.leaveTypeId} className="rounded-lg border p-3">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
+                  {balance.name}
+                </div>
+                <p className="mt-1 text-lg font-semibold tabular-nums">
+                  {balance.remaining ?? t('weldhr.leave.balances.unlimited')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {balance.used} {t('weldhr.leave.balances.table.used').toLowerCase()}
+                  {balance.pending > 0 ? ` · ${balance.pending} ${t('weldhr.leave.balances.table.pending').toLowerCase()}` : ''}
+                </p>
               </div>
-              <p className="mt-1 text-lg font-semibold tabular-nums">
-                {balance.remaining ?? t('weldhr.leave.balances.unlimited')}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {balance.used} {t('weldhr.leave.balances.table.used').toLowerCase()}
-                {balance.pending > 0 ? ` · ${balance.pending} ${t('weldhr.leave.balances.table.pending').toLowerCase()}` : ''}
-              </p>
-            </Card>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
-      <p className="pt-2 text-sm font-medium">{t('weldhr.leave.balances.history')}</p>
-      <ErrorBanner error={requestsError ? errorMessage(requestsError, t('weldhr.leave.requests.loadFailed')) : null} />
+      <SectionCard title={t('weldhr.leave.balances.history')} contentClassName="p-0">
+        <ErrorBanner error={requestsError ? errorMessage(requestsError, t('weldhr.leave.requests.loadFailed')) : null} />
 
-      {requestsLoading ? (
-        <InlineSpinner />
-      ) : !requests || requests.length === 0 ? (
-        <EmptyState title={t('weldhr.leave.balances.noHistory')} />
-      ) : (
-        <div className="overflow-hidden rounded-lg border">
+        {requestsLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : !requests || requests.length === 0 ? (
+          <EmptyText>{t('weldhr.leave.balances.noHistory')}</EmptyText>
+        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -109,8 +114,8 @@ export function EmployeeLeaveTab({ employeeId }: { employeeId: string }) {
               ))}
             </TableBody>
           </Table>
-        </div>
-      )}
+        )}
+      </SectionCard>
 
       {creating && (
         <LeaveRequestDialog fixedEmployeeId={employeeId} fixedEmployeeLabel={employee?.displayName ?? null} onClose={() => setCreating(false)} />

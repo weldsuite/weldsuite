@@ -1,7 +1,7 @@
 /** Coaching timeline for a single employee's profile. */
 
 import { useState } from 'react';
-import { CheckCircle2, Plus } from 'lucide-react';
+import { CheckCircle2, Loader2, Plus } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
@@ -10,7 +10,8 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrCoachingLog } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrCoaching } from '@/hooks/queries/use-weldhr-queries';
 import { CoachingDialog } from '../../coaching/components/coaching-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, StatusBadge, errorMessage, formatDate } from '../shared';
+import { SectionCard, EmptyText } from '../page-kit';
+import { ErrorBanner, StatusBadge, errorMessage, formatDate } from '../shared';
 
 export function EmployeeCoachingTab({ employeeId }: { employeeId: string }) {
   const t = useTranslations();
@@ -20,23 +21,25 @@ export function EmployeeCoachingTab({ employeeId }: { employeeId: string }) {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">{t('weldhr.coaching.tab.title')}</h3>
-        {canCreate && (
+    <SectionCard
+      title={t('weldhr.coaching.tab.title')}
+      action={
+        canCreate && (
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             {t('weldhr.coaching.logSession')}
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
 
       {isLoading ? (
-        <InlineSpinner />
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
       ) : !logs || logs.length === 0 ? (
-        <EmptyState title={t('weldhr.coaching.tab.empty')} />
+        <EmptyText>{t('weldhr.coaching.tab.empty')}</EmptyText>
       ) : (
         <div className="space-y-3">
           {logs.map((log) => (
@@ -46,7 +49,7 @@ export function EmployeeCoachingTab({ employeeId }: { employeeId: string }) {
       )}
 
       {creating && <CoachingDialog employeeId={employeeId} onClose={() => setCreating(false)} />}
-    </div>
+    </SectionCard>
   );
 }
 

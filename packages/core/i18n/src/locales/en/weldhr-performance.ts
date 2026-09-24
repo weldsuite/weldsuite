@@ -8,12 +8,18 @@ export const weldhrPerformance = {
     title: 'Coaching',
     subtitle: 'Coaching sessions across the workforce, from quick check-ins to formal reviews.',
     logSession: 'Log session',
+    searchPlaceholder: 'Search coaching sessions…',
     filters: {
       employee: 'Employee',
       client: 'Client account',
       category: 'Category',
       followUpDue: 'Follow-up due',
     },
+    groups: {
+      other: 'Other',
+    },
+    toastClosed: 'Session closed',
+    toastDeleted: 'Coaching session deleted',
     table: {
       date: 'Date',
       employee: 'Employee',
@@ -64,10 +70,14 @@ export const weldhrPerformance = {
     title: 'Evaluations',
     subtitle: 'Scorecard evaluations and how they trend over time.',
     newEvaluation: 'New evaluation',
+    searchPlaceholder: 'Search evaluations…',
     filters: {
       employee: 'Employee',
       client: 'Client account',
       form: 'Form',
+    },
+    groups: {
+      other: 'Other',
     },
     table: {
       employee: 'Employee',
@@ -138,6 +148,7 @@ export const weldhrPerformance = {
       selectKpi: 'Select a KPI',
       addValue: 'Add value',
       empty: 'No KPI values for this selection yet.',
+      toastDeleted: 'KPI value deleted',
       table: {
         employee: 'Employee',
         kpi: 'KPI',
@@ -174,6 +185,11 @@ export const weldhrPerformance = {
       addMilestone: 'Add milestone',
       empty: 'No milestones yet.',
       markAchieved: 'Mark achieved',
+      toastAchieved: 'Milestone marked as achieved',
+      toastDeleted: 'Milestone deleted',
+      groups: {
+        other: 'Other',
+      },
       table: {
         title: 'Title',
         type: 'Type',

@@ -1,8 +1,7 @@
 /** WeldHR settings — departments tab. */
 
-import { useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
+import { useMemo, useState } from 'react';
+import { Building2 } from 'lucide-react';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -20,14 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
+import { Button } from '@weldsuite/ui/components/button';
+import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrDepartment } from '@weldsuite/app-api-client/domains/weldhr';
@@ -38,7 +31,9 @@ import {
   useDeleteHrDepartment,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { EmployeePicker, EmptyState, ErrorBanner, InlineSpinner, errorMessage } from '../../components/shared';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
 import { ColorField } from './color-field';
 
 interface FormState {
@@ -68,8 +63,16 @@ export function DepartmentsTab() {
   const { data: departments, isLoading, error } = useHrDepartments();
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrDepartment | null>(null);
+  const [search, setSearch] = useState('');
 
   const byId = new Map((departments ?? []).map((d) => [d.id, d]));
+
+  const items = useMemo(() => {
+    const all = departments ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter((d) => d.name.toLowerCase().includes(q) || (d.description ?? '').toLowerCase().includes(q));
+  }, [departments, search]);
 
   function openCreate() {
     setForm({ ...EMPTY_FORM });
@@ -87,93 +90,70 @@ export function DepartmentsTab() {
     });
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{t('weldhr.settings.departments.subtitle')}</p>
-        {canManage && (
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldhr.settings.departments.add')}
-          </Button>
-        )}
-      </div>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !departments || departments.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.settings.departments.emptyTitle')}
-          description={t('weldhr.settings.departments.emptyDescription')}
-          action={
-            canManage ? (
-              <Button size="sm" onClick={openCreate}>
-                {t('weldhr.settings.departments.add')}
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.settings.departments.name')}</TableHead>
-                <TableHead>{t('weldhr.settings.departments.parent')}</TableHead>
-                <TableHead>{t('weldhr.settings.departments.head')}</TableHead>
-                <TableHead className="text-right">{t('weldhr.settings.departments.employeeCount')}</TableHead>
-                {canManage && <TableHead className="w-24" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {departments.map((dept) => (
-                <TableRow key={dept.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full border"
-                        style={{ backgroundColor: dept.color ?? undefined }}
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{dept.name}</p>
-                        {dept.description && (
-                          <p className="truncate text-xs text-muted-foreground">{dept.description}</p>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{dept.employeeCount}</TableCell>
-                  {canManage && (
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(dept)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => setDeleteTarget(dept)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+  const columns: ColumnDef<HrDepartment>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.settings.departments.name'),
+      width: 'flex-1',
+      render: (dept) => (
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full border"
+            style={{ backgroundColor: dept.color ?? undefined }}
+          />
+          <div className="min-w-0">
+            <p className="truncate font-medium">{dept.name}</p>
+            {dept.description && <p className="truncate text-xs text-muted-foreground">{dept.description}</p>}
+          </div>
         </div>
-      )}
+      ),
+    },
+    {
+      id: 'parent',
+      header: t('weldhr.settings.departments.parent'),
+      width: 'w-[180px]',
+      render: (dept) => (
+        <span className="text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
+      ),
+    },
+    {
+      id: 'head',
+      header: t('weldhr.settings.departments.head'),
+      width: 'w-[140px]',
+      render: (dept) => (
+        <span className="text-muted-foreground">
+          {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'employeeCount',
+      header: t('weldhr.settings.departments.employeeCount'),
+      width: 'w-[110px]',
+      render: (dept) => <span className="tabular-nums">{dept.employeeCount}</span>,
+    },
+  ];
+
+  return (
+    <>
+      <PanelEntityList<HrDepartment>
+        items={items}
+        isLoading={isLoading}
+        error={error as Error | null}
+        columns={columns}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? setDeleteTarget : undefined}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.settings.departments.name')}
+        createButton={canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined}
+        emptyState={{
+          icon: emptyIcon(Building2),
+          title: t('weldhr.settings.departments.emptyTitle'),
+          description: t('weldhr.settings.departments.emptyDescription'),
+          action: canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined,
+        }}
+      />
 
       {form && (
         <DepartmentDialog
@@ -186,7 +166,7 @@ export function DepartmentsTab() {
       {deleteTarget && (
         <DeleteDepartmentDialog department={deleteTarget} onClose={() => setDeleteTarget(null)} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -306,7 +286,8 @@ function DepartmentDialog({
             {t('weldhr.common.cancel')}
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={pending || !state.name.trim()}>
-            {pending ? t('weldhr.common.saving') : t('weldhr.common.save')}
+            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t('weldhr.common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
