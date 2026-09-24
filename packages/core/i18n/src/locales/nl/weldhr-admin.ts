@@ -61,6 +61,9 @@ export const weldhrAdmin = {
       default: 'Standaard',
       itemCount: '{count} item',
       itemCountPlural: '{count} items',
+      groupOnboarding: 'Indiensttreding',
+      groupOffboarding: 'Uitdiensttreding',
+      groupOther: 'Overig',
       emptyTitle: 'Nog geen checklisttemplates',
       emptyDescription: 'Voeg een in- of uitdienstredingtemplate toe om levenscyclustaken te automatiseren.',
       deleteTitle: 'Template verwijderen?',
@@ -130,6 +133,8 @@ export const weldhrAdmin = {
       clientSpecific: 'Klantspecifiek',
       clientSpecificHint: 'Beperk deze KPI tot één klantaccount, of laat open voor alle klanten.',
       allClients: 'Alle klanten',
+      groupWorkspace: 'Workspace-breed',
+      groupClient: 'Klantspecifiek',
       includeInactive: 'Inclusief inactief',
       archivedInstead: '"{name}" heeft waarden in de geschiedenis, en is daarom gearchiveerd in plaats van verwijderd.',
       emptyTitle: "Nog geen KPI's gedefinieerd",
@@ -162,6 +167,7 @@ export const weldhrAdmin = {
       employeeLeaveRequests: 'Medewerkers kunnen verlof aanvragen vanuit het portaal',
       clientCanSeeIndividualScores: 'Klanten kunnen individuele scores zien',
       clientCanSeeIndividualScoresHint: 'Uit toont klanten alleen teamgemiddelden, nooit de score van een met naam genoemde medewerker.',
+      saved: 'Portaalinstellingen opgeslagen',
     },
 
     branding: {

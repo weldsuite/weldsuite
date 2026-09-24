@@ -1,13 +1,13 @@
 /** WeldHR settings — leave types tab. */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
+import { CalendarDays } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,14 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrLeaveType } from '@weldsuite/app-api-client/domains/weldhr';
@@ -33,7 +25,9 @@ import {
   useDeleteHrLeaveType,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { EmptyState, ErrorBanner, InlineSpinner, errorMessage } from '../../components/shared';
+import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { ErrorBanner, errorMessage } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
 import { ColorField } from './color-field';
 
 interface FormState {
@@ -64,123 +58,119 @@ export function LeaveTypesTab() {
   const { data: leaveTypes, isLoading, error } = useHrLeaveTypes(includeInactive);
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrLeaveType | null>(null);
+  const [search, setSearch] = useState('');
+
+  const items = useMemo(() => {
+    const all = leaveTypes ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter((lt) => lt.name.toLowerCase().includes(q));
+  }, [leaveTypes, search]);
+
+  const groups: GroupConfig<HrLeaveType>[] = [
+    { id: 'active', label: t('weldhr.settings.leaveTypes.active'), sortOrder: 1, filter: (i) => i.isActive },
+    { id: 'inactive', label: t('weldhr.settings.leaveTypes.inactive'), sortOrder: 2, filter: (i) => !i.isActive },
+  ];
+
+  const columns: ColumnDef<HrLeaveType>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.settings.leaveTypes.name'),
+      width: 'flex-1',
+      render: (leaveType) => (
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full border"
+            style={{ backgroundColor: leaveType.color ?? undefined }}
+          />
+          <span className="font-medium">{leaveType.name}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'paid',
+      header: t('weldhr.settings.leaveTypes.paid'),
+      width: 'w-[90px]',
+      render: (leaveType) => (
+        <span className="text-muted-foreground">{leaveType.isPaid ? t('weldhr.common.yes') : t('weldhr.common.no')}</span>
+      ),
+    },
+    {
+      id: 'approval',
+      header: t('weldhr.settings.leaveTypes.requiresApproval'),
+      width: 'w-[140px]',
+      render: (leaveType) => (
+        <span className="text-muted-foreground">
+          {leaveType.requiresApproval ? t('weldhr.common.yes') : t('weldhr.common.no')}
+        </span>
+      ),
+    },
+    {
+      id: 'allowance',
+      header: t('weldhr.settings.leaveTypes.allowance'),
+      width: 'w-[140px]',
+      render: (leaveType) => (
+        <span className="tabular-nums">
+          {leaveType.defaultAllowanceDays === null
+            ? t('weldhr.settings.leaveTypes.unlimited')
+            : t(
+                leaveType.defaultAllowanceDays === 1
+                  ? 'weldhr.settings.leaveTypes.daysPerYear'
+                  : 'weldhr.settings.leaveTypes.daysPerYearPlural',
+                { count: leaveType.defaultAllowanceDays },
+              )}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{t('weldhr.settings.leaveTypes.subtitle')}</p>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch id="include-inactive" checked={includeInactive} onCheckedChange={setIncludeInactive} />
-            <Label htmlFor="include-inactive" className="text-sm font-normal">
-              {t('weldhr.settings.leaveTypes.includeInactive')}
-            </Label>
-          </div>
-          {canManage && (
-            <Button size="sm" onClick={() => setForm({ ...EMPTY_FORM })}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t('weldhr.settings.leaveTypes.add')}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !leaveTypes || leaveTypes.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.settings.leaveTypes.emptyTitle')}
-          description={t('weldhr.settings.leaveTypes.emptyDescription')}
-        />
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.settings.leaveTypes.name')}</TableHead>
-                <TableHead>{t('weldhr.settings.leaveTypes.paid')}</TableHead>
-                <TableHead>{t('weldhr.settings.leaveTypes.requiresApproval')}</TableHead>
-                <TableHead className="text-right">{t('weldhr.settings.leaveTypes.allowance')}</TableHead>
-                <TableHead>{t('weldhr.common.status')}</TableHead>
-                {canManage && <TableHead className="w-24" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leaveTypes.map((leaveType) => (
-                <TableRow key={leaveType.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full border"
-                        style={{ backgroundColor: leaveType.color ?? undefined }}
-                      />
-                      <span className="font-medium">{leaveType.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{leaveType.isPaid ? t('weldhr.common.yes') : t('weldhr.common.no')}</TableCell>
-                  <TableCell>{leaveType.requiresApproval ? t('weldhr.common.yes') : t('weldhr.common.no')}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {leaveType.defaultAllowanceDays === null
-                      ? t('weldhr.settings.leaveTypes.unlimited')
-                      : t(
-                          leaveType.defaultAllowanceDays === 1
-                            ? 'weldhr.settings.leaveTypes.daysPerYear'
-                            : 'weldhr.settings.leaveTypes.daysPerYearPlural',
-                          { count: leaveType.defaultAllowanceDays },
-                        )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={leaveType.isActive ? 'default' : 'secondary'}>
-                      {leaveType.isActive ? t('weldhr.settings.leaveTypes.active') : t('weldhr.settings.leaveTypes.inactive')}
-                    </Badge>
-                  </TableCell>
-                  {canManage && (
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() =>
-                            setForm({
-                              id: leaveType.id,
-                              name: leaveType.name,
-                              color: leaveType.color ?? '',
-                              isPaid: leaveType.isPaid,
-                              requiresApproval: leaveType.requiresApproval,
-                              defaultAllowanceDays: leaveType.defaultAllowanceDays?.toString() ?? '',
-                              isActive: leaveType.isActive,
-                            })
-                          }
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => setDeleteTarget(leaveType)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+    <>
+      <PanelEntityList<HrLeaveType>
+        items={items}
+        isLoading={isLoading}
+        error={error as Error | null}
+        columns={columns}
+        groups={groups}
+        onEdit={
+          canManage
+            ? (leaveType) =>
+                setForm({
+                  id: leaveType.id,
+                  name: leaveType.name,
+                  color: leaveType.color ?? '',
+                  isPaid: leaveType.isPaid,
+                  requiresApproval: leaveType.requiresApproval,
+                  defaultAllowanceDays: leaveType.defaultAllowanceDays?.toString() ?? '',
+                  isActive: leaveType.isActive,
+                })
+            : undefined
+        }
+        onDelete={canManage ? setDeleteTarget : undefined}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.settings.leaveTypes.name')}
+        actionButtons={
+          <label className="flex h-8 items-center gap-2 px-1 text-sm">
+            <Switch checked={includeInactive} onCheckedChange={setIncludeInactive} />
+            <span className="hidden text-muted-foreground md:inline">{t('weldhr.settings.leaveTypes.includeInactive')}</span>
+          </label>
+        }
+        createButton={canManage ? { label: t('weldhr.settings.leaveTypes.add'), onClick: () => setForm({ ...EMPTY_FORM }) } : undefined}
+        emptyState={{
+          icon: emptyIcon(CalendarDays),
+          title: t('weldhr.settings.leaveTypes.emptyTitle'),
+          description: t('weldhr.settings.leaveTypes.emptyDescription'),
+          action: canManage ? { label: t('weldhr.settings.leaveTypes.add'), onClick: () => setForm({ ...EMPTY_FORM }) } : undefined,
+        }}
+      />
 
       {form && <LeaveTypeDialog form={form} onClose={() => setForm(null)} />}
 
       {deleteTarget && (
         <DeleteLeaveTypeDialog leaveType={deleteTarget} onClose={() => setDeleteTarget(null)} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -280,7 +270,8 @@ function LeaveTypeDialog({ form, onClose }: { form: FormState; onClose: () => vo
             {t('weldhr.common.cancel')}
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={pending || !state.name.trim()}>
-            {pending ? t('weldhr.common.saving') : t('weldhr.common.save')}
+            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t('weldhr.common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

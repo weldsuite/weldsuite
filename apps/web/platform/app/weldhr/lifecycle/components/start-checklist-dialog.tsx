@@ -1,6 +1,7 @@
 /** "Start checklist" dialog: pick an employee, a template, and an optional anchor date. */
 
 import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -17,18 +18,20 @@ import { useHrChecklistTemplates, useStartHrChecklist } from '@/hooks/queries/us
 import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
 
 export function StartChecklistDialog({
-  kind,
+  kind: fixedKind,
   onClose,
   fixedEmployeeId,
   fixedEmployeeLabel,
 }: {
-  kind: 'onboarding' | 'offboarding';
+  /** When known ahead of time (e.g. the employee's own lifecycle tab), the Type picker is skipped. */
+  kind?: 'onboarding' | 'offboarding';
   onClose: () => void;
   /** When starting from an employee's own lifecycle tab, the employee is already known. */
   fixedEmployeeId?: string;
   fixedEmployeeLabel?: string | null;
 }) {
   const t = useTranslations();
+  const [kind, setKind] = useState<'onboarding' | 'offboarding'>(fixedKind ?? 'onboarding');
   const { data: templates, isLoading: templatesLoading } = useHrChecklistTemplates(kind);
   const startChecklist = useStartHrChecklist();
 
@@ -60,6 +63,27 @@ export function StartChecklistDialog({
 
         <div className="space-y-4">
           <ErrorBanner error={failure} />
+
+          {!fixedKind && (
+            <div className="space-y-1.5">
+              <Label>{t('weldhr.lifecycle.startChecklist.kind')}</Label>
+              <Select
+                value={kind}
+                onValueChange={(v) => {
+                  setKind(v as 'onboarding' | 'offboarding');
+                  setTemplateId('');
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="onboarding">{t('weldhr.status.checklistKind.onboarding')}</SelectItem>
+                  <SelectItem value="offboarding">{t('weldhr.status.checklistKind.offboarding')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {!fixedEmployeeId && (
             <div className="space-y-1.5">
@@ -114,6 +138,7 @@ export function StartChecklistDialog({
             {t('weldhr.common.cancel')}
           </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {startChecklist.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {startChecklist.isPending ? t('weldhr.lifecycle.startChecklist.submitting') : t('weldhr.lifecycle.startChecklist.submit')}
           </Button>
         </DialogFooter>

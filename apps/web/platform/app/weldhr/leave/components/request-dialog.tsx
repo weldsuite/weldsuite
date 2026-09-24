@@ -1,6 +1,7 @@
 /** New leave request dialog, filed on behalf of an employee. */
 
 import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -135,6 +136,7 @@ export function LeaveRequestDialog({
             {t('weldhr.leave.requests.form.cancel')}
           </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {createRequest.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {createRequest.isPending ? t('weldhr.leave.requests.form.submitting') : t('weldhr.leave.requests.form.submit')}
           </Button>
         </DialogFooter>

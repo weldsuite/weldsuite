@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -167,6 +168,7 @@ export function AttendanceRecordDialog({
             {t('weldhr.attendance.records.form.cancel')}
           </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {pending
               ? t('weldhr.attendance.records.form.saving')
               : record

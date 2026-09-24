@@ -17,7 +17,7 @@
  * is written to browser storage.
  */
 
-import { QueryClient, isServer } from '@tanstack/react-query';
+import { QueryClient, defaultShouldDehydrateQuery, isServer } from '@tanstack/react-query';
 import { PortalApiError } from '@/lib/client-errors';
 
 const STALE_TIME = 30_000;
@@ -26,6 +26,24 @@ const GC_TIME = 30 * 60_000;
 function makeQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
+      dehydrate: {
+        // Pages start their queries without awaiting them and hand the still
+        // pending promise to the browser, which streams the result in. That
+        // keeps navigation from blocking on app-api (see lib/server/portal.ts).
+        shouldDehydrateQuery: (query) => defaultShouldDehydrateQuery(query) || query.state.status === 'pending',
+        // Error messages from app-api are already user-facing; keep them.
+        shouldRedactErrors: () => false,
+      },
+      hydrate: {
+        queries: {
+          // A streamed server query that fails must surface at once. With the
+          // default retry behaviour a failed streamed query left the page on its
+          // skeleton indefinitely (observed: >12s, no error shown); with this
+          // the error boundary appears after one round trip, and its "Try again"
+          // refetches normally.
+          retry: false,
+        },
+      },
       queries: {
         // Also stops the browser refetching what the server just rendered.
         staleTime: STALE_TIME,

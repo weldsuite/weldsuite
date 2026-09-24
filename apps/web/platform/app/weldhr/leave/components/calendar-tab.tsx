@@ -3,9 +3,11 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, InlineSpinner, errorMessage, todayIso } from '../../components/shared';
+import { PageLoader } from '@/components/page-loader';
+import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
 
 function monthBounds(anchor: string) {
   const [year, month] = anchor.split('-').map(Number) as [number, number];
@@ -67,9 +69,9 @@ export function CalendarTab() {
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.leave.calendar.loadFailed')) : null} />
 
       {isLoading ? (
-        <InlineSpinner />
+        <PageLoader fullScreen={false} />
       ) : (
-        <div className="overflow-hidden rounded-lg border">
+        <Card className="overflow-hidden p-0">
           <div className="grid grid-cols-7 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
             {[1, 2, 3, 4, 5, 6, 0].map((weekday) => (
               <div key={weekday} className="px-2 py-1.5">
@@ -110,7 +112,7 @@ export function CalendarTab() {
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

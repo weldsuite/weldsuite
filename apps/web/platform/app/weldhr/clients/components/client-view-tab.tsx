@@ -5,10 +5,10 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrClientKpi, HrClientView } from '@weldsuite/app-api-client/domains/weldhr';
+import { KpiCard as PageKitKpiCard, KpiGrid, SectionCard, EmptyText } from '../../components/page-kit';
 import {
   EmployeeAvatar,
   ScoreBadge,
-  StatTile,
   StatusBadge,
   formatDate,
   formatKpiValue,
@@ -30,7 +30,7 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function KpiCard({ kpi }: { kpi: HrClientKpi }) {
+function TrendKpiCard({ kpi }: { kpi: HrClientKpi }) {
   const t = useTranslations();
   const trendValues = kpi.trend.map((p) => p.average);
   return (
@@ -72,36 +72,34 @@ export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatTile label={t('weldhr.clients.detail.clientView.summary.headcount')} value={summary.headcount} />
-        <StatTile label={t('weldhr.clients.detail.clientView.summary.fte')} value={summary.fte.toFixed(1)} />
-        <StatTile
+      <KpiGrid>
+        <PageKitKpiCard label={t('weldhr.clients.detail.clientView.summary.headcount')} value={summary.headcount} />
+        <PageKitKpiCard label={t('weldhr.clients.detail.clientView.summary.fte')} value={summary.fte.toFixed(1)} />
+        <PageKitKpiCard
           label={t('weldhr.clients.detail.clientView.summary.avgScore')}
           value={summary.averageEvaluationScore !== null ? summary.averageEvaluationScore.toFixed(1) : '—'}
         />
-        <StatTile
+        <PageKitKpiCard
           label={t('weldhr.clients.detail.clientView.summary.attendanceRate')}
           value={summary.attendanceRate30d !== null ? `${Math.round(summary.attendanceRate30d)}%` : '—'}
         />
-        <StatTile label={t('weldhr.clients.detail.clientView.summary.milestonesAchieved')} value={summary.milestonesAchieved} />
-        <StatTile label={t('weldhr.clients.detail.clientView.summary.milestonesOpen')} value={summary.milestonesOpen} />
-      </div>
+        <PageKitKpiCard label={t('weldhr.clients.detail.clientView.summary.milestonesAchieved')} value={summary.milestonesAchieved} />
+        <PageKitKpiCard label={t('weldhr.clients.detail.clientView.summary.milestonesOpen')} value={summary.milestonesOpen} />
+      </KpiGrid>
 
       {clientView.kpis.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-semibold">{t('weldhr.clients.detail.clientView.kpis.title')}</h3>
+        <SectionCard title={t('weldhr.clients.detail.clientView.kpis.title')}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {clientView.kpis.map((kpi) => (
-              <KpiCard key={kpi.kpiId} kpi={kpi} />
+              <TrendKpiCard key={kpi.kpiId} kpi={kpi} />
             ))}
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      <Card className="p-4">
-        <h3 className="mb-3 text-sm font-semibold">{t('weldhr.clients.detail.clientView.team.title')}</h3>
+      <SectionCard title={t('weldhr.clients.detail.clientView.team.title')}>
         {clientView.team.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('weldhr.clients.detail.clientView.team.empty')}</p>
+          <EmptyText>{t('weldhr.clients.detail.clientView.team.empty')}</EmptyText>
         ) : (
           <ul className="space-y-2">
             {clientView.team.map((member) => (
@@ -118,13 +116,12 @@ export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
             ))}
           </ul>
         )}
-      </Card>
+      </SectionCard>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="p-4">
-          <h3 className="mb-3 text-sm font-semibold">{t('weldhr.clients.detail.clientView.evaluations.title')}</h3>
+        <SectionCard title={t('weldhr.clients.detail.clientView.evaluations.title')}>
           {clientView.evaluations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('weldhr.clients.detail.clientView.evaluations.empty')}</p>
+            <EmptyText>{t('weldhr.clients.detail.clientView.evaluations.empty')}</EmptyText>
           ) : (
             <ul className="space-y-2 text-sm">
               {clientView.evaluations.map((ev) => (
@@ -135,12 +132,11 @@ export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
               ))}
             </ul>
           )}
-        </Card>
+        </SectionCard>
 
-        <Card className="p-4">
-          <h3 className="mb-3 text-sm font-semibold">{t('weldhr.clients.detail.clientView.milestones.title')}</h3>
+        <SectionCard title={t('weldhr.clients.detail.clientView.milestones.title')}>
           {clientView.milestones.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('weldhr.clients.detail.clientView.milestones.empty')}</p>
+            <EmptyText>{t('weldhr.clients.detail.clientView.milestones.empty')}</EmptyText>
           ) : (
             <ul className="space-y-2 text-sm">
               {clientView.milestones.map((m) => (
@@ -153,12 +149,11 @@ export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
               ))}
             </ul>
           )}
-        </Card>
+        </SectionCard>
 
-        <Card className="p-4">
-          <h3 className="mb-3 text-sm font-semibold">{t('weldhr.clients.detail.clientView.coaching.title')}</h3>
+        <SectionCard title={t('weldhr.clients.detail.clientView.coaching.title')}>
           {clientView.coaching.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('weldhr.clients.detail.clientView.coaching.empty')}</p>
+            <EmptyText>{t('weldhr.clients.detail.clientView.coaching.empty')}</EmptyText>
           ) : (
             <ul className="space-y-2 text-sm">
               {clientView.coaching.map((c) => (
@@ -171,7 +166,7 @@ export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
               ))}
             </ul>
           )}
-        </Card>
+        </SectionCard>
       </div>
     </div>
   );

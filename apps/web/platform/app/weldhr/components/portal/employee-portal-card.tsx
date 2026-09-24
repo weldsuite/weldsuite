@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, RotateCcw, Send, UserX } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   useHrPortalAccess,
@@ -13,7 +12,8 @@ import {
   useRevokeHrPortalAccess,
   useRestoreHrPortalAccess,
 } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, InlineSpinner, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
+import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
+import { EmptyText, SectionCard } from '../page-kit';
 
 export function EmployeePortalAccessCard({ employeeId, employeeStatus }: { employeeId: string; employeeStatus: string }) {
   const t = useTranslations();
@@ -63,19 +63,17 @@ export function EmployeePortalAccessCard({ employeeId, employeeStatus }: { emplo
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">{t('weldhr.portal.employeeCard.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <SectionCard title={t('weldhr.portal.employeeCard.title')} contentClassName="space-y-3">
         <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
         {isLoading ? (
-          <InlineSpinner />
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
         ) : error ? (
           <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />
         ) : isTerminated ? (
-          <p className="text-sm text-muted-foreground">{t('weldhr.portal.employeeCard.terminatedHint')}</p>
+          <EmptyText>{t('weldhr.portal.employeeCard.terminatedHint')}</EmptyText>
         ) : !access ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">{t('weldhr.portal.employeeCard.noAccess')}</p>
@@ -121,7 +119,6 @@ export function EmployeePortalAccessCard({ employeeId, employeeStatus }: { emplo
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </SectionCard>
   );
 }

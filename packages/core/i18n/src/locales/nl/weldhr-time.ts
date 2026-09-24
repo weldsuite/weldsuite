@@ -10,6 +10,7 @@ export const weldhrTime = {
     startChecklist: {
       action: 'Checklist starten',
       title: 'Checklist starten',
+      kind: 'Type',
       employee: 'Medewerker',
       template: 'Sjabloon',
       selectTemplate: 'Selecteer een sjabloon',
@@ -24,6 +25,24 @@ export const weldhrTime = {
       onboarding: 'Indiensttreding',
       offboarding: 'Uitdiensttreding',
       completed: 'Voltooid',
+    },
+    list: {
+      columns: {
+        employee: 'Medewerker',
+        template: 'Sjabloon',
+        progress: 'Voortgang',
+        overdue: 'Te laat',
+        started: 'Gestart',
+      },
+      groups: {
+        onboarding: 'Indiensttreding bezig',
+        offboarding: 'Uitdiensttreding bezig',
+        completed: 'Voltooid & geannuleerd',
+      },
+      empty: {
+        title: 'Nog geen checklists',
+        description: 'Start een in- of uitdiensttredingschecklist voor een medewerker om deze hier te volgen.',
+      },
     },
     card: {
       progress: '{done}/{total} taken voltooid',
@@ -101,6 +120,7 @@ export const weldhrTime = {
         needsApproval: 'Alleen goed te keuren',
       },
       summary: {
+        last30Days: 'Laatste 30 dagen',
         attendanceRate: 'Aanwezigheidspercentage',
         workedHours: 'Gewerkte uren',
         lateMinutes: 'Minuten te laat',
@@ -240,6 +260,12 @@ export const weldhrTime = {
         reason: 'Reden',
         status: 'Status',
         reviewer: 'Beoordelaar',
+      },
+      groups: {
+        pending: 'In behandeling',
+        approved: 'Goedgekeurd',
+        rejectedCancelled: 'Afgewezen & geannuleerd',
+        other: 'Overig',
       },
       approve: 'Goedkeuren',
       reject: 'Afwijzen',

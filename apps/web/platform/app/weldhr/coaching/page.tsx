@@ -4,51 +4,34 @@
  * {@link CoachingDialog}.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { CheckCircle2, Plus } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { CheckCircle2, MessageSquareText } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
-import { Input } from '@weldsuite/ui/components/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import type { HrCoachingCategory, HrCoachingLog, HrCoachingStatus } from '@weldsuite/app-api-client/domains/weldhr';
+import type { HrCoachingCategory, HrCoachingLog } from '@weldsuite/app-api-client/domains/weldhr';
 import {
   useDeleteHrCoaching,
   useHrCoaching,
+  useHrEmployees,
   useUpdateHrCoaching,
 } from '@/hooks/queries/use-weldhr-queries';
-import { cn } from '@/lib/utils';
+import { useAppApiClient } from '@/lib/api/use-app-api';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
-  CompanyPicker,
-  EmployeeAvatar,
-  EmployeePicker,
-  EmptyState,
-  ErrorBanner,
-  InlineSpinner,
-  PageBody,
-  PageHeader,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-  todayIso,
-} from '../components/shared';
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
+import { cn } from '@/lib/utils';
+import { emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
+import { EmployeeAvatar, StatusBadge, errorMessage, formatDate, todayIso } from '../components/shared';
 import { CoachingDialog } from './components/coaching-dialog';
 
 const CATEGORIES: HrCoachingCategory[] = [
@@ -59,281 +42,282 @@ const CATEGORIES: HrCoachingCategory[] = [
   'development',
   'recognition',
 ];
-const STATUSES: HrCoachingStatus[] = ['open', 'acknowledged', 'closed'];
 
 type DialogState = { kind: 'create' } | { kind: 'edit'; log: HrCoachingLog } | null;
 
+interface CompanyOption {
+  id: string;
+  displayName?: string | null;
+  name?: string | null;
+}
+
 export default function WeldHrCoachingPage() {
   const t = useTranslations();
+  useHrBreadcrumbs({ label: t('weldhr.coaching.title') });
   const { can } = usePermissions();
   const canCreate = can('coaching:create');
   const canUpdate = can('coaching:update');
   const canDelete = can('coaching:delete');
 
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [employeeLabel, setEmployeeLabel] = useState<string | null>(null);
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const [companyLabel, setCompanyLabel] = useState<string | null>(null);
-  const [category, setCategory] = useState<string>('all');
-  const [status, setStatus] = useState<string>('all');
-  const [followUpDue, setFollowUpDue] = useState(false);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const [deleteTarget, setDeleteTarget] = useState<HrCoachingLog | null>(null);
 
-  const { data: logs, isLoading, error } = useHrCoaching({
-    employeeId: employeeId ?? undefined,
-    companyId: companyId ?? undefined,
-    category: category === 'all' ? undefined : category,
-    status: status === 'all' ? undefined : status,
-    followUpDue: followUpDue || undefined,
-    from: from || undefined,
-    to: to || undefined,
+  const { getClient } = useAppApiClient();
+  const { data: employeesData } = useHrEmployees({ limit: 100 });
+  const { data: companiesData } = useQuery({
+    queryKey: ['weldhr', 'coaching', 'company-options'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: CompanyOption[] }>('/companies?limit=100');
+    },
+    staleTime: 60_000,
   });
+  const employeeOptions = employeesData?.data ?? [];
+  const companyOptions = companiesData?.data ?? [];
 
-  return (
-    <PageBody wide>
-      <PageHeader
-        title={t('weldhr.coaching.title')}
-        subtitle={t('weldhr.coaching.subtitle')}
-        actions={
-          canCreate && (
-            <Button onClick={() => setDialog({ kind: 'create' })}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t('weldhr.coaching.logSession')}
-            </Button>
-          )
-        }
-      />
+  const filterValue = (field: string) => activeFilters.find((f) => f.field === field)?.value;
+  const employeeId = filterValue('employeeId');
+  const companyId = filterValue('companyId');
+  const category = filterValue('category');
+  const from = activeFilters.find((f) => f.field === 'sessionDate' && f.operator === 'after')?.value;
+  const to = activeFilters.find((f) => f.field === 'sessionDate' && f.operator === 'before')?.value;
 
-      <Card className="flex flex-wrap items-end gap-3 p-4">
-        <div className="w-48 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.coaching.filters.employee')}</p>
-          <EmployeePicker
-            value={employeeId}
-            valueLabel={employeeLabel}
-            onChange={(id, label) => {
-              setEmployeeId(id);
-              setEmployeeLabel(label);
-            }}
-            allowClear
-          />
-        </div>
-        <div className="w-48 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.coaching.filters.client')}</p>
-          <CompanyPicker
-            value={companyId}
-            valueLabel={companyLabel}
-            onChange={(id, label) => {
-              setCompanyId(id);
-              setCompanyLabel(label);
-            }}
-            allowClear
-          />
-        </div>
-        <div className="w-40 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.coaching.filters.category')}</p>
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('weldhr.common.all')}</SelectItem>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {t(`weldhr.status.coachingCategory.${c}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-40 space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.common.status')}</p>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('weldhr.common.all')}</SelectItem>
-              {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {t(`weldhr.status.coaching.${s}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.common.from')}</p>
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-36" />
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">{t('weldhr.common.to')}</p>
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-36" />
-        </div>
-        <Button
-          type="button"
-          variant={followUpDue ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setFollowUpDue((v) => !v)}
-        >
-          {t('weldhr.coaching.filters.followUpDue')}
-        </Button>
-      </Card>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !logs || logs.length === 0 ? (
-        <EmptyState
-          title={t('weldhr.coaching.empty.title')}
-          description={t('weldhr.coaching.empty.description')}
-          action={
-            canCreate ? (
-              <Button onClick={() => setDialog({ kind: 'create' })}>{t('weldhr.coaching.logSession')}</Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <Card className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.coaching.table.date')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.employee')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.coach')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.category')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.topic')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.client')}</TableHead>
-                <TableHead>{t('weldhr.common.status')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.visibility')}</TableHead>
-                <TableHead>{t('weldhr.coaching.table.followUp')}</TableHead>
-                <TableHead className="w-px" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.map((log) => (
-                <CoachingRow
-                  key={log.id}
-                  log={log}
-                  canUpdate={canUpdate}
-                  canDelete={canDelete}
-                  onEdit={() => setDialog({ kind: 'edit', log })}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
-
-      {dialog?.kind === 'create' && <CoachingDialog onClose={() => setDialog(null)} />}
-      {dialog?.kind === 'edit' && <CoachingDialog log={dialog.log} onClose={() => setDialog(null)} />}
-    </PageBody>
-  );
-}
-
-function CoachingRow({
-  log,
-  canUpdate,
-  canDelete,
-  onEdit,
-}: {
-  log: HrCoachingLog;
-  canUpdate: boolean;
-  canDelete: boolean;
-  onEdit: () => void;
-}) {
-  const t = useTranslations();
+  const { data: logs, isLoading, error } = useHrCoaching({ employeeId, companyId, category, from, to });
   const updateCoaching = useUpdateHrCoaching();
-  const [failure, setFailure] = useState<string | null>(null);
+  const deleteCoaching = useDeleteHrCoaching();
 
-  const followUpDue = Boolean(log.followUpDate) && log.followUpDate! <= todayIso() && log.status !== 'closed';
+  const items = useMemo(() => {
+    const all = logs ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter(
+      (log) =>
+        log.topic.toLowerCase().includes(q) ||
+        (log.employeeName ?? '').toLowerCase().includes(q) ||
+        (log.coachName ?? '').toLowerCase().includes(q) ||
+        (log.notes ?? '').toLowerCase().includes(q),
+    );
+  }, [logs, search]);
 
-  async function closeSession() {
-    setFailure(null);
+  const followUpDue = (log: HrCoachingLog) =>
+    Boolean(log.followUpDate) && log.followUpDate! <= todayIso() && log.status !== 'closed';
+
+  async function closeSession(log: HrCoachingLog) {
     try {
       await updateCoaching.mutateAsync({ id: log.id, status: 'closed' });
+      toast.success(t('weldhr.coaching.toastClosed'));
     } catch (err) {
-      setFailure(errorMessage(err, t('weldhr.common.saveFailed')));
+      toast.error(errorMessage(err, t('weldhr.common.saveFailed')));
     }
   }
 
-  return (
-    <TableRow>
-      <TableCell>{formatDate(log.sessionDate)}</TableCell>
-      <TableCell>
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteCoaching.mutateAsync(deleteTarget.id);
+      toast.success(t('weldhr.coaching.toastDeleted'));
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(errorMessage(err, t('weldhr.common.deleteFailed')));
+    }
+  }
+
+  const filters: FilterConfig[] = [
+    {
+      field: 'category',
+      label: t('weldhr.coaching.filters.category'),
+      options: CATEGORIES.map((c) => ({ value: c, label: t(`weldhr.status.coachingCategory.${c}`) })),
+    },
+    {
+      field: 'employeeId',
+      label: t('weldhr.coaching.filters.employee'),
+      searchable: true,
+      options: employeeOptions.map((e) => ({ value: e.id, label: e.displayName })),
+    },
+    {
+      field: 'companyId',
+      label: t('weldhr.coaching.filters.client'),
+      searchable: true,
+      options: companyOptions.map((c) => ({ value: c.id, label: c.displayName || c.name || c.id })),
+    },
+    {
+      field: 'sessionDate',
+      label: t('weldhr.coaching.dialog.sessionDate'),
+      filterType: 'date',
+      options: [],
+    },
+  ];
+
+  const groups: GroupConfig<HrCoachingLog>[] = [
+    { id: 'followUpDue', label: t('weldhr.coaching.filters.followUpDue'), sortOrder: 1, filter: followUpDue },
+    {
+      id: 'open',
+      label: t('weldhr.status.coaching.open'),
+      sortOrder: 2,
+      filter: (log) => log.status === 'open' && !followUpDue(log),
+    },
+    {
+      id: 'acknowledged',
+      label: t('weldhr.status.coaching.acknowledged'),
+      sortOrder: 3,
+      filter: (log) => log.status === 'acknowledged' && !followUpDue(log),
+    },
+    { id: 'closed', label: t('weldhr.status.coaching.closed'), sortOrder: 4, filter: (log) => log.status === 'closed' },
+    {
+      id: 'other',
+      label: t('weldhr.coaching.groups.other'),
+      sortOrder: 5,
+      filter: (log) => !['open', 'acknowledged', 'closed'].includes(log.status),
+    },
+  ];
+
+  const columns: ColumnDef<HrCoachingLog>[] = [
+    {
+      id: 'date',
+      header: t('weldhr.coaching.table.date'),
+      width: 'w-[100px]',
+      render: (log) => <span className="text-muted-foreground">{formatDate(log.sessionDate)}</span>,
+    },
+    {
+      id: 'employee',
+      header: t('weldhr.coaching.table.employee'),
+      width: 'flex-1',
+      render: (log) => (
         <Link
           to="/weldhr/employees/$employeeId"
           params={{ employeeId: log.employeeId }}
           className="flex items-center gap-2 hover:underline"
+          onClick={(e) => e.stopPropagation()}
         >
           <EmployeeAvatar name={log.employeeName ?? ''} className="h-6 w-6" />
           <span className="truncate">{log.employeeName}</span>
         </Link>
-      </TableCell>
-      <TableCell>{log.coachName ?? '—'}</TableCell>
-      <TableCell>{t(`weldhr.status.coachingCategory.${log.category}`)}</TableCell>
-      <TableCell className="max-w-xs whitespace-normal">
-        <p className="truncate font-medium">{log.topic}</p>
-        {log.acknowledgedAt && (
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="h-3 w-3" />
-            {t('weldhr.coaching.table.acknowledged')}
-          </p>
-        )}
-        {log.employeeComment && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">“{log.employeeComment}”</p>
-        )}
-      </TableCell>
-      <TableCell>{log.companyName ?? '—'}</TableCell>
-      <TableCell>
-        <StatusBadge group="coaching" status={log.status} />
-      </TableCell>
-      <TableCell>
-        <Badge variant={log.visibility === 'internal' ? 'secondary' : 'outline'}>
-          {t(`weldhr.status.visibility.${log.visibility}`)}
-        </Badge>
-      </TableCell>
-      <TableCell className={cn(followUpDue && 'font-medium text-amber-600 dark:text-amber-400')}>
-        {formatDate(log.followUpDate)}
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-end gap-1">
+      ),
+    },
+    {
+      id: 'coach',
+      header: t('weldhr.coaching.table.coach'),
+      width: 'w-[130px]',
+      render: (log) => <span className="text-muted-foreground">{log.coachName ?? '—'}</span>,
+    },
+    {
+      id: 'category',
+      header: t('weldhr.coaching.table.category'),
+      width: 'w-[120px]',
+      render: (log) => <span>{t(`weldhr.status.coachingCategory.${log.category}`)}</span>,
+    },
+    {
+      id: 'topic',
+      header: t('weldhr.coaching.table.topic'),
+      width: 'flex-1',
+      render: (log) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{log.topic}</p>
+          {log.acknowledgedAt && (
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-3 w-3" />
+              {t('weldhr.coaching.table.acknowledged')}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'client',
+      header: t('weldhr.coaching.table.client'),
+      width: 'w-[140px]',
+      render: (log) => <span className="text-muted-foreground">{log.companyName ?? '—'}</span>,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.common.status'),
+      width: 'w-[170px]',
+      render: (log) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge group="coaching" status={log.status} />
           {canUpdate && log.status !== 'closed' && (
-            <Button variant="ghost" size="sm" onClick={() => void closeSession()} disabled={updateCoaching.isPending}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              disabled={updateCoaching.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                void closeSession(log);
+              }}
+            >
               {t('weldhr.coaching.closeSession')}
             </Button>
           )}
-          {canUpdate && (
-            <Button variant="ghost" size="sm" onClick={onEdit}>
-              {t('weldhr.common.edit')}
-            </Button>
-          )}
-          {canDelete && <DeleteCoachingButton logId={log.id} />}
         </div>
-        {failure && <p className="mt-1 text-xs text-destructive">{failure}</p>}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function DeleteCoachingButton({ logId }: { logId: string }) {
-  const t = useTranslations();
-  const deleteCoaching = useDeleteHrCoaching();
-
-  async function remove() {
-    if (!confirm(t('weldhr.common.confirmDelete'))) return;
-    try {
-      await deleteCoaching.mutateAsync(logId);
-    } catch {
-      // Surfaced via the row's own error state on next render if needed.
-    }
-  }
+      ),
+    },
+    {
+      id: 'visibility',
+      header: t('weldhr.coaching.table.visibility'),
+      width: 'w-[110px]',
+      render: (log) => (
+        <Badge variant={log.visibility === 'internal' ? 'secondary' : 'outline'}>
+          {t(`weldhr.status.visibility.${log.visibility}`)}
+        </Badge>
+      ),
+    },
+    {
+      id: 'followUp',
+      header: t('weldhr.coaching.table.followUp'),
+      width: 'w-[110px]',
+      render: (log) => (
+        <span className={cn(followUpDue(log) && 'font-medium text-amber-600 dark:text-amber-400')}>
+          {formatDate(log.followUpDate)}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <Button variant="ghost" size="sm" onClick={() => void remove()} disabled={deleteCoaching.isPending}>
-      {t('weldhr.common.delete')}
-    </Button>
+    <>
+      <PanelEntityList<HrCoachingLog>
+        items={items}
+        isLoading={isLoading}
+        error={(error as Error) ?? null}
+        columns={columns}
+        groups={groups}
+        filters={filters}
+        activeFilters={activeFilters}
+        onFiltersChange={setActiveFilters}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.coaching.searchPlaceholder')}
+        onRowClick={canUpdate ? (log) => setDialog({ kind: 'edit', log }) : undefined}
+        onEdit={canUpdate ? (log) => setDialog({ kind: 'edit', log }) : undefined}
+        onDelete={canDelete ? (log) => setDeleteTarget(log) : undefined}
+        createButton={canCreate ? { label: t('weldhr.coaching.logSession'), onClick: () => setDialog({ kind: 'create' }) } : undefined}
+        emptyState={{
+          icon: emptyIcon(MessageSquareText),
+          title: t('weldhr.coaching.empty.title'),
+          description: t('weldhr.coaching.empty.description'),
+          action: canCreate
+            ? { label: t('weldhr.coaching.logSession'), onClick: () => setDialog({ kind: 'create' }) }
+            : undefined,
+        }}
+      />
+
+      {dialog?.kind === 'create' && <CoachingDialog onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'edit' && <CoachingDialog log={dialog.log} onClose={() => setDialog(null)} />}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('weldhr.common.confirmDelete')}
+        description={deleteTarget?.topic ?? ''}
+        confirmLabel={t('weldhr.common.delete')}
+        cancelLabel={t('weldhr.common.cancel')}
+        variant="destructive"
+        loading={deleteCoaching.isPending}
+        onConfirm={confirmDelete}
+      />
+    </>
   );
 }

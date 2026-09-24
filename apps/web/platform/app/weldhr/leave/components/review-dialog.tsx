@@ -1,6 +1,7 @@
 /** Approve or reject a leave request, with an optional note visible to the employee. */
 
 import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -75,6 +76,7 @@ export function LeaveReviewDialog({
             disabled={review.isPending}
             className={cn(decision === 'rejected' && buttonVariants({ variant: 'destructive' }))}
           >
+            {review.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {decision === 'approved' ? t('weldhr.leave.requests.approve') : t('weldhr.leave.requests.reject')}
           </Button>
         </DialogFooter>

@@ -1,14 +1,15 @@
 /** WeldHR settings — KPI definitions tab. */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Target } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
+import { Loader2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -23,14 +24,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrKpiDefinition, HrKpiDirection, HrKpiUnit } from '@weldsuite/app-api-client/domains/weldhr';
@@ -41,7 +34,9 @@ import {
   useDeleteHrKpi,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { CompanyPicker, EmptyState, ErrorBanner, InlineSpinner, errorMessage, formatKpiValue } from '../../components/shared';
+import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { CompanyPicker, ErrorBanner, errorMessage, formatKpiValue } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
 
 const UNITS: HrKpiUnit[] = ['number', 'percent', 'seconds', 'minutes', 'currency'];
 const DIRECTIONS: HrKpiDirection[] = ['higher_better', 'lower_better'];
@@ -78,105 +73,102 @@ export function KpisTab() {
   const { data: kpis, isLoading, error } = useHrKpis({ includeInactive });
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrKpiDefinition | null>(null);
+  const [search, setSearch] = useState('');
+
+  const items = useMemo(() => {
+    const all = kpis ?? [];
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter((kpi) => kpi.name.toLowerCase().includes(q));
+  }, [kpis, search]);
+
+  const groups: GroupConfig<HrKpiDefinition>[] = [
+    { id: 'workspace', label: t('weldhr.settings.kpis.groupWorkspace'), sortOrder: 1, filter: (i) => !i.companyId },
+    { id: 'client', label: t('weldhr.settings.kpis.groupClient'), sortOrder: 2, filter: (i) => Boolean(i.companyId) },
+  ];
+
+  const columns: ColumnDef<HrKpiDefinition>[] = [
+    {
+      id: 'name',
+      header: t('weldhr.settings.kpis.name'),
+      width: 'flex-1',
+      render: (kpi) => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate font-medium">{kpi.name}</p>
+            {!kpi.isActive && <Badge variant="secondary">{t('weldhr.settings.evaluationForms.inactive')}</Badge>}
+          </div>
+          {kpi.companyName && <p className="truncate text-xs text-muted-foreground">{kpi.companyName}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'unit',
+      header: t('weldhr.settings.kpis.unit'),
+      width: 'w-[120px]',
+      render: (kpi) => <span className="text-muted-foreground">{t(`weldhr.status.kpiUnit.${kpi.unit}`)}</span>,
+    },
+    {
+      id: 'direction',
+      header: t('weldhr.settings.kpis.direction'),
+      width: 'w-[150px]',
+      render: (kpi) => <span className="text-muted-foreground">{t(`weldhr.status.kpiDirection.${kpi.direction}`)}</span>,
+    },
+    {
+      id: 'target',
+      header: t('weldhr.settings.kpis.target'),
+      width: 'w-[110px]',
+      render: (kpi) => <span className="tabular-nums">{formatKpiValue(kpi.target, kpi.unit)}</span>,
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{t('weldhr.settings.kpis.subtitle')}</p>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch id="kpi-include-inactive" checked={includeInactive} onCheckedChange={setIncludeInactive} />
-            <Label htmlFor="kpi-include-inactive" className="text-sm font-normal">
-              {t('weldhr.settings.kpis.includeInactive')}
-            </Label>
-          </div>
-          {canManage && (
-            <Button size="sm" onClick={() => setForm({ ...EMPTY_FORM })}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t('weldhr.settings.kpis.add')}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
-
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !kpis || kpis.length === 0 ? (
-        <EmptyState title={t('weldhr.settings.kpis.emptyTitle')} description={t('weldhr.settings.kpis.emptyDescription')} />
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.settings.kpis.name')}</TableHead>
-                <TableHead>{t('weldhr.settings.kpis.unit')}</TableHead>
-                <TableHead>{t('weldhr.settings.kpis.direction')}</TableHead>
-                <TableHead className="text-right">{t('weldhr.settings.kpis.target')}</TableHead>
-                <TableHead>{t('weldhr.settings.kpis.clientSpecific')}</TableHead>
-                <TableHead>{t('weldhr.common.status')}</TableHead>
-                {canManage && <TableHead className="w-24" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {kpis.map((kpi) => (
-                <TableRow key={kpi.id}>
-                  <TableCell className="font-medium">{kpi.name}</TableCell>
-                  <TableCell>{t(`weldhr.status.kpiUnit.${kpi.unit}`)}</TableCell>
-                  <TableCell>{t(`weldhr.status.kpiDirection.${kpi.direction}`)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatKpiValue(kpi.target, kpi.unit)}</TableCell>
-                  <TableCell className="text-muted-foreground">{kpi.companyName ?? t('weldhr.settings.kpis.allClients')}</TableCell>
-                  <TableCell>
-                    <Badge variant={kpi.isActive ? 'default' : 'secondary'}>
-                      {kpi.isActive ? t('weldhr.settings.evaluationForms.active') : t('weldhr.settings.evaluationForms.inactive')}
-                    </Badge>
-                  </TableCell>
-                  {canManage && (
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() =>
-                            setForm({
-                              id: kpi.id,
-                              name: kpi.name,
-                              description: kpi.description ?? '',
-                              unit: kpi.unit,
-                              direction: kpi.direction,
-                              target: kpi.target === null ? '' : String(kpi.target),
-                              companyId: kpi.companyId,
-                              companyName: kpi.companyName,
-                              isActive: kpi.isActive,
-                            })
-                          }
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => setDeleteTarget(kpi)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+    <>
+      <PanelEntityList<HrKpiDefinition>
+        items={items}
+        isLoading={isLoading}
+        error={error as Error | null}
+        columns={columns}
+        groups={groups}
+        onEdit={
+          canManage
+            ? (kpi) =>
+                setForm({
+                  id: kpi.id,
+                  name: kpi.name,
+                  description: kpi.description ?? '',
+                  unit: kpi.unit,
+                  direction: kpi.direction,
+                  target: kpi.target === null ? '' : String(kpi.target),
+                  companyId: kpi.companyId,
+                  companyName: kpi.companyName,
+                  isActive: kpi.isActive,
+                })
+            : undefined
+        }
+        onDelete={canManage ? setDeleteTarget : undefined}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('weldhr.settings.kpis.name')}
+        actionButtons={
+          <label className="flex h-8 items-center gap-2 px-1 text-sm">
+            <Switch checked={includeInactive} onCheckedChange={setIncludeInactive} />
+            <span className="hidden text-muted-foreground md:inline">{t('weldhr.settings.kpis.includeInactive')}</span>
+          </label>
+        }
+        createButton={canManage ? { label: t('weldhr.settings.kpis.add'), onClick: () => setForm({ ...EMPTY_FORM }) } : undefined}
+        emptyState={{
+          icon: emptyIcon(Target),
+          title: t('weldhr.settings.kpis.emptyTitle'),
+          description: t('weldhr.settings.kpis.emptyDescription'),
+          action: canManage ? { label: t('weldhr.settings.kpis.add'), onClick: () => setForm({ ...EMPTY_FORM }) } : undefined,
+        }}
+      />
 
       {form && <KpiDialog form={form} onClose={() => setForm(null)} />}
 
       {deleteTarget && <DeleteKpiDialog kpi={deleteTarget} onClose={() => setDeleteTarget(null)} />}
-    </div>
+    </>
   );
 }
 
@@ -306,7 +298,8 @@ function KpiDialog({ form, onClose }: { form: FormState; onClose: () => void }) 
             {t('weldhr.common.cancel')}
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={pending || !state.name.trim()}>
-            {pending ? t('weldhr.common.saving') : t('weldhr.common.save')}
+            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t('weldhr.common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

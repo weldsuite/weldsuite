@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
@@ -11,23 +11,16 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useParams } from '@/lib/router';
+import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   useDeleteHrEvaluation,
   useHrEmployee,
   useHrEvaluation,
   useUpdateHrEvaluation,
 } from '@/hooks/queries/use-weldhr-queries';
-import {
-  EmployeeAvatar,
-  ErrorBanner,
-  InlineSpinner,
-  PageBody,
-  ScoreBadge,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-  formatDateTime,
-} from '../../components/shared';
+import { DetailHeader, DetailPage, SectionCard, useHrBreadcrumbs } from '../../components/page-kit';
+import { EmployeeAvatar, ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate, formatDateTime } from '../../components/shared';
 import { EvaluationDialog } from '../components/evaluation-dialog';
 
 export default function WeldHrEvaluationDetailPage() {
@@ -41,7 +34,13 @@ export default function WeldHrEvaluationDetailPage() {
   const updateEvaluation = useUpdateHrEvaluation();
   const deleteEvaluation = useDeleteHrEvaluation();
 
+  useHrBreadcrumbs(
+    { label: t('weldhr.evaluations.title'), href: '/weldhr/evaluations' },
+    evaluation ? { label: evaluation.employeeName ?? '' } : null,
+  );
+
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const canUpdate = can('evaluations:update');
@@ -69,22 +68,23 @@ export default function WeldHrEvaluationDetailPage() {
 
   async function remove() {
     if (!evaluation) return;
-    if (!confirm(t('weldhr.evaluations.detail.deleteConfirm'))) return;
     setFailure(null);
     try {
       await deleteEvaluation.mutateAsync(evaluation.id);
+      setDeleting(false);
       await navigate({ to: '/weldhr/evaluations' });
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.evaluations.detail.deleteFailed')));
+      setDeleting(false);
     }
   }
 
-  if (isLoading) return <InlineSpinner />;
+  if (isLoading) return <PageLoader fullScreen={false} />;
   if (!evaluation) {
     return (
-      <PageBody>
+      <DetailPage>
         <ErrorBanner error={errorMessage(error, t('weldhr.evaluations.detail.notFound'))} />
-      </PageBody>
+      </DetailPage>
     );
   }
 
@@ -92,55 +92,39 @@ export default function WeldHrEvaluationDetailPage() {
   const canEditNow = evaluation.status !== 'acknowledged';
 
   return (
-    <PageBody>
-      <Link to="/weldhr/evaluations" className="flex items-center gap-1 text-sm text-muted-foreground hover:underline">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        {t('weldhr.evaluations.detail.back')}
-      </Link>
-
+    <DetailPage>
       <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <EmployeeAvatar name={evaluation.employeeName ?? ''} src={employee?.avatarUrl} className="h-10 w-10" />
-          <div>
-            <Link
-              to="/weldhr/employees/$employeeId"
-              params={{ employeeId: evaluation.employeeId }}
-              className="text-lg font-semibold hover:underline"
-            >
-              {evaluation.employeeName}
-            </Link>
-            <p className="text-sm text-muted-foreground">
-              {evaluation.formName} {employee?.jobTitle ? `· ${employee.jobTitle}` : ''}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge group="evaluation" status={evaluation.status} />
-          {canUpdate && canEditNow && (
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-              {t('weldhr.common.edit')}
-            </Button>
-          )}
-          {canUpdate && evaluation.status === 'draft' && (
-            <Button size="sm" onClick={() => void submitDraft()} disabled={updateEvaluation.isPending}>
-              <Check className="mr-1.5 h-3.5 w-3.5" />
-              {t('weldhr.evaluations.dialog.submit')}
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void remove()}
-              disabled={deleteEvaluation.isPending}
-            >
-              {t('weldhr.common.delete')}
-            </Button>
-          )}
-        </div>
-      </header>
+      <DetailHeader
+        leading={<EmployeeAvatar name={evaluation.employeeName ?? ''} src={employee?.avatarUrl} className="h-10 w-10" />}
+        title={
+          <Link to="/weldhr/employees/$employeeId" params={{ employeeId: evaluation.employeeId }} className="hover:underline">
+            {evaluation.employeeName}
+          </Link>
+        }
+        subtitle={`${evaluation.formName ?? ''}${employee?.jobTitle ? ` · ${employee.jobTitle}` : ''}`}
+        badges={<StatusBadge group="evaluation" status={evaluation.status} />}
+        actions={
+          <>
+            {canUpdate && canEditNow && (
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                {t('weldhr.common.edit')}
+              </Button>
+            )}
+            {canUpdate && evaluation.status === 'draft' && (
+              <Button size="sm" onClick={() => void submitDraft()} disabled={updateEvaluation.isPending}>
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+                {t('weldhr.evaluations.dialog.submit')}
+              </Button>
+            )}
+            {canDelete && (
+              <Button variant="outline" size="sm" onClick={() => setDeleting(true)}>
+                {t('weldhr.common.delete')}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="p-4">
@@ -171,62 +155,73 @@ export default function WeldHrEvaluationDetailPage() {
         </Card>
       </div>
 
-      <Card className="space-y-4 p-4">
-        <h3 className="text-sm font-medium">{t('weldhr.evaluations.detail.criteria')}</h3>
-        <div className="space-y-4">
-          {evaluation.criteria.map((c) => {
-            const scored = scoreByCriterion.get(c.id);
-            const pct = scored ? Math.min(100, (scored.score / c.maxScore) * 100) : 0;
-            return (
-              <div key={c.id} className="space-y-1">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span className="font-medium">{c.label}</span>
-                  <span className="text-muted-foreground">
-                    {scored ? scored.score : '—'} / {c.maxScore} · {t('weldhr.evaluations.detail.weight')} {c.weight}
-                  </span>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <SectionCard title={t('weldhr.evaluations.detail.criteria')} className="lg:col-span-2">
+          <div className="space-y-4">
+            {evaluation.criteria.map((c) => {
+              const scored = scoreByCriterion.get(c.id);
+              const pct = scored ? Math.min(100, (scored.score / c.maxScore) * 100) : 0;
+              return (
+                <div key={c.id} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">{c.label}</span>
+                    <span className="text-muted-foreground">
+                      {scored ? scored.score : '—'} / {c.maxScore} · {t('weldhr.evaluations.detail.weight')} {c.weight}
+                    </span>
+                  </div>
+                  <Progress value={pct} />
+                  {scored?.comment && <p className="text-xs text-muted-foreground">{scored.comment}</p>}
                 </div>
-                <Progress value={pct} />
-                {scored?.comment && <p className="text-xs text-muted-foreground">{scored.comment}</p>}
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card className="space-y-2 p-4">
-        <h3 className="text-sm font-medium">{t('weldhr.evaluations.dialog.summary')}</h3>
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-          {evaluation.summary || t('weldhr.evaluations.detail.noSummary')}
-        </p>
-      </Card>
-
-      <Card className="space-y-3 p-4">
-        <h3 className="text-sm font-medium">{t('weldhr.evaluations.detail.statusTimeline.title')}</h3>
-        <ol className="space-y-2 text-sm">
-          <TimelineStep label={t('weldhr.evaluations.detail.statusTimeline.created')} at={evaluation.createdAt} done />
-          <TimelineStep
-            label={t('weldhr.evaluations.detail.statusTimeline.submitted')}
-            at={evaluation.submittedAt}
-            done={Boolean(evaluation.submittedAt)}
-          />
-          <TimelineStep
-            label={t('weldhr.evaluations.detail.statusTimeline.acknowledged')}
-            at={evaluation.acknowledgedAt}
-            done={Boolean(evaluation.acknowledgedAt)}
-          />
-        </ol>
-        {evaluation.employeeComment && (
-          <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-xs font-medium text-muted-foreground">{t('weldhr.evaluations.detail.employeeComment')}</p>
-            <p className="mt-1 text-sm">{evaluation.employeeComment}</p>
+              );
+            })}
           </div>
-        )}
-      </Card>
+        </SectionCard>
 
-      {editing && (
-        <EvaluationDialog evaluation={evaluation} onClose={() => setEditing(false)} />
-      )}
-    </PageBody>
+        <div className="space-y-4">
+          <SectionCard title={t('weldhr.evaluations.dialog.summary')}>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+              {evaluation.summary || t('weldhr.evaluations.detail.noSummary')}
+            </p>
+          </SectionCard>
+
+          <SectionCard title={t('weldhr.evaluations.detail.statusTimeline.title')}>
+            <ol className="space-y-2 text-sm">
+              <TimelineStep label={t('weldhr.evaluations.detail.statusTimeline.created')} at={evaluation.createdAt} done />
+              <TimelineStep
+                label={t('weldhr.evaluations.detail.statusTimeline.submitted')}
+                at={evaluation.submittedAt}
+                done={Boolean(evaluation.submittedAt)}
+              />
+              <TimelineStep
+                label={t('weldhr.evaluations.detail.statusTimeline.acknowledged')}
+                at={evaluation.acknowledgedAt}
+                done={Boolean(evaluation.acknowledgedAt)}
+              />
+            </ol>
+            {evaluation.employeeComment && (
+              <div className="mt-3 rounded-md border bg-muted/40 p-3">
+                <p className="text-xs font-medium text-muted-foreground">{t('weldhr.evaluations.detail.employeeComment')}</p>
+                <p className="mt-1 text-sm">{evaluation.employeeComment}</p>
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      </div>
+
+      {editing && <EvaluationDialog evaluation={evaluation} onClose={() => setEditing(false)} />}
+
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={t('weldhr.common.confirmDelete')}
+        description={t('weldhr.evaluations.detail.deleteConfirm')}
+        confirmLabel={t('weldhr.common.delete')}
+        cancelLabel={t('weldhr.common.cancel')}
+        variant="destructive"
+        loading={deleteEvaluation.isPending}
+        onConfirm={remove}
+      />
+    </DetailPage>
   );
 }
 
