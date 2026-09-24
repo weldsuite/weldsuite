@@ -28,7 +28,7 @@ export interface EventRowProps {
   onPress?: () => void;
 }
 
-export function EventRow({ event, calendarName, onPress }: EventRowProps) {
+export function EventRow({ event, calendarName, onPress }: Readonly<EventRowProps>) {
   const { colors } = useTheme();
   const { t, intlLocale, plural } = useI18n();
 
