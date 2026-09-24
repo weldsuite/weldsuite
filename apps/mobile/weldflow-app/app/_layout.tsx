@@ -53,7 +53,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
+function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();
