@@ -37,6 +37,9 @@ import {
 // Globally-mounted overlays are lazy-loaded — they each pull big modules
 // (weldchat ~500 KB, weldmail compose ~50 KB, weldmeet meeting overlay)
 // that otherwise land in the main chunk.
+const WeldAppFrameLayer = lazy(() =>
+  import('@/app/weldapps/host/frame-layer').then((m) => ({ default: m.WeldAppFrameLayer })),
+);
 const FloatingComposePanel = lazy(() =>
   import('@/app/weldmail/components/floating-compose-panel').then((m) => ({ default: m.FloatingComposePanel })),
 );
@@ -242,6 +245,10 @@ export function AppShellClient({ children }: AppShellClientProps) {
                             navigated off the meeting page (or minimized). */}
                         <MeetingPiPWidget />
                         <EntitySheetHost />
+                        {/* Kept-alive WeldApp iframes, positioned over the
+                            slot the /apps/{code} page reserves (see
+                            app/weldapps/host/frame-store.ts). */}
+                        <WeldAppFrameLayer />
                         {/* Object panels now render in-flow as a slot inside
                             PlatformShell's content card (see ObjectPanelHost) —
                             still within this provider scope, so panel bodies

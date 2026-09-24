@@ -3,6 +3,10 @@
  * (light near-black primary; dark Attio-like palette with #266df0 primary).
  * Scope: import once in the app entry. Honors both `html.dark` and
  * `:root[data-theme='dark']` so host theme sync works either way.
+ *
+ * These are fallbacks: inside WeldSuite (bridge protocol 2) the host pushes
+ * the live platform values, which the SDK sets as inline `--wui-*`
+ * properties on <html> and which therefore win over the rules below.
  */
 
 :root {
@@ -28,7 +32,7 @@
   --wui-warning-bg: color-mix(in oklch, oklch(0.75 0.15 85) 14%, transparent);
   --wui-warning-fg: oklch(0.5 0.12 70);
   --wui-radius: 0.625rem;
-  --wui-font: 'Segoe UI', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
+  --wui-font: 'Inter', 'Segoe UI', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
   --wui-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 

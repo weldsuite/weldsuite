@@ -10,6 +10,10 @@ export const weldapps = {
     loading: 'App wordt geladen…',
     developmentBadge: 'Ontwikkeling',
     developmentDescription: 'Dit is uw lokale preview van `weld app dev`. Andere leden zien nog steeds de gepubliceerde bundle.',
+    leaveTitle: 'Deze app verlaten?',
+    leaveDescription: 'U hebt niet-opgeslagen wijzigingen in deze app. Als u nu vertrekt, gaan ze verloren.',
+    leave: 'Verlaten',
+    stay: 'Blijven',
   },
   store: {
     sectionTitle: 'Aangepaste apps',
