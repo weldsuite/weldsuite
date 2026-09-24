@@ -32,7 +32,7 @@ export function ScreenHeader({
   actions,
   below,
   style,
-}: ScreenHeaderProps) {
+}: Readonly<ScreenHeaderProps>) {
   const { colors } = useTheme();
   const router = useRouter();
   const { t } = useI18n();
@@ -76,7 +76,7 @@ export interface ScreenProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function Screen({ children, header, edges = ['top'], style }: ScreenProps) {
+export function Screen({ children, header, edges = ['top'], style }: Readonly<ScreenProps>) {
   const { colors } = useTheme();
   return (
     <SafeAreaView edges={edges} style={[styles.screen, { backgroundColor: colors.background }, style]}>
@@ -86,7 +86,7 @@ export function Screen({ children, header, edges = ['top'], style }: ScreenProps
   );
 }
 
-export function SectionLabel({ children }: { children: React.ReactNode }) {
+export function SectionLabel({ children }: Readonly<{ children: React.ReactNode }>) {
   const { colors } = useTheme();
   return <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{children}</Text>;
 }
