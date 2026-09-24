@@ -107,7 +107,7 @@ export default function PrivacyScreen() {
   );
 }
 
-function LinkRow({ label, onPress }: { label: string; onPress: () => void }) {
+function LinkRow({ label, onPress }: Readonly<{ label: string; onPress: () => void }>) {
   const { colors } = useTheme();
   return (
     <Pressable
