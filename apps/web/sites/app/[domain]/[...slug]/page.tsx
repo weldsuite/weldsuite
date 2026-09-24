@@ -123,7 +123,7 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `${currentPage.name} | ${website.name}` || website.seoTitle || 'Website',
+    title: `${currentPage.name} | ${website.name}`,
     description: website.seoDescription || website.description || 'Built with WeldCommerce',
     keywords: website.seoKeywords || '',
     openGraph: {

@@ -186,7 +186,7 @@ export default function LeadsScreen() {
             </View>
 
             <View style={styles.leadDetails}>
-              {item.email && (
+              {!!item.email && (
                 <View style={styles.detailRow}>
                   <Mail size={12} color={colors.muted} strokeWidth={2} />
                   <Text style={[styles.detailText, { color: colors.muted }]} numberOfLines={1}>

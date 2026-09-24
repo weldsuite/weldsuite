@@ -60,7 +60,7 @@ export default function SchedulingPage() {
                   <CalendarDays className="h-5 w-5 text-muted-foreground shrink-0" />
                   <div>
                     <p className="text-sm font-medium">{bp.name}</p>
-                    {bp.duration && (
+                    {!!bp.duration && (
                       <p className="text-xs text-muted-foreground">{bp.duration} min</p>
                     )}
                   </div>

@@ -594,7 +594,7 @@ export default function BillingSettingsPage() {
               {membersUsed} / {membersTotal ?? '\u221E'}
             </p>
             <div className="mt-auto">
-              {membersTotal && <Progress value={membersPercentage} className="h-1" />}
+              {!!membersTotal && <Progress value={membersPercentage} className="h-1" />}
             </div>
           </div>
 

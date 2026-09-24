@@ -310,7 +310,7 @@ export default function SearchScreen() {
             </TouchableOpacity>
           </View>
 
-          {activeFilters[activeFilterType || ''] && (
+          {!!activeFilters[activeFilterType || ''] && (
             <TouchableOpacity
               style={styles.modalClearButton}
               onPress={() => {
