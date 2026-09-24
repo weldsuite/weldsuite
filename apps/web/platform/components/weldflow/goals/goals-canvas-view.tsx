@@ -728,7 +728,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       width: cardWidth,
       height: cardHeight,
       metrics: {
-        target: target ? parseInt(target) : 0,
+        target: target ? Number.parseInt(target) : 0,
         current: 0,
         unit: 'subgoals'
       },
@@ -817,7 +817,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       parentId: parentId,
       linkedTaskId,
       metrics: {
-        target: target ? parseInt(target) : 0,
+        target: target ? Number.parseInt(target) : 0,
         current: 0,
         unit: 'subgoals'
       },

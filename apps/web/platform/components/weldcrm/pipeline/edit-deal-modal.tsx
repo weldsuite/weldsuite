@@ -134,8 +134,8 @@ export function EditDealModal({
     try {
       await onSubmit(deal.id, {
         title: dealTitle,
-        value: parseFloat(dealValue),
-        probability: probability ? parseInt(probability) : undefined,
+        value: Number.parseFloat(dealValue),
+        probability: probability ? Number.parseInt(probability) : undefined,
         expectedCloseDate: expectedCloseDate?.toISOString(),
         description: notes,
       });

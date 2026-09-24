@@ -1297,7 +1297,7 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
                       value={selectedMarker.date.getHours().toString().padStart(2, '0')}
                       onValueChange={(h) => {
                         const newDate = new Date(selectedMarker.date);
-                        newDate.setHours(parseInt(h));
+                        newDate.setHours(Number.parseInt(h));
                         handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
@@ -1313,7 +1313,7 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
                       value={selectedMarker.date.getMinutes().toString().padStart(2, '0')}
                       onValueChange={(m) => {
                         const newDate = new Date(selectedMarker.date);
-                        newDate.setMinutes(parseInt(m));
+                        newDate.setMinutes(Number.parseInt(m));
                         handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
