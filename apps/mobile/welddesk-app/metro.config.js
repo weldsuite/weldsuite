@@ -56,4 +56,32 @@ config.resolver.extraNodeModules = Object.fromEntries(
   singletons.map((pkg) => [pkg, resolvePackageDir(pkg)]),
 );
 
+// RN's AbortController polyfill (abort-controller) does EventTarget.call(signal).
+// The hoisted event-target-shim is v6 (pulled in by the WebRTC apps), whose
+// default export is a native ES6 class, which throws "Class constructor invoked
+// without new" under that pattern — an immediate production launch crash.
+// abort-controller's own nested v5 copy is invisible because
+// disableHierarchicalLookup is on, so force the ES5 build (same fix as
+// weldmail/weldchat/weldflow).
+const eventTargetShimRoot = resolvePackageDir('event-target-shim');
+const eventTargetShimEntry = path.join(eventTargetShimRoot, 'es5.js');
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  'event-target-shim': eventTargetShimRoot,
+};
+
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'event-target-shim') {
+    return {
+      type: 'sourceFile',
+      filePath: eventTargetShimEntry,
+    };
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
