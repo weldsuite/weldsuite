@@ -42,7 +42,7 @@ function getPanelTitle({
   return 'Code'
 }
 
-function ClipboardIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function ClipboardIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" {...props}>
       <path
@@ -58,7 +58,7 @@ function ClipboardIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function CopyButton({ code }: { code: string }) {
+function CopyButton({ code }: Readonly<{ code: string }>) {
   const [copyCount, setCopyCount] = useState(0)
   const copied = copyCount > 0
 
@@ -109,7 +109,7 @@ function CopyButton({ code }: { code: string }) {
   )
 }
 
-function CodePanelHeader({ tag, label }: { tag?: string; label?: string }) {
+function CodePanelHeader({ tag, label }: Readonly<{ tag?: string; label?: string }>) {
   if (!tag && !label) {
     return null
   }
@@ -136,12 +136,12 @@ function CodePanel({
   tag,
   label,
   code,
-}: {
+}: Readonly<{
   children: React.ReactNode
   tag?: string
   label?: string
   code?: string
-}) {
+}>) {
   const childArray = Children.toArray(children)
   const child = childArray.find((c) => isValidElement(c)) ?? childArray[0]
 
@@ -173,11 +173,11 @@ function CodeGroupHeader({
   title,
   children,
   selectedIndex,
-}: {
+}: Readonly<{
   title: string
   children: React.ReactNode
   selectedIndex: number
-}) {
+}>) {
   const hasTabs = Children.count(children) > 1
 
   if (!title && !hasTabs) {
@@ -218,7 +218,7 @@ function CodeGroupHeader({
 function CodeGroupPanels({
   children,
   ...props
-}: React.ComponentPropsWithoutRef<typeof CodePanel>) {
+}: Readonly<React.ComponentPropsWithoutRef<typeof CodePanel>>) {
   const hasTabs = Children.count(children) > 1
 
   if (hasTabs) {
@@ -359,7 +359,7 @@ export function CodeGroup({
 export function Code({
   children,
   ...props
-}: React.ComponentPropsWithoutRef<'code'>) {
+}: Readonly<React.ComponentPropsWithoutRef<'code'>>) {
   const isGrouped = useContext(CodeGroupContext)
 
   if (isGrouped) {
