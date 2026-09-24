@@ -233,7 +233,7 @@ export function htmlToRuns(html: string): RichTextRun[] {
     if (style.fontFamily) format.fontFamily = style.fontFamily;
     if (style.fontSize) {
       const size = Number.parseInt(style.fontSize);
-      if (!isNaN(size)) format.fontSize = size;
+      if (!Number.isNaN(size)) format.fontSize = size;
     }
 
     for (const child of Array.from(el.childNodes)) {

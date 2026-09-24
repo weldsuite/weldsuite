@@ -801,7 +801,7 @@ export function SpreadsheetGrid({
       ? srcValues.filter((_, i) => i % selWidth === 0) // First column values
       : srcValues.slice(0, selWidth); // First row values
     const nums = seqValues.map(Number);
-    const isSequence = seqValues.length >= 2 && nums.every(n => !isNaN(n));
+    const isSequence = seqValues.length >= 2 && nums.every(n => !Number.isNaN(n));
     const seqDiff = isSequence && seqValues.length >= 2 ? nums[1] - nums[0] : 0;
     const hasConstantDiff = isSequence && nums.every((n, i) => i === 0 || n - nums[i - 1] === seqDiff);
 

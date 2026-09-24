@@ -498,7 +498,7 @@ function StatusBar({ columns, rows, selBounds }: {
         if (val !== null && val !== undefined && val !== '') {
           count++;
           const n = Number(val);
-          if (!isNaN(n)) { sum += n; numCount++; }
+          if (!Number.isNaN(n)) { sum += n; numCount++; }
         }
       }
     }

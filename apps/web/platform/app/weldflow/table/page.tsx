@@ -984,7 +984,7 @@ export default function TablePage() {
     // Get values from the target field
     const values = relatedRows
       .map(r => r.data[targetField])
-      .filter(v => typeof v === 'number' && !isNaN(v));
+      .filter(v => typeof v === 'number' && !Number.isNaN(v));
 
     if (values.length === 0) return 0;
 
