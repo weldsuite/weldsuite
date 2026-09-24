@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission } from '@weldsuite/permissions';
+
+/** Permissions are per app; this app checks them as WeldMail. */
+const APP = 'weldmail';
 import { appApi } from '@/services/app-api';
 
 interface PermissionContextValue {
@@ -11,7 +14,10 @@ interface PermissionContextValue {
   isOwner: boolean;
   /** True until the first successful resolve. `can()` fails closed while loading. */
   isLoading: boolean;
-  /** Wildcard-aware permission check. Returns false until permissions are loaded. */
+  /**
+   * Permission check in WeldMail (`accounts:create` → `weldmail:accounts:create`),
+   * wildcard- and deny-aware. Returns false until permissions are loaded.
+   */
   can: (permission: string) => boolean;
 }
 
@@ -26,6 +32,7 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
   const { user, organizationId } = useClerkAuth();
 
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [denies, setDenies] = useState<string[]>([]);
   const [role, setRole] = useState('');
   const [isOwner, setIsOwner] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,6 +49,7 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
       initializedRef.current = true;
       retryCountRef.current = 0;
       setPermissions(data.permissions ?? []);
+      setDenies(data.denies ?? []);
       setRole(data.role ?? '');
       setIsOwner(!!data.isOwner);
       setIsLoading(false);
@@ -67,6 +75,7 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
       initializedRef.current = false;
       retryCountRef.current = 0;
       setPermissions([]);
+      setDenies([]);
       setRole('');
       setIsOwner(false);
       setIsLoading(true);
@@ -80,9 +89,9 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
   const can = useCallback(
     (permission: string) => {
       if (isLoading) return false;
-      return hasPermission(permissions, permission);
+      return hasAppPermission({ permissions, denies }, permission, APP);
     },
-    [isLoading, permissions],
+    [isLoading, permissions, denies],
   );
 
   return (

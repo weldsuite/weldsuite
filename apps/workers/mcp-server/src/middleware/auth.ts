@@ -309,6 +309,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // token. A member who cannot delete leads in the UI cannot delete them
   // through an AI assistant either.
   let permissions: string[];
+  let permissionDenies: string[];
   let role: string;
   let roleId: string | null;
   try {
@@ -320,6 +321,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     });
     const resolved = await resolveEffectivePermissions(queries, userId);
     permissions = resolved.permissions;
+    permissionDenies = resolved.denies ?? [];
     role = resolved.role;
     roleId = resolved.roleId;
   } catch (error) {
@@ -381,6 +383,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     tier: workspace.tier,
     databaseUrl: workspace.databaseUrl,
     permissions,
+    permissionDenies,
     role,
     clientId,
   };

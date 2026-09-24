@@ -10,6 +10,8 @@ import type { ClientApi, DataResponse } from '../types';
 
 export interface MyPermissions {
   permissions: string[];
+  /** Explicit per-member denies; a deny wins over any grant. */
+  denies?: string[];
   role: string;
   roleId: string | null;
   isOwner: boolean;

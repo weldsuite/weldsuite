@@ -33,6 +33,8 @@ export interface McpSession {
    * its user can do in the UI.
    */
   permissions: string[];
+  /** Explicit per-member denies; a deny wins over any grant. */
+  permissionDenies: string[];
   /** The user's workspace role (OWNER, ADMIN, MEMBER, VIEWER or a custom role). */
   role: string;
   /** The OAuth client that obtained the token, for logging/diagnostics. */

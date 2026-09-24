@@ -193,8 +193,10 @@ const client = createClientApi({
   baseUrl: APP_API_URL,
   getToken,
   getExtraHeaders: (): Record<string, string> => {
-    if (!accountingEntityId) return {};
-    return { 'X-Accounting-Entity-Id': accountingEntityId };
+    // X-Weld-App: which app's permissions apply (per-app permission model).
+    const headers: Record<string, string> = { 'X-Weld-App': 'weldbooks' };
+    if (accountingEntityId) headers['X-Accounting-Entity-Id'] = accountingEntityId;
+    return headers;
   },
 });
 

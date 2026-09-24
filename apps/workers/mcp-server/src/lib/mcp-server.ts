@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpSession } from './api-types';
 import type { Env } from '../types/env';
-import { canUseScope } from './permissions';
+import { canUseScope, type Grants } from './permissions';
 import { executeTool } from './proxy';
 import { allTools, toolError } from '../tools/registry';
 import {
@@ -20,6 +20,11 @@ const USER_APPS_SCOPE = 'user-apps:manage';
 
 /** Scope gating WeldObjects (user-defined custom object) agent tools. */
 const CUSTOM_OBJECTS_SCOPE = 'custom-objects:read';
+
+/** The session's grants and member denies, for tool visibility checks. */
+function grantsOf(session: McpSession): Grants {
+  return { permissions: session.permissions, denies: session.permissionDenies };
+}
 
 /**
  * Guidance sent to the client on `initialize`.
@@ -101,7 +106,7 @@ export async function createMcpServer(
   // still `requireScope` inside the API, so a listed tool can still be refused.
   const registeredNames = new Set<string>();
   for (const tool of allTools) {
-    if (!canUseScope(session.permissions, tool.scope)) continue;
+    if (!canUseScope(grantsOf(session), tool.scope)) continue;
     registeredNames.add(tool.name);
 
     server.tool(tool.name, tool.description, tool.inputSchema, async (args) => {
@@ -118,7 +123,7 @@ export async function createMcpServer(
   // Register user-created WeldApp agent tools (dynamic, scope-gated).
   // `loadUserAppTools` swallows failures and returns [] so a broken app can
   // never take the static tools down with it.
-  if (canUseScope(session.permissions, USER_APPS_SCOPE)) {
+  if (canUseScope(grantsOf(session), USER_APPS_SCOPE)) {
     const userAppTools = await loadUserAppTools(session, env, executionCtx);
 
     for (const appTool of userAppTools) {
@@ -157,7 +162,7 @@ export async function createMcpServer(
   // Register WeldObjects tools (dynamic, scope-gated). Same failure posture as
   // the WeldApp tools above: `loadCustomObjectTools` returns [] on any error so
   // a misconfigured object can never take the static tools down with it.
-  if (canUseScope(session.permissions, CUSTOM_OBJECTS_SCOPE)) {
+  if (canUseScope(grantsOf(session), CUSTOM_OBJECTS_SCOPE)) {
     const objects = await loadCustomObjectTools(session, env, executionCtx);
 
     for (const object of objects) {

@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission } from '@weldsuite/permissions';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import { listPeople, createPerson, getPerson } from '../people';
@@ -39,8 +39,12 @@ export interface PlatformToolDefinition {
   execute: (ctx: ToolContext, args: unknown) => Promise<unknown>;
 }
 
+/**
+ * An agent works across apps, so an app-scoped grant counts when ANY app
+ * gives it (`weldcrm:people:read` satisfies `people:read`).
+ */
 function agentHasGrants(agentPermissions: string[], required: string[]): boolean {
-  return required.every((req) => hasPermission(agentPermissions, req));
+  return required.every((req) => hasAppPermission({ permissions: agentPermissions }, req, null));
 }
 
 const listPeopleParams = z.object({

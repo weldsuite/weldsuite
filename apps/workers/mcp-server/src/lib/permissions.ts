@@ -15,6 +15,8 @@
  * explicit `:delete` grant.
  */
 
+import { hasAppPermission, type PermissionSubject } from '@weldsuite/permissions';
+
 /** Actions that satisfy a request, by HTTP method. */
 const ACTIONS_BY_METHOD: Record<string, readonly string[]> = {
   GET: ['read'],
@@ -63,36 +65,47 @@ function literalVerb(verb: string | undefined): string | null {
 }
 
 /**
- * Does this permission set include `key`?
- *
- * Understands the two wildcards the resolver can emit: `*` (owners) and
- * `<object>:*` (from a member's extra permissions).
+ * A caller's grants: the resolved permission list, optionally with the
+ * member's explicit denies. A bare list is accepted for callers that only
+ * hold grants.
  */
-export function hasPermission(permissions: readonly string[], key: string): boolean {
-  if (permissions.includes('*')) return true;
-  if (permissions.includes(key)) return true;
-  const object = key.split(':')[0];
-  return object ? permissions.includes(`${object}:*`) : false;
+export type Grants = PermissionSubject | readonly string[];
+
+function toSubject(grants: Grants): PermissionSubject {
+  return isGrantList(grants) ? { permissions: [...grants] } : grants;
+}
+
+function isGrantList(grants: Grants): grants is readonly string[] {
+  return Array.isArray(grants);
 }
 
 /**
- * Enforcement check: may this permission set perform `method` on `scope`?
+ * Does this caller hold `key`?
+ *
+ * MCP requests have no app context (a tool isn't "in" WeldCRM or WeldDesk), so
+ * an app-scoped key is allowed when ANY app grants it: `companies:read` passes
+ * with `weldcrm:companies:read`. Wildcards and member denies behave exactly
+ * as in app-api's requirePermission, via the shared @weldsuite/permissions
+ * check.
  */
-export function canPerform(
-  permissions: readonly string[],
-  scope: string,
-  method: string,
-): boolean {
+export function hasPermission(grants: Grants, key: string): boolean {
+  return hasAppPermission(toSubject(grants), key, null);
+}
+
+/**
+ * Enforcement check: may this caller perform `method` on `scope`?
+ */
+export function canPerform(grants: Grants, scope: string, method: string): boolean {
   const object = catalogObject(scope);
   if (!object) return false;
 
   const verb = literalVerb(scope.split(':')[1]);
-  if (verb) return hasPermission(permissions, `${object}:${verb}`);
+  if (verb) return hasPermission(grants, `${object}:${verb}`);
 
   const actions = ACTIONS_BY_METHOD[method.toUpperCase()];
   if (!actions) return false;
 
-  return actions.some((action) => hasPermission(permissions, `${object}:${action}`));
+  return actions.some((action) => hasPermission(grants, `${object}:${action}`));
 }
 
 /**
@@ -103,15 +116,15 @@ export function canPerform(
  * still {@link canPerform} at call time, so a tool being listed never implies
  * it will succeed.
  */
-export function canUseScope(permissions: readonly string[], scope: string): boolean {
+export function canUseScope(grants: Grants, scope: string): boolean {
   const object = catalogObject(scope);
   if (!object) return false;
 
   const rawVerb = scope.split(':')[1];
   const verb = literalVerb(rawVerb);
-  if (verb) return hasPermission(permissions, `${object}:${verb}`);
+  if (verb) return hasPermission(grants, `${object}:${verb}`);
 
   const actions = rawVerb === 'read' ? ['read'] : ['create', 'update', 'delete'];
 
-  return actions.some((action) => hasPermission(permissions, `${object}:${action}`));
+  return actions.some((action) => hasPermission(grants, `${object}:${action}`));
 }

@@ -10,11 +10,12 @@
  * apps/workers/app-api/src/routes/_app-permissions.test.ts). Admins then
  * narrow access per app in the role / member editor.
  *
- * ORDERING — do NOT --execute until every client checks app-qualified keys:
- * the platform SPA (`can('companies:read')` must resolve against the current
- * app), mcp-server and the mobile apps. Until then a rewritten role would
- * read as "no access" in those clients. The server side (app-api) already
- * accepts both formats. `--execute` therefore also requires `--clients-ready`.
+ * ORDERING — do NOT --execute until every client that checks permissions
+ * understands app-qualified keys IN THE TARGET ENVIRONMENT: app-api, the
+ * platform SPA, mcp-server, and the mobile apps (WeldMail gates UI on
+ * permissions; its OTA bundle must be live). All of them handle both formats
+ * in code; a rewritten role only breaks a client still running an older
+ * build. `--execute` therefore also requires `--clients-ready`.
  *
  * Safety properties:
  *   - Dry-run by default; writes need `--execute --clients-ready`.
