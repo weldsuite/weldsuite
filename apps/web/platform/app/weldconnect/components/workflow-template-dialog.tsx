@@ -1899,7 +1899,6 @@ function templateToFlowData(template: WorkflowTemplate): { trigger: TriggerConfi
       ...(template.trigger.type === 'webhook' ? {
         method: 'POST' as const,
       } : {}),
-      ...(template.trigger.type === 'manual' ? {} : {}),
       ...(template.trigger.type === 'workflow_complete' ? {
         sourceWorkflowId: '',
         triggerOn: 'success' as const,

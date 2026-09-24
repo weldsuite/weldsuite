@@ -1016,7 +1016,7 @@ export function InboxClient({
                               </div>
                               <div className={cn(
                                 "text-sm mt-0.5 line-clamp-1",
-                                !email.isRead ? "text-gray-500 dark:text-muted-foreground" : "text-gray-500 dark:text-muted-foreground"
+                                "text-gray-500 dark:text-muted-foreground"
                               )}>
                                 {email.preview}
                               </div>

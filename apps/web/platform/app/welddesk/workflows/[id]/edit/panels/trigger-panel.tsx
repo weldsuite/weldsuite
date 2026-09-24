@@ -376,11 +376,10 @@ export function TriggerFilterPanel({
                       <Select
                         value={filter.field}
                         onValueChange={(val) => {
-                          const newFieldDef = fieldDefs.find((fd) => fd.field === val);
                           updateFilter(index, {
                             field: val,
                             operator: 'equals',
-                            value: newFieldDef?.type === 'select' ? '' : '',
+                            value: '',
                           });
                         }}
                       >

@@ -130,7 +130,7 @@ export function GalleryAccordionHorizontalBlock({
                 initial={{ width: "2.5rem", height: "20rem" }}
                 animate={{
                   width: activeImage === index ? "24rem" : "5rem",
-                  height: activeImage === index ? "24rem" : "24rem",
+                  height: "24rem",
                 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
                 onClick={() => setActiveImage(index)}

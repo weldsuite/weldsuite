@@ -21,7 +21,7 @@ export const sendReplyHandler: StepHandler = {
       conversationId,
       content,
       authorType,
-      authorId: authorType === 'agent' ? 'system' : 'system',
+      authorId: 'system',
       authorName: authorType === 'agent' ? 'Agent' : 'System',
       type: 'message',
       isPublic: true,

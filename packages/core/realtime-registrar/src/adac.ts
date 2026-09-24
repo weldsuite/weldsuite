@@ -116,9 +116,7 @@ export function mapAdacEvent(event: AdacEvent): AdacMappedResult | null {
       ? 'domain_unavailable'
       : event.data.status === ADAC_STATUS.ERROR
         ? 'check_failed'
-        : event.data.status === ADAC_STATUS.INVALID
-          ? 'unknown'
-          : 'unknown';
+        : 'unknown';
 
   return {
     name: event.data.domain_name.toLowerCase(),

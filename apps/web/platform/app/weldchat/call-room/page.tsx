@@ -243,10 +243,7 @@ export default function CallRoomPage() {
 
   const remoteParticipants = meeting.participants.joined.toArray();
   const total = remoteParticipants.length + 1;
-  const gridCols =
-    total <= 1 ? 'grid-cols-1' :
-    total <= 2 ? 'grid-cols-2' :
-    'grid-cols-2';
+  const gridCols = total <= 1 ? 'grid-cols-1' : 'grid-cols-2';
 
   return (
     <div data-testid="call-room" className="fixed inset-0 flex flex-col bg-zinc-950 text-white">
