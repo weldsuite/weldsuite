@@ -21,7 +21,7 @@ const t = schema.returns;
 app.get('/', requirePermission('returns:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));

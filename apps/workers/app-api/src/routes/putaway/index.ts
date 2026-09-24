@@ -92,7 +92,7 @@ const putawaySelection = (products: typeof schema.products, locations: typeof sc
 app.get('/', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const { products, warehouseLocations } = schema;
 
   const conditions: any[] = [eq(t.movementType, 'putaway')];
