@@ -107,3 +107,38 @@ describe('resolveInputs', () => {
     expect(out.rows).toEqual([{ v: '1' }, { v: '2' }]);
   });
 });
+
+describe('resolveInputs — escapeHtmlKeys', () => {
+  const trigger = { record: { name: '<b>Acme & Co</b>' } };
+
+  it('escapes values spliced into an HTML key but keeps the template markup', () => {
+    const out = resolveInputs(
+      { body: '<p>Hi {{trigger.record.name}}</p>' },
+      NONE,
+      trigger,
+      NONE,
+      NONE,
+      { escapeHtmlKeys: ['body'] },
+    );
+    expect(out.body).toBe('<p>Hi &lt;b&gt;Acme &amp; Co&lt;/b&gt;</p>');
+  });
+
+  it('escapes a whole-expression string value', () => {
+    const out = resolveInputs({ body: '{{trigger.record.name}}' }, NONE, trigger, NONE, NONE, {
+      escapeHtmlKeys: ['body'],
+    });
+    expect(out.body).toBe('&lt;b&gt;Acme &amp; Co&lt;/b&gt;');
+  });
+
+  it('leaves keys outside escapeHtmlKeys untouched', () => {
+    const out = resolveInputs(
+      { subject: 'Re: {{trigger.record.name}}', body: '{{trigger.record.name}}' },
+      NONE,
+      trigger,
+      NONE,
+      NONE,
+      { escapeHtmlKeys: ['body'] },
+    );
+    expect(out.subject).toBe('Re: <b>Acme & Co</b>');
+  });
+});

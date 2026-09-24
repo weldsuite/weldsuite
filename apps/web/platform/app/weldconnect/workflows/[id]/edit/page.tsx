@@ -7,6 +7,11 @@ import { WorkflowEditorClient, WorkflowEditorShell } from '@/components/workflow
 import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import { AlertTriangle, GitPullRequest, History, RotateCw, Settings } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import {
+  WELDCONNECT_ACTION_TYPES,
+  WELDCONNECT_SCHEDULE_TYPES,
+  WELDCONNECT_TRIGGER_TYPES,
+} from '@/app/weldconnect/mvp';
 
 export default function WorkflowEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -94,6 +99,11 @@ export default function WorkflowEditPage() {
           hideNavTabs
           actionsPortalRef={actionsRef}
           onDirtyChange={setDirty}
+          allowedTriggerTypes={WELDCONNECT_TRIGGER_TYPES}
+          allowedScheduleTypes={WELDCONNECT_SCHEDULE_TYPES}
+          allowedActionIds={WELDCONNECT_ACTION_TYPES}
+          blockUnsupported
+          hideTemplatesAndAi
         />
       )}
     />

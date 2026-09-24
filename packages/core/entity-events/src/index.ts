@@ -44,6 +44,7 @@ export {
   integrationTriggerMatches,
   evalFilters,
   workflowInstanceIdForEvent,
+  MAX_ENTITY_WORKFLOW_DEPTH,
   type MatchAndDispatchInput,
   type MatchAndDispatchIntegrationInput,
   type WorkflowDispatchEnv,

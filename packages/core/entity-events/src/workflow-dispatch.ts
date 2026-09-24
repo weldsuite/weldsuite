@@ -101,7 +101,22 @@ export interface MatchAndDispatchInput {
    * (event, workflow) pair.
    */
   eventId?: string;
+  /**
+   * `metadata.workflowDepth` of the event — the chain depth of the WeldConnect
+   * run whose step caused this mutation (absent for user-initiated changes).
+   * Dispatched runs start one level deeper; see `MAX_ENTITY_WORKFLOW_DEPTH`.
+   */
+  workflowDepth?: number;
 }
+
+/**
+ * How many workflow runs an entity-event chain may span before the matcher
+ * stops dispatching. Run 0 is started by a user action or a schedule; a step in
+ * run N that mutates a record starts run N+1. Without this cap a workflow that
+ * creates the record type it listens to (e.g. "company created → create
+ * company") would loop forever.
+ */
+export const MAX_ENTITY_WORKFLOW_DEPTH = 3;
 
 /**
  * Stable Cloudflare Workflow instance id for an entity-event dispatch.
@@ -193,9 +208,10 @@ async function dispatchEntityMatches(
     action: string;
     changes?: MatchAndDispatchInput['changes'];
     eventId?: string;
+    chainDepth: number;
   },
 ): Promise<void> {
-  const { workspaceId, userId, entityType, entityId, action, data, changes, eventId } = base;
+  const { workspaceId, userId, entityType, entityId, action, data, changes, eventId, chainDepth } = base;
   for (const row of matches) {
     try {
       await env.EXECUTE_WORKFLOW!.create({
@@ -217,6 +233,7 @@ async function dispatchEntityMatches(
             changes,
             ...(eventId ? { eventId } : {}),
           },
+          chainDepth,
           source: 'weldconnect',
         },
       });
@@ -237,8 +254,17 @@ export async function matchAndDispatchWorkflowTriggers(
 
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
+  // A run spawned by this event sits one level below the run that caused it.
+  const chainDepth = input.workflowDepth === undefined ? 0 : input.workflowDepth + 1;
+  if (chainDepth >= MAX_ENTITY_WORKFLOW_DEPTH) {
+    console.warn(
+      `[TriggerMatcher] Skipping ${entityType}:${action} (${entityId}) — workflow chain depth ${chainDepth} reached the limit of ${MAX_ENTITY_WORKFLOW_DEPTH}`,
+    );
+    return;
+  }
+
   const eventTypes = deriveEventTypes(action, changes);
-  const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes, eventId };
+  const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes, eventId, chainDepth };
 
   let indexRows: Array<{
     workflowId: string;

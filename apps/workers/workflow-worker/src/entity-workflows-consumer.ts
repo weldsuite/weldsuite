@@ -42,6 +42,7 @@ export async function handleEntityWorkflowMessage(
     data: (event.data ?? {}) as Record<string, unknown>,
     changes: event.changes,
     eventId: event.id,
+    workflowDepth: event.metadata.workflowDepth,
   });
 }
 

@@ -10,6 +10,8 @@ import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
 import { clearWorkflowTriggerIndex, syncWorkflowTriggerIndex } from './workflow-trigger-index';
+import { syncWorkflowSchedules } from './workflow-schedule-sync';
+import type { ScheduleIndexSync } from '../lib/schedule-index';
 
 const { workflows, workflowExecutions } = schema;
 
@@ -44,6 +46,15 @@ export async function listWorkflows(
   }
   if (params.status) filterConditions.push(eq(workflows.status, params.status));
   if (params.folderId) filterConditions.push(eq(workflows.folderId, params.folderId));
+  // Comma-separated. `tags` requires every listed tag; `excludeTags` drops rows
+  // carrying any of them (WeldConnect passes `__type:sequence` so CRM
+  // sequences, which share this table, stay out of its list).
+  for (const tag of splitTags(params.tags)) {
+    filterConditions.push(sql`coalesce(${workflows.tags}, '[]'::jsonb) ? ${tag}`);
+  }
+  for (const tag of splitTags(params.excludeTags)) {
+    filterConditions.push(sql`not (coalesce(${workflows.tags}, '[]'::jsonb) ? ${tag})`);
+  }
 
   const conditions = [...filterConditions];
   if (params.cursor) conditions.push(lt(workflows.id, params.cursor));
@@ -69,6 +80,10 @@ export async function listWorkflows(
   return { data, totalCount, hasMore, cursor };
 }
 
+function splitTags(value: string | undefined): string[] {
+  return (value ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+}
+
 export async function getWorkflow(db: Database, id: string) {
   const [row] = await db
     .select()
@@ -91,6 +106,7 @@ export async function createWorkflow(
     folderId?: string | null;
   },
   userId: string,
+  scheduleSync?: ScheduleIndexSync,
 ) {
   const id = generateId('wf');
   const now = new Date();
@@ -122,6 +138,13 @@ export async function createWorkflow(
     ],
   });
 
+  await syncWorkflowSchedules(db, scheduleSync, {
+    workflowId: id,
+    previousTriggers: [],
+    nextTriggers: triggers,
+    workflowActive: status === 'active',
+  });
+
   return { id };
 }
 
@@ -129,6 +152,7 @@ export async function updateWorkflow(
   db: Database,
   id: string,
   data: Record<string, unknown>,
+  scheduleSync?: ScheduleIndexSync,
 ) {
   const [existing] = await db
     .select()
@@ -151,10 +175,22 @@ export async function updateWorkflow(
     ],
   });
 
+  await syncWorkflowSchedules(db, scheduleSync, {
+    workflowId: id,
+    previousTriggers: existing.triggers,
+    nextTriggers,
+    workflowActive: nextStatus === 'active',
+  });
+
   return { id };
 }
 
-export async function updateWorkflowStatus(db: Database, id: string, status: string) {
+export async function updateWorkflowStatus(
+  db: Database,
+  id: string,
+  status: string,
+  scheduleSync?: ScheduleIndexSync,
+) {
   const [existing] = await db
     .select()
     .from(workflows)
@@ -167,6 +203,13 @@ export async function updateWorkflowStatus(db: Database, id: string, status: str
     withStatements: (handle) => [
       handle.update(workflows).set({ status, updatedAt: new Date() }).where(eq(workflows.id, id)),
     ],
+  });
+
+  await syncWorkflowSchedules(db, scheduleSync, {
+    workflowId: id,
+    previousTriggers: existing.triggers,
+    nextTriggers: existing.triggers,
+    workflowActive: status === 'active',
   });
   return { id, status };
 }
@@ -215,7 +258,13 @@ export async function duplicateWorkflow(
   return { id: newId };
 }
 
-export async function deleteWorkflow(db: Database, id: string) {
+export async function deleteWorkflow(db: Database, id: string, scheduleSync?: ScheduleIndexSync) {
+  const [existing] = await db
+    .select({ triggers: workflows.triggers })
+    .from(workflows)
+    .where(and(eq(workflows.id, id), isNull(workflows.deletedAt)))
+    .limit(1);
+
   await clearWorkflowTriggerIndex(db, id, {
     withStatements: (handle) => [
       handle
@@ -224,6 +273,15 @@ export async function deleteWorkflow(db: Database, id: string) {
         .where(and(eq(workflows.id, id), isNull(workflows.deletedAt))),
     ],
   });
+
+  if (existing) {
+    await syncWorkflowSchedules(db, scheduleSync, {
+      workflowId: id,
+      previousTriggers: existing.triggers,
+      nextTriggers: [],
+      workflowActive: false,
+    });
+  }
 }
 
 export async function getWorkflowStats(db: Database) {

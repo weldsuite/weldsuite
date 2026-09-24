@@ -32,6 +32,7 @@ import {
   Search,
   MessageSquare,
   Bell,
+  Building2,
   Calendar,
   CalendarDays,
   GitMerge,
@@ -80,6 +81,7 @@ import {
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
+import { isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
 import { TriggerEmptyState } from './components/trigger-empty-state';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
@@ -199,7 +201,20 @@ interface WorkflowEditorClientProps {
   parentLabel?: string;
   parentHref?: string;
   listLabel?: string;
-  allowedActionIds?: string[];
+  /** Restrict the add-step panel to these action types. */
+  allowedActionIds?: readonly string[];
+  /** Restrict the trigger pickers to these trigger types. */
+  allowedTriggerTypes?: readonly string[];
+  /** Restrict the schedule trigger to these modes (e.g. only `recurring`). */
+  allowedScheduleTypes?: readonly ('one_time' | 'recurring')[];
+  /**
+   * Treat an existing trigger/step outside the allowed lists above as a
+   * blocking issue (publish gate + checklist), e.g. a legacy step in a
+   * workflow created before the lists were narrowed.
+   */
+  blockUnsupported?: boolean;
+  /** Hide the "Generate with AI" button and the templates entry points. */
+  hideTemplatesAndAi?: boolean;
   editorHref?: string;
   replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
   triggerLocked?: boolean;
@@ -242,6 +257,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   log_message: { icon: FileText, color: 'text-slate-600', bgColor: 'bg-slate-100 dark:bg-slate-800' },
   create_record: { icon: Package, color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30' },
   update_record: { icon: Settings, color: 'text-yellow-600', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
+  create_customer: { icon: Building2, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -323,6 +339,7 @@ interface SidebarActionType {
 const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', icon: Mail, category: 'communication' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send an in-app notification', icon: Bell, category: 'communication' },
+  { id: 'create_customer', name: 'Create Customer', description: 'Add a customer (company) to WeldCRM', icon: Building2, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },
@@ -454,6 +471,8 @@ function getConfigSummary(actionType: string, config: Record<string, unknown>): 
     case 'update_record':
       if (config.entityType || config.entity) return `Entity: ${config.entityType || config.entity}`;
       return '';
+    case 'create_customer':
+      return typeof config.name === 'string' ? config.name : '';
     default:
       return '';
   }
@@ -474,6 +493,10 @@ export function WorkflowEditorClient({
   parentHref = '/weldconnect',
   listLabel = 'Workflows',
   allowedActionIds,
+  allowedTriggerTypes,
+  allowedScheduleTypes,
+  blockUnsupported,
+  hideTemplatesAndAi,
   editorHref,
   replaceExecutionsTab,
   triggerLocked,
@@ -608,8 +631,26 @@ export function WorkflowEditorClient({
       // Helpdesk only supports entity_event and manual triggers
       return TRIGGER_TYPES.filter((t) => t.id === 'entity_event' || t.id === 'manual');
     }
+    if (allowedTriggerTypes) {
+      return TRIGGER_TYPES.filter((t) => allowedTriggerTypes.includes(t.id));
+    }
     return TRIGGER_TYPES;
-  }, [module, TRIGGER_TYPES]);
+  }, [module, TRIGGER_TYPES, allowedTriggerTypes]);
+
+  const oneTimeScheduleAllowed = !allowedScheduleTypes || allowedScheduleTypes.includes('one_time');
+  const isStepUnsupported = useCallback(
+    (type: string | undefined) => !!blockUnsupported && !!allowedActionIds && !allowedActionIds.includes(type || ''),
+    [blockUnsupported, allowedActionIds],
+  );
+  const isTriggerUnsupported = useCallback(
+    (trigger: WorkflowTriggerBag | undefined) => {
+      if (!blockUnsupported || !trigger?.type) return false;
+      if (allowedTriggerTypes && !allowedTriggerTypes.includes(trigger.type)) return true;
+      const scheduleType = trigger.scheduleType ?? (trigger.config as { scheduleType?: string } | undefined)?.scheduleType;
+      return trigger.type === 'schedule' && scheduleType === 'one_time' && !oneTimeScheduleAllowed;
+    },
+    [blockUnsupported, allowedTriggerTypes, oneTimeScheduleAllowed],
+  );
 
   const integrationTriggers = useMemo(
     () => (triggerTypes ?? []).filter((t) => t.category === 'integration'),
@@ -694,18 +735,23 @@ export function WorkflowEditorClient({
   const [_selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
 
   // --- Validation: which steps / the trigger still need required config -----
+  const stepNeedsWork = useCallback(
+    (s: WorkflowStepBag) => isStepUnsupported(s.type) || !isStepConfigured(asWorkflowStep(s)),
+    [isStepUnsupported],
+  );
   const incompleteStepIds = useMemo(
-    () => new Set(workflow.steps.filter((s) => !isStepConfigured(asWorkflowStep(s))).map((s) => s.id)),
-    [workflow.steps],
+    () => new Set(workflow.steps.filter(stepNeedsWork).map((s) => s.id)),
+    [workflow.steps, stepNeedsWork],
   );
   const firstIncompleteStepIndex = useMemo(
-    () => workflow.steps.findIndex((s) => !isStepConfigured(asWorkflowStep(s))),
-    [workflow.steps],
+    () => workflow.steps.findIndex(stepNeedsWork),
+    [workflow.steps, stepNeedsWork],
   );
-  const triggerIssue = useMemo(
-    () => (triggerLocked ? null : getTriggerWarningMessage(workflow.triggers?.[0], workflow.triggers?.[0]?.type || '')),
-    [workflow.triggers, triggerLocked],
-  );
+  const triggerIssue = useMemo(() => {
+    if (triggerLocked) return null;
+    if (isTriggerUnsupported(workflow.triggers?.[0])) return tec.publishGate.unsupportedTrigger;
+    return getTriggerWarningMessage(workflow.triggers?.[0], workflow.triggers?.[0]?.type || '');
+  }, [workflow.triggers, triggerLocked, isTriggerUnsupported, tec.publishGate.unsupportedTrigger]);
   const incompleteCount = incompleteStepIds.size + (triggerIssue ? 1 : 0);
   const hasBlockingIssues = incompleteCount > 0;
 
@@ -730,6 +776,24 @@ export function WorkflowEditorClient({
   const [scheduleCustomCron, setScheduleCustomCron] = useState('0 9 * * *');
   const [scheduleTimezone, setScheduleTimezone] = useState('Europe/Amsterdam');
   const [scheduleExecuteAt, setScheduleExecuteAt] = useState('');
+
+  // The trigger written when a type is picked. A schedule starts from the
+  // panel's current (default: daily 09:00, recurring) settings so it is
+  // runnable as-is instead of "missing schedule type" until a control is touched.
+  const initialTriggerData = (type: string): WorkflowTriggerBag => {
+    if (type !== 'schedule') return { type, isEnabled: true };
+    const mode = scheduleType === 'one_time' && oneTimeScheduleAllowed ? 'one_time' : 'recurring';
+    const cronExpression = scheduleCronPreset === 'custom'
+      ? scheduleCustomCron
+      : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
+    return {
+      type: 'schedule',
+      isEnabled: true,
+      scheduleType: mode,
+      ...(mode === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
+      timezone: scheduleTimezone,
+    };
+  };
 
   // Integration / workflow-complete trigger state
   const [sourceWorkflowId, setSourceWorkflowId] = useState('');
@@ -911,8 +975,10 @@ export function WorkflowEditorClient({
       });
       savedSnapshotRef.current = JSON.stringify({ triggers: workflow.triggers, steps: workflow.steps });
       toast.success(tec.toasts.workflowSaved);
-    } catch {
-      toast.error(tec.toasts.saveFailed);
+      return true;
+    } catch (err) {
+      toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.saveFailed);
+      return false;
     }
   };
 
@@ -940,7 +1006,7 @@ export function WorkflowEditorClient({
       );
       return;
     }
-    await handleSave();
+    if (!(await handleSave())) return;
     if (onPublish) {
       const result = await onPublish();
       if (result.success) {
@@ -953,8 +1019,8 @@ export function WorkflowEditorClient({
         onSuccess: () => {
           toast.success(tec.toasts.workflowPublished);
         },
-        onError: () => {
-          toast.error(tec.toasts.publishFailed);
+        onError: (err) => {
+          toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.publishFailed);
         },
       });
     }
@@ -1364,7 +1430,7 @@ export function WorkflowEditorClient({
               >
                 <Settings className="h-4 w-4" />
               </Button>
-              {module !== 'helpdesk' && (
+              {module !== 'helpdesk' && !hideTemplatesAndAi && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1425,7 +1491,7 @@ export function WorkflowEditorClient({
       {/* Portal action buttons to external nav when hideNavTabs */}
       {hideNavTabs && actionsPortalRef?.current && createPortal(
         <>
-          {module !== 'helpdesk' && (
+          {module !== 'helpdesk' && !hideTemplatesAndAi && (
             <Button
               variant="outline"
               size="sm"
@@ -1488,11 +1554,12 @@ export function WorkflowEditorClient({
         <div className="flex-1 relative overflow-hidden">
           {!triggerLocked && !workflow.triggers[0] && sortedSteps.length === 0 && !showTriggerPanel ? (
             <TriggerEmptyState
+              allowedTypes={filteredTriggerTypes.map((type) => type.id)}
               onSelectType={(type) => {
                 setTriggerType(type);
                 setWorkflow((prev) => ({
                   ...prev,
-                  triggers: [{ id: `trigger-${Date.now()}`, type, isEnabled: true }],
+                  triggers: [{ id: `trigger-${Date.now()}`, ...initialTriggerData(type) }],
                 }));
                 setShowTriggerPanel(true);
                 setShowRunsPanel(false);
@@ -1722,7 +1789,7 @@ export function WorkflowEditorClient({
                             onClick={() => {
                               setTriggerType(type.id);
                               // Update workflow immediately
-                              const triggerData: WorkflowTriggerBag = { type: type.id, isEnabled: true };
+                              const triggerData = initialTriggerData(type.id);
                               if (workflow.triggers.length > 0) {
                                 setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
                               } else {
@@ -1826,7 +1893,7 @@ export function WorkflowEditorClient({
                   {triggerType === 'schedule' && (
                     <div className="space-y-4 pt-3 border-t">
                       {/* Schedule Type */}
-                      <div className="space-y-2">
+                      <div className={cn('space-y-2', !oneTimeScheduleAllowed && scheduleType !== 'one_time' && 'hidden')}>
                         <Label className="text-xs font-medium">{tcd.schedule.scheduleTypeLabel}</Label>
                         <RadioGroup
                           value={scheduleType}
@@ -2508,6 +2575,16 @@ export function WorkflowEditorClient({
               </div>
               {(() => {
                 const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+                if (isStepUnsupported(editingStep.type)) {
+                  return (
+                    <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+                      <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <span className="text-xs">{tec.publishGate.unsupportedStep}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 const missing = getMissingRequiredFields(editingStep.type || '', editingStep.config || {});
                 if (missing.length === 0) {
                   return (
@@ -2671,8 +2748,9 @@ export function WorkflowEditorClient({
 
                     {/* Steps that need configuration */}
                     {workflow.steps.map((step, index) => {
+                      const unsupported = isStepUnsupported(step.type);
                       const missing = getMissingRequiredFields(step.type || '', step.config || {});
-                      if (missing.length === 0) return null;
+                      if (!unsupported && missing.length === 0) return null;
 
                       const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
                       const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
@@ -2701,7 +2779,9 @@ export function WorkflowEditorClient({
                           <div className="flex items-start gap-1.5 text-amber-600">
                             <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                             <span className="text-xs">
-                              {tec.overviewPanel.missingFields.replace('{fields}', missingLabels)}
+                              {unsupported
+                                ? tec.publishGate.unsupportedStep
+                                : tec.overviewPanel.missingFields.replace('{fields}', missingLabels)}
                             </span>
                           </div>
                         </Button>
@@ -2711,7 +2791,7 @@ export function WorkflowEditorClient({
                     {/* All configured message */}
                     {(triggerLocked || !triggerIssue) &&
                       workflow.steps.length > 0 &&
-                      workflow.steps.every((step) => isStepConfigured(asWorkflowStep(step))) && (
+                      incompleteStepIds.size === 0 && (
                         <div className="flex items-center gap-2 px-3 py-[11px] rounded-lg border border-border text-muted-foreground">
                           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                           <span className="text-sm">{tec.overviewPanel.allStepsConfigured}</span>
@@ -2722,7 +2802,7 @@ export function WorkflowEditorClient({
               </ScrollArea>
 
               {/* Helpful Resources - Fixed at bottom */}
-              <div className="p-4 border-t">
+              <div className={cn('p-4 border-t', hideTemplatesAndAi && 'hidden')}>
                 <p className="text-xs text-muted-foreground mb-3">{tec.overviewPanel.helpfulResources}</p>
                 <div className="grid grid-cols-2 gap-2">
                   <a
@@ -2807,7 +2887,7 @@ export function WorkflowEditorClient({
         }}
       />
 
-      {module !== 'helpdesk' && (
+      {module !== 'helpdesk' && !hideTemplatesAndAi && (
         <GenerateWithAiDialog
           open={showGenerateDialog}
           onOpenChange={setShowGenerateDialog}

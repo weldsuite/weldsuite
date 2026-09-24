@@ -56,9 +56,12 @@ export interface CompanyEventData {
   id: string;
   /** Optional — the `deleted` action only carries `id`. */
   name?: string | null;
+  email?: string | null;
+  phone?: string | null;
   website?: string | null;
   industry?: string | null;
   size?: string | null;
+  status?: string | null;
 }
 
 export interface LeadEventData {

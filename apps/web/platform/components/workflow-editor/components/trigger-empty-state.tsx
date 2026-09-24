@@ -51,11 +51,14 @@ function TriggerTile({ icon: Icon, title, description, onClick, iconClassName, i
 
 interface TriggerEmptyStateProps {
   onSelectType: (type: TriggerType) => void;
+  /** Only show these trigger types (all when omitted). */
+  allowedTypes?: readonly string[];
 }
 
-export function TriggerEmptyState({ onSelectType }: TriggerEmptyStateProps) {
+export function TriggerEmptyState({ onSelectType, allowedTypes }: TriggerEmptyStateProps) {
   const { t } = useI18n();
   const tes = t.weldconnect.triggerEmptyState;
+  const show = (type: TriggerType) => !allowedTypes || allowedTypes.includes(type);
 
   return (
     <div className="flex h-full w-full items-center justify-center p-8">
@@ -66,62 +69,76 @@ export function TriggerEmptyState({ onSelectType }: TriggerEmptyStateProps) {
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <TriggerTile
-            icon={Zap}
-            title={tes.entityEvent}
-            description={tes.entityEventDesc}
-            onClick={() => onSelectType('entity_event')}
-            iconClassName="text-purple-600 dark:text-purple-400"
-            iconBgClassName="bg-purple-100 dark:bg-purple-900/30"
-          />
-          <TriggerTile
-            icon={Plug}
-            title={tes.integrationEvent}
-            description={tes.integrationEventDesc}
-            onClick={() => onSelectType('integration_event')}
-            iconClassName="text-indigo-600 dark:text-indigo-400"
-            iconBgClassName="bg-indigo-100 dark:bg-indigo-900/30"
-          />
-          <TriggerTile
-            icon={Clock}
-            title={tes.schedule}
-            description={tes.scheduleDesc}
-            onClick={() => onSelectType('schedule')}
-            iconClassName="text-blue-600 dark:text-blue-400"
-            iconBgClassName="bg-blue-100 dark:bg-blue-900/30"
-          />
-          <TriggerTile
-            icon={GitMerge}
-            title={tes.workflowComplete}
-            description={tes.workflowCompleteDesc}
-            onClick={() => onSelectType('workflow_complete')}
-            iconClassName="text-orange-600 dark:text-orange-400"
-            iconBgClassName="bg-orange-100 dark:bg-orange-900/30"
-          />
-          <TriggerTile
-            icon={Globe}
-            title={tes.webhook}
-            description={tes.webhookDesc}
-            onClick={() => onSelectType('webhook')}
-            iconClassName="text-emerald-600 dark:text-emerald-400"
-            iconBgClassName="bg-emerald-100 dark:bg-emerald-900/30"
-          />
-          <TriggerTile
-            icon={MousePointerClick}
-            title={tes.manual}
-            description={tes.manualDesc}
-            onClick={() => onSelectType('manual')}
-            iconClassName="text-gray-600 dark:text-gray-400"
-            iconBgClassName="bg-gray-100 dark:bg-gray-800/30"
-          />
-          <TriggerTile
-            icon={Code}
-            title={tes.api}
-            description={tes.apiDesc}
-            onClick={() => onSelectType('api')}
-            iconClassName="text-teal-600 dark:text-teal-400"
-            iconBgClassName="bg-teal-100 dark:bg-teal-900/30"
-          />
+          {show('entity_event') && (
+            <TriggerTile
+              icon={Zap}
+              title={tes.entityEvent}
+              description={tes.entityEventDesc}
+              onClick={() => onSelectType('entity_event')}
+              iconClassName="text-purple-600 dark:text-purple-400"
+              iconBgClassName="bg-purple-100 dark:bg-purple-900/30"
+            />
+          )}
+          {show('integration_event') && (
+            <TriggerTile
+              icon={Plug}
+              title={tes.integrationEvent}
+              description={tes.integrationEventDesc}
+              onClick={() => onSelectType('integration_event')}
+              iconClassName="text-indigo-600 dark:text-indigo-400"
+              iconBgClassName="bg-indigo-100 dark:bg-indigo-900/30"
+            />
+          )}
+          {show('schedule') && (
+            <TriggerTile
+              icon={Clock}
+              title={tes.schedule}
+              description={tes.scheduleDesc}
+              onClick={() => onSelectType('schedule')}
+              iconClassName="text-blue-600 dark:text-blue-400"
+              iconBgClassName="bg-blue-100 dark:bg-blue-900/30"
+            />
+          )}
+          {show('workflow_complete') && (
+            <TriggerTile
+              icon={GitMerge}
+              title={tes.workflowComplete}
+              description={tes.workflowCompleteDesc}
+              onClick={() => onSelectType('workflow_complete')}
+              iconClassName="text-orange-600 dark:text-orange-400"
+              iconBgClassName="bg-orange-100 dark:bg-orange-900/30"
+            />
+          )}
+          {show('webhook') && (
+            <TriggerTile
+              icon={Globe}
+              title={tes.webhook}
+              description={tes.webhookDesc}
+              onClick={() => onSelectType('webhook')}
+              iconClassName="text-emerald-600 dark:text-emerald-400"
+              iconBgClassName="bg-emerald-100 dark:bg-emerald-900/30"
+            />
+          )}
+          {show('manual') && (
+            <TriggerTile
+              icon={MousePointerClick}
+              title={tes.manual}
+              description={tes.manualDesc}
+              onClick={() => onSelectType('manual')}
+              iconClassName="text-gray-600 dark:text-gray-400"
+              iconBgClassName="bg-gray-100 dark:bg-gray-800/30"
+            />
+          )}
+          {show('api') && (
+            <TriggerTile
+              icon={Code}
+              title={tes.api}
+              description={tes.apiDesc}
+              onClick={() => onSelectType('api')}
+              iconClassName="text-teal-600 dark:text-teal-400"
+              iconBgClassName="bg-teal-100 dark:bg-teal-900/30"
+            />
+          )}
         </div>
       </div>
     </div>

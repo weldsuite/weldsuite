@@ -7,6 +7,8 @@ import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { ActionHandler } from '../types';
 import { resolveIntegration, integrationBearerToken } from '../integrations';
+import { escapeHtml } from '../resolve-inputs';
+import { postInternalApi } from './helpers';
 
 export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
   const to = inputs.to as string | string[] | undefined;
@@ -19,6 +21,9 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
       ? to.split(',').map((e) => e.trim()).filter(Boolean)
       : to.filter(Boolean);
   if (toRecipients.length === 0) throw new Error('No valid recipients after parsing');
+
+  const subject = String(inputs.subject ?? '').trim();
+  if (!subject) throw new Error('Email subject is required');
 
   const accounts = await ctx.db
     .select()
@@ -33,40 +38,32 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
 
   if (!account) throw new Error('No email account configured');
 
-  // POST /api/internal/send-email lives on app-api
-  // (apps/workers/app-api/src/routes/internal/index.ts) — repointed there from the
-  // legacy api-worker in phase W3 of the legacy-worker phase-out plan
-  // (.claude/open-source-plan.md). This worker's INTERNAL_API_SECRET must
-  // match app-api's for the bearer auth to pass.
-  const appApiUrl = ctx.env.APP_API_URL
-    ? String(ctx.env.APP_API_URL).replace(/\/+$/, '')
-    : 'https://app-api.weldsuite.org';
-  const internalSecret = ctx.env.INTERNAL_API_SECRET;
-  if (!internalSecret) throw new Error('INTERNAL_API_SECRET not configured for email sending');
-
   const acct = account as { displayName?: string; email: string };
   const fromAddress = acct.displayName ? `${acct.displayName} <${acct.email}>` : acct.email;
 
-  const response = await fetch(`${appApiUrl}/api/internal/send-email`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${internalSecret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  // The editor's "Plain text" tab saves `isHtml: false`; keep its line breaks
+  // in the HTML part instead of collapsing the whole message onto one line.
+  const rawBody = String(inputs.body || inputs.html || '');
+  const isPlainText = inputs.isHtml === false;
+  const html = isPlainText ? escapeHtml(rawBody).replace(/\r?\n/g, '<br>') : rawBody;
+  const text = isPlainText ? rawBody : rawBody.replace(/<[^>]*>/g, '');
+
+  // POST /api/internal/send-email lives on app-api
+  // (apps/workers/app-api/src/routes/internal/index.ts).
+  const result = await postInternalApi<{ success: boolean; messageId: string }>(
+    ctx.env,
+    '/send-email',
+    {
       from: fromAddress,
       to: toRecipients,
-      subject: String(inputs.subject || ''),
-      html: String(inputs.body || inputs.html || ''),
-      text: String(inputs.body || '').replace(/<[^>]*>/g, ''),
+      subject,
+      html,
+      text,
       cc: inputs.cc as string[] | undefined,
       bcc: inputs.bcc as string[] | undefined,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Email send failed: ${response.status} - ${errorBody}`);
-  }
-
-  const result = (await response.json()) as { success: boolean; messageId: string };
+    },
+    'Email send',
+  );
   return { success: true, messageId: result.messageId, from: acct.email };
 };
 

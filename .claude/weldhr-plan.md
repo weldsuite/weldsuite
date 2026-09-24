@@ -148,6 +148,8 @@ Client: `@weldsuite/app-api-client/domains/weldhr` + schemas
    (hand-finished drizzle DDL with IF NOT EXISTS, like 0180+; the tenant snapshot stops at 0179,
    so `drizzle-kit generate` cannot be used without sweeping in unrelated drift). Bundled into
    workspace-worker via `pnpm bundle-migrations`.
-2. Custom domain provisioning for the portal (Cloudflare for SaaS custom
-   hostname) — setting is stored; wiring the hostname is phase 2b.
+2. The portal deploys as Vercel project `weldsuite-hr-portal` (see
+   `apps/web/hr-portal/README.md`). Customer custom domains must also be added
+   to that project; today that is manual, automating it from the branding save
+   is phase 2b.
 3. App catalog row in the master DB (admin seed) so workspaces can install it.

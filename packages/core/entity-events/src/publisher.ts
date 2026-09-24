@@ -106,6 +106,7 @@ interface HubEnqueueParams {
   data: Record<string, unknown>;
   changes?: Record<string, { old: unknown; new: unknown }> | null;
   accessUserIds?: string[];
+  workflowDepth?: number;
 }
 
 /**
@@ -114,7 +115,7 @@ interface HubEnqueueParams {
  * Never throws — swallows send errors after logging.
  */
 function enqueueHubEntityEvent(params: HubEnqueueParams, source: EventSource): Promise<unknown>[] {
-  const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
+  const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds, workflowDepth } =
     params;
 
   const message: EntityEventMessage = {
@@ -131,6 +132,7 @@ function enqueueHubEntityEvent(params: HubEnqueueParams, source: EventSource): P
       userId,
       timestamp: new Date().toISOString(),
       source,
+      ...(workflowDepth !== undefined ? { workflowDepth } : {}),
     },
   };
 
@@ -203,6 +205,8 @@ export interface PublishEntityEventRawParams {
   accessUserIds?: string[];
   /** Defaults to `'system'` since these callers are usually background jobs. */
   source?: EventSource;
+  /** Chain depth of the WeldConnect run that caused this mutation, if any. */
+  workflowDepth?: number;
 }
 
 /**
@@ -211,10 +215,21 @@ export interface PublishEntityEventRawParams {
  * (safe to call inside a Workflow `step.do` or a webhook handler).
  */
 export async function publishEntityEventRaw(params: PublishEntityEventRawParams): Promise<void> {
-  const { source = 'system', env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
-    params;
+  const {
+    source = 'system',
+    env,
+    workspaceId,
+    userId,
+    entityType,
+    action,
+    entityId,
+    data,
+    changes,
+    accessUserIds,
+    workflowDepth,
+  } = params;
   const tasks = enqueueHubEntityEvent(
-    { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds },
+    { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds, workflowDepth },
     source,
   );
   await Promise.allSettled(tasks);

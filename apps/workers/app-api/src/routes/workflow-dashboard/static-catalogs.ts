@@ -25,6 +25,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', category: 'data', icon: 'edit' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', category: 'data', icon: 'trash' },
   { id: 'query_data', name: 'Query Data', description: 'Query and filter data', category: 'data', icon: 'search' },
+  { id: 'create_customer', name: 'Create Customer', description: 'Create a customer (CRM company)', category: 'data', icon: 'building' },
   // Logic
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },

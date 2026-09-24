@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { useDeleteWorkflow, useUpdateWorkflowStatus, useDuplicateWorkflow, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { isUnsupportedWorkflowError } from '../../mvp';
 
 interface Workflow {
   id: string;
@@ -278,11 +279,15 @@ export function WorkflowsClient({
         ));
         toast.success(t.weldconnect.workflows.toasts.activated);
       },
-      onError: () => {
-        toast.error(t.weldconnect.workflows.toasts.activateFailed);
+      onError: (err) => {
+        toast.error(
+          isUnsupportedWorkflowError(err)
+            ? t.weldconnect.workflows.toasts.activateUnsupported
+            : t.weldconnect.workflows.toasts.activateFailed,
+        );
       },
     });
-  }, [updateStatusMutation, t.weldconnect.workflows.toasts.activated, t.weldconnect.workflows.toasts.activateFailed]);
+  }, [updateStatusMutation, t.weldconnect.workflows.toasts]);
 
   const handlePause = useCallback((workflowId: string) => {
     updateStatusMutation.mutate({ id: workflowId, status: 'paused' }, {

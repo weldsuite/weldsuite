@@ -11,7 +11,28 @@
  * A value that is a single whole expression preserves the resolved value's
  * original type; an expression embedded in surrounding text coerces to string;
  * an unresolved expression becomes an empty string in embedded position.
+ *
+ * `options.escapeHtmlKeys` names top-level keys whose value is an HTML
+ * template (e.g. send_email's `body`): values substituted into them are
+ * HTML-escaped so record data can't inject markup, while the template's own
+ * markup is left intact.
  */
+
+export interface ResolveInputsOptions {
+  escapeHtmlKeys?: readonly string[];
+}
+
+/** Escape text for safe inclusion in HTML (email bodies). */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const identity = (value: string) => value;
 
 export function resolveInputs(
   inputs: Record<string, unknown>,
@@ -19,12 +40,14 @@ export function resolveInputs(
   triggerData: unknown,
   variables: Record<string, unknown>,
   contactData: Record<string, unknown>,
+  options?: ResolveInputsOptions,
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(inputs)) {
     if (typeof value === 'string') {
       if (value.includes('{{') && value.includes('}}')) {
+        const escapeValue = options?.escapeHtmlKeys?.includes(key) ? escapeHtml : identity;
         resolved[key] = value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
           const trimmedPath = String(path).trim();
 
@@ -32,25 +55,25 @@ export function resolveInputs(
             const [, stepId, ...rest] = trimmedPath.split('.');
             const stepOutput = previousResults[stepId] as Record<string, unknown>;
             const result = rest.reduce((obj: any, prop: string) => obj?.[prop], stepOutput);
-            if (result !== undefined) return String(result);
+            if (result !== undefined) return escapeValue(String(result));
             console.warn(`Unresolved template: ${match}`);
             return '';
           } else if (trimmedPath.startsWith('trigger.')) {
             const props = trimmedPath.slice(8).split('.');
             const result = props.reduce((obj: any, prop: string) => obj?.[prop], triggerData);
-            if (result !== undefined) return String(result);
+            if (result !== undefined) return escapeValue(String(result));
             console.warn(`Unresolved template: ${match}`);
             return '';
           } else if (trimmedPath.startsWith('variables.')) {
             const varName = trimmedPath.slice(10);
             const result = variables[varName];
-            if (result !== undefined) return String(result);
+            if (result !== undefined) return escapeValue(String(result));
             console.warn(`Unresolved template: ${match}`);
             return '';
           } else if (trimmedPath.startsWith('contact.')) {
             const prop = trimmedPath.slice(8);
             const result = contactData[prop];
-            if (result !== undefined) return String(result);
+            if (result !== undefined) return escapeValue(String(result));
             console.warn(`Unresolved template: ${match}`);
             return '';
           }
@@ -65,19 +88,19 @@ export function resolveInputs(
             const [, stepId, ...rest] = path.split('.');
             const stepOutput = previousResults[stepId] as Record<string, unknown>;
             const result = rest.reduce((obj: any, prop: string) => obj?.[prop], stepOutput);
-            if (result !== undefined) resolved[key] = result;
+            if (result !== undefined) resolved[key] = typeof result === 'string' ? escapeValue(result) : result;
           } else if (path.startsWith('trigger.')) {
             const props = path.slice(8).split('.');
             const result = props.reduce((obj: any, prop: string) => obj?.[prop], triggerData);
-            if (result !== undefined) resolved[key] = result;
+            if (result !== undefined) resolved[key] = typeof result === 'string' ? escapeValue(result) : result;
           } else if (path.startsWith('variables.')) {
             const varName = path.slice(10);
             const result = variables[varName];
-            if (result !== undefined) resolved[key] = result;
+            if (result !== undefined) resolved[key] = typeof result === 'string' ? escapeValue(result) : result;
           } else if (path.startsWith('contact.')) {
             const prop = path.slice(8);
             const result = contactData[prop];
-            if (result !== undefined) resolved[key] = result;
+            if (result !== undefined) resolved[key] = typeof result === 'string' ? escapeValue(result) : result;
           }
         }
       } else {

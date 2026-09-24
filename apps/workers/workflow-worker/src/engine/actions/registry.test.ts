@@ -16,6 +16,8 @@ describe('action registry', () => {
       'delete_record',
       'query_data',
       'transform',
+      // crm
+      'create_customer',
       // http
       'http_request',
       'webhook',

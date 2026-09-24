@@ -68,6 +68,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
   ],
 
   // --- Data ----------------------------------------------------------------
+  create_customer: [{ labelKey: 'customerName', isMissing: (c) => isBlank(c.name) }],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },

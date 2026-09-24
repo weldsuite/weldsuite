@@ -4,6 +4,37 @@
 
 import type { ActionContext, WorkflowEnv } from '../types';
 
+/**
+ * POST to an app-api `/api/internal/*` route with the shared
+ * INTERNAL_API_SECRET bearer (apps/workers/app-api/src/routes/internal/index.ts).
+ * This worker's secret must match app-api's for the auth to pass. Throws with
+ * the response body on a non-2xx so the step fails with a useful message.
+ */
+export async function postInternalApi<T>(
+  env: WorkflowEnv,
+  path: string,
+  body: unknown,
+  label: string,
+): Promise<T> {
+  const appApiUrl = env.APP_API_URL
+    ? String(env.APP_API_URL).replace(/\/+$/, '')
+    : 'https://app-api.weldsuite.org';
+  const internalSecret = env.INTERNAL_API_SECRET;
+  if (!internalSecret) throw new Error(`INTERNAL_API_SECRET not configured for ${label}`);
+
+  const response = await fetch(`${appApiUrl}/api/internal${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${internalSecret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`${label} failed: ${response.status} - ${errorBody}`);
+  }
+  return (await response.json()) as T;
+}
+
 /** Resolve the target conversation id from inputs or the triggering event. */
 export function resolveConversationId(
   inputs: Record<string, unknown>,

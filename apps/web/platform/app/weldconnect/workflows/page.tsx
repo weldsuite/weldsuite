@@ -3,6 +3,7 @@ import { PageLoader } from '@/components/page-loader';
 import { useWorkflows, useWorkflowStats, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { WorkflowsClient } from './components/workflows-client';
+import { SEQUENCE_WORKFLOW_TAG } from '../mvp';
 
 function firstTriggerType(triggers: unknown[]): string | undefined {
   const first = triggers[0] as { type?: string } | undefined;
@@ -11,7 +12,12 @@ function firstTriggerType(triggers: unknown[]): string | undefined {
 
 export default function WorkflowsPage() {
   const { t } = useI18n();
-  const { data: workflowsResult, isLoading: isWorkflowsLoading } = useWorkflows({ category: 'workflow' });
+  // CRM sequences live in the same table; keep them out of WeldConnect's list.
+  const { data: workflowsResult, isLoading: isWorkflowsLoading } = useWorkflows({
+    category: 'workflow',
+    excludeTags: SEQUENCE_WORKFLOW_TAG,
+    limit: 100,
+  });
   const { data: statsResult, isLoading: isStatsLoading } = useWorkflowStats();
 
   if (isWorkflowsLoading || isStatsLoading) {
