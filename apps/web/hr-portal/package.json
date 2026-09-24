@@ -11,6 +11,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.19",
+    "@weldsuite/realtime": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",
     "next": "15.4.8",

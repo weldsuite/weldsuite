@@ -19,7 +19,7 @@ import {
 } from '../../services/weldhr/portal';
 import { HostTakenError, claimPortalHost, sendHrPortalInviteEmail } from '../../services/weldhr/portal-mail';
 import { recordHrAudit } from '../../services/weldhr/shared';
-import { actor, clientIp, db, param } from './helpers';
+import { actor, clientIp, db, emitPortalConfig, param } from './helpers';
 
 export const portalRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -40,6 +40,7 @@ portalRoutes.put('/settings', requirePermission('employees:manage'), zValidator(
     }
   }
   const row = await updatePortalSettings(db(c), input);
+  emitPortalConfig(c, 'hr_portal_settings', row.id);
   await recordHrAudit(db(c), {
     actorId: actor(c),
     action: 'portal.settings_updated',

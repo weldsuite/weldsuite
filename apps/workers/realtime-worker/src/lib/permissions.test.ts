@@ -10,6 +10,12 @@ import {
   isPersonalTopicForOtherUser,
 } from './permissions';
 import type { AuthInfo } from './protocol';
+import {
+  hrPortalAllowedTopics,
+  hrPortalHubKey,
+  hrPortalTopics,
+  isMemberlessHubKey,
+} from '@weldsuite/realtime/topics';
 
 function auth(role: string, userId = 'user_abc'): AuthInfo {
   return {
@@ -136,5 +142,51 @@ describe('canSubscribe', () => {
     expect(canSubscribe(['project'], 'project.proj_1')).toBe(true);
     expect(canSubscribe(['project'], 'project_task')).toBe(false);
     expect(canSubscribe(['*'], 'email')).toBe(true);
+  });
+});
+
+describe('HR portal connections', () => {
+  const employee = {
+    orgId: 'org_1',
+    accessId: 'hrpac_1',
+    kind: 'employee' as const,
+    employeeId: 'hremp_abc',
+    companyId: null,
+  };
+  const client = {
+    orgId: 'org_1',
+    accessId: 'hrpac_2',
+    kind: 'client' as const,
+    employeeId: null,
+    companyId: 'comp_1',
+  };
+
+  it('lives in its own hub, never the workspace hub', () => {
+    expect(hrPortalHubKey('org_1')).toBe('hrportal:org_1');
+    expect(isMemberlessHubKey(hrPortalHubKey('org_1'))).toBe(true);
+    expect(isMemberlessHubKey('org_1')).toBe(false);
+  });
+
+  it('lets an employee reach only their own topic and workspace signals', () => {
+    const allowed = hrPortalAllowedTopics(employee);
+    expect(canSubscribe(allowed, hrPortalTopics.employee('hremp_abc'))).toBe(true);
+    expect(canSubscribe(allowed, hrPortalTopics.workspace)).toBe(true);
+    expect(canSubscribe(allowed, hrPortalTopics.employee('hremp_other'))).toBe(false);
+    // Prefix of another id must not match (`hremp_abc` vs `hremp_abcd`).
+    expect(canSubscribe(allowed, hrPortalTopics.employee('hremp_abcd'))).toBe(false);
+    expect(canSubscribe(allowed, hrPortalTopics.client('comp_1'))).toBe(false);
+    expect(canSubscribe(allowed, 'hr_leave_request')).toBe(false);
+    expect(canSubscribe(allowed, 'presence')).toBe(false);
+  });
+
+  it('lets a client contact reach only their company topic and workspace signals', () => {
+    const allowed = hrPortalAllowedTopics(client);
+    expect(canSubscribe(allowed, hrPortalTopics.client('comp_1'))).toBe(true);
+    expect(canSubscribe(allowed, hrPortalTopics.client('comp_2'))).toBe(false);
+    expect(canSubscribe(allowed, hrPortalTopics.employee('hremp_abc'))).toBe(false);
+  });
+
+  it('grants nothing personal when the principal id is missing', () => {
+    expect(hrPortalAllowedTopics({ ...employee, employeeId: null })).toEqual([hrPortalTopics.workspace]);
   });
 });

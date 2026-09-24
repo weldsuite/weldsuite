@@ -238,4 +238,11 @@ export const nl: Dictionary = {
     network: 'De server was niet bereikbaar. Controleer je verbinding en probeer opnieuw.',
     sessionExpired: 'Je sessie is verlopen. Log opnieuw in.',
   },
+  live: {
+    leaveApproved: 'Je verlofaanvraag is goedgekeurd.',
+    leaveRejected: 'Je verlofaanvraag is afgewezen.',
+    newCoaching: 'Er is een nieuwe coachingsessie toegevoegd.',
+    newEvaluation: 'Er staat een nieuwe beoordeling voor je klaar.',
+    newTasks: 'Je hebt nieuwe taken om af te ronden.',
+  },
 };

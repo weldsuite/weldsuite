@@ -9,6 +9,7 @@ import type { Database } from '../../db';
 import type { Env, Variables } from '../../types';
 import { ensureDefaultTemplates } from '../../services/weldhr/lifecycle';
 import { ensureDefaultEvaluationForm, ensureDefaultKpis } from '../../services/weldhr/performance';
+import { notifyPortal } from '../../services/weldhr/portal-realtime';
 import { HrConflictError, HrNotFoundError, HrValidationError } from '../../services/weldhr/shared';
 import { ensureDefaultLeaveTypes } from '../../services/weldhr/time';
 
@@ -39,6 +40,10 @@ type HrEntity = Extract<EntityType, `hr_${string}`>;
  * Publish a WeldHR entity event. Every catalog topic reaches every workspace
  * member over the WorkspaceHub, so the payload is ids and status only — never
  * names, notes, scores or sensitive fields.
+ *
+ * The same change is signalled to the workforce portal (the employee's own
+ * topic and the client accounts they work on), so an approval in the back
+ * office shows up in the portal without a reload.
  */
 export function emit<T extends HrEntity>(
   c: HrContext,
@@ -46,6 +51,8 @@ export function emit<T extends HrEntity>(
   action: ActionFor<T>,
   entityId: string,
   data: { employeeId?: string | null; status?: string | null; companyId?: string | null } = {},
+  /** Narrow who hears about it in the portal — see PortalSignal.portal / .client. */
+  audience: { portal?: boolean; client?: boolean } = {},
 ) {
   publishEntityEvent({
     c,
@@ -55,6 +62,19 @@ export function emit<T extends HrEntity>(
     // hr_* types have no curated payload interface, so DataFor<T> is a plain record.
     data: { id: entityId, ...data } as DataFor<T>,
   });
+  notifyPortal(c, {
+    entity: entityType,
+    action,
+    id: entityId,
+    employeeId: data.employeeId ?? (entityType === 'hr_employee' ? entityId : null),
+    companyId: data.companyId ?? null,
+    ...audience,
+  });
+}
+
+/** A workspace-wide portal change (branding, feature switches, leave types). */
+export function emitPortalConfig(c: HrContext, entity: string, id: string) {
+  notifyPortal(c, { entity, action: 'updated', id, workspaceWide: true });
 }
 
 /** Map service errors onto the standard envelope; `null` for anything else. */
