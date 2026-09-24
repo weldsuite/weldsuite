@@ -63,7 +63,7 @@ app.get('/', requirePermission('messages:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   // Owner boundary: a bookmark is private to its author. Always scope to the
   // caller — never trust a body/query-supplied userId.
