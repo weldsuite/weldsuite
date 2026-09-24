@@ -21,8 +21,8 @@ export const ACCENTS = {
 /** ~12% tint of an accent, for the rounded icon tiles on menu rows. */
 export function tint(hex: string): string {
   const value = hex.replace('#', '');
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
+  const r = Number.parseInt(value.slice(0, 2), 16);
+  const g = Number.parseInt(value.slice(2, 4), 16);
+  const b = Number.parseInt(value.slice(4, 6), 16);
   return `rgba(${r},${g},${b},0.12)`;
 }
