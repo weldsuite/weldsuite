@@ -44,7 +44,7 @@ const DATE_FIELDS = new Set(['dueDate', 'startTime', 'endTime', 'followUpDate'])
 app.get('/', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const scope = await scopeFor(c);
 
   const conditions: any[] = [isNull(t.deletedAt)];
