@@ -1256,7 +1256,7 @@ export async function createCheckout(
       lineItems,
       successUrl,
       cancelUrl,
-      idempotencyKey: `weldhost-checkout:${[...registrationIds].sort().join(',')}`,
+      idempotencyKey: `weldhost-checkout:${[...registrationIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
       metadata: {
         kind: 'domain_registration',
         registrationIds: JSON.stringify(registrationIds),

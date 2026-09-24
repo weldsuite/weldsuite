@@ -32,7 +32,7 @@ const ICON_NAMES: string[] = Object.keys(LucideIcons)
     const Comp = (LucideIcons as Record<string, unknown>)[key];
     return typeof Comp === 'object' || typeof Comp === 'function';
   })
-  .sort();
+  .sort((a, b) => a.localeCompare(b));
 
 export function getLucideComponent(name: string | null | undefined): LucideIcon | null {
   if (!name) return null;

@@ -1,6 +1,7 @@
 
 import React, { useState } from "react";
 import { getCategoryStyle } from "./tailwind-helpers";
+import { evaluateArithmetic } from "./evaluate-arithmetic";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
 import { Label } from "@weldsuite/ui/components/label";
@@ -954,9 +955,9 @@ export default function TablePage() {
         return "Invalid formula";
       }
 
-      const result = Function(`"use strict"; return (${sanitized})`)();
+      const result = evaluateArithmetic(sanitized);
 
-      if (typeof result === 'number' && !isNaN(result)) {
+      if (result !== null && Number.isFinite(result)) {
         return Math.round(result * 100) / 100; // Round to 2 decimal places
       }
 

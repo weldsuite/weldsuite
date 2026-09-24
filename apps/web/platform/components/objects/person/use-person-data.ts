@@ -82,7 +82,7 @@ export const personKeys = {
   navigation: (id: string, listId?: string) => [...personKeys.all, 'navigation', id, listId] as const,
   companies: (id: string) => [...personKeys.all, id, 'companies'] as const,
   channel: (id: string) => [...personKeys.all, id, 'channel'] as const,
-  byEmails: (emails: string[]) => [...personKeys.all, 'by-emails', emails.slice().sort().join(',')] as const,
+  byEmails: (emails: string[]) => [...personKeys.all, 'by-emails', emails.slice().sort((a, b) => a.localeCompare(b)).join(',')] as const,
   recentCorrespondents: (accountId?: string) => [...personKeys.all, 'recent-correspondents', accountId] as const,
 };
 

@@ -38,7 +38,7 @@ function buildMonthGroups(
       );
     }
   }
-  const keys = [...monthLabels.keys()].sort().reverse();
+  const keys = [...monthLabels.keys()].sort((a, b) => b.localeCompare(a));
   const groups: GroupConfig<JournalEntryRow>[] = keys.map((key, i) => ({
     id: key,
     label: monthLabels.get(key)!,
