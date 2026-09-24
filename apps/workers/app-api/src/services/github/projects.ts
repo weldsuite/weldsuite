@@ -19,6 +19,7 @@ import { eq, and, isNull, desc } from 'drizzle-orm';
 import type { Database } from '../../db';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
+import { logSafe } from '../../lib/log-safe';
 import type {
   AvailableProjectV2,
   ProjectV2StatusFieldInfo,
@@ -336,7 +337,7 @@ export async function linkProject(
       .where(eq(githubProjectLinks.id, existing.id))
       .returning();
     console.log(
-      `[GitHub] User ${userId} re-linked Project #${input.projectV2Number} (${input.ownerLogin}) to project ${input.projectId} in workspace ${workspaceId}`,
+      `[GitHub] User ${logSafe(userId)} re-linked Project #${logSafe(input.projectV2Number)} (${logSafe(input.ownerLogin)}) to project ${logSafe(input.projectId)} in workspace ${logSafe(workspaceId)}`,
     );
     return updated;
   }
@@ -347,7 +348,7 @@ export async function linkProject(
     .returning();
 
   console.log(
-    `[GitHub] User ${userId} linked Project #${input.projectV2Number} (${input.ownerLogin}) to project ${input.projectId} in workspace ${workspaceId}`,
+    `[GitHub] User ${logSafe(userId)} linked Project #${logSafe(input.projectV2Number)} (${logSafe(input.ownerLogin)}) to project ${logSafe(input.projectId)} in workspace ${logSafe(workspaceId)}`,
   );
 
   return row;
