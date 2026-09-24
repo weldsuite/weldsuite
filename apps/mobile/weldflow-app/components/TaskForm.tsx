@@ -115,7 +115,7 @@ export function TaskForm({
   onSubmit,
   submitLabel,
   isSubmitting = false,
-}: Props) {
+}: Readonly<Props>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 

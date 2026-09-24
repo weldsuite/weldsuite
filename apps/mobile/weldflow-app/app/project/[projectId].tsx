@@ -172,7 +172,7 @@ export default function ProjectDetailScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: Readonly<{ label: string; value: string }>) {
   const { colors } = useTheme();
   return (
     <View style={styles.stat}>

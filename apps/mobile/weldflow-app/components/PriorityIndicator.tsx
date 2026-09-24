@@ -14,10 +14,10 @@ const PRIORITY_COLORS: Record<string, string> = {
 export function PriorityIndicator({
   priority,
   showLabel = false,
-}: {
+}: Readonly<{
   priority: string;
   showLabel?: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const color = PRIORITY_COLORS[priority] ?? '#9CA3AF';
   return (
