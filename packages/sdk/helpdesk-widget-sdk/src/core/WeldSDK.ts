@@ -141,7 +141,7 @@ export class WeldSDK {
         launcherIframe.element.contentWindow.postMessage({
           type: 'weld:unread-count',
           count
-        }, '*');
+        }, this.getIframeOrigin());
       }
       // Update state coordinator for external API consumers
       this.stateCoordinator.setBadgeCount(count);
@@ -581,13 +581,13 @@ export class WeldSDK {
     // Send open message to the widget iframe
     const widgetIframe = this.iframeManager.getIframe(IframeType.WIDGET);
     if (widgetIframe?.element?.contentWindow) {
-      widgetIframe.element.contentWindow.postMessage({ type: 'weld:open' }, '*');
+      widgetIframe.element.contentWindow.postMessage({ type: 'weld:open' }, this.getIframeOrigin());
     }
 
     // Notify launcher that widget is now open (so it can show X icon)
     const launcherIframe = this.iframeManager.getIframe(IframeType.LAUNCHER);
     if (launcherIframe?.element?.contentWindow) {
-      launcherIframe.element.contentWindow.postMessage({ type: 'weld:widget-opened' }, '*');
+      launcherIframe.element.contentWindow.postMessage({ type: 'weld:widget-opened' }, this.getIframeOrigin());
     }
 
     this.persistOpenState(true);
@@ -607,13 +607,13 @@ export class WeldSDK {
     // Send close message to the widget iframe
     const widgetIframe = this.iframeManager.getIframe(IframeType.WIDGET);
     if (widgetIframe?.element?.contentWindow) {
-      widgetIframe.element.contentWindow.postMessage({ type: 'weld:close' }, '*');
+      widgetIframe.element.contentWindow.postMessage({ type: 'weld:close' }, this.getIframeOrigin());
     }
 
     // Notify launcher that widget is now closed (so it can show chat icon)
     const launcherIframe = this.iframeManager.getIframe(IframeType.LAUNCHER);
     if (launcherIframe?.element?.contentWindow) {
-      launcherIframe.element.contentWindow.postMessage({ type: 'weld:widget-closed' }, '*');
+      launcherIframe.element.contentWindow.postMessage({ type: 'weld:widget-closed' }, this.getIframeOrigin());
     }
 
     this.persistOpenState(false);
@@ -1042,6 +1042,15 @@ export class WeldSDK {
   }
 
   /**
+   * Origin the launcher/widget iframes are served from. Both load from
+   * `api.baseUrl`, so posting to that origin keeps messages from reaching a
+   * frame that has navigated elsewhere.
+   */
+  private getIframeOrigin(): string {
+    return new URL(this.config.api.baseUrl).origin;
+  }
+
+  /**
    * Send a page change message to the widget iframe
    */
   private sendPageChange(url: string, title: string): void {
@@ -1052,7 +1061,7 @@ export class WeldSDK {
         url,
         title,
         timestamp: Date.now(),
-      }, '*');
+      }, this.getIframeOrigin());
     }
   }
 
