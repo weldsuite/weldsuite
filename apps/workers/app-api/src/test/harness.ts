@@ -147,7 +147,7 @@ export function createTestApp(
   // rejections so a missing binding never surfaces as an unhandled rejection.
   const executionCtx = {
     waitUntil: (promise: Promise<unknown>) => {
-      if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+      if (typeof promise?.catch === 'function') promise.catch(() => {});
     },
     passThroughOnException: () => {},
     props: {},

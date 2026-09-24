@@ -92,7 +92,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
 
   // Refs to break circular dependencies
   const handleAddSubProjectRef = React.useRef<(projectId: string) => void>(() => {});
-  const reloadProjectsRef = React.useRef<() => void>(() => {});
+  const reloadProjectsRef = React.useRef<() => Promise<void>>(async () => {});
   const handleMoveProjectRef = React.useRef<(projectHref: string, direction: 'up' | 'down') => void>(() => {});
 
   // Transform API projects to menu items
@@ -136,14 +136,14 @@ export function useProjectsSidebarItems(isActive: boolean): {
         onChangeColor: canWrite
           ? async (color: string) => {
               await projectsApi.update(projectId, { color });
-              reloadProjectsRef.current();
+              await reloadProjectsRef.current();
             }
           : undefined,
         onChangeIcon: canWrite
           ? async (icon: LucideIcon) => {
               const iconLabel = coloredSquareIcons.find((i) => i.value === icon)?.label || '';
               await projectsApi.update(projectId, { icon: iconLabel });
-              reloadProjectsRef.current();
+              await reloadProjectsRef.current();
             }
           : undefined,
         onMoveUp: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}/tasks`, 'up'),

@@ -439,7 +439,7 @@ export default function CustomersScreen() {
             </View>
 
             <View style={styles.customerDetails}>
-              {item.email && (
+              {!!item.email && (
                 <View style={styles.detailRow}>
                   <Mail size={14} color={colors.muted} />
                   <Text style={[styles.detailText, { color: colors.text }]}>{item.email}</Text>
