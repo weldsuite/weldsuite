@@ -105,7 +105,7 @@ export function detectCellType(value: string): 'number' | 'date' | 'text' {
   if (value === '') return 'text';
   // Check if it's a number
   const num = Number(value);
-  if (!isNaN(num) && value.trim() !== '') return 'number';
+  if (!Number.isNaN(num) && value.trim() !== '') return 'number';
   // Check common date patterns (ISO, MM/DD/YYYY, DD-MM-YYYY)
   if (/^\d{4}-\d{2}-\d{2}/.test(value)) return 'date';
   if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(value)) return 'date';
@@ -124,7 +124,7 @@ export function formatCellDisplay(rawValue: CellValue | undefined, format?: Cell
   if (!format?.numberFormat || format.numberFormat === 'general') return str;
 
   const num = Number(rawValue);
-  if (isNaN(num)) return str;
+  if (Number.isNaN(num)) return str;
 
   const decimals = format.decimalPlaces ?? 2;
 
@@ -149,12 +149,12 @@ export function formatCellDisplay(rawValue: CellValue | undefined, format?: Cell
       }) + '%';
     case 'date': {
       const d = new Date(num);
-      if (isNaN(d.getTime())) return str;
+      if (Number.isNaN(d.getTime())) return str;
       return d.toLocaleDateString();
     }
     case 'time': {
       const d = new Date(num);
-      if (isNaN(d.getTime())) return str;
+      if (Number.isNaN(d.getTime())) return str;
       return d.toLocaleTimeString();
     }
     case 'scientific':

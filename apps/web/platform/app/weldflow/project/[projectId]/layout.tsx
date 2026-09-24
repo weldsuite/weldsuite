@@ -142,7 +142,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const [chatWidth, setChatWidth] = React.useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_CHAT_WIDTH;
     const raw = window.localStorage.getItem(CHAT_SIZE_KEY);
-    const parsed = raw ? Number(raw) : NaN;
+    const parsed = raw ? Number(raw) : Number.NaN;
     return Number.isFinite(parsed) && parsed >= MIN_CHAT_WIDTH && parsed <= MAX_CHAT_WIDTH
       ? parsed
       : DEFAULT_CHAT_WIDTH;
