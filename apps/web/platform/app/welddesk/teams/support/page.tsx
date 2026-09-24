@@ -109,7 +109,7 @@ export default function SupportTeamPage() {
       members.length > 0
         ? members.reduce((sum, member) => {
             const time = Number.parseFloat(member.avgResponseTime);
-            return sum + (isNaN(time) ? 0 : time);
+            return sum + (Number.isNaN(time) ? 0 : time);
           }, 0) / members.length
         : 0
     ),

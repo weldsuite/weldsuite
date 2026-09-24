@@ -85,7 +85,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onDurationChange = () => {
-      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+      if (audio.duration && Number.isFinite(audio.duration)) setDuration(audio.duration);
     };
     const onEnded = () => setIsPlaying(false);
     const onPlay = () => setIsPlaying(true);
@@ -284,7 +284,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
     const onDurationChange = () => {
-      if (video.duration && isFinite(video.duration)) setDuration(video.duration);
+      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
     };
     const onEnded = () => { setIsPlaying(false); setShowOverlay(true); };
     const onPlay = () => { setIsPlaying(true); setShowOverlay(false); };
@@ -491,7 +491,7 @@ function VideoLightbox({ attachment, onClose }: { attachment: ChatClipAttachment
 
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
     const onDurationChange = () => {
-      if (video.duration && isFinite(video.duration)) setDuration(video.duration);
+      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
     };
     const onEnded = () => setIsPlaying(false);
     const onPlay = () => setIsPlaying(true);

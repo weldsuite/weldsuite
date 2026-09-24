@@ -544,7 +544,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
                     const d = email.receivedAt || email.receivedDate || email.createdAt;
                     if (!d) return '';
                     const date = new Date(d);
-                    if (isNaN(date.getTime())) return '';
+                    if (Number.isNaN(date.getTime())) return '';
                     return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                   })()}
                 </Text>
