@@ -72,7 +72,7 @@ app.get('/definitions', requirePermission('contacts:read'), async (c) => {
 app.get('/logs', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
   const l = schema.enrichmentLogs;
 
   const conditions: any[] = [];
