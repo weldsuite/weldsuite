@@ -10,9 +10,9 @@ const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:879
  */
 export function MobileRealtimeProvider({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { getToken } = useClerkAuth();
 
   return (
