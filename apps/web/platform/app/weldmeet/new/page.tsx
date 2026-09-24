@@ -365,7 +365,7 @@ function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
 
   const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
-    try { navigator.clipboard.writeText(meetingLink); } catch { /* ignore */ }
+    navigator.clipboard?.writeText(meetingLink).catch(() => { /* ignore */ });
   };
 
   return (

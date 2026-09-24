@@ -146,7 +146,7 @@ export default function CallRoomPage() {
     return () => {
       if (durationRef.current) clearInterval(durationRef.current);
       stopLocalMediaTracks(m);
-      try { m?.leave(); } catch { /* ignore */ }
+      m?.leave().catch(() => { /* ignore */ });
     };
   }, [token, callType]);
 
@@ -155,7 +155,7 @@ export default function CallRoomPage() {
       // Stop the local hardware tracks first — RTK's leave() does not reliably
       // release the camera/mic, so the device indicator would otherwise stay on.
       stopLocalMediaTracks(meeting);
-      try { meeting.leave(); } catch { /* ignore */ }
+      meeting.leave().catch(() => { /* ignore */ });
     }
 
     // Notify the mobile app and close the browser
