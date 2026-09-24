@@ -7,7 +7,7 @@ import { Skeleton } from '@weldsuite/mobile-ui/components/Skeleton';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { useI18n } from '@/lib/i18n';
 
-export function LoadingState({ label }: { label?: string }) {
+export function LoadingState({ label }: Readonly<{ label?: string }>) {
   return (
     <View style={styles.center}>
       <Spinner size="large" label={label} />
@@ -19,11 +19,11 @@ export function ErrorState({
   message,
   onRetry,
   retrying = false,
-}: {
+}: Readonly<{
   message?: string;
   onRetry?: () => void;
   retrying?: boolean;
-}) {
+}>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   return (
@@ -39,7 +39,7 @@ export function ErrorState({
   );
 }
 
-export function ListSkeleton({ count = 8 }: { count?: number }) {
+export function ListSkeleton({ count = 8 }: Readonly<{ count?: number }>) {
   const { colors } = useTheme();
   return (
     <View>
