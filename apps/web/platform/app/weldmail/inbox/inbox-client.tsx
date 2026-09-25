@@ -125,7 +125,7 @@ export function InboxClient({
   initialMessages,
   currentFolder,
   activeAccount
-}: InboxClientProps) {
+}: Readonly<InboxClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   // Set breadcrumbs for inbox

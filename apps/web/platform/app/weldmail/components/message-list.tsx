@@ -289,7 +289,7 @@ export function MessageList({
   pageSize = 25,
   isUnified = false,
   onThreadLabelUpdate,
-}: MessageListProps) {
+}: Readonly<MessageListProps>) {
   const { t } = useI18n();
   const displayMode = threads ? 'threads' : 'messages';
   const params = useParams();
