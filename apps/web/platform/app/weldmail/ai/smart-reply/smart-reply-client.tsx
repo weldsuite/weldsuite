@@ -54,7 +54,7 @@ interface SmartReplyClientProps {
   stats: Stats;
 }
 
-export function SmartReplyClient({ emails, suggestedReplies: initialReplies, stats }: SmartReplyClientProps) {
+export function SmartReplyClient({ emails, suggestedReplies: initialReplies, stats }: Readonly<SmartReplyClientProps>) {
   const { t } = useI18n();
   const smartRepliesMutation = useSmartReplies();
   const handleAiCreditsError = useAiCreditsToast();

@@ -41,7 +41,7 @@ interface SummaryClientProps {
   initialSummary: EmailSummaryData;
 }
 
-export function SummaryClient({ initialSummary }: SummaryClientProps) {
+export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) {
   const { t } = useI18n();
 
   // Set breadcrumbs for AI Summary

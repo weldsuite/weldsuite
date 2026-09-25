@@ -18,7 +18,7 @@ function isId(part: string): boolean {
   return /^(msg_|macc_|mfld_|label_|thread_)/.test(part) || /^[a-zA-Z0-9_-]{20,}$/.test(part);
 }
 
-export function MailHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle, calendarOpen }: MailHeaderProps) {
+export function MailHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle, calendarOpen }: Readonly<MailHeaderProps>) {
   const { t } = useI18n();
   const pathname = usePathname();
   const { data: accountsData } = useMailAccounts();

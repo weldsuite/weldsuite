@@ -286,7 +286,7 @@ function useAppDarkMode(): boolean {
  *   - `width=device-width` lets responsive emails (media queries) reflow to the
  *     pane width, so the frame is responsive on mobile and narrow panes.
  */
-export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProps) {
+export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlContentProps>) {
   const t = useTranslations();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(40);

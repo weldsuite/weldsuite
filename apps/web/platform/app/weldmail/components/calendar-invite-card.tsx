@@ -54,7 +54,7 @@ function formatEventWhen(event: ParsedIcsEvent): string {
  * falls back silently (renders nothing) if the payload isn't a real VEVENT so
  * the plain attachment link still shows.
  */
-export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }: CalendarInviteCardProps) {
+export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }: Readonly<CalendarInviteCardProps>) {
   const { t } = useI18n();
   const [event, setEvent] = useState<ParsedIcsEvent | null>(null);
   const [loading, setLoading] = useState(true);

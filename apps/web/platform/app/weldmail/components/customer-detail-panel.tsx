@@ -96,7 +96,7 @@ export function CustomerDetailPanel({
   width = '500px',
   isExpanded,
   onToggleExpand,
-}: CustomerDetailPanelProps) {
+}: Readonly<CustomerDetailPanelProps>) {
   const { t } = useI18n();
   const pathname = usePathname();
   const returnUrl = encodeURIComponent(pathname);
