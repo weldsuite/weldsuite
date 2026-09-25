@@ -3,10 +3,10 @@ import { DarkMode, Gradient, LightMode } from '@/components/Icon'
 export function LightbulbIcon({
   id,
   color,
-}: {
+}: Readonly<{
   id: string
   color?: React.ComponentProps<typeof Gradient>['color']
-}) {
+}>) {
   return (
     <>
       <defs>

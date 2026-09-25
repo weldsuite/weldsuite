@@ -3,7 +3,7 @@ import { getHelpcenterConfig, getFolders, getArticles } from '@/lib/api-client'
 import { SearchBar } from '@/components/SearchBar'
 import { CategoryIcon } from '@/components/CategoryIcon'
 
-export default async function HomePage({ params }: { params: Promise<{ domain: string }> }) {
+export default async function HomePage({ params }: Readonly<{ params: Promise<{ domain: string }> }>) {
   const { domain } = await params
   const [config, folders, recent] = await Promise.all([
     getHelpcenterConfig(domain),
