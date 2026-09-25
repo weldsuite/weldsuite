@@ -1,4 +1,4 @@
-export function Logo(props: React.ComponentPropsWithoutRef<'svg'>) {
+export function Logo(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 1367.07 250.16" aria-hidden="true" {...props}>
       <g className="fill-zinc-900 dark:fill-white">

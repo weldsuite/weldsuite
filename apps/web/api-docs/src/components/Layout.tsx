@@ -13,10 +13,10 @@ import { SectionProvider, type Section } from '@/components/SectionProvider'
 export function Layout({
   children,
   allSections,
-}: {
+}: Readonly<{
   children: React.ReactNode
   allSections: Record<string, Array<Section>>
-}) {
+}>) {
   const pathname = usePathname()
 
   return (
