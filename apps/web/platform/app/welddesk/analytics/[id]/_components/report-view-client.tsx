@@ -82,7 +82,7 @@ interface ReportViewClientProps {
   allReports: AnalyticsReport[];
 }
 
-export function ReportViewClient({ report, initialCharts, allReports }: ReportViewClientProps) {
+export function ReportViewClient({ report, initialCharts, allReports }: Readonly<ReportViewClientProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { getClient } = useAppApiClient();

@@ -7,9 +7,9 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
 export default function AiResolvedLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { data: result } = useAiResolvedConversations({ page: 1, pageSize: 50 });
   const conversations: Helpdesk.Conversation[] = result?.data?.conversations || [];
 
