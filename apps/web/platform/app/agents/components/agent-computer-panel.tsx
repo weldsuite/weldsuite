@@ -15,7 +15,7 @@ interface AgentComputerPanelProps {
   agentId: string;
 }
 
-export function AgentComputerPanel({ agentId }: AgentComputerPanelProps) {
+export function AgentComputerPanel({ agentId }: Readonly<AgentComputerPanelProps>) {
   const t = getTranslations('common').agents.detail.computer;
   const { data: status, isLoading, refetch, isFetching } = useAgentComputerStatus();
   const destroyComputer = useDestroyAgentComputer();
