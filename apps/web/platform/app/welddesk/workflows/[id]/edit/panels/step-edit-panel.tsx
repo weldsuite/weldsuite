@@ -29,7 +29,7 @@ export function StepEditPanel({
   onUpdateStep,
   onDeleteStep,
   onClose,
-}: StepEditPanelProps) {
+}: Readonly<StepEditPanelProps>) {
   const { t } = useI18n();
   const sep = t.helpdesk.stepEditPanel;
   const wc = t.helpdesk.workflowConstants;

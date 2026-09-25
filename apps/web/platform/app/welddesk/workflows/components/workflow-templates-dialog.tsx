@@ -252,7 +252,7 @@ interface WorkflowTemplatesDialogProps {
   onSelect: (template: { name: string; description: string; steps: WorkflowStep[]; triggers: WorkflowTrigger[] }) => void;
 }
 
-export function WorkflowTemplatesDialog({ open, onOpenChange, onSelect }: WorkflowTemplatesDialogProps) {
+export function WorkflowTemplatesDialog({ open, onOpenChange, onSelect }: Readonly<WorkflowTemplatesDialogProps>) {
   const { t } = useI18n();
   const tr = t.helpdesk.workflowTemplates;
 

@@ -68,7 +68,7 @@ export function TriggerFilterPanel({
   workflow,
   onUpdateTriggerConfig,
   onClose,
-}: TriggerFilterPanelProps) {
+}: Readonly<TriggerFilterPanelProps>) {
   const { t } = useI18n();
   const tp = t.helpdesk.triggerPanel;
 

@@ -22,7 +22,7 @@ export function SubAgentPickerDialog({
   stepId,
   savedAgents,
   onSelectAgent,
-}: SubAgentPickerDialogProps) {
+}: Readonly<SubAgentPickerDialogProps>) {
   const { t } = useI18n();
   const sapd = t.helpdesk.subAgentPickerDialog;
 
