@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sparkline } from '@/components/ui/sparkline';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/states';
 
-function StatTile({ label, value }: { label: string; value: string | number }) {
+function StatTile({ label, value }: Readonly<{ label: string; value: string | number }>) {
   return (
     <div className="rounded-md border border-gray-100 p-3">
       <p className="text-xs text-gray-500">{label}</p>
