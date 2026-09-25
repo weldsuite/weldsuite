@@ -52,7 +52,7 @@ interface MemberDetailClientProps {
   };
 }
 
-export function MemberDetailClient({ memberData }: MemberDetailClientProps) {
+export function MemberDetailClient({ memberData }: Readonly<MemberDetailClientProps>) {
   const { t } = useI18n();
   const md = t.helpdesk.memberDetailPage;
   const router = useRouter();

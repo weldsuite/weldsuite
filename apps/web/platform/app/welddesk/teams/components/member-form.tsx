@@ -22,7 +22,7 @@ interface MemberFormProps {
   mode: 'add' | 'edit';
 }
 
-export function MemberForm({ departmentId, departmentName, users, member, mode }: MemberFormProps) {
+export function MemberForm({ departmentId, departmentName, users, member, mode }: Readonly<MemberFormProps>) {
   const { t } = useI18n();
   const mf = t.helpdesk.memberForm;
   const { form, onSubmit, isSubmitting, handleUserSelect } = useMemberForm({

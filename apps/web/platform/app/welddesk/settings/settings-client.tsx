@@ -35,7 +35,7 @@ interface SettingsClientProps {
   initialSettings: HelpdeskSettingsData;
 }
 
-export function SettingsClient({ initialSettings }: SettingsClientProps) {
+export function SettingsClient({ initialSettings }: Readonly<SettingsClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.helpdesk.settingsClient;

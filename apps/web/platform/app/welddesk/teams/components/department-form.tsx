@@ -23,7 +23,7 @@ interface DepartmentFormProps {
   mode: 'add' | 'edit';
 }
 
-export function DepartmentForm({ department, mode }: DepartmentFormProps) {
+export function DepartmentForm({ department, mode }: Readonly<DepartmentFormProps>) {
   const { t } = useI18n();
   const df = t.helpdesk.departmentForm;
   const { form, onSubmit, isPending } = useDepartmentForm({ department, mode });

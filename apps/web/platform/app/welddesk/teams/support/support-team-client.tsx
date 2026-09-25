@@ -53,7 +53,7 @@ interface SupportTeamClientProps {
   };
 }
 
-export function SupportTeamClient({ teamData }: SupportTeamClientProps) {
+export function SupportTeamClient({ teamData }: Readonly<SupportTeamClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tm = t.helpdesk.teams;

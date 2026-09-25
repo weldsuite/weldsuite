@@ -140,11 +140,11 @@ function SectionHeader({
   title,
   count,
   isOpen,
-}: {
+}: Readonly<{
   title: string;
   count?: number;
   isOpen: boolean;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-2 py-3 px-1 cursor-pointer select-none hover:bg-muted/50 rounded-md -mx-1">
       {isOpen ? (
@@ -162,7 +162,7 @@ function SectionHeader({
   );
 }
 
-export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: TicketTypeEditorProps) {
+export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Readonly<TicketTypeEditorProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tte = t.helpdesk.ticketTypeEditor;
