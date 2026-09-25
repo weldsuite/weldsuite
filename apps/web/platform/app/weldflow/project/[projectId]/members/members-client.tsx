@@ -101,7 +101,7 @@ export function MembersClient({
   initialMembers,
   initialAvailableUsers,
   isAdmin,
-}: MembersClientProps) {
+}: Readonly<MembersClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.projects.members.projects, href: '/weldflow' },

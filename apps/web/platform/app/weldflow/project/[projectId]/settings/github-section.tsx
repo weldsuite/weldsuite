@@ -80,7 +80,7 @@ interface LinkProjectDialogProps {
   projectId: string;
 }
 
-function LinkProjectDialog({ open, onOpenChange, projectId }: LinkProjectDialogProps) {
+function LinkProjectDialog({ open, onOpenChange, projectId }: Readonly<LinkProjectDialogProps>) {
   const t = getTranslations('settings');
   const gp = t.integrations.github.projects;
 
@@ -323,7 +323,7 @@ interface GithubSectionProps {
   isAdmin: boolean;
 }
 
-export function GithubSection({ projectId, isAdmin }: GithubSectionProps) {
+export function GithubSection({ projectId, isAdmin }: Readonly<GithubSectionProps>) {
   const t = getTranslations('settings');
   const gp = t.integrations.github.projects;
 
@@ -472,13 +472,13 @@ function ProjectLinkRow({
   isSyncing,
   onSync,
   onUnlink,
-}: {
+}: Readonly<{
   link: GithubProjectLink;
   canManage: boolean;
   isSyncing: boolean;
   onSync: () => void;
   onUnlink: () => void;
-}) {
+}>) {
   const t = getTranslations('settings');
   const gp = t.integrations.github.projects;
   const updateMutation = useUpdateProjectLink(link.id);

@@ -234,7 +234,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 
 // ---------- DroppableStage ----------
 
-function DroppableStage({ id, children, containerRef }: { id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }) {
+function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
   const stageRef = useRef<HTMLDivElement>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
@@ -273,7 +273,7 @@ function DroppableStage({ id, children, containerRef }: { id: string; children: 
 
 // ---------- SortableStage ----------
 
-function SortableStage({ id, children }: { id: string; children: React.ReactNode }) {
+function SortableStage({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
   const { setNodeRef, transform, transition, isDragging } = useSortable({
     id: `sortable-stage-${id}`,
     data: { type: 'stage', stageId: id },
@@ -297,7 +297,7 @@ function SortableStage({ id, children }: { id: string; children: React.ReactNode
 
 // ---------- TaskCard ----------
 
-function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: { feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[] }) {
+function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readonly<{ feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[] }>) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({ id: feature.id });
 
@@ -493,7 +493,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: { feat
 
 // ---------- StageHeader ----------
 
-function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: {
+function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: Readonly<{
   stage: StageColumn;
   taskCount: number;
   onAddTask: () => void;
@@ -504,7 +504,7 @@ function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDelet
   onMoveRight: () => void;
   isFirst: boolean;
   isLast: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
