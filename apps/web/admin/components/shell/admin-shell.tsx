@@ -24,7 +24,7 @@ interface AdminShellProps {
  * color-mix tones derive from the theme tokens, so this tracks light/dark
  * automatically.
  */
-export function AdminShell({ name, email, role, avatar, children }: AdminShellProps) {
+export function AdminShell({ name, email, role, avatar, children }: Readonly<AdminShellProps>) {
   return (
     <div
       className="relative h-screen overflow-hidden bg-[var(--shell-chrome)]"
@@ -69,10 +69,10 @@ export function AdminShell({ name, email, role, avatar, children }: AdminShellPr
 export function PageContent({
   children,
   className,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div className="flex min-h-0 flex-1 gap-2 p-2">
       <div
@@ -96,11 +96,11 @@ export function PageBody({
   children,
   className,
   width = 'wide',
-}: {
+}: Readonly<{
   children: React.ReactNode;
   className?: string;
   width?: 'wide' | 'narrow' | 'full';
-}) {
+}>) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div
@@ -122,11 +122,11 @@ export function PageHeading({
   title,
   description,
   actions,
-}: {
+}: Readonly<{
   title: React.ReactNode;
   description?: React.ReactNode;
   actions?: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
