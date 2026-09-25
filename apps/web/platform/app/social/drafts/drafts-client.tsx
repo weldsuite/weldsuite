@@ -28,10 +28,10 @@ function postTargetIds(post: DraftPost): string[] {
 function DraftMediaThumb({
   media,
   extraCount,
-}: {
+}: Readonly<{
   media: SocialMedia | undefined;
   extraCount: number;
-}) {
+}>) {
   const src = media?.thumbnailUrl || media?.url || undefined;
   const isVideo = media?.mediaType === 'video';
 
@@ -66,11 +66,11 @@ function PlatformTargets({
   accounts,
   platformLabels,
   emptyLabel,
-}: {
+}: Readonly<{
   accounts: SocialAccount[];
   platformLabels: Record<string, string>;
   emptyLabel: string;
-}) {
+}>) {
   if (accounts.length === 0) {
     return (
       <span className="text-xs text-muted-foreground">{emptyLabel}</span>

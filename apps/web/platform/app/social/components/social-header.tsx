@@ -17,7 +17,7 @@ export function SocialHeader({
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-}: SocialHeaderProps) {
+}: Readonly<SocialHeaderProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const pathname = usePathname();

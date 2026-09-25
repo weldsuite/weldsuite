@@ -68,7 +68,7 @@ export function TemplateDialog({
   onSubmit,
   isPending,
   selectableEntity = false,
-}: Props) {
+}: Readonly<Props>) {
   const ts = getTranslations('settings');
   const tod = ts.objectTemplates.dialog;
   // The object type the template targets. Fixed when editing; user-selectable
