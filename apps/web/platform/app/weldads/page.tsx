@@ -25,12 +25,12 @@ function StatCard({
   value,
   href,
   icon: Icon,
-}: {
+}: Readonly<{
   title: string;
   value: number | undefined;
   href: string;
   icon: typeof Megaphone;
-}) {
+}>) {
   return (
     <Link href={href}>
       <Card className="hover:bg-muted/40 transition-colors">

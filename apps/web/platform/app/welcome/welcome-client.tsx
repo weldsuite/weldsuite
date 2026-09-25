@@ -10,7 +10,7 @@ interface WelcomeClientProps {
   errorDescription?: string;
 }
 
-export function WelcomeClient({ error, errorDescription }: WelcomeClientProps) {
+export function WelcomeClient({ error, errorDescription }: Readonly<WelcomeClientProps>) {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const router = useRouter();
   const t = getTranslations('common');

@@ -65,7 +65,7 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   directory?: string;
 };
 
-export function UploadVersionDialog({ open, onOpenChange, app }: UploadVersionDialogProps) {
+export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<UploadVersionDialogProps>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const inputRef = useRef<HTMLInputElement>(null);
