@@ -59,7 +59,7 @@ function initialOf(label: string): string {
   return (label.trim()[0] || '?').toUpperCase();
 }
 
-export function AddMemberPicker({ listId, kind }: AddMemberPickerProps) {
+export function AddMemberPicker({ listId, kind }: Readonly<AddMemberPickerProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');

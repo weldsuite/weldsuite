@@ -47,7 +47,7 @@ interface Props {
   onCancel: () => void;
 }
 
-export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Props) {
+export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonly<Props>) {
   const t = useTranslations();
   const create = useCreatePerson();
   const picker = useTemplatePicker('person');

@@ -62,7 +62,7 @@ export function PeopleGrid({
   isFetchingMore,
   listContext,
   toolbarActions,
-}: PeopleGridProps) {
+}: Readonly<PeopleGridProps>) {
   const t = useTranslations();
   const updateMut = useUpdatePerson();
   const deleteMut = useDeletePerson();
