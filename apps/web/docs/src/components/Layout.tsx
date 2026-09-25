@@ -12,7 +12,7 @@ import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
 import { ThemeSelector } from '@/components/ThemeSelector'
 
-function ExternalLinkIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function ExternalLinkIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" {...props}>
       <path
@@ -75,7 +75,7 @@ function Header() {
   )
 }
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
   let pathname = usePathname()
   let isHomePage = pathname === '/'
 
