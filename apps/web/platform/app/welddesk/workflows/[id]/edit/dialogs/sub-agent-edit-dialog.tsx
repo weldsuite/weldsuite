@@ -55,7 +55,7 @@ export function SubAgentEditDialog({
   onClose,
   onSave,
   isSaving,
-}: SubAgentEditDialogProps) {
+}: Readonly<SubAgentEditDialogProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const wc = t.helpdesk.workflowConstants;

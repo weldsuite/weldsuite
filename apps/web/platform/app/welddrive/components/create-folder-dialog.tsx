@@ -18,7 +18,7 @@ interface CreateFolderDialogProps {
   parentId: string | null;
 }
 
-export function CreateFolderDialog({ open, onOpenChange, parentId }: CreateFolderDialogProps) {
+export function CreateFolderDialog({ open, onOpenChange, parentId }: Readonly<CreateFolderDialogProps>) {
   const [name, setName] = useState('');
   const createFolder = useCreateDriveFolder();
   const { t } = useI18n();

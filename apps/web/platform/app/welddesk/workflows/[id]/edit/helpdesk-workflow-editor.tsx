@@ -77,7 +77,7 @@ export function HelpdeskWorkflowEditorClient({
   workflow: initialWorkflow,
   workspaceMembers = [],
   workflowVariables = [],
-}: HelpdeskWorkflowEditorProps) {
+}: Readonly<HelpdeskWorkflowEditorProps>) {
   const { t } = useI18n();
   const wc = t.helpdesk.workflowConstants;
   const tw = t.helpdesk.workflowsPage;
