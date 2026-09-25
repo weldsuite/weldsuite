@@ -11,7 +11,7 @@ export function ChatHeader({
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-}: ChatHeaderProps) {
+}: Readonly<ChatHeaderProps>) {
   const breadcrumbs = useCurrentBreadcrumbs();
 
   return (

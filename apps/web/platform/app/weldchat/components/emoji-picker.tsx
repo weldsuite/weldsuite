@@ -246,7 +246,7 @@ const EMOJI_KEYWORDS: Record<string, string> = {
   '🇦🇺':'australia flag','🇨🇦':'canada flag',
 };
 
-export function EmojiPicker({ onSelect }: EmojiPickerProps) {
+export function EmojiPicker({ onSelect }: Readonly<EmojiPickerProps>) {
   const t = useTranslations();
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState(0);
