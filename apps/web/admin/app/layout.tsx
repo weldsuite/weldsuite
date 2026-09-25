@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: 'WeldSuite internal administration',
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const identity = await getAdminIdentity();
 
   return (

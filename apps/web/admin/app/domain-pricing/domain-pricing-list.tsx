@@ -63,10 +63,10 @@ function markupLabel(row: DomainPricingRow): string {
 export function DomainPricingList({
   rows,
   stats,
-}: {
+}: Readonly<{
   rows: DomainPricingRow[];
   stats: DomainPricingStats;
-}) {
+}>) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -382,7 +382,7 @@ function MarkupDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   tld: string | null;
   currency: string;
@@ -392,7 +392,7 @@ function MarkupDialog({
   isMutating: boolean;
   onClose: () => void;
   onSave: (kind: MarkupKind, value: string, onlyEmpty: boolean) => void;
-}) {
+}>) {
   const copy = adminPricingCopy();
   const [kind, setKind] = useState<MarkupKind>(initialKind);
   const [value, setValue] = useState(initialValue);
@@ -487,7 +487,7 @@ function RenewalDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   tld: string | null;
   currency: string;
@@ -496,7 +496,7 @@ function RenewalDialog({
   isMutating: boolean;
   onClose: () => void;
   onSave: (renewalPrice: string) => void;
-}) {
+}>) {
   const copy = adminPricingCopy();
   const [value, setValue] = useState(initialValue);
   const customerPreview = customerPriceMajor(value, markup);
@@ -554,7 +554,7 @@ function CreateTldDialog({
   isMutating,
   onClose,
   onSave,
-}: {
+}: Readonly<{
   open: boolean;
   currency: string;
   isMutating: boolean;
@@ -565,7 +565,7 @@ function CreateTldDialog({
     renewalPrice: string;
     transferPrice: string;
   }) => void;
-}) {
+}>) {
   const copy = adminPricingCopy();
   const [tld, setTld] = useState('');
   const [registrationPrice, setRegistrationPrice] = useState('');
