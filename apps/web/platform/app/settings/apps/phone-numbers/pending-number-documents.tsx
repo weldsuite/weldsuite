@@ -35,7 +35,7 @@ interface PendingNumberDocumentsProps {
   onActivated?: (id: string) => void;
 }
 
-export function PendingNumberDocuments({ phoneNumbers, onActivated }: PendingNumberDocumentsProps) {
+export function PendingNumberDocuments({ phoneNumbers, onActivated }: Readonly<PendingNumberDocumentsProps>) {
   const tp = getTranslations('settings').phoneNumbers;
   const pending = phoneNumbers.filter((p) => p.status === 'pending');
   const [selected, setSelected] = useState<VoipPhoneNumber | null>(null);
@@ -87,11 +87,11 @@ function DocumentsDialog({
   phone,
   onOpenChange,
   onActivated,
-}: {
+}: Readonly<{
   phone: VoipPhoneNumber | null;
   onOpenChange: (open: boolean) => void;
   onActivated?: (id: string) => void;
-}) {
+}>) {
   const tp = getTranslations('settings').phoneNumbers;
   const { data: addresses } = useAddresses();
   const { data, isLoading } = usePhoneOrderRequirements(phone?.id ?? null);

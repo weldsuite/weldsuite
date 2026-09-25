@@ -43,7 +43,7 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function ChangeDetails({ changes, label }: { changes: Record<string, { from: unknown; to: unknown }>; label: string }) {
+function ChangeDetails({ changes, label }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }>; label: string }>) {
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
@@ -64,7 +64,7 @@ function ChangeDetails({ changes, label }: { changes: Record<string, { from: unk
 
 const HIDDEN_DATA_KEYS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId'];
 
-function DataSnapshot({ data, label }: { data: Record<string, unknown>; label: string }) {
+function DataSnapshot({ data, label }: Readonly<{ data: Record<string, unknown>; label: string }>) {
   const entries = Object.entries(data).filter(
     ([key, value]) => !HIDDEN_DATA_KEYS.includes(key) && value !== null && value !== undefined && value !== '',
   );

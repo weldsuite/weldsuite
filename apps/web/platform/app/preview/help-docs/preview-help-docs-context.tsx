@@ -12,10 +12,10 @@ const PreviewHelpDocsContext = createContext<PreviewHelpDocsUiState | null>(null
 export function PreviewHelpDocsProvider({
   value,
   children,
-}: {
+}: Readonly<{
   value: PreviewHelpDocsUiState;
   children: ReactNode;
-}) {
+}>) {
   return (
     <PreviewHelpDocsContext.Provider value={value}>
       {children}

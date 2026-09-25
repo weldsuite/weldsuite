@@ -13,7 +13,7 @@ import { OnboardingWizard } from './components/onboarding-wizard';
 import { ProvisioningScreen } from './components/provisioning-screen';
 import { getDefaultRegionForCountry } from './types';
 
-export function OnboardingPageClient({ detectedCountry }: { detectedCountry: string }) {
+export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCountry: string }>) {
   const { orgId, isLoaded } = useAuth();
   const { user } = useUser();
   // Invitees sign up with an existing org membership but Clerk doesn't always
