@@ -53,7 +53,7 @@ function slugify(value: string): string {
  * single stored id can do. That's why `entity_ref` isn't offered in the field
  * editor for custom objects.
  */
-export function LinksSection({ object }: { object: CustomObject }) {
+export function LinksSection({ object }: Readonly<{ object: CustomObject }>) {
   const { t: i18n } = useI18n();
   const t = i18n.weldobjects;
   const { data: links } = useCustomObjectLinks(object.id);

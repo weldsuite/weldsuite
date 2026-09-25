@@ -103,11 +103,11 @@ function isExpired(method: BillingPaymentMethodResponse): boolean {
 function AddPaymentMethodForm({
   onAdded,
   onCancel,
-}: {
+}: Readonly<{
   /** Receives the saved payment method id so the caller can promote it. */
   onAdded: (paymentMethodId: string | null) => void;
   onCancel: () => void;
-}) {
+}>) {
   const { t } = useI18n();
   const ts = t.settings.billing.paymentMethods;
   const stripe = useStripe();
@@ -174,7 +174,7 @@ function AddPaymentMethodForm({
 // Section
 // ============================================================================
 
-export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
+export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boolean }>) {
   const { t } = useI18n();
   const ts = t.settings.billing.paymentMethods;
   const { resolvedTheme } = useTheme();
