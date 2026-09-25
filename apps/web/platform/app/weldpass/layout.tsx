@@ -2,7 +2,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { PageLoader } from '@/components/page-loader';
 
-export default function WeldPassLayout({ children }: { children: React.ReactNode }) {
+export default function WeldPassLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('weldpass');
   const t = useTranslations();
 

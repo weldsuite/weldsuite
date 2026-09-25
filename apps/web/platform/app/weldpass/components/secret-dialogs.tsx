@@ -36,13 +36,13 @@ export function SecretDialog({
   secret,
   onClose,
   onSaved,
-}: {
+}: Readonly<{
   projectId: string;
   environmentId: string;
   secret?: WeldPassSecret;
   onClose: () => void;
   onSaved: (autoSync: WeldPassAutoSyncOutcome[]) => void;
-}) {
+}>) {
   const t = useTranslations();
   const createSecret = useCreateWeldPassSecret(projectId, environmentId);
   const updateSecret = useUpdateWeldPassSecret(projectId, environmentId);
@@ -159,12 +159,12 @@ export function ImportDialog({
   environmentId,
   onClose,
   onImported,
-}: {
+}: Readonly<{
   projectId: string;
   environmentId: string;
   onClose: () => void;
   onImported: (result: WeldPassImportResult) => void;
-}) {
+}>) {
   const t = useTranslations();
   const importSecrets = useImportWeldPassSecrets(projectId, environmentId);
 
@@ -289,13 +289,13 @@ export function HistoryDialog({
   secret,
   onClose,
   onRestored,
-}: {
+}: Readonly<{
   projectId: string;
   environmentId: string;
   secret: WeldPassSecret;
   onClose: () => void;
   onRestored: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data: versions, isLoading, error } = useWeldPassSecretVersions(
     projectId,
