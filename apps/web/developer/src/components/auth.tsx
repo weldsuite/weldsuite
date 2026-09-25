@@ -73,7 +73,7 @@ export function ProtectedRoute() {
   );
 }
 
-function RequireWorkspace({ children }: { children: ReactNode }) {
+function RequireWorkspace({ children }: Readonly<{ children: ReactNode }>) {
   const { isLoaded, orgId } = useAuth();
   const { t } = useDeveloperI18n();
 

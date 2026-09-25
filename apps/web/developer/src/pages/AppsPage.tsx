@@ -28,10 +28,10 @@ function reviewStatusLabel(app: UserApp, t: ReturnType<typeof useDeveloperI18n>[
 function Badge({
   children,
   tone = 'default',
-}: {
+}: Readonly<{
   children: React.ReactNode;
   tone?: 'default' | 'danger';
-}) {
+}>) {
   return (
     <span
       className={cn(
