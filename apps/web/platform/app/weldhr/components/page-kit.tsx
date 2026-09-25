@@ -72,12 +72,12 @@ export function HrTabsPage({
   activeTab,
   onTabChange,
   children,
-}: {
+}: Readonly<{
   tabs: PageTab[];
   activeTab: string;
   onTabChange: (tabId: string) => void;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} overflow="dropdown" />
@@ -87,7 +87,7 @@ export function HrTabsPage({
 }
 
 /** Padded content for a non-list tab section. */
-export function TabBody({ children, className }: { children: ReactNode; className?: string }) {
+export function TabBody({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   return <div className={cn('p-6 space-y-6', className)}>{children}</div>;
 }
 
@@ -95,7 +95,7 @@ export function TabBody({ children, className }: { children: ReactNode; classNam
 // Record (detail) pages
 // ---------------------------------------------------------------------------
 
-export function DetailPage({ children }: { children: ReactNode }) {
+export function DetailPage({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-6">{children}</div>
@@ -110,13 +110,13 @@ export function DetailHeader({
   leading,
   badges,
   actions,
-}: {
+}: Readonly<{
   title: ReactNode;
   subtitle?: ReactNode;
   leading?: ReactNode;
   badges?: ReactNode;
   actions?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="flex min-w-0 items-start gap-4">
@@ -139,11 +139,11 @@ export function DetailTabs({
   tabs,
   activeTab,
   onTabChange,
-}: {
+}: Readonly<{
   tabs: PageTab[];
   activeTab: string;
   onTabChange: (tabId: string) => void;
-}) {
+}>) {
   return (
     <div className="-mx-6">
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} overflow="dropdown" />
@@ -158,13 +158,13 @@ export function SectionCard({
   children,
   className,
   contentClassName,
-}: {
+}: Readonly<{
   title: ReactNode;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
-}) {
+}>) {
   return (
     <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -177,7 +177,7 @@ export function SectionCard({
 }
 
 /** Label/value pairs in a record's detail card. */
-export function FieldGrid({ fields }: { fields: Array<{ label: string; value: ReactNode }> }) {
+export function FieldGrid({ fields }: Readonly<{ fields: Array<{ label: string; value: ReactNode }> }>) {
   return (
     <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
       {fields.map((field) => (
@@ -191,7 +191,7 @@ export function FieldGrid({ fields }: { fields: Array<{ label: string; value: Re
 }
 
 /** Quiet inline empty text for small lists inside cards (not full pages — those use EntityList's empty state). */
-export function EmptyText({ children }: { children: ReactNode }) {
+export function EmptyText({ children }: Readonly<{ children: ReactNode }>) {
   return <p className="py-6 text-center text-sm text-muted-foreground">{children}</p>;
 }
 
@@ -199,7 +199,7 @@ export function EmptyText({ children }: { children: ReactNode }) {
 // Dashboards
 // ---------------------------------------------------------------------------
 
-export function DashboardPage({ title, actions, children }: { title: ReactNode; actions?: ReactNode; children: ReactNode }) {
+export function DashboardPage({ title, actions, children }: Readonly<{ title: ReactNode; actions?: ReactNode; children: ReactNode }>) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="container mx-auto max-w-[1600px] p-6 space-y-6">
@@ -213,7 +213,7 @@ export function DashboardPage({ title, actions, children }: { title: ReactNode; 
   );
 }
 
-export function KpiGrid({ children }: { children: ReactNode }) {
+export function KpiGrid({ children }: Readonly<{ children: ReactNode }>) {
   return <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{children}</div>;
 }
 
@@ -224,13 +224,13 @@ export function KpiCard({
   icon: Icon,
   hint,
   tone,
-}: {
+}: Readonly<{
   label: string;
   value: ReactNode;
   icon?: ComponentType<{ className?: string }>;
   hint?: ReactNode;
   tone?: 'default' | 'warning' | 'danger' | 'success';
-}) {
+}>) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -270,7 +270,7 @@ export function SettingsPage({
   onSave,
   onCancel,
   children,
-}: {
+}: Readonly<{
   title: ReactNode;
   description?: ReactNode;
   hasChanges: boolean;
@@ -278,7 +278,7 @@ export function SettingsPage({
   onSave: () => void;
   onCancel?: () => void;
   children: ReactNode;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -306,7 +306,7 @@ export function SettingsPage({
   );
 }
 
-export function SettingsSection({ title, description, children }: { title: ReactNode; description?: ReactNode; children: ReactNode }) {
+export function SettingsSection({ title, description, children }: Readonly<{ title: ReactNode; description?: ReactNode; children: ReactNode }>) {
   return (
     <section className="space-y-4">
       <div className="space-y-1">
@@ -319,7 +319,7 @@ export function SettingsSection({ title, description, children }: { title: React
 }
 
 /** A labelled row with a control on the right (Switch, Select…). */
-export function SettingRow({ label, description, children }: { label: ReactNode; description?: ReactNode; children: ReactNode }) {
+export function SettingRow({ label, description, children }: Readonly<{ label: ReactNode; description?: ReactNode; children: ReactNode }>) {
   return (
     <div className="flex items-center justify-between gap-6">
       <div className="space-y-1">
