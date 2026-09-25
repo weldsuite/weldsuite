@@ -16,7 +16,7 @@ interface NavItem {
   label: string;
 }
 
-export function PortalTopbar({ me, config }: { me: Me; config: PortalConfig }) {
+export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalConfig }>) {
   const slug = String(useParams().workspace ?? '');
   const pathname = usePathname();
   const router = useRouter();

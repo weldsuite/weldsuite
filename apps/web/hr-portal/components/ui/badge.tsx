@@ -10,7 +10,7 @@ const TONE_CLASSES: Record<'neutral' | 'positive' | 'warning' | 'negative' | 'in
   info: 'bg-blue-100 text-blue-800',
 };
 
-export function Badge({ tone = 'neutral', className, children }: { tone?: keyof typeof TONE_CLASSES; className?: string; children: React.ReactNode }) {
+export function Badge({ tone = 'neutral', className, children }: Readonly<{ tone?: keyof typeof TONE_CLASSES; className?: string; children: React.ReactNode }>) {
   return (
     <span className={cx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', TONE_CLASSES[tone], className)}>
       {children}

@@ -16,7 +16,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
  * renders complete on the server; afterwards it follows the cache, so a live
  * branding change or profile update re-renders it in place.
  */
-export function PortalShell({ children }: { children: ReactNode }) {
+export function PortalShell({ children }: Readonly<{ children: ReactNode }>) {
   const slug = String(useParams().workspace ?? '');
   const { data: me, loading, error, refetch } = usePortalQuery<Me>(slug, '/me');
   const { dict } = useI18n();
