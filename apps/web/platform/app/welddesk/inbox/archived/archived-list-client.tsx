@@ -38,7 +38,7 @@ interface ArchivedListClientProps {
   initialConversations: Helpdesk.Conversation[];
 }
 
-export default function ArchivedListClient({ initialConversations }: ArchivedListClientProps) {
+export default function ArchivedListClient({ initialConversations }: Readonly<ArchivedListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();

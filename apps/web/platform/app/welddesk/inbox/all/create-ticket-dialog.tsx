@@ -30,7 +30,7 @@ export function CreateTicketDialog({
   conversationId,
   onTicketCreated,
   prefillData,
-}: CreateTicketDialogProps) {
+}: Readonly<CreateTicketDialogProps>) {
   const { t } = useI18n();
   const ti = t.helpdesk.inbox;
   const [step, setStep] = useState<'select' | 'form'>('select');

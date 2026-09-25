@@ -7,9 +7,9 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
 export default function ArchivedInboxLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { data: conversationsResult } = useConversations({ page: 1, pageSize: 50, status: 'closed' });
   const conversations: Helpdesk.Conversation[] = conversationsResult?.data || [];
 
