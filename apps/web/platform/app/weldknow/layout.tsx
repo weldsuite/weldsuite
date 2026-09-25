@@ -11,7 +11,7 @@ import { ModuleContent } from '@/components/layout/module-content';
  * and the routed page/trash content on the right. Gated on both app
  * installation (useAppAccess) and the `knowledge:read` permission object.
  */
-export default function WeldKnowLayout({ children }: { children: React.ReactNode }) {
+export default function WeldKnowLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const tKnow = getTranslations('weldknow');
   const { isInstalled, isLoading } = useAppAccess('weldknow');
