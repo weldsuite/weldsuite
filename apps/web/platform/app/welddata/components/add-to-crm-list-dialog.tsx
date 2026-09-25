@@ -47,7 +47,7 @@ export function AddToCrmListDialog({
   leads,
   leadIds,
   onAdded,
-}: AddToCrmListDialogProps) {
+}: Readonly<AddToCrmListDialogProps>) {
   const t = useTranslations();
   const [query, setQuery] = useState('');
   const { data: listsResp, isLoading } = useLists(kind);

@@ -56,7 +56,7 @@ export function FilterPanel({
   onKindChange,
   excludeListIds,
   onExcludeListIdsChange,
-}: FilterPanelProps) {
+}: Readonly<FilterPanelProps>) {
   const t = useTranslations();
   const hasActive =
     Object.values(values).some((v) => v.length > 0) || excludeListIds.length > 0;
@@ -162,7 +162,7 @@ interface FilterControlProps {
   t: (key: string, params?: Record<string, unknown>) => string;
 }
 
-function FilterControl({ def, inputId, current, onChange, t }: FilterControlProps) {
+function FilterControl({ def, inputId, current, onChange, t }: Readonly<FilterControlProps>) {
   // Country fields are a multi-select of the full country list — pick one or
   // more countries to apply (values are OR-ed by the provider).
   if (def.location === 'country') {

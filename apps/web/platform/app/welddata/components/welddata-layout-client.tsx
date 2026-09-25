@@ -9,7 +9,7 @@ import { ModuleContent } from '@/components/layout/module-content';
  * full-width header and lays the active page out in the shared content row
  * (content + object panel(s) + drawers) via ModuleContent.
  */
-export function WelddataLayoutClient({ children }: { children: ReactNode }) {
+export function WelddataLayoutClient({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: 'WeldData', href: '/welddata' }]}>
       <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
