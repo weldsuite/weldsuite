@@ -73,7 +73,7 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   },
 };
 
-export function SequencesListClient({ initialSequences }: SequencesListClientProps) {
+export function SequencesListClient({ initialSequences }: Readonly<SequencesListClientProps>) {
   const t = useTranslations();
   useBreadcrumbs([
     { label: t('crm.sequences.breadcrumbCRM'), href: '/weldcrm' },

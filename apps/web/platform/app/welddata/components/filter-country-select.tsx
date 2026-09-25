@@ -38,7 +38,7 @@ export function FilterCountrySelect({
   value,
   onChange,
   placeholder,
-}: FilterCountrySelectProps) {
+}: Readonly<FilterCountrySelectProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');

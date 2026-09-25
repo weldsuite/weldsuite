@@ -49,7 +49,7 @@ interface AddColumnDialogProps {
   leadKind?: 'person' | 'company';
 }
 
-export function AddColumnDialog({ open, onOpenChange, listId, column }: AddColumnDialogProps) {
+export function AddColumnDialog({ open, onOpenChange, listId, column }: Readonly<AddColumnDialogProps>) {
   const t = useTranslations();
   const createColumn = useCreateColumn();
   const updateColumn = useUpdateColumn();
