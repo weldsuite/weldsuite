@@ -44,7 +44,7 @@ export function DomainAvailabilityChecker({
   className,
   initialSearchTerm = '',
   mobileSlot,
-}: DomainAvailabilityCheckerProps) {
+}: Readonly<DomainAvailabilityCheckerProps>) {
   const { t, language } = useI18n();
   const ta = t.host.availability;
 

@@ -8,7 +8,7 @@ interface HostLayoutClientProps {
   children: ReactNode;
 }
 
-export function HostLayoutClient({ children }: HostLayoutClientProps) {
+export function HostLayoutClient({ children }: Readonly<HostLayoutClientProps>) {
   return (
     <BreadcrumbProvider>
       <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
