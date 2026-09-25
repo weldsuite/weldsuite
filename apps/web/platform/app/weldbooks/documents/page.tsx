@@ -508,7 +508,7 @@ export default function DocumentInboxPage() {
   );
 }
 
-function CreateBillButton({ doc, label }: { doc: DocumentRow; label: string }) {
+function CreateBillButton({ doc, label }: Readonly<{ doc: DocumentRow; label: string }>) {
   const navigate = useNavigate();
   return (
     <Button
@@ -527,12 +527,12 @@ function CreateSupplierFromOcrDialog({
   onClose,
   onCreated,
   td,
-}: {
+}: Readonly<{
   doc: DocumentRow | null;
   onClose: () => void;
   onCreated: () => void;
   td: DocumentsTranslations;
-}) {
+}>) {
   const vendor = doc?.ocrResult?.vendor ?? ({} as Partial<OcrVendor>);
   const [name, setName] = useState(vendor.name ?? '');
   const [vatNumber, setVatNumber] = useState(vendor.taxNumber ?? '');
@@ -613,7 +613,7 @@ function CreateSupplierFromOcrDialog({
   );
 }
 
-function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }) {
+function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }>) {
   const { formatMoney: fmt } = useCurrentEntityCurrency();
   return (
     <div className="space-y-4">

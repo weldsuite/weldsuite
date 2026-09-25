@@ -22,7 +22,7 @@ interface EntityRow {
  * When the workspace has no accounting entity yet, short-circuit to EntityEmptyState so the user
  * can create the first legal entity before opening entity-scoped pages.
  */
-export function AccountingLayoutClient({ children }: { children: React.ReactNode }) {
+export function AccountingLayoutClient({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const tl = t.accounting.layout;
   const workspaceId = useWorkspaceId();

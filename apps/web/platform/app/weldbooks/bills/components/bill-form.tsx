@@ -97,7 +97,7 @@ const emptyItem = {
   accountId: '',
 };
 
-export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFormProps) {
+export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { formatMoney } = useCurrentEntityCurrency();
