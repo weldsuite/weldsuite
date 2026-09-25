@@ -133,7 +133,7 @@ export function AllProjectsClient({
   onFiltersChange,
   sortState: sortStateProp,
   onSortChange,
-}: AllProjectsClientProps) {
+}: Readonly<AllProjectsClientProps>) {
   const t = getTranslations('projects');
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = useMemo(() => ({

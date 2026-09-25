@@ -37,7 +37,7 @@ const statusClassName: Record<string, string> = {
   cancelled: 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary',
 };
 
-export function DomainsClient({ domains }: DomainsClientProps) {
+export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const tdl = t.host.domainsList;

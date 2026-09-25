@@ -126,7 +126,7 @@ export function DomainDetailContent({
   dnsRecords,
   onClose,
   initialUiState,
-}: DomainDetailContentProps) {
+}: Readonly<DomainDetailContentProps>) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
 
@@ -774,7 +774,7 @@ function daysUntil(value: string | undefined | null): number | null {
   return Math.floor((new Date(value).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
-function StatusPill({ kind, children }: { kind: 'ok' | 'warn' | 'err' | 'muted'; children: React.ReactNode }) {
+function StatusPill({ kind, children }: Readonly<{ kind: 'ok' | 'warn' | 'err' | 'muted'; children: React.ReactNode }>) {
   const cls =
     kind === 'ok' ? 'bg-green-100 text-green-700 dark:bg-emerald-950 dark:text-emerald-300' :
     kind === 'warn' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' :
@@ -796,11 +796,11 @@ function DomainSidebarDetails({
   domain,
   dnsZone,
   td,
-}: {
+}: Readonly<{
   domain: Domain;
   dnsZone?: DnsZone | null;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const { t } = useI18n();
   const tc = t.host.common;
 

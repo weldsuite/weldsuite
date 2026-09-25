@@ -3,7 +3,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { WorkloadView, type WorkloadViewProps } from '@/components/weldflow/workload/workload-view';
 import { getTranslations } from '@/lib/i18n';
 
-export function WorkloadClient({ initialData, error }: WorkloadViewProps) {
+export function WorkloadClient({ initialData, error }: Readonly<WorkloadViewProps>) {
   const t = getTranslations('projects');
   useBreadcrumbs([
     { label: t.workload.projects, href: '/weldflow' },
