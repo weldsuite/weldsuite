@@ -56,7 +56,7 @@ export function PrejoinMediaControls({
   togglePreviewVideo,
   changeAudioDevice,
   changeVideoDevice,
-}: Props) {
+}: Readonly<Props>) {
   const audioBlocked = audioPermission === 'denied';
   const videoBlocked = videoPermission === 'denied';
   const audioOff = !previewAudioEnabled && !audioBlocked;
