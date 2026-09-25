@@ -19,14 +19,14 @@ export function ColorField({
   onChange,
   placeholder,
   className,
-}: {
+}: Readonly<{
   id: string;
   label?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
-}) {
+}>) {
   return (
     <div className={cn('space-y-1.5', className)}>
       {label && <Label htmlFor={id}>{label}</Label>}

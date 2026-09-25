@@ -174,11 +174,11 @@ function DepartmentDialog({
   form,
   departments,
   onClose,
-}: {
+}: Readonly<{
   form: FormState;
   departments: HrDepartment[];
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const createDept = useCreateHrDepartment();
   const updateDept = useUpdateHrDepartment();
@@ -295,7 +295,7 @@ function DepartmentDialog({
   );
 }
 
-function DeleteDepartmentDialog({ department, onClose }: { department: HrDepartment; onClose: () => void }) {
+function DeleteDepartmentDialog({ department, onClose }: Readonly<{ department: HrDepartment; onClose: () => void }>) {
   const t = useTranslations();
   const deleteDept = useDeleteHrDepartment();
   const [failure, setFailure] = useState<string | null>(null);
