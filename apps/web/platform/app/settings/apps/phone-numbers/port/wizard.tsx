@@ -483,7 +483,7 @@ export function PortNumberWizard() {
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
 
-function StepIndicator({ current }: { current: WizardStep }) {
+function StepIndicator({ current }: Readonly<{ current: WizardStep }>) {
   const st = useTranslations();
   const tabs: PageTab[] = [
     { id: 'number', label: st('sweep.settings.portingWizard.stepNumber'), icon: Hash },
@@ -500,13 +500,13 @@ function DocUploadRow({
   uploaded,
   onUpload,
   busy,
-}: {
+}: Readonly<{
   label: string;
   icon: LucideIcon;
   uploaded: boolean;
   onUpload: (file: File) => void;
   busy: boolean;
-}) {
+}>) {
   const st = useTranslations();
   return (
     <div className="flex items-center justify-between rounded-lg border pl-[18px] pr-3 py-3">
@@ -536,7 +536,7 @@ function DocUploadRow({
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="grid grid-cols-3 gap-4 border-b py-2 last:border-b-0">
       <div className="text-sm text-muted-foreground">{label}</div>

@@ -83,7 +83,7 @@ interface RawWorkspaceMember {
   createdAt?: string;
 }
 
-export function EmailAccountsList({ accounts }: EmailAccountsListProps) {
+export function EmailAccountsList({ accounts }: Readonly<EmailAccountsListProps>) {
   const ts = getTranslations('settings');
   const ta = ts.weldmail.accounts;
   const deleteAccountMutation = useDeleteMailAccount();
