@@ -87,7 +87,7 @@ export function OnboardingSetup({
   onSubmit,
   isSubmitting = false,
   error,
-}: OnboardingSetupProps) {
+}: Readonly<OnboardingSetupProps>) {
   const t = getTranslations("common");
   const copy = t.onboarding.quickStart;
   const [organizationName, setOrganizationName] = useState(

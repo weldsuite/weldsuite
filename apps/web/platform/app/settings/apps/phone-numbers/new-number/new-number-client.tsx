@@ -140,7 +140,7 @@ export function NewNumberClient({
   addresses: initialAddresses,
   bundles: initialBundles,
   pricingData,
-}: NewNumberClientProps) {
+}: Readonly<NewNumberClientProps>) {
   const router = useRouter();
   const st = useTranslations();
   const ts = getTranslations('settings');

@@ -19,7 +19,7 @@ type OnboardingWizardProps = Pick<
   | "defaultRegion"
 >;
 
-export function OnboardingWizard(props: OnboardingWizardProps) {
+export function OnboardingWizard(props: Readonly<OnboardingWizardProps>) {
   const { setActive } = useOrganizationList();
   const completeOnboarding = useCompleteOnboarding();
   const submittingRef = useRef(false);

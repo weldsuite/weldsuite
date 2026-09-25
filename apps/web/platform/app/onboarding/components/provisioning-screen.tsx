@@ -20,7 +20,7 @@ interface ProvisioningScreenProps {
   skipRetry?: boolean;
 }
 
-export function ProvisioningScreen({ skipRetry = false }: ProvisioningScreenProps) {
+export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningScreenProps>) {
   const t = getTranslations('common');
   const { orgId } = useAuth();
   const { setActive } = useOrganizationList();
