@@ -47,7 +47,7 @@ interface TeamListClientProps {
   accessToken?: string;
 }
 
-export default function TeamListClient({ teamId, teamName, initialConversations, accessToken }: TeamListClientProps) {
+export default function TeamListClient({ teamId, teamName, initialConversations, accessToken }: Readonly<TeamListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();
