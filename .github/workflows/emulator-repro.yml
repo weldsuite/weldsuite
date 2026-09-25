@@ -1,0 +1,77 @@
+# Temporary: boot an Android emulator, install the WeldBooks production build
+# from "Mobile native build" run 24 and capture what happens on launch
+# (screenshot + logcat). Delete this workflow once the crash is diagnosed.
+name: Emulator repro (WeldBooks)
+
+on:
+  push:
+    branches: [claude/weldbooks-emulator-repro]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download WeldBooks AAB from Mobile native build run 24
+        uses: actions/download-artifact@v4
+        with:
+          name: weldbooks-production-android
+          run-id: 36101692904
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Convert AAB to a universal APK (debug-signed)
+        run: |
+          set -euo pipefail
+          ls -la build
+          curl -sSL -o bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey \
+            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          java -jar bundletool.jar build-apks --bundle="$(ls build/*.aab)" --output=app.apks --mode=universal \
+            --ks=debug.keystore --ks-pass=pass:android --ks-key-alias=androiddebugkey --key-pass=pass:android
+          unzip -o app.apks universal.apk
+          ls -la universal.apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch on emulator and capture
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            mkdir -p out
+            adb install -r universal.apk
+            adb logcat -c
+            adb shell monkey -p com.weldsuite.weldbooks -c android.intent.category.LAUNCHER 1
+            sleep 30
+            adb exec-out screencap -p > out/screenshot-30s.png
+            adb shell pidof com.weldsuite.weldbooks > out/pid.txt || echo "NOT RUNNING" > out/pid.txt
+            adb logcat -d -b all > out/logcat.txt
+            adb logcat -d -b crash > out/crash.txt
+            echo "=== process ===" && cat out/pid.txt
+            echo "=== crash buffer ===" && cat out/crash.txt
+            echo "=== fatal / JS errors ===" && (grep -n -A60 -E "FATAL EXCEPTION|Fatal signal|ReactNativeJS.*(Error|Exception)|Unhandled JS|Invariant Violation" out/logcat.txt | head -300 || true)
+
+      - name: Upload capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weldbooks-emulator-capture
+          path: out/
