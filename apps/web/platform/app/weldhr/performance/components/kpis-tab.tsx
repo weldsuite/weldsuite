@@ -187,7 +187,7 @@ export function KpisTab() {
   );
 }
 
-export function ShareBadge({ shared }: { shared: boolean }) {
+export function ShareBadge({ shared }: Readonly<{ shared: boolean }>) {
   const t = useTranslations();
   if (!shared) return null;
   return (

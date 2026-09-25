@@ -22,11 +22,11 @@ export function LeaveReviewDialog({
   request,
   decision,
   onClose,
-}: {
+}: Readonly<{
   request: HrLeaveRequest;
   decision: 'approved' | 'rejected';
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const review = useReviewHrLeaveRequest();
   const [note, setNote] = useState('');

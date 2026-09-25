@@ -22,11 +22,11 @@ export function LeaveRequestDialog({
   fixedEmployeeId,
   fixedEmployeeLabel,
   onClose,
-}: {
+}: Readonly<{
   fixedEmployeeId?: string;
   fixedEmployeeLabel?: string | null;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data: leaveTypes } = useHrLeaveTypes();
   const createRequest = useCreateHrLeaveRequest();
