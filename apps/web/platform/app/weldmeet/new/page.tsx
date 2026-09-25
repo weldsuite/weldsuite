@@ -351,7 +351,7 @@ interface WorkspaceMemberOption {
   email?: string | null;
 }
 
-function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
+function MeetingReadyAddPeople({ meetingLink }: Readonly<{ meetingLink: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');

@@ -333,7 +333,7 @@ function SecretRow({
   onEdit,
   onHistory,
   onDelete,
-}: {
+}: Readonly<{
   secret: WeldPassSecret;
   value: string | undefined;
   canReveal: boolean;
@@ -343,7 +343,7 @@ function SecretRow({
   onEdit: () => void;
   onHistory: () => void;
   onDelete: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const [copied, setCopied] = useState(false);
   const isRevealed = value !== undefined;

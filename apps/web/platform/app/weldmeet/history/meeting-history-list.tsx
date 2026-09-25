@@ -79,7 +79,7 @@ export interface MeetingHistoryListProps {
   className?: string;
 }
 
-export function MeetingHistoryList({ filter, className }: MeetingHistoryListProps) {
+export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistoryListProps>) {
   const t = getTranslations('weldmeet');
   const navigate = useNavigate();
   const [sortState, setSortState] = useState<SortState | null>(null);
