@@ -15,7 +15,7 @@ interface ComposerProps {
 
 const MAX_HEIGHT_PX = 240;
 
-export function Composer({ conversationId, onSend, onTyping, onStopTyping }: ComposerProps) {
+export function Composer({ conversationId, onSend, onTyping, onStopTyping }: Readonly<ComposerProps>) {
   const t = getTranslations('deskInbox2');
   const [tab, setTab] = useState<ComposerTab>('reply');
   const [body, setBody] = useState('');
