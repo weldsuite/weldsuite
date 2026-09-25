@@ -239,12 +239,12 @@ function Meta({
   value,
   colors,
   last,
-}: {
+}: Readonly<{
   label: string;
   value: string;
   colors: { text: string; mutedForeground: string; divider: string };
   last?: boolean;
-}) {
+}>) {
   return (
     <View style={[styles.metaRow, !last && { borderBottomColor: colors.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}>
       <Text style={[styles.metaLabel, { color: colors.mutedForeground }]}>{label}</Text>

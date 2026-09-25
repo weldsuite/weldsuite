@@ -37,7 +37,7 @@ export interface AppFrameProps {
  * the real `@weldsuite/ui` app-sidebar (which needs Clerk/router); it renders
  * with theming alone.
  */
-export function AppFrame({ module, breadcrumb, children }: AppFrameProps) {
+export function AppFrame({ module, breadcrumb, children }: Readonly<AppFrameProps>) {
   return (
     <div className="flex h-full w-full overflow-hidden bg-background text-foreground">
       {/* Module rail */}
