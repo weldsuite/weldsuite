@@ -29,11 +29,11 @@ export function ProductDialog({
   open,
   onOpenChange,
   product,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product?: CommerceProduct;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const isEdit = !!product;

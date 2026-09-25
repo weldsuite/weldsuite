@@ -35,7 +35,7 @@ const optionalNumber = { setValueAs: (v: unknown) => (v === '' || v == null ? un
  * Without this, `handleSubmit` blocks on a validation failure and nothing on
  * screen changes — the Save button just appears dead.
  */
-function FieldError({ message }: { message?: string }) {
+function FieldError({ message }: Readonly<{ message?: string }>) {
   if (!message) return null;
   return <p className="text-xs text-destructive">{message}</p>;
 }
@@ -44,11 +44,11 @@ export function OrderDialog({
   open,
   onOpenChange,
   order,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   order?: CommerceOrder;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const isEdit = !!order;

@@ -30,7 +30,7 @@ export function ProductsList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: ProductsListProps) {
+}: Readonly<ProductsListProps>) {
   const t = getTranslations('commerce').module;
   const deleteMut = useDeleteCommerceProduct();
   const { open: openObjectPanel } = useObjectPanel();
