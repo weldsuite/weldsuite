@@ -53,7 +53,7 @@ interface NewsEditorClientProps {
 // newsId is not yet used: the editor currently seeds itself with mock
 // data instead of fetching the news article by id.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function NewsEditorClient({ newsId }: NewsEditorClientProps) {
+export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tn = t.helpdesk.news;

@@ -33,7 +33,7 @@ interface NewsViewerProps {
   article: NewsArticle;
 }
 
-export function NewsViewer({ article }: NewsViewerProps) {
+export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const tn = t.helpdesk.news;

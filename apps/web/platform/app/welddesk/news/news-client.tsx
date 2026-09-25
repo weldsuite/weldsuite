@@ -35,7 +35,7 @@ export function NewsClient({
   params,
   statusFilters,
   additionalFilters,
-}: NewsClientProps) {
+}: Readonly<NewsClientProps>) {
   const { t } = useI18n();
   const nc = t.helpdesk.newsClient;
   const router = useRouter();
