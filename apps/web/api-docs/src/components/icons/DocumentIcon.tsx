@@ -1,4 +1,4 @@
-export function DocumentIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+export function DocumentIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" {...props}>
       <path
