@@ -79,11 +79,11 @@ function PhoneNumbersTable({
   phoneNumbers,
   phoneSubscription,
   formatCurrency,
-}: {
+}: Readonly<{
   phoneNumbers: VoipPhoneNumber[];
   phoneSubscription: PhoneSubscriptionResponse | null;
   formatCurrency: (amount: number, currency?: string) => string;
-}) {
+}>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.settings.billing;
@@ -205,7 +205,7 @@ function PhoneNumbersTable({
   );
 }
 
-function DomainsTable({ domains }: { domains: HostDomain[] }) {
+function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
   const { t } = useI18n();
   const ts = t.settings.billing;
   const columns: ColumnDef<HostDomain>[] = useMemo(() => [

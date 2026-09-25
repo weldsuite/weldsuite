@@ -82,7 +82,7 @@ export function FieldDefinitionDialog({
   onSubmit,
   isPending,
   selectableEntity = false,
-}: FieldDefinitionDialogProps) {
+}: Readonly<FieldDefinitionDialogProps>) {
   const { t } = useI18n();
   const ts = t.settings.customFields;
   const isEditing = field !== null && field.id !== '';

@@ -31,11 +31,11 @@ function SlotEditor({
   slotIndex,
   value,
   onChange,
-}: {
+}: Readonly<{
   slotIndex: 0 | 1;
   value: NullableSlot;
   onChange: (next: NullableSlot) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const tH = t.weldsuiteHome;
 

@@ -42,10 +42,10 @@ function singularize(value: string): string {
 export function CreateObjectDialog({
   open,
   onOpenChange,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+}>) {
   const router = useRouter();
   const { t: i18n } = useI18n();
   const t = i18n.weldobjects;

@@ -74,12 +74,12 @@ function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>) {
 
 type BusinessSettingsValues = z.infer<ReturnType<typeof getBusinessSettingsSchema>>;
 
-function LogoUpload({ currentLogoUrl, companyName, onLogoUploaded, onLogoRemoved }: {
+function LogoUpload({ currentLogoUrl, companyName, onLogoUploaded, onLogoRemoved }: Readonly<{
   currentLogoUrl: string | null;
   companyName?: string;
   onLogoUploaded: (url: string) => void;
   onLogoRemoved: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [uploading, setUploading] = useState(false);
