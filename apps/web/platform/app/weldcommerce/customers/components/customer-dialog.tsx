@@ -30,11 +30,11 @@ export function CustomerDialog({
   open,
   onOpenChange,
   customer,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customer?: CustomerRow;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const isEdit = !!customer;
   const [kind, setKind] = useState<CustomerKind>(customer?.kind ?? 'company');
@@ -79,11 +79,11 @@ function CompanyForm({
   company,
   onDone,
   onCancel,
-}: {
+}: Readonly<{
   company?: Company;
   onDone: () => void;
   onCancel: () => void;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const isEdit = !!company;
@@ -168,11 +168,11 @@ function PersonForm({
   person,
   onDone,
   onCancel,
-}: {
+}: Readonly<{
   person?: Person;
   onDone: () => void;
   onCancel: () => void;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const isEdit = !!person;

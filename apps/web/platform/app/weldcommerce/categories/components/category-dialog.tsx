@@ -36,11 +36,11 @@ export function CategoryDialog({
   open,
   onOpenChange,
   category,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   category?: CommerceCategory;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const isEdit = !!category;
