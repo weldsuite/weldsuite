@@ -64,7 +64,7 @@ export function WelddataSearchGrid({
   hasMore,
   isFetchingMore,
   toolbarActions,
-}: WelddataSearchGridProps) {
+}: Readonly<WelddataSearchGridProps>) {
   const t = useTranslations();
   const addLeads = useAddLeads();
   const convertSearch = useConvertSearchLeads();

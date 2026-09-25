@@ -3,7 +3,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { PageLoader } from '@/components/page-loader';
 import { WelddataLayoutClient } from './components/welddata-layout-client';
 
-export default function WelddataLayout({ children }: { children: React.ReactNode }) {
+export default function WelddataLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('welddata');
   const t = useTranslations();
 

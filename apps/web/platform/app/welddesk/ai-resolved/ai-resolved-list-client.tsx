@@ -21,7 +21,7 @@ interface AiResolvedListClientProps {
   initialConversations: Helpdesk.Conversation[];
 }
 
-export default function AiResolvedListClient({ initialConversations }: AiResolvedListClientProps) {
+export default function AiResolvedListClient({ initialConversations }: Readonly<AiResolvedListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { getClient } = useAppApiClient();
