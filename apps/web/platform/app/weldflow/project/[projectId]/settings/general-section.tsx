@@ -18,7 +18,7 @@ interface GeneralSectionProps {
   isAdmin: boolean;
 }
 
-export function GeneralSection({ projectId, isAdmin }: GeneralSectionProps) {
+export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionProps>) {
   const { t } = useI18n();
 
   const STATUS_OPTIONS = [
