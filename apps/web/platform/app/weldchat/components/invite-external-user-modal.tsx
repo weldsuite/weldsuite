@@ -49,7 +49,7 @@ export function InviteExternalUserModal({
   channelId,
   open,
   onOpenChange,
-}: InviteExternalUserModalProps) {
+}: Readonly<InviteExternalUserModalProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.weldchat.inviteExternal;

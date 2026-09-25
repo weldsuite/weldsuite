@@ -48,7 +48,7 @@ function inferClipType(
   return null;
 }
 
-export function FilePreview({ attachment, channelId, messageId }: FilePreviewProps) {
+export function FilePreview({ attachment, channelId, messageId }: Readonly<FilePreviewProps>) {
   const t = useTranslations();
   const [lightboxOpen, setLightboxOpen] = useState(false);
 

@@ -63,7 +63,7 @@ export function ForwardMessageDialog({
   originalAuthor,
   messageId,
   sourceChannelId,
-}: ForwardMessageDialogProps) {
+}: Readonly<ForwardMessageDialogProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const [query, setQuery] = useState('');
