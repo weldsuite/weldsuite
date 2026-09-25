@@ -42,7 +42,7 @@ interface ProjectPermissionProviderProps {
   children: ReactNode;
 }
 
-export function ProjectPermissionProvider({ projectId, children }: ProjectPermissionProviderProps) {
+export function ProjectPermissionProvider({ projectId, children }: Readonly<ProjectPermissionProviderProps>) {
   const st = useTranslations();
   const [permissions, setPermissions] = useState<ProjectPermission | null>(null);
   const [isLoading, setIsLoading] = useState(true);

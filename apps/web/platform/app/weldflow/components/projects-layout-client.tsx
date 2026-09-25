@@ -8,7 +8,7 @@ interface ProjectsLayoutClientProps {
   children: ReactNode;
 }
 
-export function ProjectsLayoutClient({ children }: ProjectsLayoutClientProps) {
+export function ProjectsLayoutClient({ children }: Readonly<ProjectsLayoutClientProps>) {
   // When embedded inside another panel (e.g. WeldChat's project Expand
   // overlay), hide the weldflow module header so the iframed page reads as
   // "just the project" with no duplicate chrome.
