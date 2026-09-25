@@ -75,7 +75,7 @@ interface ProjectTab {
   icon: LucideIcon;
 }
 
-function SortableTab({ id, children }: { id: string; children: React.ReactNode }) {
+function SortableTab({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
   const {
     attributes,
     listeners,
@@ -98,7 +98,7 @@ function SortableTab({ id, children }: { id: string; children: React.ReactNode }
   );
 }
 
-export default function ProjectLayout({ children }: { children: React.ReactNode }) {
+export default function ProjectLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const params = useParams();
   const pathname = usePathname();
