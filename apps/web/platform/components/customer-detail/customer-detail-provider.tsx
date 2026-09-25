@@ -115,7 +115,7 @@ export function CustomerDetailProvider({
   isExpanded,
   onToggleExpand,
   visitorLocation,
-}: CustomerDetailProviderProps) {
+}: Readonly<CustomerDetailProviderProps>) {
   const t = useTranslations();
   const isContact = entityType === 'contact';
   const skipNavigation = mode === 'embedded' || !!initialNavigation;

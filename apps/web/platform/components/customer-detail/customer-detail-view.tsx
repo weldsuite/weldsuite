@@ -52,7 +52,7 @@ export function CustomerDetailView({
   navigation,
   visitorLocation,
   onBack,
-}: CustomerDetailViewProps) {
+}: Readonly<CustomerDetailViewProps>) {
   // Panel mode
   if (mode === 'panel') {
     // When stacked on a parent panel (`onBack` set), the X button inside the
@@ -159,10 +159,10 @@ const MAX_CUSTOMER_CHAT_WIDTH = 900;
 function CustomerDetailPageLayout({
   onDelete,
   onNavigateToCustomer,
-}: {
+}: Readonly<{
   onDelete?: () => void;
   onNavigateToCustomer?: (customerId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data, customerId, entityType, isLoading } = useCustomerDetailContext();
 
@@ -327,7 +327,7 @@ function CustomerDetailPanelLayout({
   width,
   isExpanded,
   onBack,
-}: {
+}: Readonly<{
   isOpen: boolean;
   onClose?: () => void;
   onDelete?: () => void;
@@ -335,7 +335,7 @@ function CustomerDetailPanelLayout({
   topOffset: string;
   isExpanded?: boolean;
   onBack?: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { isLoading, data, customerId, entityType } = useCustomerDetailContext();
 

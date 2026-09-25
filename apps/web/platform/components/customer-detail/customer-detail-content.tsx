@@ -20,7 +20,7 @@ interface CustomerDetailContentProps {
   variant?: 'page' | 'panel' | 'embedded';
 }
 
-export function CustomerDetailContent({ variant = 'page' }: CustomerDetailContentProps) {
+export function CustomerDetailContent({ variant = 'page' }: Readonly<CustomerDetailContentProps>) {
   const t = useTranslations();
   const { data, activeTab, isLoading, error, silentRefresh, entityType } = useCustomerDetailContext();
   const prevTabRef = useRef(activeTab);
