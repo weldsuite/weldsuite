@@ -8,7 +8,7 @@ interface DriveHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function DriveHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: DriveHeaderProps) {
+export function DriveHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<DriveHeaderProps>) {
   const pathname = usePathname();
   const t = getTranslations('welddrive');
 

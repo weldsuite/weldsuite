@@ -26,7 +26,7 @@ export function MoveToFolderDialog({
   fileName,
   currentFolderId,
   onMove,
-}: MoveToFolderDialogProps) {
+}: Readonly<MoveToFolderDialogProps>) {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const { data: foldersData } = useDriveFolders();
   const folders = foldersData?.data || [];

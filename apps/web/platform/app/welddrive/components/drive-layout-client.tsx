@@ -7,7 +7,7 @@ interface DriveLayoutClientProps {
   children: ReactNode;
 }
 
-export function DriveLayoutClient({ children }: DriveLayoutClientProps) {
+export function DriveLayoutClient({ children }: Readonly<DriveLayoutClientProps>) {
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
       <DriveHeader />

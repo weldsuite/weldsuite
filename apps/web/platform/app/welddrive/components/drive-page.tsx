@@ -180,7 +180,7 @@ function buildTreeItems(
   return result;
 }
 
-export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderId: initialFolderId }: DrivePageProps) {
+export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderId: initialFolderId }: Readonly<DrivePageProps>) {
   const navigate = useNavigate();
   const { t } = useI18n();
 
@@ -1607,7 +1607,7 @@ function DriveGridView({
   onRenameFolder,
   onDuplicateFolder,
   onDeleteFolder,
-}: {
+}: Readonly<{
   folders: DriveFolder[];
   files: UnifiedFile[];
   isLoading: boolean;
@@ -1629,7 +1629,7 @@ function DriveGridView({
   onRenameFolder?: (folder: DriveFolder) => void;
   onDuplicateFolder?: (folder: DriveFolder) => void;
   onDeleteFolder?: (folder: DriveFolder) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
