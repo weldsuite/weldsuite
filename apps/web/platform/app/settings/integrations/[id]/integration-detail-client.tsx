@@ -272,7 +272,7 @@ interface IntegrationsStatusResponse {
   data?: Record<string, { connected?: boolean }>;
 }
 
-export function IntegrationDetailClient({ integrationId }: IntegrationDetailClientProps) {
+export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationDetailClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const ti = t.settings.integrations;
