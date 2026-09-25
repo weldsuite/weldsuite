@@ -53,13 +53,13 @@ function StatCard({
   count,
   isLoading,
   icon: Icon,
-}: {
+}: Readonly<{
   href: string;
   label: string;
   count: number | undefined;
   isLoading: boolean;
   icon: typeof Package;
-}) {
+}>) {
   return (
     <Link href={href} className="block">
       <Card className="transition-colors hover:border-primary/50">
