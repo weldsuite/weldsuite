@@ -26,7 +26,7 @@ interface VersionHistorySheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function VersionHistorySheet({ pageId, open, onOpenChange }: VersionHistorySheetProps) {
+export function VersionHistorySheet({ pageId, open, onOpenChange }: Readonly<VersionHistorySheetProps>) {
   const t = getTranslations('weldknow');
   const { data, isLoading } = useKnowledgePageVersions(pageId, open);
   const createVersion = useCreateKnowledgePageVersion();

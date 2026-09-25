@@ -22,9 +22,9 @@ const PAGE_SIZE = 25;
 
 export default function LabelLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { t } = useI18n();
   const params = useParams<{ accountId: string; labelSlug: string }>();
   const accountId = params.accountId;

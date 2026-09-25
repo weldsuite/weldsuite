@@ -178,7 +178,7 @@ function dueOffsetLabel(days: number, kind: 'onboarding' | 'offboarding', t: (k:
   });
 }
 
-function TemplateEditor({ form, onClose }: { form: FormState; onClose: () => void }) {
+function TemplateEditor({ form, onClose }: Readonly<{ form: FormState; onClose: () => void }>) {
   const t = useTranslations();
   const createTemplate = useCreateHrChecklistTemplate();
   const updateTemplate = useUpdateHrChecklistTemplate();
@@ -399,7 +399,7 @@ function TemplateEditor({ form, onClose }: { form: FormState; onClose: () => voi
   );
 }
 
-function DeleteTemplateDialog({ template, onClose }: { template: HrChecklistTemplate; onClose: () => void }) {
+function DeleteTemplateDialog({ template, onClose }: Readonly<{ template: HrChecklistTemplate; onClose: () => void }>) {
   const t = useTranslations();
   const deleteTemplate = useDeleteHrChecklistTemplate();
   const [failure, setFailure] = useState<string | null>(null);

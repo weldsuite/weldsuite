@@ -39,7 +39,7 @@ export function LabelRealtimeWrapper({
   pageSize,
   onRefetch,
   onThreadLabelUpdate,
-}: LabelRealtimeWrapperProps) {
+}: Readonly<LabelRealtimeWrapperProps>) {
   const { t } = useI18n();
   const params = useParams();
   const [threads, setThreads] = useState<ThreadSummary[]>(initialThreads);
