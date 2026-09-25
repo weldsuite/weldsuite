@@ -149,7 +149,7 @@ const getStepStatusBadge = (status: string, labels: Record<string, string>) => {
  * Shows sub-agent delegation results within an ai_agent step's detail view.
  * Extracts delegation tool results (delegate_to_*) from the step output.
  */
-function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabel }: { step: ExecutionStepView | null; delegationsLabel: string; iterationsLabel: (count: number) => string; tokensLabel: (count: number) => string }) {
+function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabel }: Readonly<{ step: ExecutionStepView | null; delegationsLabel: string; iterationsLabel: (count: number) => string; tokensLabel: (count: number) => string }>) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!step?.output) return null;
@@ -246,7 +246,7 @@ function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabe
   );
 }
 
-export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetailClientProps) {
+export function ExecutionDetailClient({ execution, initialLogs }: Readonly<ExecutionDetailClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const naLabel = st('sweep.weldconnect.executionDetail.notAvailable');

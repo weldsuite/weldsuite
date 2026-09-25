@@ -114,12 +114,12 @@ function SyncToggles({
   enabled,
   onChange,
   disabled,
-}: {
+}: Readonly<{
   syncs: ConnectorSyncDef[];
   enabled: string[];
   onChange: (next: string[]) => void;
   disabled?: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const ts = t.weldconnect.connectors.settings;
 
@@ -208,7 +208,7 @@ function defaultSyncKeys(connector: ConnectorCatalogEntry | null): string[] {
   return [...new Set(connector.syncs.map((sync) => sync.settingKey))];
 }
 
-export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
+export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialogProps>) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
   const connect = useConnectConnector();
@@ -412,7 +412,7 @@ interface ConnectorCardProps {
   canConnect: boolean;
 }
 
-function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: ConnectorCardProps) {
+function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Readonly<ConnectorCardProps>) {
   const { t, language } = useI18n();
   const tc = t.weldconnect.connectors;
   const Icon = getIcon(connector.icon);
