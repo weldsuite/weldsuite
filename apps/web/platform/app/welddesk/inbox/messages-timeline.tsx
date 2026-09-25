@@ -58,7 +58,7 @@ function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
 }
 
-function Avatar({ label, picture, isBot }: { label: string; picture?: string | null; isBot?: boolean }) {
+function Avatar({ label, picture, isBot }: Readonly<{ label: string; picture?: string | null; isBot?: boolean }>) {
   if (picture) {
     return <img src={picture} alt={label} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />;
   }
@@ -72,7 +72,7 @@ function Avatar({ label, picture, isBot }: { label: string; picture?: string | n
   );
 }
 
-function DaySeparator({ date }: { date: Date }) {
+function DaySeparator({ date }: Readonly<{ date: Date }>) {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="h-px flex-1 bg-border/70" />
@@ -82,7 +82,7 @@ function DaySeparator({ date }: { date: Date }) {
   );
 }
 
-function TypingBubble({ names }: { names: string[] }) {
+function TypingBubble({ names }: Readonly<{ names: string[] }>) {
   const t = getTranslations('deskInbox2');
   return (
     <div className="flex items-end gap-2 px-4 pt-1 pb-2" data-testid="desk-inbox-typing">
@@ -105,7 +105,7 @@ function TypingBubble({ names }: { names: string[] }) {
   );
 }
 
-export function MessagesTimeline({ conversation, messages, members, typing, onRetry }: MessagesTimelineProps) {
+export function MessagesTimeline({ conversation, messages, members, typing, onRetry }: Readonly<MessagesTimelineProps>) {
   const t = getTranslations('deskInbox2');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);

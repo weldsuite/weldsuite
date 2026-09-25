@@ -46,7 +46,7 @@ interface SlackListClientProps {
   accessToken?: string;
 }
 
-export default function SlackListClient({ initialConversations, accessToken }: SlackListClientProps) {
+export default function SlackListClient({ initialConversations, accessToken }: Readonly<SlackListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();
