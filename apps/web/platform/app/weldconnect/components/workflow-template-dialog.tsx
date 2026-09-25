@@ -1835,7 +1835,7 @@ export function useLocalizedCategories(): LocalizedCategory[] {
 }
 
 // Mini workflow preview component
-export function WorkflowPreview({ workflowSteps, triggerType }: { workflowSteps: TemplateStep[]; triggerType: string }) {
+export function WorkflowPreview({ workflowSteps, triggerType }: Readonly<{ workflowSteps: TemplateStep[]; triggerType: string }>) {
   const displaySteps = workflowSteps.slice(0, 4);
   const remaining = workflowSteps.length - 4;
   const TriggerIcon = triggerIcons[triggerType] || Zap;

@@ -8,7 +8,7 @@ interface ConnectLayoutClientProps {
   children: ReactNode;
 }
 
-export function ConnectLayoutClient({ children }: ConnectLayoutClientProps) {
+export function ConnectLayoutClient({ children }: Readonly<ConnectLayoutClientProps>) {
   return (
     <BreadcrumbProvider>
       <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">

@@ -147,7 +147,7 @@ interface ConnectionDetailsProps {
   canManage: boolean;
 }
 
-export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: ConnectionDetailsProps) {
+export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: Readonly<ConnectionDetailsProps>) {
   const { t, language, format } = useI18n();
   const tc = t.weldconnect.connectors;
   const { data, isLoading } = useConnectorConnection(connectionId, { pollWhileRunning: true });
