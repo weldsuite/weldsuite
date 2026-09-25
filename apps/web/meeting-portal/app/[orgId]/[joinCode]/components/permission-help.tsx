@@ -45,7 +45,7 @@ function browserSteps(browser: Browser, kind: 'microphone' | 'camera'): string[]
   }
 }
 
-export function PermissionHelp({ kind }: { kind: 'microphone' | 'camera' }) {
+export function PermissionHelp({ kind }: Readonly<{ kind: 'microphone' | 'camera' }>) {
   const label = kind === 'microphone' ? 'Microphone' : 'Camera';
   const steps = browserSteps(detectBrowser(), kind);
 
