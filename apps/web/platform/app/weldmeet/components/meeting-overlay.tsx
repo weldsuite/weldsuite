@@ -63,7 +63,7 @@ interface WorkspaceMemberOption {
   email?: string | null;
 }
 
-function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
+function AddPeopleDialogContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
@@ -135,7 +135,7 @@ function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
   );
 }
 
-function InvitePopoverContent({ shareUrl }: { shareUrl: string }) {
+function InvitePopoverContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');

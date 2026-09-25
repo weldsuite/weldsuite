@@ -32,7 +32,7 @@ function splitName(name?: string): { firstName: string; lastName: string } {
   return { firstName: first, lastName: rest.join(' ') };
 }
 
-export function GuestCreatePersonDialog({ target, onOpenChange, onCreated }: Props) {
+export function GuestCreatePersonDialog({ target, onOpenChange, onCreated }: Readonly<Props>) {
   const t = getTranslations('weldmeet');
   const isOpen = !!target;
   const [firstName, setFirstName] = useState('');

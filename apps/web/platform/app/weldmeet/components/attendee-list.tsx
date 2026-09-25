@@ -29,7 +29,7 @@ interface AttendeeListProps {
  * Attendees with neither link surface as plain rows — the resolver may
  * have failed silently or the data predates the linking feature.
  */
-export function AttendeeList({ attendees, title }: AttendeeListProps) {
+export function AttendeeList({ attendees, title }: Readonly<AttendeeListProps>) {
   const t = getTranslations('weldmeet');
   const resolvedTitle = title ?? t.attendeeList.title;
   if (!attendees || attendees.length === 0) return null;
@@ -50,7 +50,7 @@ export function AttendeeList({ attendees, title }: AttendeeListProps) {
   );
 }
 
-function AttendeeRow({ attendee }: { attendee: AttendeeRow }) {
+function AttendeeRow({ attendee }: Readonly<{ attendee: AttendeeRow }>) {
   const t = getTranslations('weldmeet');
   const initials = (attendee.name?.[0] ?? attendee.email?.[0] ?? '?').toUpperCase();
 
@@ -108,7 +108,7 @@ function AttendeeRow({ attendee }: { attendee: AttendeeRow }) {
   );
 }
 
-function LinkBadge({ attendee }: { attendee: AttendeeRow }) {
+function LinkBadge({ attendee }: Readonly<{ attendee: AttendeeRow }>) {
   const t = getTranslations('weldmeet');
   if (attendee.workspaceMemberId) {
     return (
