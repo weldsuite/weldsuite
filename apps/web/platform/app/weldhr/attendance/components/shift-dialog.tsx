@@ -30,14 +30,14 @@ export function ShiftDialog({
   onClose,
   onDelete,
   deleting,
-}: {
+}: Readonly<{
   defaultEmployeeId?: string | null;
   defaultDate?: string;
   shift?: HrShift;
   onClose: () => void;
   onDelete?: () => void;
   deleting?: boolean;
-}) {
+}>) {
   const t = useTranslations();
   const createShift = useCreateHrShift();
   const updateShift = useUpdateHrShift();

@@ -166,13 +166,13 @@ function AssignmentTable({
   onEnd,
   onEdit,
   onDelete,
-}: {
+}: Readonly<{
   assignments: HrAssignment[];
   canUpdate: boolean;
   onEnd?: (a: HrAssignment) => void;
   onEdit: (a: HrAssignment) => void;
   onDelete: (a: HrAssignment) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <Table>

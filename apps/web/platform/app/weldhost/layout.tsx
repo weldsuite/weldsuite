@@ -9,9 +9,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export default function HostLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { isInstalled, isLoading } = useAppAccess('weldhost');
   const { t } = useI18n();
   const th = t.host.notInstalled;
