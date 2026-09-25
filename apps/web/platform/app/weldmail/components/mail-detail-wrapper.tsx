@@ -7,6 +7,6 @@ interface MailDetailWrapperProps {
  * Wrapper component for the mail detail area.
  * Simply renders children - compose is now handled by routing.
  */
-export function MailDetailWrapper({ children }: MailDetailWrapperProps) {
+export function MailDetailWrapper({ children }: Readonly<MailDetailWrapperProps>) {
   return <>{children}</>;
 }
