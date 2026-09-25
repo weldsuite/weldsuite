@@ -148,7 +148,7 @@ const NUMBER_TYPES = [
 export function PhoneNumberSettingsClient({
   phoneNumbers: initialPhoneNumbers,
   isConfigured,
-}: PhoneNumberSettingsClientProps) {
+}: Readonly<PhoneNumberSettingsClientProps>) {
   const router = useRouter();
   const ts = getTranslations('settings');
   const tp = ts.phoneNumbers;

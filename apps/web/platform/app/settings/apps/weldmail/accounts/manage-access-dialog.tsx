@@ -33,7 +33,7 @@ export function ManageAccessDialog({
   accountEmail,
   defaultIsShared,
   defaultAssignedUserIds,
-}: ManageAccessDialogProps) {
+}: Readonly<ManageAccessDialogProps>) {
   const ts = getTranslations('settings');
   const tma = ts.weldmail.manageAccess;
   const assignMutation = useAssignMailAccountUsers();

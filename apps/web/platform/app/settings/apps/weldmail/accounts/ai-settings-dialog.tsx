@@ -80,7 +80,7 @@ export function AiSettingsDialog({
   accountId,
   accountEmail,
   defaultValues,
-}: AiSettingsDialogProps) {
+}: Readonly<AiSettingsDialogProps>) {
   const ts = getTranslations('settings');
   const tai = ts.weldmail.aiSettings;
   const updateAccount = useUpdateMailAccount();

@@ -99,7 +99,7 @@ function DomainCatchAllRow({
   busy,
   labels,
   onSave,
-}: {
+}: Readonly<{
   domain: MailDomainRow;
   accounts: EmailAccount[];
   busy: boolean;
@@ -114,7 +114,7 @@ function DomainCatchAllRow({
     domain: MailDomainRow,
     patch: { catchAllEnabled?: boolean; catchAllAccountId?: string | null },
   ) => Promise<void>;
-}) {
+}>) {
   const domainAccounts = accounts.filter(
     (a) => accountHost(a.email) === domain.domainName.toLowerCase() && a.status !== 'inactive',
   );
