@@ -10,8 +10,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const OUT = process.argv[2];
-if (!OUT) throw new Error('usage: node generate-assets.mjs <outDir>');
+const OUT_ARG = process.argv[2];
+if (!OUT_ARG) throw new Error('usage: node generate-assets.mjs <outDir>');
+
+// Only ever write inside this app, whatever the <outDir> argument says.
+const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = path.resolve(OUT_ARG);
+if (!OUT.startsWith(APP_ROOT + path.sep)) {
+  throw new Error(`outDir must be inside ${APP_ROOT}, got ${OUT}`);
+}
 
 const GREEN = '#00bb67';
 const VB_W = 670;
