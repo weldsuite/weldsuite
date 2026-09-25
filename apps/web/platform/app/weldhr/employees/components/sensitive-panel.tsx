@@ -19,7 +19,7 @@ import type { HrEmployeeSensitive } from '@weldsuite/app-api-client/domains/weld
 import { useHrEmployeeSensitive, useUpdateHrEmployeeSensitive } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
 
-export function SensitivePanel({ employeeId }: { employeeId: string }) {
+export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const [revealed, setRevealed] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -75,7 +75,7 @@ export function SensitivePanel({ employeeId }: { employeeId: string }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({ label, value }: Readonly<{ label: string; value: string | null | undefined }>) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
@@ -84,7 +84,7 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
-function SensitiveView({ data, onEdit }: { data: HrEmployeeSensitive | null; onEdit: () => void }) {
+function SensitiveView({ data, onEdit }: Readonly<{ data: HrEmployeeSensitive | null; onEdit: () => void }>) {
   const t = useTranslations();
   const salary =
     data?.salaryAmount !== null && data?.salaryAmount !== undefined
@@ -119,11 +119,11 @@ function SensitiveForm({
   employeeId,
   data,
   onDone,
-}: {
+}: Readonly<{
   employeeId: string;
   data: HrEmployeeSensitive | null;
   onDone: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const updateSensitive = useUpdateHrEmployeeSensitive();
   const [form, setForm] = useState<HrEmployeeSensitive>({

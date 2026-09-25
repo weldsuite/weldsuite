@@ -30,11 +30,11 @@ export function LifecycleStartDialog({
   employeeId,
   kind,
   onClose,
-}: {
+}: Readonly<{
   employeeId: string;
   kind: 'onboarding' | 'offboarding';
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data: templates, isLoading } = useHrChecklistTemplates(kind);
   const startChecklist = useStartHrChecklist();

@@ -61,7 +61,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-export function CreateEmployeeDialog({ onClose }: { onClose: () => void }) {
+export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const navigate = useNavigate();
   const createEmployee = useCreateHrEmployee();
