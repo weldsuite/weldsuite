@@ -57,7 +57,8 @@ def main() -> None:
             "-pix_fmt",
             "yuv420p",
             "-an",
-            str(args.out),
+            # Absolute, so ffmpeg can never read a user-supplied --out as an option.
+            str(args.out.resolve()),
         ]
         subprocess.run(cmd, check=True)
     print(args.out)
