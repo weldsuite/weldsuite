@@ -45,7 +45,7 @@ export function getTriggerAudience(trigger: WorkflowTrigger | null): string[] {
   return (trigger?.config?.audience as string[] | undefined) || [];
 }
 
-export function ChannelPills({ channels, allChannelsLabel = 'All channels', channelDefs }: { channels: string[]; allChannelsLabel?: string; channelDefs?: Array<{ value: string; label: string }> }) {
+export function ChannelPills({ channels, allChannelsLabel = 'All channels', channelDefs }: Readonly<{ channels: string[]; allChannelsLabel?: string; channelDefs?: Array<{ value: string; label: string }> }>) {
   if (channels.length === 0) {
     return <span className="text-xs text-muted-foreground">{allChannelsLabel}</span>;
   }
@@ -72,7 +72,7 @@ export function ChannelPills({ channels, allChannelsLabel = 'All channels', chan
   );
 }
 
-export function AudiencePills({ audience, everyoneLabel = 'Everyone', audienceDefs }: { audience: string[]; everyoneLabel?: string; audienceDefs?: Array<{ value: string; label: string }> }) {
+export function AudiencePills({ audience, everyoneLabel = 'Everyone', audienceDefs }: Readonly<{ audience: string[]; everyoneLabel?: string; audienceDefs?: Array<{ value: string; label: string }> }>) {
   if (audience.length === 0) {
     return <span className="text-xs text-muted-foreground">{everyoneLabel}</span>;
   }
@@ -184,14 +184,14 @@ export function InlineAddStepPopover({
   variant = 'circle',
   showSuggestions,
   trigger,
-}: {
+}: Readonly<{
   sourceNodeId?: string;
   onAddAction: (actionType: string, sourceNodeId?: string) => void;
   variant?: 'circle' | 'button';
   sourceStepType?: string;
   showSuggestions?: boolean;
   trigger?: { entityType?: string; eventType?: string } | null;
-}) {
+}>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
   const wc = t.helpdesk.workflowConstants;
@@ -365,12 +365,12 @@ export function ReplyButtonInput({
   autoFocus,
   onChange,
   onRemove,
-}: {
+}: Readonly<{
   value: string;
   autoFocus?: boolean;
   onChange: (val: string) => void;
   onRemove?: () => void;
-}) {
+}>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -418,11 +418,11 @@ export function StepCard({
   step,
   isSelected,
   onClick,
-}: {
+}: Readonly<{
   step: WorkflowStep;
   isSelected: boolean;
   onClick: () => void;
-}) {
+}>) {
   const meta = getActionMeta(step.type);
   const Icon = meta.icon;
   const summary = getStepSummary(step);
@@ -453,7 +453,7 @@ export function StepCard({
 // ConnectorDot — small circle on node edges for SVG edge connections
 // ============================================================================
 
-function ConnectorDot({ side, connectorId }: { side: 'left' | 'right'; connectorId?: string }) {
+function ConnectorDot({ side, connectorId }: Readonly<{ side: 'left' | 'right'; connectorId?: string }>) {
   return (
     <div
       data-connector-id={connectorId}
@@ -494,13 +494,13 @@ export function TriggerNode({
   onClick,
   onDragStart,
   style,
-}: {
+}: Readonly<{
   trigger: WorkflowTrigger | null;
   isSelected: boolean;
   onClick: () => void;
   onDragStart?: (e: React.MouseEvent) => void;
   style?: React.CSSProperties;
-}) {
+}>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
 
@@ -555,7 +555,7 @@ export function PathNode({
   onReorderSteps,
   onDragStart,
   style,
-}: {
+}: Readonly<{
   path: DerivedPath;
   pathIndex: number;
   allSteps: WorkflowStep[];
@@ -569,7 +569,7 @@ export function PathNode({
   trigger?: { entityType?: string; eventType?: string } | null;
   onDragStart?: (e: React.MouseEvent) => void;
   style?: React.CSSProperties;
-}) {
+}>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
   const [collapsed] = useState(false);
