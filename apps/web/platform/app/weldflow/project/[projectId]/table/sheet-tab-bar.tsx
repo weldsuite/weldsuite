@@ -26,7 +26,7 @@ export function SheetTabBar({
   onDeleteSheet,
   onDuplicateSheet,
   onReorderSheets,
-}: SheetTabBarProps) {
+}: Readonly<SheetTabBarProps>) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');

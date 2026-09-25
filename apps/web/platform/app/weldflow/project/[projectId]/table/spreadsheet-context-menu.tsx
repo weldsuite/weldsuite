@@ -103,7 +103,7 @@ export function SpreadsheetContextMenu({
   onGetLinkToCell,
   onDropdownChip,
   onComingSoon,
-}: SpreadsheetContextMenuProps) {
+}: Readonly<SpreadsheetContextMenuProps>) {
   const { t } = useI18n();
 
   return (
