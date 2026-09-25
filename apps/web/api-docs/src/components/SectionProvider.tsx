@@ -128,10 +128,10 @@ const useIsomorphicLayoutEffect =
 export function SectionProvider({
   sections,
   children,
-}: {
+}: Readonly<{
   sections: Array<Section>
   children: React.ReactNode
-}) {
+}>) {
   const [sectionStore] = useState(() => createSectionStore(sections))
 
   useVisibleSections(sectionStore)
