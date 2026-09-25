@@ -33,7 +33,7 @@ export function BookingDetailsForm({
   initial,
   onBack,
   onSubmit,
-}: BookingDetailsFormProps) {
+}: Readonly<BookingDetailsFormProps>) {
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email);
   const [notes, setNotes] = useState(initial.notes);
