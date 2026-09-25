@@ -187,11 +187,11 @@ export function ConnectorFieldMappingEditor({
   connectionId,
   syncs,
   canManage,
-}: {
+}: Readonly<{
   connectionId: string;
   syncs: ConnectorSyncDef[];
   canManage: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
   const entityTypes = React.useMemo(() => {

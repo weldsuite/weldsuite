@@ -6,9 +6,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export default function ConnectLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { isInstalled, isLoading } = useAppAccess('weldconnect');
   const { t } = useI18n();
 

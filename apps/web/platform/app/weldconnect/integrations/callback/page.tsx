@@ -12,7 +12,7 @@ interface CallbackPageProps {
 
 type CallbackStatus = 'loading' | 'success' | 'error';
 
-export default function IntegrationsCallbackPage({ code, state }: CallbackPageProps) {
+export default function IntegrationsCallbackPage({ code, state }: Readonly<CallbackPageProps>) {
   const { t } = useI18n();
   const ti = t.weldconnect.integrations;
   const navigate = useNavigate();
