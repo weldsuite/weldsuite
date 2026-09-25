@@ -237,11 +237,11 @@ export function TranscriptContent({
   activeSegIdx,
   wrappedWordIndex,
   elapsedSeconds,
-}: {
+}: Readonly<{
   activeSegIdx: number;
   wrappedWordIndex: number;
   elapsedSeconds: number;
-}) {
+}>) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [generation, setGeneration] = React.useState(0);
   const prevActiveRef = React.useRef(activeSegIdx);

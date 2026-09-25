@@ -10,7 +10,7 @@ interface WeldCallLayoutClientProps {
   children: ReactNode;
 }
 
-export function WeldCallLayoutClient({ children }: WeldCallLayoutClientProps) {
+export function WeldCallLayoutClient({ children }: Readonly<WeldCallLayoutClientProps>) {
   const pathname = usePathname();
   const mobileNav = useMobileNavOptional();
 
@@ -40,7 +40,7 @@ export function WeldCallLayoutClient({ children }: WeldCallLayoutClientProps) {
   );
 }
 
-function WeldCallInnerLayout({ children }: { children: ReactNode }) {
+function WeldCallInnerLayout({ children }: Readonly<{ children: ReactNode }>) {
   const breadcrumbs = useCurrentBreadcrumbs();
 
   return (

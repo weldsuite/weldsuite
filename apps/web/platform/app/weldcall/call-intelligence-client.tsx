@@ -30,7 +30,7 @@ export function CallIntelligenceClient({
   calls,
   phoneNumbers,
   voipConfigured,
-}: CallIntelligenceClientProps) {
+}: Readonly<CallIntelligenceClientProps>) {
   const { setPhoneNumbers, setVoipConfigured } = useCall();
   const t = useTranslations();
 
