@@ -56,7 +56,7 @@ export function AnalyticsListClient({
   basePath = '/weldflow/analytics',
   embedded = false,
   sectionTitle,
-}: AnalyticsListClientProps) {
+}: Readonly<AnalyticsListClientProps>) {
   const { t } = useI18n();
   // When embedded under a KPI hub, the parent page owns the breadcrumb trail.
   useBreadcrumbs(

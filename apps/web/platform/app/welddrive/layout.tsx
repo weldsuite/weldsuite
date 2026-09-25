@@ -5,9 +5,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export default function DriveLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { isInstalled, isLoading } = useAppAccess('welddrive');
   const { t } = useI18n();
 
