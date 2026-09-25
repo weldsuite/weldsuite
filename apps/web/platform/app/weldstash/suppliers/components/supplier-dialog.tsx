@@ -30,7 +30,7 @@ const optionalNumber = {
  * Only `name` rendered an error before, so a failure on any other field left
  * `handleSubmit` blocking with nothing on screen — the Save button looked dead.
  */
-function FieldError({ message }: { message?: unknown }) {
+function FieldError({ message }: Readonly<{ message?: unknown }>) {
   if (!message) return null;
   return <p className="text-xs text-destructive">{String(message)}</p>;
 }
@@ -39,11 +39,11 @@ export function SupplierDialog({
   open,
   onOpenChange,
   supplier,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   supplier?: WmsSupplier;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const ts = getTranslations('common');
   const isEdit = !!supplier;

@@ -27,11 +27,11 @@ export function SendParcelDialog({
   pickListId,
   open,
   onOpenChange,
-}: {
+}: Readonly<{
   pickListId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+}>) {
   const t = getTranslations('common').weldstash.packing;
   const sendcloud = useSendcloudSettings();
   const pickList = useWeldstashPickList(pickListId ?? '', Boolean(pickListId) && open);

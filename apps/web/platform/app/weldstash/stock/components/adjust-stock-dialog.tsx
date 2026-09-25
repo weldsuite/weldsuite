@@ -29,10 +29,10 @@ import { getTranslations } from '@/lib/i18n';
 export function AdjustStockDialog({
   open,
   onOpenChange,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+}>) {
   const t = getTranslations('common');
   const adjust = useAdjustWeldstashStock();
   const products = useWeldstashProducts({ limit: 100 });
