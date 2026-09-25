@@ -64,7 +64,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 
 // ---------- DroppableColumn ----------
 
-function DroppableColumn({ id, children, containerRef }: { id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }) {
+function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
   const stageRef = useRef<HTMLDivElement>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
@@ -104,7 +104,7 @@ function DroppableColumn({ id, children, containerRef }: { id: string; children:
 
 // ---------- TaskCard ----------
 
-function TaskCard({ task, priorityLabels, onClick }: { task: Task; priorityLabels: Record<string, string>; onClick?: () => void }) {
+function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; priorityLabels: Record<string, string>; onClick?: () => void }>) {
   const t = useTranslations();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
@@ -238,7 +238,7 @@ function TaskCard({ task, priorityLabels, onClick }: { task: Task; priorityLabel
 
 // ---------- ColumnHeader ----------
 
-function ColumnHeader({ column, taskCount, onAddTask }: { column: PipelineColumn; taskCount: number; onAddTask: () => void }) {
+function ColumnHeader({ column, taskCount, onAddTask }: Readonly<{ column: PipelineColumn; taskCount: number; onAddTask: () => void }>) {
   return (
     <div className="mb-0">
       <div className="flex items-center justify-between mb-1 rounded-md px-2 py-1 -mx-2 transition-colors group hover:bg-gray-100 dark:hover:bg-secondary">
@@ -275,7 +275,7 @@ export function CrmTasksPipeline({
   priorityLabels,
   searchPlaceholder,
   newTaskLabel,
-}: CrmTasksPipelineProps) {
+}: Readonly<CrmTasksPipelineProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const columns: PipelineColumn[] = useMemo(() => [
