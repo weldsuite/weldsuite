@@ -10,7 +10,7 @@ interface Heading {
   level: number
 }
 
-export function TableOfContents({ headings }: { headings: Heading[] }) {
+export function TableOfContents({ headings }: Readonly<{ headings: Heading[] }>) {
   const [currentSection, setCurrentSection] = useState(headings[0]?.id)
 
   const getHeadingPositions = useCallback(() => {

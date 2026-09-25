@@ -12,7 +12,7 @@ interface SearchBarProps {
   size?: 'hero' | 'default'
 }
 
-function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: SearchBarProps) {
+function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: Readonly<SearchBarProps>) {
   const router = useRouter()
   const [query, setQuery] = useState(defaultValue?.trim() || '')
   const t = useTranslations('common')
@@ -56,7 +56,7 @@ function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: SearchBar
   )
 }
 
-export function SearchBar(props: SearchBarProps) {
+export function SearchBar(props: Readonly<SearchBarProps>) {
   // useTranslations suspends while the `common` chunk loads; keep a neutral
   // placeholder so the form area doesn't pop in.
   return (

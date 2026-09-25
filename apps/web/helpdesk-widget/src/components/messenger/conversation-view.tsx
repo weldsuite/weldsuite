@@ -33,7 +33,7 @@ function eventText(message: ThreadMessage): string {
   return message.body || '';
 }
 
-function EmailCapture({ messenger, color }: { messenger: Messenger; color: string }) {
+function EmailCapture({ messenger, color }: Readonly<{ messenger: Messenger; color: string }>) {
   const [email, setEmail] = useState('');
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
 
@@ -106,7 +106,7 @@ export function ConversationView({
   onBack,
   onClose,
   isOpen,
-}: ConversationViewProps) {
+}: Readonly<ConversationViewProps>) {
   const color = config.branding.primaryColor;
   const onColor = readableOn(color);
   const isDraft = conversationId === DRAFT_ID;
