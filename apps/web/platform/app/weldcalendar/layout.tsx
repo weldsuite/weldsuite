@@ -6,9 +6,9 @@ import { getTranslations } from '@/lib/i18n';
 
 export default function CalendarLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { isInstalled, isLoading } = useAppAccess('weldcalendar');
   const t = getTranslations('weldcalendar');
 

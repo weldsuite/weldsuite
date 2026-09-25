@@ -26,7 +26,7 @@ interface GoogleCalendarSidebarSectionProps {
   isConnected: boolean;
 }
 
-export function GoogleCalendarSidebarSection({ isConnected }: GoogleCalendarSidebarSectionProps) {
+export function GoogleCalendarSidebarSection({ isConnected }: Readonly<GoogleCalendarSidebarSectionProps>) {
   const [visible, setVisible] = useState(getGoogleCalendarVisible);
   const t = getTranslations('weldcalendar');
 
