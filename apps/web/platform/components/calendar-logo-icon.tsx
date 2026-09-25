@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-export function CalendarLogoIcon({ className }: { className?: string }) {
+export function CalendarLogoIcon({ className }: Readonly<{ className?: string }>) {
   const day = new Date().getDate();
   return (
     <svg

@@ -38,7 +38,7 @@ interface WorkspaceLockGateProps {
   children: React.ReactNode;
 }
 
-export function WorkspaceLockGate({ children }: WorkspaceLockGateProps) {
+export function WorkspaceLockGate({ children }: Readonly<WorkspaceLockGateProps>) {
   const { t } = useI18n();
   const ts = t.settings.billing.lockout;
   const { organization } = useOrganization();

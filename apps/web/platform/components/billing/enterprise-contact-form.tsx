@@ -29,7 +29,7 @@ interface EnterpriseContactFormProps {
   onSuccess?: () => void;
 }
 
-export function EnterpriseContactForm({ trigger, onSuccess }: EnterpriseContactFormProps) {
+export function EnterpriseContactForm({ trigger, onSuccess }: Readonly<EnterpriseContactFormProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
