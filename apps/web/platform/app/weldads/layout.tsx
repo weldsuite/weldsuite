@@ -5,7 +5,7 @@ import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { getTranslations } from '@/lib/i18n';
 
-export default function WeldAdsLayout({ children }: { children: React.ReactNode }) {
+export default function WeldAdsLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const t = getTranslations('weldads').module;
   const { isInstalled, isLoading } = useAppAccess('weldads');
 

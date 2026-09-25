@@ -20,7 +20,7 @@ import { useMyUserApps, type UserApp } from '@/hooks/queries/use-user-apps-queri
 import { CreateAppDialog } from './create-app-dialog';
 import { AppDetailPanel } from './app-detail-panel';
 
-function ManageAppsNoAccess({ title }: { title: string }) {
+function ManageAppsNoAccess({ title }: Readonly<{ title: string }>) {
   const { t } = useI18n();
   const wa = t.weldapps;
   return (

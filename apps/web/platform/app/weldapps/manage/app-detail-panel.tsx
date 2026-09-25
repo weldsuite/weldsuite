@@ -67,7 +67,7 @@ interface AppDetailPanelProps {
   onDeleted?: () => void;
 }
 
-export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: AppDetailPanelProps) {
+export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonly<AppDetailPanelProps>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const { can, isOwner } = usePermissions();

@@ -35,7 +35,7 @@ interface CreateAppDialogProps {
   onCreated?: (app: UserApp) => void;
 }
 
-export function CreateAppDialog({ open, onOpenChange, onCreated }: CreateAppDialogProps) {
+export function CreateAppDialog({ open, onOpenChange, onCreated }: Readonly<CreateAppDialogProps>) {
   const { t } = useI18n();
   const wa = t.weldapps;
 

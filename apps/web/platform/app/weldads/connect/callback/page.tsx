@@ -10,7 +10,7 @@ interface CallbackPageProps {
   error: string | undefined;
 }
 
-export default function WeldAdsConnectCallbackPage({ code, state, error }: CallbackPageProps) {
+export default function WeldAdsConnectCallbackPage({ code, state, error }: Readonly<CallbackPageProps>) {
   const t = getTranslations('weldads').module;
   const navigate = useNavigate();
   const completeOAuth = useCompleteWeldAdsFacebookOAuth();

@@ -75,7 +75,7 @@ export function CampaignFormDialog({
   onOpenChange,
   accounts,
   campaign,
-}: CampaignFormDialogProps) {
+}: Readonly<CampaignFormDialogProps>) {
   const t = getTranslations('weldads').module;
   const isEdit = !!campaign;
   const selectedAccounts = accounts.filter((account) => account.isSelected);
