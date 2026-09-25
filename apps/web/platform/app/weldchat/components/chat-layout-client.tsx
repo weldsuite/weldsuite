@@ -24,7 +24,7 @@ import { useObjectPanel } from '@/components/object-panel';
 import { ModuleContent } from '@/components/layout/module-content';
 export { useChatContext, type ReplyTo, type EditingMessage } from './chat-context';
 
-export function ChatLayoutClient({ children }: { children: ReactNode }) {
+export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>) {
   const t = getTranslations('weldchat');
   const st = useTranslations();
   const pathname = usePathname();

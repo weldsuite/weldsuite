@@ -57,7 +57,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRecorderProps) {
+export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readonly<ClipRecorderProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const recorder = useClipRecorder();
