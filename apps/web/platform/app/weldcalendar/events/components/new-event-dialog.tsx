@@ -22,7 +22,7 @@ interface NewEventDialogProps {
  * creation menu used in `/weldcalendar`) as a centered popup. No new design —
  * the menu IS the menu from the calendar view.
  */
-export function NewEventDialog({ open, onOpenChange, defaults, hideTypeTabs }: NewEventDialogProps) {
+export function NewEventDialog({ open, onOpenChange, defaults, hideTypeTabs }: Readonly<NewEventDialogProps>) {
   const { data: calendarsData } = useUserCalendars();
   const allCalendars = calendarsData?.data ?? [];
   const defaultCalendar =

@@ -9,7 +9,7 @@ interface MiniCalendarProps {
   onDateSelect?: (date: Date) => void;
 }
 
-export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect }: MiniCalendarProps) {
+export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect }: Readonly<MiniCalendarProps>) {
   const t = useTranslations();
   const DAY_LABELS = t('sweep.miscA.miniCalendar.dayLabels').split(',');
   const today = new Date();

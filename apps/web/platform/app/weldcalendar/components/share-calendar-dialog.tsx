@@ -30,7 +30,7 @@ interface ShareCalendarDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function ShareCalendarDialog({ calendarId, open, onOpenChange }: ShareCalendarDialogProps) {
+export function ShareCalendarDialog({ calendarId, open, onOpenChange }: Readonly<ShareCalendarDialogProps>) {
   const { data: sharesData, isLoading } = useCalendarShares(calendarId);
   const shareCalendar = useShareCalendar();
   const removeShare = useRemoveCalendarShare();

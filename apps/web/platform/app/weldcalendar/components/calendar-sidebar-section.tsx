@@ -47,7 +47,7 @@ interface CalendarSidebarSectionProps {
   calendars: UserCalendar[];
 }
 
-export function CalendarSidebarSection({ calendars }: CalendarSidebarSectionProps) {
+export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSectionProps>) {
   const t = getTranslations('weldcalendar');
   const [visibleIds, setVisibleIdsState] = useState<Set<string>>(() => {
     const stored = getVisibleCalendarIds();

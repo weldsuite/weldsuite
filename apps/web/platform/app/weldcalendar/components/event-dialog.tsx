@@ -62,7 +62,7 @@ function formatDateTimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, calendars, defaultCalendarId }: EventDialogProps) {
+export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, calendars, defaultCalendarId }: Readonly<EventDialogProps>) {
   const isEdit = !!event?.id;
   const t = getTranslations('weldcalendar');
 
