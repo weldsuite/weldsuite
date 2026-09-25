@@ -8,7 +8,7 @@ import EmployeeHomeView from './view';
  * Server-rendered and streamed: the data request starts here without blocking
  * navigation, and reaches the client view through the query cache.
  */
-export default async function Page({ params }: { params: Promise<{ workspace: string }> }) {
+export default async function Page({ params }: Readonly<{ params: Promise<{ workspace: string }> }>) {
   const { workspace } = await params;
   const state = streamPortalQueries(workspace, [{ path: '/employee/overview' }]);
   return (
