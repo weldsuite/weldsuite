@@ -29,7 +29,7 @@ export function Launcher({
   isOpen = false,
   unreadCount = 0,
   onClick
-}: LauncherProps) {
+}: Readonly<LauncherProps>) {
   // Detect if we're embedded in an iframe (SDK mode)
   const [isEmbedded, setIsEmbedded] = useState(false);
   // Track if widget is open (for showing X vs chat icon)
