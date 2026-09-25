@@ -119,7 +119,7 @@ function normalizeFile(raw: Record<string, unknown>): ExtendedFile {
   } as ExtendedFile;
 }
 
-export default function FilesComponent({ projectId, initialFiles }: FilesComponentProps) {
+export default function FilesComponent({ projectId, initialFiles }: Readonly<FilesComponentProps>) {
   const { t } = useI18n();
   const { canWrite } = useProjectPermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);

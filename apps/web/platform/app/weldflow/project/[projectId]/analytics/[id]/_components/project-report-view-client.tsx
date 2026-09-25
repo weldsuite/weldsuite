@@ -97,7 +97,7 @@ interface ProjectReportViewClientProps {
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export function ProjectReportViewClient({ report, charts: initialCharts, projectId }: ProjectReportViewClientProps) {
+export function ProjectReportViewClient({ report, charts: initialCharts, projectId }: Readonly<ProjectReportViewClientProps>) {
   const { t } = useI18n();
 
   const periodOptions = useMemo(() => [
