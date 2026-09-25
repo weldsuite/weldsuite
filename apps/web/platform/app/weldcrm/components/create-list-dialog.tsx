@@ -47,7 +47,7 @@ export function CreateListDialog({
   placeholder,
   showKindSelector = false,
   defaultKind = 'company',
-}: CreateListDialogProps) {
+}: Readonly<CreateListDialogProps>) {
   const t = useTranslations();
   const dialogTitle = title ?? t('crm.createListDialog.title');
   const dialogButtonLabel = buttonLabel ?? t('crm.createListDialog.createButton');

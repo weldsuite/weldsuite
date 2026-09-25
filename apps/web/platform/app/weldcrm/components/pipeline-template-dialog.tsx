@@ -62,7 +62,7 @@ export function PipelineTemplateDialog({
   open,
   onOpenChange,
   onSelectTemplate,
-}: PipelineTemplateDialogProps) {
+}: Readonly<PipelineTemplateDialogProps>) {
   const t = getTranslations('crm');
   const st = useTranslations();
   const [searchQuery, setSearchQuery] = React.useState("");

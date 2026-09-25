@@ -26,7 +26,7 @@ export function RenameDialog({
   currentName,
   onRename,
   title,
-}: RenameDialogProps) {
+}: Readonly<RenameDialogProps>) {
   const t = useTranslations();
   const dialogTitle = title ?? t('crm.renameDialog.title');
   const [name, setName] = useState(currentName);
