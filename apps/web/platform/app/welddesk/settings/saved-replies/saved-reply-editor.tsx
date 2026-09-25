@@ -56,7 +56,7 @@ interface SavedReplyEditorProps {
   } | null;
 }
 
-export function SavedReplyEditor({ open, onOpenChange, editingItem }: SavedReplyEditorProps) {
+export function SavedReplyEditor({ open, onOpenChange, editingItem }: Readonly<SavedReplyEditorProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const sre = t.helpdesk.savedReplyEditor;

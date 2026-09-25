@@ -38,7 +38,7 @@ export function SlackSettingsClient({
   integration,
   initialSettings,
   channelInfo,
-}: SlackSettingsClientProps) {
+}: Readonly<SlackSettingsClientProps>) {
   const { t } = useI18n();
   const updateSettingsMutation = useUpdateSlackSettings();
   const slackChannelsQuery = useSlackChannels(false);
