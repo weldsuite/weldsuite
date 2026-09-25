@@ -50,7 +50,7 @@ export function BankTransactionFormDialog({
   open,
   onOpenChange,
   bankAccountId: lockedBankAccountId,
-}: BankTransactionFormDialogProps) {
+}: Readonly<BankTransactionFormDialogProps>) {
   const t = useTranslations();
   const { data: accountsRes } = useAccountingBankAccounts();
   const accounts = (accountsRes?.data ?? []) as BankAccount[];

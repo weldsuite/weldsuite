@@ -62,7 +62,7 @@ export function BankTransactionsTable({
   currencyByAccountId,
   dense,
   groupByStatus,
-}: BankTransactionsTableProps) {
+}: Readonly<BankTransactionsTableProps>) {
   const st = useTranslations();
   const { currency: entityCurrency, locale } = useCurrentEntityCurrency();
   const displayCurrency = currency || entityCurrency;

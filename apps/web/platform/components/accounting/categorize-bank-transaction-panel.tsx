@@ -41,7 +41,7 @@ export function CategorizeBankTransactionPanel({
   errorMessage,
   labels,
   onCategorize,
-}: CategorizeBankTransactionPanelProps) {
+}: Readonly<CategorizeBankTransactionPanelProps>) {
   const [categoryAccountId, setCategoryAccountId] = useState('');
   const options = useMemo(() => ledgerCategoryAccounts(accounts), [accounts]);
 
