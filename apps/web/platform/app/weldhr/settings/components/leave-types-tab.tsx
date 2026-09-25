@@ -174,7 +174,7 @@ export function LeaveTypesTab() {
   );
 }
 
-function LeaveTypeDialog({ form, onClose }: { form: FormState; onClose: () => void }) {
+function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose: () => void }>) {
   const t = useTranslations();
   const createType = useCreateHrLeaveType();
   const updateType = useUpdateHrLeaveType();
@@ -279,7 +279,7 @@ function LeaveTypeDialog({ form, onClose }: { form: FormState; onClose: () => vo
   );
 }
 
-function DeleteLeaveTypeDialog({ leaveType, onClose }: { leaveType: HrLeaveType; onClose: () => void }) {
+function DeleteLeaveTypeDialog({ leaveType, onClose }: Readonly<{ leaveType: HrLeaveType; onClose: () => void }>) {
   const t = useTranslations();
   const deleteType = useDeleteHrLeaveType();
   const [failure, setFailure] = useState<string | null>(null);
