@@ -60,7 +60,7 @@ interface SetupAddAccountProps {
   disabled?: boolean;
 }
 
-export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAddAccountProps) {
+export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly<SetupAddAccountProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const label = labelProp ?? st('sweep.weldmail.setup.addEmail');
