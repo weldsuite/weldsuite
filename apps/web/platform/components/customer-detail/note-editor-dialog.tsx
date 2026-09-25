@@ -71,13 +71,13 @@ export function NoteEditorDialog({
   onOpenChange,
   onSave,
   onDelete,
-}: {
+}: Readonly<{
   note: Note | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (content: string) => Promise<void>;
   onDelete: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { setPinnedNote, setIsOpen: setGlobalPinnedOpen, setOnSave, setOnDelete } = usePinnedNote();
   const [title, setTitle] = useState('');
