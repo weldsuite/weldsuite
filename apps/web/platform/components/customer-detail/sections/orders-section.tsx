@@ -37,7 +37,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function OrdersSection({ orders, totalCount }: OrdersSectionProps) {
+export function OrdersSection({ orders, totalCount }: Readonly<OrdersSectionProps>) {
   const t = useTranslations();
   // Calculate totals
   const totalValue = orders.reduce((sum, order) => sum + Number.parseFloat(order.total || '0'), 0);
@@ -99,7 +99,7 @@ export function OrdersSection({ orders, totalCount }: OrdersSectionProps) {
   );
 }
 
-function OrderCard({ order }: { order: CustomerOrder }) {
+function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
   const t = useTranslations();
   const status = order.status || 'pending';
   const config = statusConfig[status] || statusConfig.pending;

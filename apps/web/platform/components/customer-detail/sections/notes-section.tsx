@@ -61,7 +61,7 @@ function activityToNote(
   } as Note;
 }
 
-export function NotesSection({ customer, activities }: NotesSectionProps) {
+export function NotesSection({ customer, activities }: Readonly<NotesSectionProps>) {
   const t = useTranslations();
   const { silentRefresh, mode, isExpanded, entityType } = useCustomerDetailContext();
   const createNoteMutation = useCreateCustomerNote();

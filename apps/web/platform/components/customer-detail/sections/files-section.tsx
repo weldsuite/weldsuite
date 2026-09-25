@@ -73,7 +73,7 @@ const formatDate = (date: Date): string => {
 // `customer` isn't read here, but the parameter must stay to match the
 // shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
  
-export function FilesSection(_props: FilesSectionProps) {
+export function FilesSection(_props: Readonly<FilesSectionProps>) {
   const t = useTranslations();
   const [files, setFiles] = useState<FileItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);

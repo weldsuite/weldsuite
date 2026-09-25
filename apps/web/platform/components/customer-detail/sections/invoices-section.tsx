@@ -37,7 +37,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function InvoicesSection({ invoices, totalCount }: InvoicesSectionProps) {
+export function InvoicesSection({ invoices, totalCount }: Readonly<InvoicesSectionProps>) {
   const t = useTranslations();
   // Calculate totals
   const totalValue = invoices.reduce((sum, inv) => sum + Number.parseFloat(inv.amount || '0'), 0);
@@ -113,7 +113,7 @@ export function InvoicesSection({ invoices, totalCount }: InvoicesSectionProps) 
   );
 }
 
-function InvoiceCard({ invoice }: { invoice: CustomerInvoice }) {
+function InvoiceCard({ invoice }: Readonly<{ invoice: CustomerInvoice }>) {
   const t = useTranslations();
   const status = invoice.status || 'pending';
   const config = statusConfig[status] || statusConfig.pending;

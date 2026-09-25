@@ -87,7 +87,7 @@ function formatDuration(seconds?: number) {
 // `customer` isn't read here, but the parameter must stay to match the
 // shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
  
-export function MeetingsSection(_props: SectionProps) {
+export function MeetingsSection(_props: Readonly<SectionProps>) {
   const t = useTranslations();
   const router = useRouter();
   const [recordings] = useState<MeetingRecording[]>([]);

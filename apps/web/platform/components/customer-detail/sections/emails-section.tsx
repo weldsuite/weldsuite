@@ -11,7 +11,7 @@ interface EmailItem {
   subject: string;
 }
 
-export function EmailsSection({ customer }: EmailsSectionProps) {
+export function EmailsSection({ customer }: Readonly<EmailsSectionProps>) {
   const t = useTranslations();
   const { onCompose } = useCustomerDetailContext();
   const composeContext = useComposeSafe();
