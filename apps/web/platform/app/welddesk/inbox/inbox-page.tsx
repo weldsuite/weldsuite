@@ -25,7 +25,7 @@ interface InboxPageProps {
   channel?: 'phone' | 'email' | 'messenger';
 }
 
-export function InboxPage({ conversationId, channel }: InboxPageProps) {
+export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>) {
   const selectedId =
     conversationId && !RESERVED_INBOX_SEGMENTS.has(conversationId) ? conversationId : undefined;
   const { user } = useUser();

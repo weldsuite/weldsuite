@@ -11,7 +11,7 @@ interface TeamInboxLayoutProps {
   children: React.ReactNode;
 }
 
-export default function TeamInboxLayout({ teamId, children }: TeamInboxLayoutProps) {
+export default function TeamInboxLayout({ teamId, children }: Readonly<TeamInboxLayoutProps>) {
   const { getToken } = useAuth();
   const [accessToken, setAccessToken] = useState<string>();
 
