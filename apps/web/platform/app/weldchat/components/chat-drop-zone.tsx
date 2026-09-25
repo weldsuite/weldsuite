@@ -22,7 +22,7 @@ interface ChatDropZoneProps {
  * with the channel + thread context so the matching MessageInput picks
  * them up via its existing presign → PUT → confirm upload flow.
  */
-export function ChatDropZone({ channelId, parentId, children }: ChatDropZoneProps) {
+export function ChatDropZone({ channelId, parentId, children }: Readonly<ChatDropZoneProps>) {
   const t = getTranslations('weldchat');
   const onDrop = useCallback(
     (accepted: File[]) => {

@@ -10,7 +10,7 @@ interface ActiveCallBannerProps {
   channelId: string;
 }
 
-export function ActiveCallBanner({ channelId }: ActiveCallBannerProps) {
+export function ActiveCallBanner({ channelId }: Readonly<ActiveCallBannerProps>) {
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
   const { status, callId: currentCallId, joinCall } = useWeldChatCall();

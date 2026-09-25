@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useI18n } from '@/lib/i18n/provider';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 
-function VideoCameraIcon({ className, strokeWidth = 1.5 }: { className?: string; strokeWidth?: number }) {
+function VideoCameraIcon({ className, strokeWidth = 1.5 }: Readonly<{ className?: string; strokeWidth?: number }>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -45,7 +45,7 @@ interface ChannelHeaderProps {
 }
 
 
-export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }: ChannelHeaderProps) {
+export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }: Readonly<ChannelHeaderProps>) {
   const { t } = useI18n();
   const { startCall } = useWeldChatCall();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
