@@ -148,7 +148,7 @@ export function CallHistoryList({
   voipConfigured,
   isLoading = false,
   showPhoneSettings = true,
-}: CallHistoryListProps) {
+}: Readonly<CallHistoryListProps>) {
   const router = useRouter();
   const { setIsDialerOpen } = useCall();
   const t = getTranslations('weldmeet');

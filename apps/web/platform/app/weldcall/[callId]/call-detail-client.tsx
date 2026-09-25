@@ -68,7 +68,7 @@ function normalizeTranscription(transcription?: Transcription | null, speakerFal
   };
 }
 
-export function CallDetailClient({ call, transcription }: CallDetailClientProps) {
+export function CallDetailClient({ call, transcription }: Readonly<CallDetailClientProps>) {
   const { getClient } = useAppApiClient();
   const deleteCallMut = useDeleteVoipCall();
   const transcribeMut = useTranscribeVoipCall();
