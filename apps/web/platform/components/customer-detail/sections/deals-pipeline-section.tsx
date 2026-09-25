@@ -107,7 +107,7 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-export function DealsPipelineSection({ customer, opportunities }: DealsPipelineSectionProps) {
+export function DealsPipelineSection({ customer, opportunities }: Readonly<DealsPipelineSectionProps>) {
   const t = useTranslations();
   const { currentWorkspace } = useWorkspace();
   const ctx = useCustomerDetailContextSafe();
@@ -266,7 +266,7 @@ function MultiPipelineList({
   lockedCustomer,
   onDealMove,
   onDealCreate,
-}: {
+}: Readonly<{
   pipelineGroups: PipelineRow[];
   customer: Customer;
   customers: PipelineCustomer[];
@@ -274,7 +274,7 @@ function MultiPipelineList({
   lockedCustomer: { id: string; name: string };
   onDealMove: (dealId: string, fromStage: string, toStage: string) => Promise<void>;
   onDealCreate: (data: Record<string, unknown>) => Promise<void>;
-}) {
+}>) {
   const t = useTranslations();
   const [expandedPipelines, setExpandedPipelines] = useState<Set<string>>(new Set());
 

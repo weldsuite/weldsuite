@@ -187,7 +187,7 @@ interface DayBucket {
   entries: ActivityItem[];
 }
 
-export function ActivitySection({ activities }: ActivitySectionProps) {
+export function ActivitySection({ activities }: Readonly<ActivitySectionProps>) {
   const t = useTranslations();
   const { data: membersResult } = useWorkspaceMembers(1, 100);
 
@@ -242,7 +242,7 @@ export function ActivitySection({ activities }: ActivitySectionProps) {
 // ────────────────────────────────────────────────────────────────────
 // Day section
 
-function DaySection({ bucket, isFirst, userMap }: { bucket: DayBucket; isFirst: boolean; userMap: Map<string, string> }) {
+function DaySection({ bucket, isFirst, userMap }: Readonly<{ bucket: DayBucket; isFirst: boolean; userMap: Map<string, string> }>) {
   const showSeparator = bucket.label !== 'Today';
 
   return (
@@ -270,7 +270,7 @@ function DaySection({ bucket, isFirst, userMap }: { bucket: DayBucket; isFirst: 
 // ────────────────────────────────────────────────────────────────────
 // Activity row — minimalist timeline, no card border
 
-function ActivityRow({ activity, userMap, isFirst }: { activity: ActivityItem; userMap: Map<string, string>; isFirst?: boolean }) {
+function ActivityRow({ activity, userMap, isFirst }: Readonly<{ activity: ActivityItem; userMap: Map<string, string>; isFirst?: boolean }>) {
   const t = useTranslations();
   const [expanded, setExpanded] = React.useState(false);
   const meta = getMeta(activity.type);

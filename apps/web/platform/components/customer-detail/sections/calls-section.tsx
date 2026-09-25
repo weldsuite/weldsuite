@@ -43,7 +43,7 @@ interface CallItem extends Activity {
   computedStatus: string;
 }
 
-export function CallsSection({ customer, activities }: CallsSectionProps) {
+export function CallsSection({ customer, activities }: Readonly<CallsSectionProps>) {
   const t = useTranslations();
   const { onCall } = useCustomerDetailContext();
   const { setIsDialerOpen } = useCall();

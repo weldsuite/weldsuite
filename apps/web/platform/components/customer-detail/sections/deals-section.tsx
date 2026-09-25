@@ -37,7 +37,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function DealsSection({ opportunities, totalCount }: DealsSectionProps) {
+export function DealsSection({ opportunities, totalCount }: Readonly<DealsSectionProps>) {
   const t = useTranslations();
   if (opportunities.length === 0) {
     return (
@@ -118,7 +118,7 @@ export function DealsSection({ opportunities, totalCount }: DealsSectionProps) {
   );
 }
 
-function DealCard({ deal }: { deal: Opportunity }) {
+function DealCard({ deal }: Readonly<{ deal: Opportunity }>) {
   const t = useTranslations();
   const value = deal.amount ? Number.parseFloat(deal.amount) : deal.value || 0;
   const stage = deal.stage || 'lead';
