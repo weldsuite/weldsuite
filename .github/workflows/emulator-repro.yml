@@ -48,10 +48,15 @@ jobs:
           ref: claude/fix-event-target-shim-crash
           path: src
 
-      - name: Set up monorepo (fix branch)
-        uses: ./src/.github/actions/setup-monorepo
+      - uses: pnpm/action-setup@v4
         with:
-          install-dependencies: 'false'
+          version: 10.34.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: src/pnpm-lock.yaml
 
       - name: Build the WeldBooks JS bundle from the fix branch
         working-directory: src
