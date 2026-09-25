@@ -275,7 +275,7 @@ export interface AppSidebarLayoutProps extends React.ComponentProps<typeof Sideb
 }
 
 // Sortable wrapper for sidebar menu items (drag-and-drop reordering)
-function SortableSidebarItem({ id, children }: { id: string; children: React.ReactNode }) {
+function SortableSidebarItem({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
   const {
     attributes,
     listeners,
@@ -324,7 +324,7 @@ export function AppSidebarLayout({
   onBack,
   hideScrollbar = true,
   ...props
-}: AppSidebarLayoutProps) {
+}: Readonly<AppSidebarLayoutProps>) {
   const pathname = usePathname()
   const { state } = useSidebar()
   const { openSettings } = useSettings()

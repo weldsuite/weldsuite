@@ -44,7 +44,7 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function ChangeDetails({ changes }: { changes: Record<string, { from: unknown; to: unknown }> }) {
+function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
@@ -64,7 +64,7 @@ function ChangeDetails({ changes }: { changes: Record<string, { from: unknown; t
 
 const HIDDEN_DATA_KEYS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId'];
 
-function DataSnapshot({ data }: { data: Record<string, unknown> }) {
+function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
   const entries = Object.entries(data).filter(
     ([key, value]) => !HIDDEN_DATA_KEYS.includes(key) && value !== null && value !== undefined && value !== '',
   );
@@ -82,7 +82,7 @@ function DataSnapshot({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-export function AuditTimelineSkeleton({ count = 3 }: { count?: number }) {
+export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }>) {
   return (
     <div className="space-y-0">
       {Array.from({ length: count }).map((_, i) => (
@@ -98,7 +98,7 @@ export function AuditTimelineSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
-export function AuditTimeline({ logs, showEntityType }: { logs: AuditLogEntry[]; showEntityType?: boolean }) {
+export function AuditTimeline({ logs, showEntityType }: Readonly<{ logs: AuditLogEntry[]; showEntityType?: boolean }>) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {

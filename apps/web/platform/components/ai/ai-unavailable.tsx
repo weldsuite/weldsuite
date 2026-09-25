@@ -19,7 +19,7 @@ interface AiUnavailableProps {
  * AI has been removed platform-wide — this renders instead of calling any
  * AI backend, so the surrounding route/panel stays mounted (no 404s).
  */
-export function AiUnavailable({ className, variant = 'panel' }: AiUnavailableProps) {
+export function AiUnavailable({ className, variant = 'panel' }: Readonly<AiUnavailableProps>) {
   const t = getTranslations('common');
 
   if (variant === 'inline') {
