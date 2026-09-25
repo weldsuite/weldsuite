@@ -22,13 +22,13 @@ interface MemberListPanelProps {
 
 const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, member: 2 };
 
-function RoleIcon({ role }: { role: string | undefined }) {
+function RoleIcon({ role }: Readonly<{ role: string | undefined }>) {
   if (role === 'owner') return <Crown className="h-3 w-3 text-yellow-500" />;
   if (role === 'admin') return <ShieldCheck className="h-3 w-3 text-blue-500" />;
   return null;
 }
 
-export function MemberListPanel({ channelId, embedded = false }: MemberListPanelProps) {
+export function MemberListPanel({ channelId, embedded = false }: Readonly<MemberListPanelProps>) {
   const { setRightPanel, openUserProfile, openAgentProfile } = useChatContext();
   const { user } = useUser();
   const { data } = useChannelMembers(channelId);

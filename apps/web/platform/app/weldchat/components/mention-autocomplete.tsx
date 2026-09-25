@@ -71,7 +71,7 @@ export function MentionAutocomplete({
   channelId,
   onSelect,
   onDismiss,
-}: MentionAutocompleteProps) {
+}: Readonly<MentionAutocompleteProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { data: membersData } = useWorkspaceMembers();

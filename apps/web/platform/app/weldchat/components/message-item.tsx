@@ -18,7 +18,7 @@ import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 
 /** Live timer that counts up from a start time */
-function LiveCallTimer({ startedAt }: { startedAt: string }) {
+function LiveCallTimer({ startedAt }: Readonly<{ startedAt: string }>) {
   const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
 
   useEffect(() => {
@@ -145,12 +145,12 @@ function ForwardedMessage({
   channelId,
   parentMessageId,
   membersMap,
-}: {
+}: Readonly<{
   forwardedFrom: ForwardedFromInfo;
   channelId: string;
   parentMessageId: string;
   membersMap?: Map<string, string>;
-}) {
+}>) {
   const { t } = useI18n();
   const ChannelIcon =
     forwardedFrom.channelType === 'private'
@@ -251,7 +251,7 @@ export function MessageItem({
   replyToMessage,
   readBy,
   hasActiveCall,
-}: MessageItemProps) {
+}: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { userId } = useAuth();

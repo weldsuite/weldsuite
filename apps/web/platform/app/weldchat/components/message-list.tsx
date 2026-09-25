@@ -64,7 +64,7 @@ export function MessageList({
   parentId,
   showChannel,
   isDm,
-}: MessageListProps) {
+}: Readonly<MessageListProps>) {
   const t = getTranslations('weldchat');
   const { userId: currentUserId } = useAuth();
   const { getClient } = useAppApiClient();

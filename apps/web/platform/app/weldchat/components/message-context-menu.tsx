@@ -62,7 +62,7 @@ interface MessageContextMenuProps {
   children: ReactNode;
 }
 
-export function MessageContextMenu({ message, channelId, readBy, children }: MessageContextMenuProps) {
+export function MessageContextMenu({ message, channelId, readBy, children }: Readonly<MessageContextMenuProps>) {
   const { t } = useI18n();
   const { data: pinnedData } = usePinnedMessages(channelId);
   const { mutate: pinMessage } = usePinMessage();
