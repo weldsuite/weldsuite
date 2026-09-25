@@ -26,7 +26,7 @@ interface MeetingChatMessage {
   createdAt: string;
 }
 
-export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistoryProps) {
+export function MeetingChatHistory({ meetingId, hideHeader }: Readonly<MeetingChatHistoryProps>) {
   const t = getTranslations('weldmeet');
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMeetingMessages(meetingId);
@@ -132,7 +132,7 @@ export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistory
   );
 }
 
-function ChatHistoryHeader({ count }: { count: number }) {
+function ChatHistoryHeader({ count }: Readonly<{ count: number }>) {
   const t = getTranslations('weldmeet');
   return (
     <div className="px-4 py-3 border-b flex items-center gap-2 flex-shrink-0">
@@ -145,7 +145,7 @@ function ChatHistoryHeader({ count }: { count: number }) {
   );
 }
 
-function ChatHistoryMessage({ message, compact }: { message: MeetingChatMessage; compact?: boolean }) {
+function ChatHistoryMessage({ message, compact }: Readonly<{ message: MeetingChatMessage; compact?: boolean }>) {
   const timeStr = new Date(message.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
