@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   description: 'Sign in to view your schedule, leave, coaching, and evaluations.',
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const cookieStore = await cookies();
   const cookieLocale = cookieStore.get(LOCALE_COOKIE)?.value;
   const initialLocale = isLocale(cookieLocale)

@@ -36,7 +36,7 @@ export const Card = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEleme
   return <div ref={ref} className={cx('rounded-lg border border-gray-200 bg-white p-4 sm:p-5', className)} {...props} />;
 });
 
-export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
+export function Label({ className, ...props }: Readonly<LabelHTMLAttributes<HTMLLabelElement>>) {
   return <label className={cx('block text-sm font-medium text-gray-700 mb-1.5', className)} {...props} />;
 }
 
@@ -90,7 +90,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   );
 });
 
-export function PageHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+export function PageHeader({ title, action }: Readonly<{ title: string; action?: React.ReactNode }>) {
   return (
     <div className="flex items-center justify-between gap-4 mb-5">
       <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{title}</h1>
