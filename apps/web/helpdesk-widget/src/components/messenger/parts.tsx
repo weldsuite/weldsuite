@@ -47,13 +47,13 @@ export function Avatar({
   size = 32,
   className,
   style,
-}: {
+}: Readonly<{
   name: string;
   src?: string | null;
   size?: number;
   className?: string;
   style?: CSSProperties;
-}) {
+}>) {
   const dimension = { width: size, height: size, ...style };
   if (src) {
     return (
@@ -77,7 +77,7 @@ export function Avatar({
 }
 
 /** Overlapping teammate faces, as in the messenger header. */
-export function AvatarStack({ team, size = 32, ring = '#ffffff' }: { team: TeamMember[]; size?: number; ring?: string }) {
+export function AvatarStack({ team, size = 32, ring = '#ffffff' }: Readonly<{ team: TeamMember[]; size?: number; ring?: string }>) {
   if (team.length === 0) return null;
   return (
     <div className="flex -space-x-2">
@@ -94,7 +94,7 @@ export function AvatarStack({ team, size = 32, ring = '#ffffff' }: { team: TeamM
   );
 }
 
-export function TypingDots({ className }: { className?: string }) {
+export function TypingDots({ className }: Readonly<{ className?: string }>) {
   return (
     <span className={cn('inline-flex items-center gap-1', className)} aria-label="Typing">
       {[0, 1, 2].map((i) => (

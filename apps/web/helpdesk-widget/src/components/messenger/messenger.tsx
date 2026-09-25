@@ -31,7 +31,7 @@ export function Messenger({
   initialName,
   initialEmail,
   realtimeUrl,
-}: MessengerProps) {
+}: Readonly<MessengerProps>) {
   const [view, setView] = useState<View>({ name: 'home' });
   const activeId = view.name === 'conversation' ? view.id : null;
 
