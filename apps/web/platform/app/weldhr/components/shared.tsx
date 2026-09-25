@@ -20,7 +20,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 
-export function ErrorBanner({ error, onDismiss }: { error: string | null; onDismiss?: () => void }) {
+export function ErrorBanner({ error, onDismiss }: Readonly<{ error: string | null; onDismiss?: () => void }>) {
   if (!error) return null;
   return (
     <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -154,14 +154,14 @@ const STATUS_TONE: Record<string, Tone> = {
  * (e.g. `employee`, `attendance`, `leave`), so the same raw value can have a
  * different label in different places.
  */
-export function StatusBadge({ group, status }: { group: string; status: string }) {
+export function StatusBadge({ group, status }: Readonly<{ group: string; status: string }>) {
   const t = useTranslations();
   const label = t(`weldhr.status.${group}.${status}`);
   return <Badge variant={STATUS_TONE[status] ?? 'secondary'}>{label.startsWith('weldhr.') ? status : label}</Badge>;
 }
 
 /** Evaluation score 0–100 with a colour band. */
-export function ScoreBadge({ score }: { score: number | null | undefined }) {
+export function ScoreBadge({ score }: Readonly<{ score: number | null | undefined }>) {
   if (score === null || score === undefined) return <span className="text-muted-foreground">—</span>;
   const tone =
     score >= 85
@@ -174,7 +174,7 @@ export function ScoreBadge({ score }: { score: number | null | undefined }) {
   return <span className={cn('inline-flex rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums', tone)}>{score.toFixed(1)}</span>;
 }
 
-export function EmployeeAvatar({ name, src, className }: { name: string; src?: string | null; className?: string }) {
+export function EmployeeAvatar({ name, src, className }: Readonly<{ name: string; src?: string | null; className?: string }>) {
   return (
     <Avatar className={cn('h-8 w-8', className)}>
       {src && <AvatarImage src={src} alt={name} />}
@@ -206,7 +206,7 @@ function SearchPicker({
   allowClear,
   disabled,
   className,
-}: {
+}: Readonly<{
   value: string | null | undefined;
   valueLabel?: string | null;
   options: PickerOption[];
@@ -219,7 +219,7 @@ function SearchPicker({
   allowClear?: boolean;
   disabled?: boolean;
   className?: string;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.id === value);
   const label = selected?.label ?? valueLabel ?? null;
@@ -293,7 +293,7 @@ export function EmployeePicker({
   disabled,
   excludeId,
   className,
-}: {
+}: Readonly<{
   value: string | null | undefined;
   valueLabel?: string | null;
   onChange: (id: string | null, label: string | null) => void;
@@ -302,7 +302,7 @@ export function EmployeePicker({
   disabled?: boolean;
   excludeId?: string;
   className?: string;
-}) {
+}>) {
   const t = useTranslations();
   const [search, setSearch] = useState('');
   const { data, isLoading } = useHrEmployees({ search: search || undefined, limit: 30, status: 'onboarding,active,on_leave,offboarding' });
@@ -343,7 +343,7 @@ export function CompanyPicker({
   allowClear,
   disabled,
   className,
-}: {
+}: Readonly<{
   value: string | null | undefined;
   valueLabel?: string | null;
   onChange: (id: string | null, label: string | null) => void;
@@ -351,7 +351,7 @@ export function CompanyPicker({
   allowClear?: boolean;
   disabled?: boolean;
   className?: string;
-}) {
+}>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [search, setSearch] = useState('');
@@ -399,13 +399,13 @@ export function PersonPicker({
   onChange,
   placeholder,
   disabled,
-}: {
+}: Readonly<{
   companyId: string | null | undefined;
   value: string | null | undefined;
   onChange: (id: string | null, label: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
-}) {
+}>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [search, setSearch] = useState('');
