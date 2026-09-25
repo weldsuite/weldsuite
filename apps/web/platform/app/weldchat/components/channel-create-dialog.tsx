@@ -26,7 +26,7 @@ interface ChannelCreateDialogProps {
 export function ChannelCreateDialog({
   open,
   onOpenChange,
-}: ChannelCreateDialogProps) {
+}: Readonly<ChannelCreateDialogProps>) {
   const { t } = useI18n();
   const [name, setName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);

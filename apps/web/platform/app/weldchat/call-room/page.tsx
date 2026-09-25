@@ -49,7 +49,7 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null | undefined) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
-function ParticipantTile({ participant, isSelf }: { participant: RTKParticipant | RTKSelf; isSelf?: boolean }) {
+function ParticipantTile({ participant, isSelf }: Readonly<{ participant: RTKParticipant | RTKSelf; isSelf?: boolean }>) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
 
