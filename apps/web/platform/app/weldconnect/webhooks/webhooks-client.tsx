@@ -61,7 +61,7 @@ interface WebhooksClientProps {
   isLoading?: boolean;
 }
 
-export function WebhooksClient({ webhooks: initialWebhooks, isLoading = false }: WebhooksClientProps) {
+export function WebhooksClient({ webhooks: initialWebhooks, isLoading = false }: Readonly<WebhooksClientProps>) {
   const { t } = useI18n();
   const wc = t.weldconnect.webhooksClient;
   const router = useRouter();

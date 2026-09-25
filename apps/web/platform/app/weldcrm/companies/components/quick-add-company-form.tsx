@@ -46,7 +46,7 @@ interface Props {
   onCancel: () => void;
 }
 
-export function QuickAddCompanyForm({ initialName, onCreated, onCancel }: Props) {
+export function QuickAddCompanyForm({ initialName, onCreated, onCancel }: Readonly<Props>) {
   const t = useTranslations();
   const create = useCreateCompany();
   const picker = useTemplatePicker('company');

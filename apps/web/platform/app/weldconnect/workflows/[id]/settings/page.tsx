@@ -19,7 +19,7 @@ interface WorkflowSettingsContentProps {
   hideHeader?: boolean;
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader }: WorkflowSettingsContentProps) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
   const [isPending, startTransition] = useTransition();

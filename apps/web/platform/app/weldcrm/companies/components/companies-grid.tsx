@@ -65,7 +65,7 @@ export function CompaniesGrid({
   isFetchingMore,
   listContext,
   toolbarActions,
-}: CompaniesGridProps) {
+}: Readonly<CompaniesGridProps>) {
   const t = useTranslations();
   const updateMut = useUpdateCompany();
   const deleteMut = useDeleteCompany();
