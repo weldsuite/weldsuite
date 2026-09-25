@@ -43,7 +43,7 @@ const panelTabs: CustomerDetailTab[] = ['overview', 'contacts', 'activity'];
 // Tabs to show in page mode (full set)
 const pageTabs: CustomerDetailTab[] = ['overview', 'activity', 'contacts', 'emails', 'calls', 'deals', 'notes', 'meetings', 'tasks', 'files', 'audit'];
 
-export function CustomerDetailTabs({ variant = 'page' }: CustomerDetailTabsProps) {
+export function CustomerDetailTabs({ variant = 'page' }: Readonly<CustomerDetailTabsProps>) {
   const t = useTranslations();
   const allTabs: TabConfig[] = [
     { id: 'overview', label: t('sweep.weldcrm.customerDetailTabs.details'), icon: LayoutGrid },
