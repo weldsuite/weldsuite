@@ -18,10 +18,10 @@ const GlyphPaths = (
 export function CategoryIcon({
   icon,
   variant = 'tile',
-}: {
+}: Readonly<{
   icon?: string | null
   variant?: 'tile' | 'plain'
-}) {
+}>) {
   const isEmoji = !!icon && /\p{Extended_Pictographic}/u.test(icon)
 
   if (variant === 'plain') {

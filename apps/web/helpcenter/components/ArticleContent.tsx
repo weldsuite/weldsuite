@@ -21,7 +21,7 @@ const COLORS = [HEX, RGB, HSL, NAMED]
  * highlight, font family/size, lists, tables, images, links) via a tight
  * tag + attribute + inline-style allowlist.
  */
-export function ArticleContent({ html }: ArticleContentProps) {
+export function ArticleContent({ html }: Readonly<ArticleContentProps>) {
   const clean = sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat([
       'img', 'h1', 'h2',

@@ -9,7 +9,7 @@ interface ProvidersProps {
   initialLanguage: Language
 }
 
-export function Providers({ children, initialLanguage }: ProvidersProps) {
+export function Providers({ children, initialLanguage }: Readonly<ProvidersProps>) {
   return (
     <ThemeProvider attribute="class" disableTransitionOnChange>
       <LazyI18nProvider initialLanguage={initialLanguage}>

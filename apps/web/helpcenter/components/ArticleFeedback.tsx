@@ -7,7 +7,7 @@ interface ArticleFeedbackProps {
   domain: string
 }
 
-export function ArticleFeedback({ articleId, domain }: ArticleFeedbackProps) {
+export function ArticleFeedback({ articleId, domain }: Readonly<ArticleFeedbackProps>) {
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
