@@ -223,7 +223,7 @@ export function MessageInput({
   placeholder,
   client,
   onSubmitOverride,
-}: MessageInputProps) {
+}: Readonly<MessageInputProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { getClient } = useAppApiClient();
