@@ -122,6 +122,12 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('external-api · CRUD round-trip', () => {
+  it('only configures overrides and contract-only skips for known segments', () => {
+    const known = new Set(CRUD_ENTITIES.map((e) => e.seg));
+    const stale = [...Object.keys(OVERRIDES), ...Object.keys(CONTRACT_ONLY)].filter((seg) => !known.has(seg));
+    expect(stale).toEqual([]);
+  });
+
   for (const entity of CRUD_ENTITIES) {
     const { seg, scope, create, update } = entity;
     const dependent = !create || requiresParentFk(create) || seg in CONTRACT_ONLY;
