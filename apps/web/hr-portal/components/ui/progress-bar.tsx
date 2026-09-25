@@ -1,4 +1,4 @@
-export function ProgressBar({ value, max, label }: { value: number; max: number; label?: string }) {
+export function ProgressBar({ value, max, label }: Readonly<{ value: number; max: number; label?: string }>) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
     <div>

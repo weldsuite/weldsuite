@@ -1,5 +1,5 @@
 /** Small inline-SVG trend line — no chart library, no client JS needed. */
-export function Sparkline({ values, width = 96, height = 28 }: { values: number[]; width?: number; height?: number }) {
+export function Sparkline({ values, width = 96, height = 28 }: Readonly<{ values: number[]; width?: number; height?: number }>) {
   if (values.length < 2) {
     return <div style={{ width, height }} className="flex items-center text-[10px] text-gray-400">—</div>;
   }

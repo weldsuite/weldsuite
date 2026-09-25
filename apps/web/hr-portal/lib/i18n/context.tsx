@@ -21,11 +21,11 @@ export function I18nProvider({
   initialLocale,
   timeZone,
   children,
-}: {
+}: Readonly<{
   initialLocale: Locale;
   timeZone: string;
   children: ReactNode;
-}) {
+}>) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
 
   const setLocale = useCallback((next: Locale) => {
