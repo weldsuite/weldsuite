@@ -63,7 +63,7 @@ interface Props {
 }
 
 /** Minimal, card-less settings section: heading + divider, matching the other app settings tabs. */
-function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function Section({ title, description, children }: Readonly<{ title: string; description?: string; children: ReactNode }>) {
   return (
     <section className="space-y-4">
       <div>
@@ -75,7 +75,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-export function HelpcenterSettingsClient({ initialSettings }: Props) {
+export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
   const { t } = useI18n();
   const st = useTranslations();
   const th = t.helpdesk.helpcenterSettings;

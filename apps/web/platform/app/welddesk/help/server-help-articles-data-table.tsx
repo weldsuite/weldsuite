@@ -130,7 +130,7 @@ interface ServerHelpArticlesDataTableProps {
   initialStatus?: string;
 }
 
-export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHelpArticlesDataTableProps) {
+export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<ServerHelpArticlesDataTableProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useI18n();

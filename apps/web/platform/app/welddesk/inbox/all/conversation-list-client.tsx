@@ -49,7 +49,7 @@ interface ConversationListClientProps {
   accessToken?: string;
 }
 
-export default function ConversationListClient({ initialConversations, accessToken }: ConversationListClientProps) {
+export default function ConversationListClient({ initialConversations, accessToken }: Readonly<ConversationListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();

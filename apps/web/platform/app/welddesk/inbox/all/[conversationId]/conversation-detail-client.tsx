@@ -108,7 +108,7 @@ export default function ConversationDetailClient({
   userId,
   userName,
   userAvatar,
-}: ConversationDetailClientProps) {
+}: Readonly<ConversationDetailClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const st = useTranslations();
