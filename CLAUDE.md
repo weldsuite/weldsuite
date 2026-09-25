@@ -305,6 +305,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**; `app-api
 - Production uses Cloudflare Hyperdrive; dev uses direct Neon URL
 - Field-level encryption supported via worker secret
 - **Adding columns/tables to `packages/core/db/src/schema/` is fine. Do NOT create migration files, ask the user first.**
+- **Once a migration is approved, generate it with `pnpm --filter @weldsuite/db db:generate`** and commit the SQL, the `meta/<n>_snapshot.json` and the `_journal.json` entry together. Never hand-write a journal-only migration: it leaves the snapshot behind, so the next `db:generate` tries to re-create existing tables. The migration runner (and the pglite test harness) apply only journaled files. `apps/workers/app-api/src/test/tenant-schema-drift.test.ts` fails CI when the schema and the latest snapshot disagree, or when a `.sql` file isn't in the journal.
 
 ### AI / Agents
 
