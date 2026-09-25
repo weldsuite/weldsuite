@@ -77,7 +77,7 @@ export function GuestMeetingRoom({
   guestEmail,
   hostControls,
   onHostControlsBroadcast,
-}: GuestMeetingRoomProps) {
+}: Readonly<GuestMeetingRoomProps>) {
   const [participants, setParticipants] = useState<MeetingPeer[]>([]);
   const [handRaised, setHandRaised] = useState(false);
   const [captions, setCaptions] = useState<Array<{

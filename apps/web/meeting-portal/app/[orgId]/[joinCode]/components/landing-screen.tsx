@@ -64,7 +64,7 @@ export function LandingScreen({
   changeVideoDevice,
   requestPermissions,
   onSubmit,
-}: LandingScreenProps) {
+}: Readonly<LandingScreenProps>) {
   const form = useForm<GuestJoinFormInput>({
     resolver: zodResolver(guestJoinFormSchema),
     mode: 'onChange',
@@ -253,7 +253,7 @@ export function LandingScreen({
   );
 }
 
-function AttendeesRow({ meetingInfo }: { meetingInfo: MeetingInfo | null }) {
+function AttendeesRow({ meetingInfo }: Readonly<{ meetingInfo: MeetingInfo | null }>) {
   const people = meetingInfo?.attendees?.length
     ? meetingInfo.attendees
     : meetingInfo?.organizerName
