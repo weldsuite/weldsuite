@@ -32,7 +32,7 @@ interface ChartBarInteractiveProps {
   data: ExecutionTrendDataPoint[]
 }
 
-export function ChartBarInteractive({ data }: ChartBarInteractiveProps) {
+export function ChartBarInteractive({ data }: Readonly<ChartBarInteractiveProps>) {
   const { t } = useI18n()
   const [activeChart, setActiveChart] = React.useState<ChartKey>("total")
 

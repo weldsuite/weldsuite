@@ -141,7 +141,7 @@ const categoryInfo: Record<string, { icon: LucideIcon; color: string }> = {
   ai: { icon: Sparkles, color: 'text-pink-600' },
 };
 
-export function ActionsClient({ initialActions, categories }: ActionsClientProps) {
+export function ActionsClient({ initialActions, categories }: Readonly<ActionsClientProps>) {
   const { t } = useI18n();
   const router = useRouter();
   useBreadcrumbs([

@@ -11,7 +11,7 @@ interface ConnectHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function ConnectHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: ConnectHeaderProps) {
+export function ConnectHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<ConnectHeaderProps>) {
   const { t } = useI18n();
   const pathname = usePathname();
   const contextBreadcrumbs = useCurrentBreadcrumbs();

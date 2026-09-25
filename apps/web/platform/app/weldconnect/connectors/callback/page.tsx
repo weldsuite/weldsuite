@@ -29,7 +29,7 @@ function safeReturnPath(returnUrl: string | undefined): string {
   return '/weldconnect/connectors';
 }
 
-export default function ConnectorsCallbackPage({ code, state, error }: CallbackPageProps) {
+export default function ConnectorsCallbackPage({ code, state, error }: Readonly<CallbackPageProps>) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
   const callback = useConnectorOAuthCallback();

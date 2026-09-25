@@ -47,7 +47,7 @@ export function SalesChannelPickerDialog({
   isSaving,
   defaultPrice,
   defaultListingStatus,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingConnectionIds: string[];
@@ -55,7 +55,7 @@ export function SalesChannelPickerDialog({
   isSaving?: boolean;
   defaultPrice?: string | number | null;
   defaultListingStatus?: SalesChannelListingStatus | string | null;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const [selected, setSelected] = useState<Set<string>>(new Set());

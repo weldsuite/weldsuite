@@ -92,7 +92,7 @@ export function AnalyticsDashboardClient({
   errorStats,
   performanceMetrics,
   slowExecutions,
-}: AnalyticsDashboardClientProps) {
+}: Readonly<AnalyticsDashboardClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
