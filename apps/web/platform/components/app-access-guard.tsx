@@ -35,7 +35,7 @@ function getAppCodeFromPathname(pathname: string): string | null {
   return segments[0];
 }
 
-export function AppAccessGuard({ children }: { children: React.ReactNode }) {
+export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
   const router = useRouter();
   const { data: installedApps, isLoading } = useInstalledApps();
