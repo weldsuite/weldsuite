@@ -80,7 +80,7 @@ function resolveLabelColor(color: string | null | undefined): { className?: stri
   return { className: DEFAULT_COLOR };
 }
 
-export function LabelsSection({ projectId, isAdmin }: LabelsSectionProps) {
+export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProps>) {
   const { t } = useI18n();
   const [labels, setLabels] = useState<ProjectLabel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -419,7 +419,7 @@ interface LabelEditRowProps {
   busy: boolean;
 }
 
-function LabelEditRow({ isNew, draft, setDraft, onSave, onCancel, busy }: LabelEditRowProps) {
+function LabelEditRow({ isNew, draft, setDraft, onSave, onCancel, busy }: Readonly<LabelEditRowProps>) {
   const { t } = useI18n();
   const [colorOpen, setColorOpen] = useState(false);
   const draftColor = resolveLabelColor(draft.color);
@@ -483,10 +483,10 @@ function LabelEditRow({ isNew, draft, setDraft, onSave, onCancel, busy }: LabelE
 function LabelColorSwatch({
   color,
   onChange,
-}: {
+}: Readonly<{
   color: string;
   onChange: (c: string) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const swatch = resolveLabelColor(color);
   return (
