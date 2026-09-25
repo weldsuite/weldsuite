@@ -36,12 +36,12 @@ function AccountSection({
   accounts,
   total,
   totalLabel,
-}: {
+}: Readonly<{
   title: string;
   accounts: BalanceSheetAccountRow[] | undefined;
   total: string | number | null | undefined;
   totalLabel: string;
-}) {
+}>) {
   const { t } = useI18n();
   const tr = t.accounting.reports;
   const { formatMoney: fmt } = useCurrentEntityCurrency();

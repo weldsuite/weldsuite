@@ -86,7 +86,7 @@ interface InvoiceFormProps {
   invoice?: InvoiceDetail;
 }
 
-export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
+export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { t } = useI18n();

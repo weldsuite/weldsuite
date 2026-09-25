@@ -3,7 +3,7 @@ import { AccountingLayoutClient } from './components/accounting-layout-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
-export default function AccountingLayout({ children }: { children: React.ReactNode }) {
+export default function AccountingLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('weldbooks');
   const { t } = useI18n();
   if (isLoading) return <PageLoader />;

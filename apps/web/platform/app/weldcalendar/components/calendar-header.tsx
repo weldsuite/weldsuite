@@ -9,7 +9,7 @@ interface CalendarHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function CalendarHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: CalendarHeaderProps) {
+export function CalendarHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<CalendarHeaderProps>) {
   const t = getTranslations('weldcalendar');
   const pathname = usePathname();
 
