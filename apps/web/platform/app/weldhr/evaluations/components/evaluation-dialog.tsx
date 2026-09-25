@@ -67,13 +67,13 @@ export function EvaluationDialog({
   employeeLabel,
   onClose,
   onSaved,
-}: {
+}: Readonly<{
   evaluation?: HrEvaluation | null;
   employeeId?: string;
   employeeLabel?: string;
   onClose: () => void;
   onSaved?: (id: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const isEdit = Boolean(evaluation);
   const { data: forms } = useHrEvaluationForms();

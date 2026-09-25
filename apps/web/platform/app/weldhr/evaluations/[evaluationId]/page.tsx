@@ -225,7 +225,7 @@ export default function WeldHrEvaluationDetailPage() {
   );
 }
 
-function TimelineStep({ label, at, done }: { label: string; at: string | null; done: boolean }) {
+function TimelineStep({ label, at, done }: Readonly<{ label: string; at: string | null; done: boolean }>) {
   return (
     <li className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-2">
