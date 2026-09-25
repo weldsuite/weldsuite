@@ -4,7 +4,7 @@ interface MessageSkeletonProps {
   count?: number;
 }
 
-export function MessageSkeleton({ count = 5 }: MessageSkeletonProps) {
+export function MessageSkeleton({ count = 5 }: Readonly<MessageSkeletonProps>) {
   return (
     <div className="space-y-4">
       {Array.from({ length: count }).map((_, i) => (

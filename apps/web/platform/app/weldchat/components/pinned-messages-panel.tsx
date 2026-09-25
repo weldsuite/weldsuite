@@ -11,7 +11,7 @@ interface PinnedMessagesPanelProps {
   embedded?: boolean;
 }
 
-export function PinnedMessagesPanel({ channelId, embedded = false }: PinnedMessagesPanelProps) {
+export function PinnedMessagesPanel({ channelId, embedded = false }: Readonly<PinnedMessagesPanelProps>) {
   const { t } = useI18n();
   const { setRightPanel } = useChatContext();
   const { data, isLoading } = usePinnedMessages(channelId);

@@ -13,7 +13,7 @@ export function ReactionBar({
   reactions,
   messageId,
   channelId,
-}: ReactionBarProps) {
+}: Readonly<ReactionBarProps>) {
   const { userId } = useAuth();
   const { mutate: toggleReaction } = useToggleReaction();
 
