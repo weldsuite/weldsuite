@@ -94,7 +94,7 @@ function CustomerChatView({
   setWeldAgentPrompt,
   handleWeldAgentSend,
   isPending,
-}: {
+}: Readonly<{
   messages: ChatMessage[];
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   ticket: TicketMessage;
@@ -102,7 +102,7 @@ function CustomerChatView({
   setWeldAgentPrompt: (v: string) => void;
   handleWeldAgentSend: () => void;
   isPending: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
   return (
@@ -364,7 +364,7 @@ function groupNotesByMonth(notes: InternalNote[]) {
   return groups;
 }
 
-function ActivityTimeline({ notes }: { notes: InternalNote[] }) {
+function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   const groups = groupNotesByMonth(notes);
 
   // Group month-groups by year
@@ -493,11 +493,11 @@ function BackOfficeView({
   notes,
   ticket,
   onAddNote,
-}: {
+}: Readonly<{
   notes: InternalNote[];
   ticket: TicketMessage;
   onAddNote: (text: string, attachments?: AttachmentPreview[]) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
   const [noteText, setNoteText] = useState('');
@@ -598,12 +598,12 @@ function TrackerView({
   linkedReports,
   ticket,
   onAddNote,
-}: {
+}: Readonly<{
   notes: InternalNote[];
   linkedReports: LinkedReport[];
   ticket: TicketMessage;
   onAddNote: (text: string, attachments?: AttachmentPreview[]) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
   const [noteText, setNoteText] = useState('');
@@ -759,12 +759,12 @@ function SidebarSection({
   icon: Icon,
   defaultExpanded = true,
   children,
-}: {
+}: Readonly<{
   title: string;
   icon?: React.ElementType;
   defaultExpanded?: boolean;
   children: React.ReactNode;
-}) {
+}>) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   return (
     <div>
@@ -790,11 +790,11 @@ function SidebarFieldRow({
   icon: Icon,
   label,
   children,
-}: {
+}: Readonly<{
   icon: React.ElementType;
   label: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-[120px] flex-shrink-0 h-8">
@@ -809,10 +809,10 @@ function SidebarFieldRow({
 function SidebarSelectField({
   defaultValue,
   options,
-}: {
+}: Readonly<{
   defaultValue: string;
   options: { value: string; label: string }[];
-}) {
+}>) {
   const [value, setValue] = useState(defaultValue);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -869,11 +869,11 @@ function SidebarInputField({
   defaultValue,
   placeholder,
   className: extraClassName,
-}: {
+}: Readonly<{
   defaultValue: string;
   placeholder?: string;
   className?: string;
-}) {
+}>) {
   return (
     <input
       type="text"
@@ -900,7 +900,7 @@ function TicketSidebar({
   getPriorityColor,
   getStatusColor,
   router,
-}: {
+}: Readonly<{
   ticket: TicketMessage;
   ticketType: TicketTypeConfig | undefined;
   category: string;
@@ -911,7 +911,7 @@ function TicketSidebar({
   getPriorityColor: (p?: TicketMessage['priority']) => string;
   getStatusColor: (s?: string) => string;
   router: ReturnType<typeof useRouter>;
-}) {
+}>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
   const { fields: visFields, fieldVisibility, isFieldVisible, toggleField, resetToDefaults } = useDrawerFieldVisibility('ticket-sidebar');
@@ -1210,7 +1210,7 @@ function TicketSidebar({
 
 export default function TicketDetailClient({
   ticket: apiTicket,
-}: TicketDetailClientProps) {
+}: Readonly<TicketDetailClientProps>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
   const router = useRouter();
