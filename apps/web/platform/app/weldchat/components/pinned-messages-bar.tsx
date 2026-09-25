@@ -10,7 +10,7 @@ interface PinnedMessagesBarProps {
   channelId: string;
 }
 
-export function PinnedMessagesBar({ channelId }: PinnedMessagesBarProps) {
+export function PinnedMessagesBar({ channelId }: Readonly<PinnedMessagesBarProps>) {
   const { t } = useI18n();
   const { data } = usePinnedMessages(channelId);
   const { mutate: unpinMessage } = useUnpinMessage();

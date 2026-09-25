@@ -21,7 +21,7 @@ export function SectionCreateDialog({
   open,
   onOpenChange,
   onCreateSection,
-}: SectionCreateDialogProps) {
+}: Readonly<SectionCreateDialogProps>) {
   const { t } = useI18n();
   const [name, setName] = useState('');
 

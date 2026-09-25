@@ -40,7 +40,7 @@ export function PinDurationDialog({
   open,
   onOpenChange,
   onPin,
-}: PinDurationDialogProps) {
+}: Readonly<PinDurationDialogProps>) {
   const { t } = useI18n();
   const DURATION_OPTIONS: { value: DurationOption; label: string }[] = [
     { value: '24h', label: t.weldchat.pinDuration.durations.h24 },

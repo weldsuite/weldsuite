@@ -23,7 +23,7 @@ export function SectionRenameDialog({
   onOpenChange,
   currentName,
   onRename,
-}: SectionRenameDialogProps) {
+}: Readonly<SectionRenameDialogProps>) {
   const { t } = useI18n();
   const [name, setName] = useState(currentName);
 

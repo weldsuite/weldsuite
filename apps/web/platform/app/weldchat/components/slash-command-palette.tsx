@@ -15,7 +15,7 @@ interface SlashCommandPaletteProps {
   onSelect: (command: string) => void;
 }
 
-export function SlashCommandPalette({ query, onSelect }: SlashCommandPaletteProps) {
+export function SlashCommandPalette({ query, onSelect }: Readonly<SlashCommandPaletteProps>) {
   const { t } = useI18n();
 
   // `/invite` and its agent sub-picker were removed along with the rest of the
