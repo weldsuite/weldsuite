@@ -1,6 +1,7 @@
 # Temporary: boot an Android emulator, install the WeldBooks production build
 # from "Mobile native build" run 24 and capture what happens on launch
-# (screenshot + logcat). Delete this workflow once the crash is diagnosed.
+# (screenshot + logcat). Then swap in the JS bundle built from the fix branch
+# and launch again, for a before/after. Delete once the crash is fixed.
 name: Emulator repro (WeldBooks)
 
 on:
@@ -41,6 +42,45 @@ jobs:
           unzip -o app.apks universal.apk
           ls -la universal.apk
 
+      - name: Check out the fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/fix-event-target-shim-crash
+          path: src
+
+      - name: Set up monorepo (fix branch)
+        uses: ./src/.github/actions/setup-monorepo
+        with:
+          install-dependencies: 'false'
+
+      - name: Build the WeldBooks JS bundle from the fix branch
+        working-directory: src
+        env:
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ
+          EXPO_PUBLIC_APP_API_URL: https://app-api.weldsuite.org
+          NODE_ENV: production
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --filter weldbooks-app... --ignore-scripts
+          cd apps/mobile/weldbooks-app
+          npx expo export:embed --platform android --dev false \
+            --entry-file ../../../node_modules/expo-router/entry.js \
+            --bundle-output "$GITHUB_WORKSPACE/fixed/index.android.bundle" \
+            --assets-dest "$GITHUB_WORKSPACE/fixed/res"
+
+      - name: Build patched APK (same native build, fixed JS)
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          cp universal.apk patched-unsigned.apk
+          zip -q -d patched-unsigned.apk 'META-INF/*' 'assets/index.android.bundle'
+          mkdir -p stage/assets && cp fixed/index.android.bundle stage/assets/
+          (cd stage && zip -q ../patched-unsigned.apk assets/index.android.bundle)
+          "$BT/zipalign" -f -p 4 patched-unsigned.apk patched-aligned.apk
+          "$BT/apksigner" sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android \
+            --out patched.apk patched-aligned.apk
+          ls -la patched.apk
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -68,6 +108,17 @@ jobs:
             echo "=== process ===" && cat out/pid.txt
             echo "=== crash buffer ===" && cat out/crash.txt
             echo "=== fatal / JS errors ===" && (grep -n -A60 -E "FATAL EXCEPTION|Fatal signal|ReactNativeJS.*(Error|Exception)|Unhandled JS|Invariant Violation" out/logcat.txt | head -300 || true)
+            adb uninstall com.weldsuite.weldbooks
+            adb install -r patched.apk
+            adb logcat -c
+            adb shell monkey -p com.weldsuite.weldbooks -c android.intent.category.LAUNCHER 1
+            sleep 45
+            adb exec-out screencap -p > out/fixed-screenshot-45s.png
+            adb shell pidof com.weldsuite.weldbooks > out/fixed-pid.txt || echo "NOT RUNNING" > out/fixed-pid.txt
+            adb logcat -d -b all > out/fixed-logcat.txt
+            adb logcat -d -b crash > out/fixed-crash.txt
+            echo "=== FIXED process ===" && cat out/fixed-pid.txt
+            echo "=== FIXED crash buffer ===" && cat out/fixed-crash.txt
 
       - name: Upload capture
         if: always()
