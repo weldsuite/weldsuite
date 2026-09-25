@@ -8,9 +8,9 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
 export default function EmailInboxLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { getToken } = useAuth();
   const [accessToken, setAccessToken] = useState<string>();
 

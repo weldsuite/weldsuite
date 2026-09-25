@@ -8,9 +8,9 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
 export default function ChatInboxLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { organization } = useOrganization();
 
   const { data: conversationsResult } = useConversations({ page: 1, pageSize: 50, channel: 'chat', myConversations: true, excludeStatus: 'closed' });

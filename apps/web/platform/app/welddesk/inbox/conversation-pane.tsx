@@ -25,7 +25,7 @@ function newClientId(): string {
   return `tmp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function ConversationPane({ conversationId }: ConversationPaneProps) {
+export function ConversationPane({ conversationId }: Readonly<ConversationPaneProps>) {
   const t = getTranslations('deskInbox2');
   const qc = useQueryClient();
   const { user } = useUser();
