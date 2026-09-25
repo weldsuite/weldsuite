@@ -26,7 +26,7 @@ export function StockList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: StockListProps) {
+}: Readonly<StockListProps>) {
   const t = getTranslations('common');
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/stock');

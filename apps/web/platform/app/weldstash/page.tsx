@@ -9,7 +9,7 @@ import {
 } from '@/hooks/queries/use-weldstash-queries';
 import { getTranslations } from '@/lib/i18n';
 
-function StatCard({ label, value, icon: Icon, href }: { label: string; value: string | number; icon: typeof Package; href: string }) {
+function StatCard({ label, value, icon: Icon, href }: Readonly<{ label: string; value: string | number; icon: typeof Package; href: string }>) {
   return (
     <Link href={href}>
       <Card className="hover:bg-accent/40 transition-colors">

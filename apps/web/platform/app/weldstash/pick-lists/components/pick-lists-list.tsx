@@ -26,7 +26,7 @@ export function PickListsList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: PickListsListProps) {
+}: Readonly<PickListsListProps>) {
   const t = getTranslations('common').weldstash.pickLists;
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/pick-lists');

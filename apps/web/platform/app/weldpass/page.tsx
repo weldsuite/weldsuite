@@ -108,7 +108,7 @@ export default function WeldPassProjectsPage() {
   );
 }
 
-function CreateProjectDialog({ onClose }: { onClose: () => void }) {
+function CreateProjectDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const createProject = useCreateWeldPassProject();
   const [name, setName] = useState('');
