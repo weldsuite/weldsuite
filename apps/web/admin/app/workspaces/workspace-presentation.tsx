@@ -33,10 +33,10 @@ const DOT_TONE = {
 export function DotBadge({
   tone,
   children,
-}: {
+}: Readonly<{
   tone: keyof typeof DOT_TONE;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <Badge variant={tone} className="gap-1.5">
       <span className={cn('h-1.5 w-1.5 rounded-full', DOT_TONE[tone])} />
@@ -46,7 +46,7 @@ export function DotBadge({
 }
 
 /** Deletion lifecycle cell — the state pill plus its supporting detail lines. */
-export function StatusBadge({ workspace: w }: { workspace: WorkspaceRow }) {
+export function StatusBadge({ workspace: w }: Readonly<{ workspace: WorkspaceRow }>) {
   if (w.deletionState === 'deleted') {
     return (
       <div>
