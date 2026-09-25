@@ -22,11 +22,11 @@ export function ClientAssignmentDialog({
   companyId,
   assignment,
   onClose,
-}: {
+}: Readonly<{
   companyId: string;
   assignment?: HrAssignment;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const createAssignment = useCreateHrAssignment();
   const updateAssignment = useUpdateHrAssignment();

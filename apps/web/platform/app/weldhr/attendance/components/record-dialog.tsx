@@ -40,12 +40,12 @@ export function AttendanceRecordDialog({
   employeeLabel: fixedEmployeeLabel,
   record,
   onClose,
-}: {
+}: Readonly<{
   employeeId?: string;
   employeeLabel?: string | null;
   record?: HrAttendanceRecord;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const createAttendance = useCreateHrAttendance();
   const updateAttendance = useUpdateHrAttendance();

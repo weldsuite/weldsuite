@@ -59,12 +59,12 @@ export function CoachingDialog({
   employeeId,
   employeeLabel,
   onClose,
-}: {
+}: Readonly<{
   log?: HrCoachingLog | null;
   employeeId?: string;
   employeeLabel?: string;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const isEdit = Boolean(log);
   const createCoaching = useCreateHrCoaching();
