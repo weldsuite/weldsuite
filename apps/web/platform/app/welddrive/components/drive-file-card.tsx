@@ -33,9 +33,7 @@ import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { apiUrl } from '@/lib/api/public-env';
 
 function triggerAnchorDownload(href: string, filename: string, openInNewTab: boolean) {
   const a = document.createElement('a');
@@ -76,7 +74,7 @@ export async function downloadFile(
   if (file.source === 'drive') {
     try {
       const token = await getClerkToken();
-      const res = await fetch(`${APP_API_URL}/api/files/${file.id}/content?download=1`, {
+      const res = await fetch(apiUrl(`/api/files/${file.id}/content?download=1`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.status === 404) {

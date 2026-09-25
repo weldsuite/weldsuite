@@ -8,9 +8,8 @@
  * in here by `ApiClientProvider` and `useCurrentAccountingEntity`.
  */
 
-import { getAppApiUrl } from '@/lib/api/public-env';
+import { apiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = getAppApiUrl();
 const API_PREFIX = '/api';
 
 class WeldbooksApiError extends Error {
@@ -81,7 +80,7 @@ function formatErrorMessage(body: unknown, status: number): string {
 
 async function request<T>(method: string, path: string, data?: unknown): Promise<T> {
   const headers = await getAuthHeaders();
-  const response = await fetch(`${APP_API_URL}${API_PREFIX}${path}`, {
+  const response = await fetch(apiUrl(`${API_PREFIX}${path}`), {
     method,
     headers,
     cache: method === 'GET' ? 'no-store' : undefined,
@@ -106,7 +105,7 @@ async function request<T>(method: string, path: string, data?: unknown): Promise
 async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
   const headers = await getAuthHeaders();
   delete headers['Content-Type'];
-  const response = await fetch(`${APP_API_URL}${API_PREFIX}${path}`, {
+  const response = await fetch(apiUrl(`${API_PREFIX}${path}`), {
     method: 'GET',
     headers,
     cache: 'no-store',

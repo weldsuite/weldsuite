@@ -22,6 +22,7 @@
     "@react-native-community/netinfo": "12.0.1",
     "@react-navigation/native": "^7.1.8",
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/permissions": "workspace:*",

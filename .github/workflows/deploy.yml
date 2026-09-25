@@ -81,7 +81,7 @@ jobs:
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
       release_weldagent: ${{ steps.changes.outputs.weldagent }}
       release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
-      workers: ${{ steps.matrix.outputs.workers }}
+      workers: ${{ steps.modules.outputs.workers }}
     steps:
       - name: Resolve deploy context
         id: ctx
@@ -146,6 +146,7 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
             weldmail-web:
               - 'apps/web/weldmail/**'
@@ -164,23 +165,27 @@ jobs:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/realtime/**'
             weldbooks:
               - 'apps/mobile/weldbooks-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
             weldflow:
               - 'apps/mobile/weldflow-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             weldagent:
               - 'apps/mobile/weldagent-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             weldcalendar:
@@ -188,6 +193,7 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             all_workers:
@@ -203,6 +209,8 @@ jobs:
               - 'packages/clients/api-client/**'
             app-api:
               - 'apps/workers/app-api/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/api-modules/**'
               - 'packages/core/ai/**'
               - 'packages/core/cloudflare-realtime/**'
               - 'packages/core/cloudflare-registrar/**'
@@ -465,6 +473,23 @@ jobs:
           json+=']'
           echo "workers=$json" >> "$GITHUB_OUTPUT"
           echo "Deploying workers: $json"
+
+      # Per-module API workers (apps/workers/<module>-api) come from the
+      # @weldsuite/api-modules manifest instead of the hand-written lists above,
+      # so a new module worker deploys without editing this file.
+      - name: Set up Node (module worker detection)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Add module API workers
+        id: modules
+        env:
+          FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changes.outputs.all_workers }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          WORKERS: ${{ steps.matrix.outputs.workers }}
+        run: node .github/scripts/module-workers.mjs
 
   migrations:
     name: Database Migrations

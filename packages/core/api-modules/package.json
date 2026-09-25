@@ -1,0 +1,22 @@
+{
+  "name": "@weldsuite/api-modules",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

@@ -20,6 +20,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

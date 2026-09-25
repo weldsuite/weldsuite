@@ -1,0 +1,60 @@
+/**
+ * Resolves the tenant database for the authenticated org and injects it
+ * into the Hono context. Rejects requests without an active org (403
+ * ORG_REQUIRED) and suspended workspaces (403 WORKSPACE_SUSPENDED).
+ */
+
+import { createMiddleware } from 'hono/factory';
+import { getWorkspaceContextForOrg } from '../db';
+import type { Database, KitEnv } from '../env';
+
+type WorkspaceDbVariables = {
+  userId: string;
+  orgId: string | null;
+  sessionId: string;
+  tenantDb: Database;
+  workspaceId: string;
+};
+
+export const workspaceDbMiddleware = () => {
+  return createMiddleware<{
+    Bindings: KitEnv;
+    Variables: WorkspaceDbVariables;
+  }>(async (c, next) => {
+    const orgId = c.get('orgId');
+
+    if (!orgId) {
+      return c.json(
+        {
+          error: {
+            code: 'ORG_REQUIRED',
+            message: 'This endpoint requires an active organization.',
+          },
+        },
+        403,
+      );
+    }
+
+    const { db, suspended } = await getWorkspaceContextForOrg(c.env, orgId);
+
+    // A suspended workspace (isActive=false) has been scheduled for deletion by
+    // an admin. Reject all tenant access until it is either restored (cancelled)
+    // or permanently deleted. Propagation is bounded by the workspace KV TTL.
+    if (suspended) {
+      return c.json(
+        {
+          error: {
+            code: 'WORKSPACE_SUSPENDED',
+            message: 'This workspace has been suspended and is scheduled for deletion.',
+          },
+        },
+        403,
+      );
+    }
+
+    c.set('tenantDb', db);
+    c.set('workspaceId', orgId);
+
+    await next();
+  });
+};

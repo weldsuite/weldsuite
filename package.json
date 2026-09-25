@@ -7,6 +7,7 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "dev:safe": "cross-env SKIP_PRISMA_GENERATE=true turbo dev",
+    "dev:api": "node scripts/dev-api.mjs",
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prisma:generate": "cd packages/database && npx prisma generate",
@@ -15,6 +16,7 @@
     "secrets:sync": "npx tsx scripts/secrets/sync.ts",
     "secrets:dev": "npx tsx scripts/secrets/dev-vars.ts",
     "create:mobile-app": "node scripts/create-mobile-app.mjs",
+    "create:module-api": "node scripts/create-module-api.mjs",
     "storybook": "turbo run dev --filter=storybook",
     "storybook:build": "turbo run storybook:build --filter=storybook"
   },

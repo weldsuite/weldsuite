@@ -14,7 +14,7 @@
 
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
-import { getAppApiUrl } from '@/lib/api/public-env';
+import { apiUrl } from '@/lib/api/public-env';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -368,8 +368,6 @@ export interface ChartDataPoint {
   [key: string]: string | number | undefined;
 }
 
-const APP_API_URL = getAppApiUrl();
-
 let _getToken: (() => Promise<string | null>) | null = null;
 
 /**
@@ -404,7 +402,7 @@ async function getAuthToken(): Promise<string | null> {
 async function appApiPost<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${APP_API_URL}/api${path}`, {
+    const res = await fetch(apiUrl(`/api${path}`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -434,7 +432,7 @@ async function appApiPost<T>(path: string, data?: unknown): Promise<ApiResponse<
 async function appApiGet<T>(path: string): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${APP_API_URL}/api${path}`, {
+    const res = await fetch(apiUrl(`/api${path}`), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
@@ -452,7 +450,7 @@ async function appApiGet<T>(path: string): Promise<ApiResponse<T>> {
 async function appApiPatch<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${APP_API_URL}/api${path}`, {
+    const res = await fetch(apiUrl(`/api${path}`), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -475,7 +473,7 @@ async function appApiPatch<T>(path: string, data?: unknown): Promise<ApiResponse
 async function appApiPut<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${APP_API_URL}/api${path}`, {
+    const res = await fetch(apiUrl(`/api${path}`), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -498,7 +496,7 @@ async function appApiPut<T>(path: string, data?: unknown): Promise<ApiResponse<T
 async function appApiDelete<T>(path: string): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${APP_API_URL}/api${path}`, {
+    const res = await fetch(apiUrl(`/api${path}`), {
       method: 'DELETE',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -516,7 +514,7 @@ async function appApiDelete<T>(path: string): Promise<ApiResponse<T>> {
 // treat that as an empty workbook.
 export async function fetchSheetContent(fileId: string): Promise<ArrayBuffer | null> {
   const token = await getAuthToken();
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}/content`, {
+  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (res.status === 404) return null;
@@ -528,7 +526,7 @@ export async function fetchSheetContent(fileId: string): Promise<ArrayBuffer | n
 // auto-save. Returns the updated file row.
 export async function putSheetContent(fileId: string, body: ArrayBuffer): Promise<void> {
   const token = await getAuthToken();
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}/content`, {
+  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -546,7 +544,7 @@ export async function putSheetContent(fileId: string, body: ArrayBuffer): Promis
 // should treat that as an empty document.
 export async function fetchDocumentContent(fileId: string): Promise<ArrayBuffer | null> {
   const token = await getAuthToken();
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}/content`, {
+  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (res.status === 404) return null;
@@ -558,7 +556,7 @@ export async function fetchDocumentContent(fileId: string): Promise<ArrayBuffer 
 // auto-save.
 export async function putDocumentContent(fileId: string, body: ArrayBuffer): Promise<void> {
   const token = await getAuthToken();
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}/content`, {
+  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1031,7 +1029,7 @@ export const filesApi = {
   ): Promise<ApiResponse<{ uploadUrl: string; uploadToken: string; fileKey: string }>> => {
     try {
       const token = await getAuthToken();
-      const res = await fetch(`${APP_API_URL}/api/storage/generate-upload-url`, {
+      const res = await fetch(apiUrl(`/api/storage/generate-upload-url`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1089,7 +1087,7 @@ export const filesApi = {
   ) => {
     try {
       const token = await getAuthToken();
-      const res = await fetch(`${APP_API_URL}/api/storage/confirm-upload`, {
+      const res = await fetch(apiUrl(`/api/storage/confirm-upload`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

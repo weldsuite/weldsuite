@@ -12,6 +12,13 @@ import type { CustomObjectRow } from './services/custom-objects';
  * both the platform SPA and the WeldSuite mobile apps.
  */
 export interface Env {
+  /**
+   * Modules that moved to their own worker and are forwarded there
+   * (comma-separated ids from @weldsuite/api-modules, e.g. `pass,host`).
+   * Each also needs its service binding (`PASS_API`, …); see
+   * @weldsuite/worker-kit/forward and docs/plans/app-api-module-split.md.
+   */
+  API_FORWARD_MODULES?: string;
   DATABASE_URL_MASTER: string;
   WORKSPACE_CACHE: KVNamespace;
   ENVIRONMENT: string;
