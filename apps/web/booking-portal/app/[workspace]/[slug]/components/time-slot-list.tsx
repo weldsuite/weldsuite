@@ -28,7 +28,7 @@ export function TimeSlotList({
   timezone,
   onUse24hChange,
   onSlotSelect,
-}: TimeSlotListProps) {
+}: Readonly<TimeSlotListProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [overflows, setOverflows] = useState(false);
   const [scrolled, setScrolled] = useState(false);

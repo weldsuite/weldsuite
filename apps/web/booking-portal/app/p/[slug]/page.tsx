@@ -50,7 +50,7 @@ export async function generateMetadata({ params }: Props) {
   }
 }
 
-export default async function PersonalBookingPage({ params }: Props) {
+export default async function PersonalBookingPage({ params }: Readonly<Props>) {
   const { slug } = await params;
   let db;
   try {

@@ -69,7 +69,7 @@ interface TimezonePickerProps {
   accentColor: string;
 }
 
-export function TimezonePicker({ value, onChange, accentColor }: TimezonePickerProps) {
+export function TimezonePicker({ value, onChange, accentColor }: Readonly<TimezonePickerProps>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [overflows, setOverflows] = useState(true);
