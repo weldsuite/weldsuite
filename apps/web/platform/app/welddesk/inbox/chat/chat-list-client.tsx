@@ -50,7 +50,7 @@ interface ChatListClientProps {
   workspaceId: string;
 }
 
-export default function ChatListClient({ initialConversations, workspaceId }: ChatListClientProps) {
+export default function ChatListClient({ initialConversations, workspaceId }: Readonly<ChatListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();

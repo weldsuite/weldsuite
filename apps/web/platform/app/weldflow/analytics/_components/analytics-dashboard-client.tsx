@@ -93,7 +93,7 @@ interface AnalyticsDashboardClientProps {
 export function AnalyticsDashboardClient({
   projectId,
   hideActiveProjects = !!projectId,
-}: AnalyticsDashboardClientProps) {
+}: Readonly<AnalyticsDashboardClientProps>) {
   const { t } = useI18n();
   const td = t.projects.dashboard;
   const [period, setPeriod] = useState<ProjectKpiPeriod>('30d');
@@ -286,7 +286,7 @@ export function AnalyticsDashboardClient({
   );
 }
 
-function EmptyChart({ message }: { message: string }) {
+function EmptyChart({ message }: Readonly<{ message: string }>) {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       {message}

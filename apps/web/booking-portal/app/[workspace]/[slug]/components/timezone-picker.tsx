@@ -60,7 +60,7 @@ function offsetSortKey(label: string): number {
   const sign = match[1] === '-' ? -1 : 1;
   const hours = match[2] ?? '00';
   const minutes = match[3] ?? '00';
-  return sign * (parseInt(hours, 10) * 60 + parseInt(minutes, 10));
+  return sign * (Number.parseInt(hours, 10) * 60 + Number.parseInt(minutes, 10));
 }
 
 interface TimezonePickerProps {
@@ -69,7 +69,7 @@ interface TimezonePickerProps {
   accentColor: string;
 }
 
-export function TimezonePicker({ value, onChange, accentColor }: TimezonePickerProps) {
+export function TimezonePicker({ value, onChange, accentColor }: Readonly<TimezonePickerProps>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [overflows, setOverflows] = useState(true);

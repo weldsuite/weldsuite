@@ -25,9 +25,9 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   // Resolve locale at request time: cookie wins, then Accept-Language.
   // The adapter encapsulates the parse logic so the same code works
   // on Workers / Edge runtimes too.

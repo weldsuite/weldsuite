@@ -103,7 +103,7 @@ function ContactDetailProvider({
   onToggleExpand,
   isExpanded,
   visitorLocation,
-}: {
+}: Readonly<{
   children: ReactNode;
   contactId: string;
   defaultTab?: ContactTab;
@@ -112,7 +112,7 @@ function ContactDetailProvider({
   onToggleExpand?: () => void;
   isExpanded?: boolean;
   visitorLocation?: { city?: string; region?: string; country?: string; timezone?: string } | null;
-}) {
+}>) {
   const t = useTranslations();
   const { data: raw, isLoading, refetch } = useHelpdeskContactDetailData(contactId);
   const [activeTab, setActiveTab] = useState<ContactTab>(defaultTab);
@@ -443,7 +443,7 @@ function ContactEditableFields() {
 // Highlights (page mode overview, matches CRM HighlightCard)
 // =============================================================================
 
-function HighlightCard({ label, value }: { label: string; value: string | null }) {
+function HighlightCard({ label, value }: Readonly<{ label: string; value: string | null }>) {
   return (
     <div className="bg-background border border-border rounded-lg p-3 h-[82px] flex flex-col justify-between">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -641,7 +641,7 @@ interface CustomerCommentActivity {
   authorName?: string;
 }
 
-function CommentsSection({ contactId, contactName }: { contactId: string; contactName: string }) {
+function CommentsSection({ contactId, contactName }: Readonly<{ contactId: string; contactName: string }>) {
   const t = useTranslations();
   const { user } = useUser();
   const { data: commentsData } = useCustomerComments(contactId);
@@ -821,7 +821,7 @@ interface ContactDetailViewProps {
 export function ContactDetailView({
   contactId, mode = 'page', defaultTab = 'overview',
   onClose, onToggleExpand, isExpanded, visitorLocation,
-}: ContactDetailViewProps) {
+}: Readonly<ContactDetailViewProps>) {
   return (
     <ContactDetailProvider
       contactId={contactId} defaultTab={defaultTab} mode={mode}

@@ -89,13 +89,13 @@ function OrgNode({
   query,
   collapsed,
   onToggle,
-}: {
+}: Readonly<{
   node: TreeNode;
   depth: number;
   query: string;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const visibleChildren = node.children.filter((child) => nodeMatches(child, query));
   const isSearching = query.length > 0;

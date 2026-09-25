@@ -15,7 +15,7 @@ interface AppIconProps {
  * 3. Emoji (if the string looks like one)
  * 4. Fallback Package icon
  */
-export function AppIcon({ icon, className = 'h-6 w-6', fallbackClassName }: AppIconProps) {
+export function AppIcon({ icon, className = 'h-6 w-6', fallbackClassName }: Readonly<AppIconProps>) {
   // Check registry for image icon by app code
   const imagePath = getAppIcon(icon);
   if (imagePath) {

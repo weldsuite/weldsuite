@@ -80,7 +80,7 @@ interface MemberDetailClientProps {
   teamId: string;
 }
 
-export function MemberDetailClient({ memberData, teamId }: MemberDetailClientProps) {
+export function MemberDetailClient({ memberData, teamId }: Readonly<MemberDetailClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const md = t.helpdesk.memberDetailPage;

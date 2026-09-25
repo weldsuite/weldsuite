@@ -108,7 +108,7 @@ export default function HomePage() {
         suggestionsHeightRef.current = suggestionsRef.current.offsetHeight;
       }
       const styles = getComputedStyle(scroll);
-      const padding = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+      const padding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
       const available = scroll.clientHeight - padding;
       const widgetsH = widgets.offsetHeight;
       const suggestionsH = suggestionsHeightRef.current;

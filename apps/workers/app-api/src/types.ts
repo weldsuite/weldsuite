@@ -15,6 +15,12 @@ export interface Env {
   DATABASE_URL_MASTER: string;
   WORKSPACE_CACHE: KVNamespace;
   ENVIRONMENT: string;
+  /**
+   * "true" enforces per-app permission checks: a key refused in the request's
+   * app is a 403 even when another app grants it. Anything else only logs
+   * those refusals. See @weldsuite/permissions app-scope.ts.
+   */
+  PERMISSIONS_APP_ENFORCE?: string;
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY?: string;
   /** Clerk M2M machine secret (ak_…) — mints tokens for the legacy public
@@ -151,6 +157,12 @@ export interface Env {
    *  Defaults to https://api.weldsuite.org when unset. */
   EXTERNAL_API_URL?: string;
   /**
+   * Service binding to external-api. The WeldApps data gateway
+   * (/api/user-apps/code/:code/gateway/v1/*) forwards through it: a Worker
+   * cannot reach a same-zone route with a plain fetch.
+   */
+  EXTERNAL_API?: Fetcher;
+  /**
    * Comma-separated master workspace ids whose WeldApps are first-party.
    * Those apps skip public review and show an Official badge in the store.
    */
@@ -264,6 +276,10 @@ export interface Env {
     columnId: string;
     leadIds: string[];
   }>;
+  /** CF Workflow that runs WeldAgent background work (chat replies, routine
+   *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
+   *  app-api (class exported from src/index.ts). */
+  WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
   /** CF Workflow that transcribes a meeting (or CRM call) recording.
    *  Hosted in app-api itself under the `transcribe-recording-v2*` workflow
    *  names — api-worker's old names keep draining until W7. Dispatched by
@@ -487,6 +503,9 @@ export type Variables = {
   tenantDb: Database;
   workspaceId: string;
   userPermissions?: ResolvedPermissions;
+  /** Canonical app code from the X-Weld-App header (appContextMiddleware);
+   *  requirePermission evaluates app-scoped keys against it. */
+  app?: string;
   flags?: FlagContext;
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */

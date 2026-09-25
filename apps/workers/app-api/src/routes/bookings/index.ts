@@ -8,8 +8,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createBookingSchema, updateBookingSchema } from '@weldsuite/core-api-client/schemas/bookings';
 import type { Env, Variables } from '../../types';
@@ -25,8 +24,7 @@ const BOOKING_DENIED = 'You do not have access to this booking';
 
 /** Own-only (booking-page owner) unless the caller holds bookings:scope:all. */
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  if (hasPermission(resolved?.permissions ?? [], 'bookings:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'bookings:scope:all')) return undefined;
   return c.get('userId');
 }
 
@@ -44,7 +42,7 @@ async function ownsPage(
 app.get('/', requirePermission('bookings:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.bookingPageId !== undefined && q.bookingPageId !== '') conditions.push(eq(t.bookingPageId, q.bookingPageId));

@@ -499,7 +499,7 @@ ${transcriptionText}
     const fixInfiniteDuration = () => {
       durationFixingRef.current = true;
       const onDurationChange = () => {
-        if (!isFinite(media.duration) || media.duration <= 0) return;
+        if (!Number.isFinite(media.duration) || media.duration <= 0) return;
         media.removeEventListener('durationchange', onDurationChange);
         durationFixingRef.current = false;
         setDuration(media.duration);
@@ -520,11 +520,11 @@ ${transcriptionText}
     };
 
     const onMetadataLoaded = () => {
-      if (isFinite(media.duration) && media.duration > 0) {
+      if (Number.isFinite(media.duration) && media.duration > 0) {
         setDuration(media.duration);
         applyPendingRestore();
       } else {
-        // duration is Infinity / 0 / NaN → force the browser to compute it.
+        // duration is Infinity / 0 / Number.NaN → force the browser to compute it.
         fixInfiniteDuration();
       }
     };

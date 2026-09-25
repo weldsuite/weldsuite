@@ -1,54 +1,18 @@
-
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useAuth, useUser } from '@clerk/clerk-react';
-import { toast } from 'sonner';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useBlocker } from '@tanstack/react-router';
 import { Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { cn } from '@weldsuite/ui/lib/utils';
 import { PageLoader } from '@/components/page-loader';
-import { Link, useParams, usePathname, useRouter } from '@/lib/router';
-import { useTheme } from '@/hooks/use-theme';
+import { Link, useParams, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import {
-  useInstalledUserApps,
-  useUserAppDevSession,
-  useUserAppSessionToken,
-} from '@/hooks/queries/use-user-apps-queries';
-import { getAppApiUrl } from '@/lib/api/public-env';
 import { userAppRelativePath } from '@/components/layout/user-app-sidebar';
 import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { BreadcrumbProvider, useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { iframeSandbox, iframeTargetOrigin } from './preview';
-
-const APP_API_BASE = getAppApiUrl();
-
-/** Decode JWT `exp` (seconds) → ISO string; fall back to ~55s for Clerk sessions. */
-function tokenExpiresAt(token: string): string {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) throw new Error('missing payload');
-    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
-    if (typeof json.exp === 'number' && Number.isFinite(json.exp)) {
-      return new Date(json.exp * 1000).toISOString();
-    }
-  } catch {
-    // fall through
-  }
-  return new Date(Date.now() + 55_000).toISOString();
-}
-
-interface WeldAppReadyMessage {
-  type: 'weldapp:ready';
-}
-
-interface WeldAppRequestMessage {
-  type: 'weldapp:request';
-  id: string;
-  method: 'getToken' | 'navigate' | 'toast';
-  payload?: Record<string, unknown>;
-}
-
-type IncomingWeldAppMessage = WeldAppReadyMessage | WeldAppRequestMessage;
+import { attachFrameSlot, detachFrameSlot, useWeldAppFrameStatus } from './frame-store';
+import { useWeldAppSource } from './use-weld-app-source';
 
 function sectionLabel(appPath: string): string | null {
   const segment = appPath.replace(/^\/+|\/+$/g, '').split('/')[0];
@@ -61,230 +25,65 @@ function sectionLabel(appPath: string): string | null {
 }
 
 /**
- * Full-page sandboxed iframe host for a WeldApp.
+ * `/apps/{code}` host page for a WeldApp.
  *
- * Shell chrome matches first-party modules: AppHeader (top nav) + ModuleContent
- * around the iframe. Section nav lives in UnifiedModuleSidebar from the app's
- * weldapp.json `navigation`.
+ * Shell chrome matches first-party modules: AppHeader (top nav) + ModuleContent.
+ * Section nav lives in UnifiedModuleSidebar from the app's weldapp.json
+ * `navigation`.
  *
- * Auth:
- * - Official (`publisherType: weldsuite`) apps receive the member's Clerk
- *   session token and call app-api (`/api/*`) — same session as platform modules.
- * - Community apps receive a scoped `wsat_` session token for the external API.
+ * The iframe itself is not rendered here: this page reserves a slot and the
+ * shell-level `WeldAppFrameLayer` positions a kept-alive frame over it (see
+ * `frame-store.ts`). The bridge (`bridge-host.tsx`) proxies the app's API
+ * calls with the member's own session, so no token ever enters the sandbox.
  */
 export default function WeldAppHostPage() {
   const { appCode } = useParams<{ appCode: string }>();
   const pathname = usePathname();
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const wa = t.weldapps;
-  const router = useRouter();
-  const { user } = useUser();
-  const { getToken } = useAuth();
-  const { resolvedTheme } = useTheme();
-  const { data: installedApps, isLoading } = useInstalledUserApps();
-  const { data: devSession } = useUserAppDevSession(appCode);
-  const sessionTokenMutation = useUserAppSessionToken();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const source = useWeldAppSource(appCode);
+  const { app, isLoading, previewUrl } = source;
+  const status = useWeldAppFrameStatus(appCode);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
 
-  const app = installedApps?.find((a) => a.appCode === appCode);
-  const usesPlatformSession = app?.publisherType === 'weldsuite' || appCode === 'weldcommerce';
-  const bundleSrc = appCode ? `${APP_API_BASE}/public/user-apps/${appCode}/index.html` : '';
-  const previewUrl = devSession?.url ?? null;
-  const iframeSrc = previewUrl ?? bundleSrc;
-  const targetOrigin = useMemo(() => iframeTargetOrigin(iframeSrc), [iframeSrc]);
-  const sandbox = useMemo(() => iframeSandbox(iframeSrc), [iframeSrc]);
-  const appPath = useMemo(
-    () => (appCode ? userAppRelativePath(pathname, appCode) : '/'),
-    [pathname, appCode],
-  );
+  const appPath = useMemo(() => (appCode ? userAppRelativePath(pathname, appCode) : '/'), [pathname, appCode]);
 
-  // Bootstrap theme + section into the iframe URL once per bundle so first paint
-  // matches the platform (no white "Connecting…" flash). Do not depend on
-  // appPath/theme after that — changing `src` would reload the iframe on nav.
-  const bootstrappedSrcRef = useRef<{ base: string; src: string } | null>(null);
-  if (iframeSrc && bootstrappedSrcRef.current?.base !== iframeSrc) {
-    try {
-      const url = new URL(iframeSrc);
-      url.searchParams.set('theme', resolvedTheme === 'dark' ? 'dark' : 'light');
-      if (appPath && appPath !== '/') {
-        url.hash = appPath.replace(/^\//, '');
-      } else {
-        url.hash = '';
-      }
-      bootstrappedSrcRef.current = { base: iframeSrc, src: url.toString() };
-    } catch {
-      bootstrappedSrcRef.current = { base: iframeSrc, src: iframeSrc };
-    }
-  }
-  const bootstrappedSrc = bootstrappedSrcRef.current?.src ?? iframeSrc;
+  useLayoutEffect(() => {
+    if (!slot || !app || !appCode) return;
+    attachFrameSlot({ appCode, element: slot, path: appPath });
+  }, [slot, app, appCode, appPath]);
+
+  useLayoutEffect(() => {
+    if (!slot) return;
+    return () => detachFrameSlot(slot);
+  }, [slot]);
 
   const breadcrumbs = useMemo(() => {
     const rootHref = appCode ? `/apps/${appCode}` : '/apps';
     const rootLabel = app?.name ?? appCode ?? wa.breadcrumb.title;
-    const crumbs = [{ label: rootLabel, href: rootHref }];
-    const section = sectionLabel(appPath);
-    if (section) {
-      crumbs.push({ label: section, href: pathname });
+    const crumbs: { label: string; href?: string }[] = [{ label: rootLabel, href: rootHref }];
+    if (status.breadcrumbs) {
+      crumbs.push(...status.breadcrumbs);
+    } else {
+      const section = sectionLabel(appPath);
+      if (section) crumbs.push({ label: section, href: pathname });
     }
     return crumbs;
-  }, [app?.name, appCode, appPath, pathname, wa.breadcrumb.title]);
+  }, [app?.name, appCode, appPath, pathname, status.breadcrumbs, wa.breadcrumb.title]);
 
-  const mintSessionToken = useCallback(async () => {
-    if (!appCode) return null;
-
-    if (usesPlatformSession) {
-      try {
-        const token = await getToken();
-        if (!token) return null;
-        return {
-          token,
-          expiresAt: tokenExpiresAt(token),
-          apiBaseUrl: APP_API_BASE,
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    try {
-      return await sessionTokenMutation.mutateAsync(appCode);
-    } catch {
-      return null;
-    }
-  }, [appCode, getToken, sessionTokenMutation, usesPlatformSession]);
-
-  const syncIframeRoute = useCallback(() => {
-    const iframeWindow = iframeRef.current?.contentWindow;
-    if (!iframeWindow) return;
-
-    const hash = appPath === '/' ? '' : appPath.replace(/^\//, '');
-    try {
-      const url = new URL(iframeWindow.location.href);
-      const nextHash = hash ? `#${hash}` : '';
-      if (url.hash !== nextHash) {
-        iframeWindow.history.replaceState(null, '', `${url.pathname}${url.search}${nextHash}`);
-        iframeWindow.dispatchEvent(new Event('hashchange'));
-      }
-    } catch {
-      // Opaque iframe or cross-origin preview — fall through to postMessage.
-    }
-
-    iframeWindow.postMessage(
-      { type: 'weldapp:event', event: 'route', payload: { value: appPath } },
-      targetOrigin,
-    );
-  }, [appPath, targetOrigin]);
-
-  useEffect(() => {
-    if (!appCode) return;
-
-    const handleMessage = async (event: MessageEvent) => {
-      const iframeWindow = iframeRef.current?.contentWindow;
-      if (!iframeWindow || event.source !== iframeWindow) return;
-      if (targetOrigin !== '*' && event.origin !== targetOrigin) return;
-
-      const data = event.data as IncomingWeldAppMessage | undefined;
-      if (!data || typeof data !== 'object' || !('type' in data)) return;
-
-      if (data.type === 'weldapp:ready') {
-        const session = await mintSessionToken();
-        iframeWindow.postMessage(
-          {
-            type: 'weldapp:init',
-            payload: {
-              appCode,
-              theme: resolvedTheme,
-              locale: language,
-              path: appPath,
-              apiBaseUrl: session?.apiBaseUrl ?? APP_API_BASE,
-              token: session?.token ?? null,
-              tokenExpiresAt: session?.expiresAt ?? null,
-              user: user
-                ? { id: user.id, name: user.fullName || user.firstName || '', imageUrl: user.imageUrl }
-                : null,
-            },
-          },
-          targetOrigin,
-        );
-        // Re-assert route after handshake so apps that miss early `route`
-        // events (or use an SDK without `path`) still land on the right section.
-        syncIframeRoute();
-        return;
-      }
-
-      if (data.type === 'weldapp:request') {
-        const { id, method, payload } = data;
-        try {
-          let responsePayload: unknown;
-          switch (method) {
-            case 'getToken': {
-              const session = await mintSessionToken();
-              if (!session) throw new Error('Failed to mint session token');
-              responsePayload = {
-                token: session.token,
-                tokenExpiresAt: session.expiresAt,
-                apiBaseUrl: session.apiBaseUrl,
-              };
-              break;
-            }
-            case 'navigate': {
-              const to = (payload as { to?: unknown } | undefined)?.to;
-              if (typeof to !== 'string' || !to.startsWith('/') || to.startsWith('//')) {
-                throw new Error('Only platform-internal paths are allowed');
-              }
-              router.push(to);
-              responsePayload = { to };
-              break;
-            }
-            case 'toast': {
-              const body = (payload ?? {}) as { message?: unknown; variant?: 'success' | 'error' | 'info' };
-              if (typeof body.message === 'string') {
-                if (body.variant === 'success') toast.success(body.message);
-                else if (body.variant === 'error') toast.error(body.message);
-                else toast(body.message);
-              }
-              responsePayload = {};
-              break;
-            }
-            default:
-              throw new Error(`Unknown method: ${String(method)}`);
-          }
-          iframeWindow.postMessage({ type: 'weldapp:response', id, ok: true, payload: responsePayload }, targetOrigin);
-        } catch (error) {
-          iframeWindow.postMessage(
-            {
-              type: 'weldapp:response',
-              id,
-              ok: false,
-              error: { message: error instanceof Error ? error.message : 'Request failed' },
-            },
-            targetOrigin,
-          );
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [appCode, appPath, mintSessionToken, resolvedTheme, language, user, router, targetOrigin, syncIframeRoute]);
-
-  useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'weldapp:event', event: 'theme', payload: { value: resolvedTheme } },
-      targetOrigin,
-    );
-  }, [resolvedTheme, targetOrigin]);
-
-  useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'weldapp:event', event: 'locale', payload: { value: language } },
-      targetOrigin,
-    );
-  }, [language, targetOrigin]);
-
-  useEffect(() => {
-    syncIframeRoute();
-  }, [syncIframeRoute]);
+  // Unsaved changes reported by the app block leaving it (moving between the
+  // app's own sections stays allowed — the app guards those itself).
+  const dirtyRef = useRef(status.dirty);
+  dirtyRef.current = status.dirty;
+  const { proceed, reset, status: blockerStatus } = useBlocker({
+    shouldBlockFn: ({ next }) => {
+      if (!dirtyRef.current) return false;
+      const base = `/apps/${appCode}`;
+      return next.pathname !== base && !next.pathname.startsWith(`${base}/`);
+    },
+    withResolver: true,
+    enableBeforeUnload: () => !!dirtyRef.current,
+  });
 
   if (isLoading) {
     return (
@@ -337,19 +136,27 @@ export default function WeldAppHostPage() {
               <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
             </div>
           ) : null}
-          <div className="flex-1 min-h-0 bg-background">
-            <iframe
-              key={iframeSrc}
-              ref={iframeRef}
-              src={bootstrappedSrc}
-              title={app.name}
-              className="w-full h-full border-0 bg-background"
-              sandbox={sandbox}
-              onLoad={syncIframeRoute}
-            />
-          </div>
+          {/* Slot the shell's WeldAppFrameLayer covers with the live iframe;
+              its border-radius is copied onto the frame. */}
+          <div
+            ref={setSlot}
+            data-weldapp-slot={appCode}
+            className={cn('flex-1 min-h-0 bg-background rounded-b-xl', previewUrl ? 'rounded-t-none' : 'rounded-t-xl')}
+          />
         </ModuleContent>
       </div>
+      <ConfirmDialog
+        open={blockerStatus === 'blocked'}
+        onOpenChange={(open) => {
+          if (!open) reset?.();
+        }}
+        title={wa.host.leaveTitle}
+        description={status.dirty?.message || wa.host.leaveDescription}
+        confirmLabel={wa.host.leave}
+        cancelLabel={wa.host.stay}
+        variant="destructive"
+        onConfirm={() => proceed?.()}
+      />
     </BreadcrumbProvider>
   );
 }

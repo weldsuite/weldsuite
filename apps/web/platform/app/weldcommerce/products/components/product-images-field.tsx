@@ -33,10 +33,10 @@ const MAX_IMAGES = 20;
 export function ProductImagesField({
   value,
   onChange,
-}: {
+}: Readonly<{
   value: ProductImage[];
   onChange: (next: ProductImage[]) => void;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const inputRef = useRef<HTMLInputElement>(null);
   const [altDraft, setAltDraft] = useState<Record<number, string>>({});

@@ -66,7 +66,7 @@ interface ActivityTableProps {
   activities: ActivityItem[]
 }
 
-export function RecentActivityTable({ activities }: ActivityTableProps) {
+export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>) {
   const router = useRouter()
   const { t } = useI18n()
   const td = t.helpdesk.dashboard

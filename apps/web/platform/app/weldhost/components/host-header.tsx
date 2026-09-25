@@ -11,7 +11,7 @@ interface HostHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function HostHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: HostHeaderProps) {
+export function HostHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<HostHeaderProps>) {
   const pathname = usePathname();
   const { t } = useI18n();
   const contextBreadcrumbs = useCurrentBreadcrumbs();

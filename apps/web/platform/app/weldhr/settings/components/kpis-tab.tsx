@@ -172,7 +172,7 @@ export function KpisTab() {
   );
 }
 
-function KpiDialog({ form, onClose }: { form: FormState; onClose: () => void }) {
+function KpiDialog({ form, onClose }: Readonly<{ form: FormState; onClose: () => void }>) {
   const t = useTranslations();
   const createKpi = useCreateHrKpi();
   const updateKpi = useUpdateHrKpi();
@@ -307,7 +307,7 @@ function KpiDialog({ form, onClose }: { form: FormState; onClose: () => void }) 
   );
 }
 
-function DeleteKpiDialog({ kpi, onClose }: { kpi: HrKpiDefinition; onClose: () => void }) {
+function DeleteKpiDialog({ kpi, onClose }: Readonly<{ kpi: HrKpiDefinition; onClose: () => void }>) {
   const t = useTranslations();
   const deleteKpi = useDeleteHrKpi();
   const [failure, setFailure] = useState<string | null>(null);

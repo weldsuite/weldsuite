@@ -50,7 +50,7 @@ const statusConfig: Record<string, { className: string }> = {
   },
 };
 
-export function ReviewsClient({ items }: ReviewsClientProps) {
+export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
   const { t } = useI18n();
   const tr = t.helpdesk.reviewsPage;
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);

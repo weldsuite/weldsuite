@@ -22,7 +22,7 @@ interface DriveFolderCardProps {
   onDelete?: (folder: DriveFolder) => void;
 }
 
-export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, onRename, onDuplicate, onMove, onDelete }: DriveFolderCardProps) {
+export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, onRename, onDuplicate, onMove, onDelete }: Readonly<DriveFolderCardProps>) {
   const { t } = useI18n();
   return (
     <Button

@@ -19,7 +19,7 @@ interface RenamePageDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function RenamePageDialog({ pageId, initialTitle, open, onOpenChange }: RenamePageDialogProps) {
+export function RenamePageDialog({ pageId, initialTitle, open, onOpenChange }: Readonly<RenamePageDialogProps>) {
   const t = getTranslations('weldknow');
   const [title, setTitle] = useState(initialTitle);
   const updatePage = useUpdateKnowledgePageMeta();

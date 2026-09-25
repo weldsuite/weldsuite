@@ -16,7 +16,7 @@ interface PlaceholderScreenProps {
   message: string;
 }
 
-export function PlaceholderScreen({ title, icon: Icon, heading, message }: PlaceholderScreenProps) {
+export function PlaceholderScreen({ title, icon: Icon, heading, message }: Readonly<PlaceholderScreenProps>) {
   const router = useRouter();
   const { colors } = useTheme();
 

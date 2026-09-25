@@ -64,7 +64,7 @@ export function MessageList({
   parentId,
   showChannel,
   isDm,
-}: MessageListProps) {
+}: Readonly<MessageListProps>) {
   const t = getTranslations('weldchat');
   const { userId: currentUserId } = useAuth();
   const { getClient } = useAppApiClient();
@@ -300,7 +300,7 @@ export function MessageList({
             prevMessage.authorId === message.authorId &&
             prevMessage.type !== 'system' &&
             !showDate &&
-            !isNaN(timeDiff) &&
+            !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&
             timeDiff < 300000;
 

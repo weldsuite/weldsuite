@@ -16,7 +16,7 @@ import Animated, {
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 
-export function Spinner({ size = 22, color }: { size?: number; color?: string }) {
+export function Spinner({ size = 22, color }: Readonly<{ size?: number; color?: string }>) {
   const { colors } = useTheme();
   const rotation = useSharedValue(0);
 

@@ -12,7 +12,7 @@ export function AgentsHeader({
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-}: AgentsHeaderProps) {
+}: Readonly<AgentsHeaderProps>) {
   const t = getTranslations('common');
   const contextBreadcrumbs = useCurrentBreadcrumbs();
 

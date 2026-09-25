@@ -12,7 +12,7 @@ interface ReactionBarProps {
   onToggle: (emoji: string, hasReacted: boolean) => void;
 }
 
-export function ReactionBar({ reactions, currentUserId, onToggle }: ReactionBarProps) {
+export function ReactionBar({ reactions, currentUserId, onToggle }: Readonly<ReactionBarProps>) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const entries = Object.entries(reactions).filter(([, users]) => users.length > 0);

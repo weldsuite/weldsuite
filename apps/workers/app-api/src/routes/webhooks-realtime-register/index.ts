@@ -12,6 +12,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { verifyWebhookToken } from '../../lib/webhook-token';
+import { logSafe } from '../../lib/log-safe';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { getTenantDbForWorkspace } from '../../db';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
@@ -63,7 +64,7 @@ app.post('/', async (c) => {
       ? processIdRaw
       : typeof processIdRaw === 'string'
         ? Number.parseInt(processIdRaw, 10)
-        : NaN;
+        : Number.NaN;
 
   if (!Number.isFinite(processId)) {
     console.log('[RTR Webhook] no processId — ack only', JSON.stringify({ keys: Object.keys(payload) }));
@@ -80,7 +81,7 @@ app.post('/', async (c) => {
   if (!cacheRaw) {
     try {
       const outcome = await rtr.pollProcess(processId);
-      console.log(`[RTR Webhook] process ${processId} → ${outcome} (no cache mapping)`);
+      console.log(`[RTR Webhook] process ${logSafe(processId)} → ${logSafe(outcome)} (no cache mapping)`);
     } catch (err) {
       console.error('[RTR Webhook] process poll failed:', err);
     }
@@ -99,10 +100,10 @@ app.post('/', async (c) => {
 
     if (mapping.kind === 'registration' && mapping.domainId) {
       await domainsService.pollRegistrationProcess(tenantDb, rtr, mapping.domainId);
-      console.log(`[RTR Webhook] polled registration ${mapping.domainId} for process ${processId}`);
+      console.log(`[RTR Webhook] polled registration ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
     } else if (mapping.kind === 'renewal' && mapping.domainId) {
       const polled = await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
-      console.log(`[RTR Webhook] polled renewal ${mapping.domainId} for process ${processId}`);
+      console.log(`[RTR Webhook] polled renewal ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
       if (
         polled &&
         (polled.registrationStatus === 'renewed' || polled.registrationStatus === 'failed')
@@ -121,7 +122,7 @@ app.post('/', async (c) => {
       }
     } else if (mapping.kind === 'transfer' && mapping.transferId) {
       await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
-      console.log(`[RTR Webhook] synced transfer ${mapping.transferId} for process ${processId}`);
+      console.log(`[RTR Webhook] synced transfer ${logSafe(mapping.transferId)} for process ${logSafe(processId)}`);
     }
 
     const outcome = await rtr.pollProcess(processId);

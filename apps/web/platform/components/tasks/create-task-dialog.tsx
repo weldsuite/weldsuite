@@ -236,7 +236,7 @@ export function CreateTaskDialog({
                 type="number"
                 min={1}
                 value={durationValue}
-                onChange={(e) => setDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => setDurationValue(Math.max(1, Number.parseInt(e.target.value) || 1))}
                 className="focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
               />
               <Select value={durationUnit} onValueChange={(v) => setDurationUnit(v as 'min' | 'hr')}>

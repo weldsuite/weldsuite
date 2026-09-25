@@ -6,9 +6,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 
 export default function CrmLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { isInstalled, isLoading } = useAppAccess('weldcrm');
   const t = useTranslations();
 

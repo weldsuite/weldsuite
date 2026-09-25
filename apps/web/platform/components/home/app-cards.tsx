@@ -159,8 +159,8 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export function AnalyticsCard({ isDemo = false }: { isDemo?: boolean } = {}) {
-  void isDemo; // Card has its own header chrome; badge wrapping handled by caller.
+// Card has its own header chrome; the demo badge is handled by the caller.
+export function AnalyticsCard(_props: { isDemo?: boolean } = {}) {
   const [activeChart, setActiveChart] =
     React.useState<keyof typeof chartConfig>("desktop");
 
@@ -1132,8 +1132,7 @@ const DESK_SLACK: Array<{ channel: string; sender: string; message: string; when
   { channel: 'support-vermeulen', sender: 'Vermeulen · Sara', message: 'Got the corrected invoice, thanks!', when: 'Yest', unread: 0 },
 ];
 
-export function DeskSlackCard({ isDemo = false }: { isDemo?: boolean } = {}) {
-  void isDemo;
+export function DeskSlackCard(_props: { isDemo?: boolean } = {}) {
   return (
     <CardShell>
       <TableHeader>
@@ -1188,8 +1187,7 @@ const DESK_DISCORD: Array<{ guild: string; channel: string; sender: string; mess
   { guild: 'Vinta Dev', channel: 'general', sender: 'jeroen#4422', message: 'Deployment looks clean from our side.', when: 'Yest', unread: 0 },
 ];
 
-export function DeskDiscordCard({ isDemo = false }: { isDemo?: boolean } = {}) {
-  void isDemo;
+export function DeskDiscordCard(_props: { isDemo?: boolean } = {}) {
   return (
     <CardShell>
       <TableHeader>

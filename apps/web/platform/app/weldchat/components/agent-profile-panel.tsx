@@ -58,7 +58,7 @@ function formatRelative(dateStr: string | null | undefined): string {
   return `${d}d ago`;
 }
 
-export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: AgentProfilePanelProps) {
+export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: Readonly<AgentProfilePanelProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { data: agent, isLoading } = useAgent(agentId);

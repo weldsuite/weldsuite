@@ -16,7 +16,8 @@ Users build their own apps for the platform: static bundles hosted in R2, render
 - **Manifest** (`weldapp.json`): Zod schema in `@weldsuite/app-api-client/schemas/user-apps` (copies in `packages/sdk/cli/src/manifest.ts`, keep in sync). Declares scopes, storage collections, and `agentTools` (auto-exposed via mcp-server + `GET /v1/user-apps/agent-tools`).
 - **Management API**: `apps/workers/app-api/src/routes/user-apps/` (Clerk) + public bundle host at `/public/user-apps/:code/*`. CLI/dev surface: `apps/workers/external-api/src/routes/v1/user-apps.ts` (wsk_ keys, scope `user-apps:manage`). App data plane: `/v1/app-storage` + OAuth `client_credentials` at `/v1/oauth/token` (external-api).
 - **Platform UI**: iframe host + postMessage bridge `apps/web/platform/app/weldapps/host/`, developer pages `app/weldapps/manage/`, store section `app/appstore/custom-apps-section.tsx`. Permissions: `weldapps:read|develop|publish|manage`.
-- **Agent-first tooling**: `packages/sdk/app-sdk` (`@weldsuite/app-sdk`, bridge + typed API client + React hooks) and `packages/sdk/cli` (`@weldsuite/cli`, `weld app init/create/deploy/publish`, `weld skill install`), the scaffold ships a `.claude/skills/weldsuite-app` skill + CLAUDE.md. The SDK bridge protocol must stay in lockstep with the platform host page.
+- **Bridge protocol 2 (no token in the iframe)**: the host performs app API calls (`fetch` bridge method) with the member's Clerk session. Community apps go through `app-api` `/api/user-apps/code/:code/gateway/v1/*`, which swaps the session for a server-cached `wsat_` session token and forwards to external-api over the `EXTERNAL_API` service binding (scopes still enforced there). Frames are kept alive in `WeldAppFrameLayer` (shell) and positioned over the page slot (`frame-store.ts`). Next steps: `docs/plans/weldapps-native-surfaces.md`.
+- **Agent-first tooling**: `packages/sdk/app-sdk` (`@weldsuite/app-sdk`, bridge + typed API client + React hooks) and `packages/sdk/cli` (`@weldsuite/cli`, `weld app init/create/deploy/publish`, `weld skill install`), the scaffold ships a `.claude/skills/weldsuite-app` skill + CLAUDE.md. The SDK bridge protocol must stay in lockstep with the platform host page and the CLI local shell (`packages/sdk/cli/src/local-shell/html.ts`).
 
 ## Monorepo Structure
 
@@ -304,6 +305,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**; `app-api
 - Production uses Cloudflare Hyperdrive; dev uses direct Neon URL
 - Field-level encryption supported via worker secret
 - **Adding columns/tables to `packages/core/db/src/schema/` is fine. Do NOT create migration files, ask the user first.**
+- **Once a migration is approved, generate it with `pnpm --filter @weldsuite/db db:generate`** and commit the SQL, the `meta/<n>_snapshot.json` and the `_journal.json` entry together. Never hand-write a journal-only migration: it leaves the snapshot behind, so the next `db:generate` tries to re-create existing tables. The migration runner (and the pglite test harness) apply only journaled files. `apps/workers/app-api/src/test/tenant-schema-drift.test.ts` fails CI when the schema and the latest snapshot disagree, or when a `.sql` file isn't in the journal.
 
 ### AI / Agents
 

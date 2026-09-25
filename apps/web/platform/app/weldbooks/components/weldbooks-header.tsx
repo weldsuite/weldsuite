@@ -21,7 +21,7 @@ export function WeldbooksHeader({
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-}: WeldbooksHeaderProps) {
+}: Readonly<WeldbooksHeaderProps>) {
   const pathname = usePathname();
   const { t } = useI18n();
   const th = t.accounting.header;

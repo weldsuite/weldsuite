@@ -158,7 +158,7 @@ function wallTimeInZoneToUtc(
     let offset = tzOffsetMs(zone, guessUtc);
     offset = tzOffsetMs(zone, guessUtc - offset);
     const d = new Date(guessUtc - offset);
-    return isNaN(d.getTime()) ? null : d;
+    return Number.isNaN(d.getTime()) ? null : d;
   } catch {
     return null; // Unknown/invalid zone — Intl throws a RangeError.
   }
@@ -186,14 +186,14 @@ function parseIcsDate(prop: RawProp): { iso?: string; allDay: boolean } {
     if (!m) return { iso: undefined, allDay: true };
     // Midnight local time; consumers treat this as an all-day event.
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0);
-    return { iso: isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: true };
+    return { iso: Number.isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: true };
   }
 
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/.exec(value);
   if (!m) {
     // Last resort: let the Date constructor try.
     const d = new Date(value);
-    return { iso: isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: false };
+    return { iso: Number.isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: false };
   }
   const [, y, mo, da, h, mi, s, z] = m;
   let d: Date;
@@ -216,7 +216,7 @@ function parseIcsDate(prop: RawProp): { iso?: string; allDay: boolean } {
     // Floating time (no TZID, no Z) → interpret as local wall-clock time.
     d = new Date(Number(y), Number(mo) - 1, Number(da), Number(h), Number(mi), Number(s));
   }
-  return { iso: isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: false };
+  return { iso: Number.isNaN(d.getTime()) ? undefined : d.toISOString(), allDay: false };
 }
 
 /** Pull the "mailto:" address and CN param out of an ORGANIZER/ATTENDEE prop. */

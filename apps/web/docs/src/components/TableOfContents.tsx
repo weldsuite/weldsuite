@@ -8,9 +8,9 @@ import { type Section, type Subsection } from '@/lib/sections'
 
 export function TableOfContents({
   tableOfContents,
-}: {
+}: Readonly<{
   tableOfContents: Array<Section>
-}) {
+}>) {
   let [currentSection, setCurrentSection] = useState(tableOfContents[0]?.id)
 
   let getHeadings = useCallback((tableOfContents: Array<Section>) => {
@@ -21,7 +21,7 @@ export function TableOfContents({
         if (!el) return null
 
         let style = window.getComputedStyle(el)
-        let scrollMt = parseFloat(style.scrollMarginTop)
+        let scrollMt = Number.parseFloat(style.scrollMarginTop)
 
         let top = window.scrollY + el.getBoundingClientRect().top - scrollMt
         return { id, top }

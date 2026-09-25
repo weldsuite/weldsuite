@@ -69,7 +69,7 @@ interface LabelsClientProps {
   accountId: string;
 }
 
-export function LabelsClient({ initialLabels, accountId }: LabelsClientProps) {
+export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClientProps>) {
   const createLabelMutation = useCreateMailLabel();
   const updateLabelMutation = useUpdateMailLabel();
   const deleteLabelMutation = useDeleteMailLabel();

@@ -35,7 +35,7 @@ interface CreateCalendarDialogProps {
   editCalendar?: { id: string; name: string; color?: string | null } | null;
 }
 
-export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: CreateCalendarDialogProps) {
+export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Readonly<CreateCalendarDialogProps>) {
   const createCalendar = useCreateUserCalendar();
   const updateCalendar = useUpdateUserCalendar();
   const t = getTranslations('weldcalendar');

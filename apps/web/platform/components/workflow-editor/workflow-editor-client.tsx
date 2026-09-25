@@ -887,7 +887,7 @@ export function WorkflowEditorClient({
         description: editSubAgentData.description || '',
         systemPrompt: editSubAgentData.systemPrompt || '',
         modelId: editSubAgentData.modelId || 'openai/gpt-4o',
-        temperature: parseFloat(String(editSubAgentData.temperature ?? '')) || 0.7,
+        temperature: Number.parseFloat(String(editSubAgentData.temperature ?? '')) || 0.7,
         maxTokens: editSubAgentData.maxTokens || 1024,
         maxIterations: editSubAgentData.maxIterations || 10,
         maxTotalTokens: editSubAgentData.maxTotalTokens || 20000,
@@ -3028,7 +3028,7 @@ export function WorkflowEditorClient({
                     <Input
                       type="number"
                       value={subAgentForm.temperature}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, temperature: parseFloat(e.target.value) || 0.7 })}
+                      onChange={(e) => setSubAgentForm({ ...subAgentForm, temperature: Number.parseFloat(e.target.value) || 0.7 })}
                       min={0}
                       max={2}
                       step={0.1}
@@ -3040,7 +3040,7 @@ export function WorkflowEditorClient({
                     <Input
                       type="number"
                       value={subAgentForm.maxIterations}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxIterations: parseInt(e.target.value) || 10 })}
+                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxIterations: Number.parseInt(e.target.value) || 10 })}
                       min={1}
                       max={50}
                       className="mt-1"
@@ -3054,7 +3054,7 @@ export function WorkflowEditorClient({
                     <Input
                       type="number"
                       value={subAgentForm.maxTokens}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTokens: parseInt(e.target.value) || 1024 })}
+                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTokens: Number.parseInt(e.target.value) || 1024 })}
                       min={100}
                       max={16384}
                       className="mt-1"
@@ -3065,7 +3065,7 @@ export function WorkflowEditorClient({
                     <Input
                       type="number"
                       value={subAgentForm.maxTotalTokens}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTotalTokens: parseInt(e.target.value) || 20000 })}
+                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTotalTokens: Number.parseInt(e.target.value) || 20000 })}
                       min={1000}
                       max={100000}
                       step={1000}

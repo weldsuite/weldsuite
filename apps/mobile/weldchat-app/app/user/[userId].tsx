@@ -259,11 +259,11 @@ function HeaderIconBtn({
   onPress,
   children,
   colors: _colors,
-}: {
+}: Readonly<{
   onPress: () => void;
   children: React.ReactNode;
   colors: ThemeColors;
-}) {
+}>) {
   return (
     <TouchableOpacity onPress={onPress} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles_iconBtn}>
       {children}
@@ -277,13 +277,13 @@ function TabBtn({
   active,
   onPress,
   styles,
-}: {
+}: Readonly<{
   label: string;
   icon: React.ReactNode;
   active: boolean;
   onPress: () => void;
   styles: ReturnType<typeof makeStyles>;
-}) {
+}>) {
   return (
     <TouchableOpacity onPress={onPress} style={styles.tabBtn} activeOpacity={0.7}>
       <View style={styles.tabBtnInner}>
@@ -299,11 +299,11 @@ function InfoRow({
   label,
   children,
   styles,
-}: {
+}: Readonly<{
   label: string;
   children: React.ReactNode;
   styles: ReturnType<typeof makeStyles>;
-}) {
+}>) {
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>

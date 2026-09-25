@@ -114,7 +114,7 @@ import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { ContactsSectionProps, CustomerContact } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-export function ContactsSection({ customer, contacts }: ContactsSectionProps) {
+export function ContactsSection({ customer, contacts }: Readonly<ContactsSectionProps>) {
   const t = useTranslations();
   const { open: openObjectPanel } = useObjectPanel();
   const { mode, isExpanded, silentRefresh } = useCustomerDetailContext();

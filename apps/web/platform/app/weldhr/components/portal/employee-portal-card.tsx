@@ -15,7 +15,7 @@ import {
 import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
 import { EmptyText, SectionCard } from '../page-kit';
 
-export function EmployeePortalAccessCard({ employeeId, employeeStatus }: { employeeId: string; employeeStatus: string }) {
+export function EmployeePortalAccessCard({ employeeId, employeeStatus }: Readonly<{ employeeId: string; employeeStatus: string }>) {
   const t = useTranslations();
   const settings = useHrPortalSettings();
   const { data, isLoading, error } = useHrPortalAccess({ kind: 'employee', employeeId });

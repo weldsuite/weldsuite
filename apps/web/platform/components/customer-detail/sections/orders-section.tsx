@@ -21,7 +21,7 @@ const statusConfig: Record<string, { icon: typeof Package; color: string; bg: st
 };
 
 function formatCurrency(amount: string | number, currency = 'USD'): string {
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  const num = typeof amount === 'string' ? Number.parseFloat(amount) : amount;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
@@ -37,10 +37,10 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function OrdersSection({ orders, totalCount }: OrdersSectionProps) {
+export function OrdersSection({ orders, totalCount }: Readonly<OrdersSectionProps>) {
   const t = useTranslations();
   // Calculate totals
-  const totalValue = orders.reduce((sum, order) => sum + parseFloat(order.total || '0'), 0);
+  const totalValue = orders.reduce((sum, order) => sum + Number.parseFloat(order.total || '0'), 0);
 
   return (
     <div>
@@ -99,7 +99,7 @@ export function OrdersSection({ orders, totalCount }: OrdersSectionProps) {
   );
 }
 
-function OrderCard({ order }: { order: CustomerOrder }) {
+function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
   const t = useTranslations();
   const status = order.status || 'pending';
   const config = statusConfig[status] || statusConfig.pending;

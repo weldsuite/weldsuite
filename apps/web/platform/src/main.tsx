@@ -9,7 +9,12 @@ import { MixpanelIdentifier } from '@/providers/mixpanel-provider';
 import { queryClient } from '@/lib/query-client';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { RoutePendingSkeleton } from '@/components/route-pending-skeleton';
+import { installAppContextHeader } from '@/lib/api/app-context-header';
 import '../app/globals.css';
+
+// Before any request fires: tag app-api calls with the current module so the
+// server evaluates app-scoped permissions for the screen that made them.
+installAppContextHeader();
 
 const router = createRouter({
   routeTree,

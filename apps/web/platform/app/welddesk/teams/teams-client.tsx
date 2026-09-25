@@ -53,7 +53,7 @@ interface TeamsClientProps {
   teams: Team[];
 }
 
-export function TeamsClient({ teams }: TeamsClientProps) {
+export function TeamsClient({ teams }: Readonly<TeamsClientProps>) {
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
   const router = useRouter();

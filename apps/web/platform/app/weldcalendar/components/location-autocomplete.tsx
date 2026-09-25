@@ -50,7 +50,7 @@ export function LocationAutocomplete({
   popoverSideOffset = 4,
   popoverAlignOffset = 0,
   onBlurAfterGrace,
-}: LocationAutocompleteProps) {
+}: Readonly<LocationAutocompleteProps>) {
   const t = getTranslations('weldcalendar');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);

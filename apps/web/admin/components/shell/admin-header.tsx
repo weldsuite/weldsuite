@@ -52,7 +52,7 @@ function buildCrumbs(pathname: string, areaName: string, areaHref: string): Crum
  * hairline divider, then the breadcrumb trail, all on the panel surface so the
  * header reads as part of the content card rather than a separate bar.
  */
-export function AdminHeader({ actions }: { actions?: React.ReactNode }) {
+export function AdminHeader({ actions }: Readonly<{ actions?: React.ReactNode }>) {
   const pathname = usePathname() ?? '/';
   const area = getActiveArea(pathname);
   const crumbs = buildCrumbs(pathname, area.name, area.href);

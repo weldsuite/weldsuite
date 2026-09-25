@@ -6,9 +6,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export default function MailLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { t } = useI18n();
   const { isInstalled, isLoading } = useAppAccess('weldmail');
 

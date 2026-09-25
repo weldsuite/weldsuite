@@ -309,7 +309,7 @@ interface ImportTasksDialogProps {
   projectId: string;
 }
 
-export function ImportTasksDialog({ open, onOpenChange, projectId }: ImportTasksDialogProps) {
+export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<ImportTasksDialogProps>) {
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
   const [step, setStep] = useState<"upload" | "mapping" | "running" | "result">("upload");

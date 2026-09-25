@@ -15,7 +15,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useCreateHrAssignment } from '@/hooks/queries/use-weldhr-queries';
 import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
 
-export function AssignEmployeeDialog({ onClose }: { onClose: () => void }) {
+export function AssignEmployeeDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const createAssignment = useCreateHrAssignment();
   const [employeeId, setEmployeeId] = useState<string | null>(null);

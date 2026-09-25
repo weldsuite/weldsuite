@@ -50,7 +50,7 @@ interface SettingsLayoutClientProps {
   installedAppCodes: string[];
 }
 
-export function SettingsLayoutClient({ children, installedAppCodes }: SettingsLayoutClientProps) {
+export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<SettingsLayoutClientProps>) {
   const { t } = useI18n();
   const ts = t.settings;
   // t is kept in scope for cross-module references (e.g. t.crm)

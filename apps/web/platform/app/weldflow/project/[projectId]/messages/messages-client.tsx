@@ -59,7 +59,7 @@ interface MessagesClientProps {
   error: string | null;
 }
 
-export function MessagesClient({ projectId, initialMessages, error }: MessagesClientProps) {
+export function MessagesClient({ projectId, initialMessages, error }: Readonly<MessagesClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.projects.messages.projects, href: '/weldflow' },
@@ -330,13 +330,13 @@ function MessageBubble({
   onReact,
   onDelete,
   canWrite,
-}: {
+}: Readonly<{
   message: ProjectMessage;
   onReact: (emoji: string) => void;
   onDelete: () => void;
   getAttachmentIcon: (type: string) => React.ReactElement;
   canWrite: boolean;
-}) {
+}>) {
   const { t } = useI18n();
   const sender = message.sender;
   const initials = sender?.name

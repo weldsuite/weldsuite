@@ -21,7 +21,7 @@ interface LabelPickerModalProps {
   onLabelsChanged: (labels: string[]) => void;
 }
 
-export default function LabelPickerModal({ visible, onClose, messageId, currentLabels, onLabelsChanged }: LabelPickerModalProps) {
+export default function LabelPickerModal({ visible, onClose, messageId, currentLabels, onLabelsChanged }: Readonly<LabelPickerModalProps>) {
   const { colors } = useTheme();
   const { customLabels } = useMail();
   const [selected, setSelected] = useState<Set<string>>(new Set());

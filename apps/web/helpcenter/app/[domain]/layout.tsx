@@ -47,10 +47,10 @@ export async function generateMetadata({ params }: { params: Promise<{ domain: s
 export default async function DomainLayout({
   children,
   params,
-}: {
+}: Readonly<{
   children: React.ReactNode
   params: Promise<{ domain: string }>
-}) {
+}>) {
   const { domain } = await params
   const [config, folders] = await Promise.all([getHelpcenterConfig(domain), getFolders(domain)])
 

@@ -57,9 +57,9 @@ function hexToRgb(hex: string | null | undefined, fallback: RGB = rgb(0.1, 0.1, 
   if (!hex) return fallback;
   const cleaned = hex.replace('#', '').trim();
   if (cleaned.length !== 6) return fallback;
-  const r = parseInt(cleaned.slice(0, 2), 16) / 255;
-  const g = parseInt(cleaned.slice(2, 4), 16) / 255;
-  const b = parseInt(cleaned.slice(4, 6), 16) / 255;
+  const r = Number.parseInt(cleaned.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(cleaned.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(cleaned.slice(4, 6), 16) / 255;
   if ([r, g, b].some(Number.isNaN)) return fallback;
   return rgb(r, g, b);
 }

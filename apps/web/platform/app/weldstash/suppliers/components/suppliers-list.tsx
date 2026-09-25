@@ -30,7 +30,7 @@ export function SuppliersList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: SuppliersListProps) {
+}: Readonly<SuppliersListProps>) {
   const t = getTranslations('commerce').module;
   const ts = getTranslations('common');
   const deleteMut = useDeleteWeldstashSupplier();

@@ -21,7 +21,7 @@ const statusConfig: Record<string, { icon: typeof Clock; color: string; bg: stri
 };
 
 function formatCurrency(amount: string | number, currency = 'USD'): string {
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  const num = typeof amount === 'string' ? Number.parseFloat(amount) : amount;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
@@ -37,12 +37,12 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function InvoicesSection({ invoices, totalCount }: InvoicesSectionProps) {
+export function InvoicesSection({ invoices, totalCount }: Readonly<InvoicesSectionProps>) {
   const t = useTranslations();
   // Calculate totals
-  const totalValue = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0);
+  const totalValue = invoices.reduce((sum, inv) => sum + Number.parseFloat(inv.amount || '0'), 0);
   const paidInvoices = invoices.filter(inv => inv.status === 'paid');
-  const paidValue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0);
+  const paidValue = paidInvoices.reduce((sum, inv) => sum + Number.parseFloat(inv.amount || '0'), 0);
   const pendingInvoices = invoices.filter(inv => inv.status === 'pending' || inv.status === 'sent');
   const overdueInvoices = invoices.filter(inv => inv.status === 'overdue');
 
@@ -113,7 +113,7 @@ export function InvoicesSection({ invoices, totalCount }: InvoicesSectionProps) 
   );
 }
 
-function InvoiceCard({ invoice }: { invoice: CustomerInvoice }) {
+function InvoiceCard({ invoice }: Readonly<{ invoice: CustomerInvoice }>) {
   const t = useTranslations();
   const status = invoice.status || 'pending';
   const config = statusConfig[status] || statusConfig.pending;

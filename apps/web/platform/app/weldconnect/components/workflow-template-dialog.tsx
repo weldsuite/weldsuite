@@ -1835,7 +1835,7 @@ export function useLocalizedCategories(): LocalizedCategory[] {
 }
 
 // Mini workflow preview component
-export function WorkflowPreview({ workflowSteps, triggerType }: { workflowSteps: TemplateStep[]; triggerType: string }) {
+export function WorkflowPreview({ workflowSteps, triggerType }: Readonly<{ workflowSteps: TemplateStep[]; triggerType: string }>) {
   const displaySteps = workflowSteps.slice(0, 4);
   const remaining = workflowSteps.length - 4;
   const TriggerIcon = triggerIcons[triggerType] || Zap;
@@ -1899,7 +1899,6 @@ function templateToFlowData(template: WorkflowTemplate): { trigger: TriggerConfi
       ...(template.trigger.type === 'webhook' ? {
         method: 'POST' as const,
       } : {}),
-      ...(template.trigger.type === 'manual' ? {} : {}),
       ...(template.trigger.type === 'workflow_complete' ? {
         sourceWorkflowId: '',
         triggerOn: 'success' as const,

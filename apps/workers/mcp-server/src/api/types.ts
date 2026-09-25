@@ -24,6 +24,8 @@ export interface ApiKeySession {
   userId: string | null;
   /** Permission scopes granted to this session. */
   scopes: string[];
+  /** MCP only: the user's explicit per-member permission denies. */
+  permissionDenies?: string[];
   /** Workspace plan tier (free, business, scale, enterprise). */
   tier: TenantTier;
   /**

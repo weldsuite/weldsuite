@@ -233,7 +233,7 @@ const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: numb
   x: 0,
 });
 
-function SortableTaskRow({ id, isDragEnabled, children }: { id: string; isDragEnabled: boolean; children: React.ReactNode }) {
+function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string; isDragEnabled: boolean; children: React.ReactNode }>) {
   const {
     attributes,
     listeners,
@@ -295,7 +295,7 @@ export function MyTasksClient({
   onFiltersChange,
   sortState: sortStateProp,
   onSortChange,
-}: MyTasksClientProps) {
+}: Readonly<MyTasksClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.projects.title, href: '/weldflow' },

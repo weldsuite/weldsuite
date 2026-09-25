@@ -14,10 +14,9 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import {
   createActivitySchema,
   updateActivitySchema,
@@ -36,9 +35,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmActivities;
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'activities:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'activities:scope:all')) return undefined;
   return c.get('userId');
 }
 
@@ -47,7 +44,7 @@ const DATE_FIELDS = new Set(['dueDate', 'startTime', 'endTime', 'followUpDate'])
 app.get('/', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const scope = await scopeFor(c);
 
   const conditions: any[] = [isNull(t.deletedAt)];

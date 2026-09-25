@@ -226,14 +226,14 @@ export function htmlToRuns(html: string): RichTextRun[] {
 
     // Handle inline styles
     const style = el.style;
-    if (style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 700) format.bold = true;
+    if (style.fontWeight === 'bold' || Number.parseInt(style.fontWeight) >= 700) format.bold = true;
     if (style.fontStyle === 'italic') format.italic = true;
     if (style.textDecoration?.includes('line-through')) format.strikethrough = true;
     if (style.color) format.textColor = style.color;
     if (style.fontFamily) format.fontFamily = style.fontFamily;
     if (style.fontSize) {
-      const size = parseInt(style.fontSize);
-      if (!isNaN(size)) format.fontSize = size;
+      const size = Number.parseInt(style.fontSize);
+      if (!Number.isNaN(size)) format.fontSize = size;
     }
 
     for (const child of Array.from(el.childNodes)) {

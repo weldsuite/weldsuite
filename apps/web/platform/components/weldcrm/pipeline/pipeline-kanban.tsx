@@ -198,8 +198,8 @@ function matchesFilter(deal: Deal, filter: ActiveFilter): boolean {
 
   // For numeric comparisons, parse the values
   const isNumericField = filter.field === 'value' || filter.field === 'probability';
-  const numericFieldValue = isNumericField ? parseFloat(fieldValue) || 0 : 0;
-  const numericFilterValue = isNumericField ? parseFloat(filter.value) || 0 : 0;
+  const numericFieldValue = isNumericField ? Number.parseFloat(fieldValue) || 0 : 0;
+  const numericFilterValue = isNumericField ? Number.parseFloat(filter.value) || 0 : 0;
 
   switch (filter.operator) {
     case 'contains':
@@ -1521,7 +1521,7 @@ function PipelineSettingsModal({
                   id="rottenDealDays"
                   type="number"
                   value={settings.rottenDealDays}
-                  onChange={(e) => setSettings({ ...settings, rottenDealDays: parseInt(e.target.value) })}
+                  onChange={(e) => setSettings({ ...settings, rottenDealDays: Number.parseInt(e.target.value) })}
                   className="max-w-[200px]"
                 />
                 <p className="text-xs text-muted-foreground">

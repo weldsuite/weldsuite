@@ -46,7 +46,7 @@ interface DiscordListClientProps {
   accessToken?: string;
 }
 
-export default function DiscordListClient({ initialConversations, accessToken }: DiscordListClientProps) {
+export default function DiscordListClient({ initialConversations, accessToken }: Readonly<DiscordListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();

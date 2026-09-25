@@ -64,9 +64,15 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       here,
       '../../../../../packages/core/db/drizzle/tenant-migrations',
     );
-    const files = (await fs.readdir(migrationsDir))
-      .filter((f) => f.endsWith('.sql'))
-      .sort();
+    // Apply exactly what the real runner (drizzle `migrate`) applies: the
+    // journal entries, in journal order. Reading every .sql file instead once
+    // masked migrations that were never journaled and never ran anywhere.
+    const journal = JSON.parse(
+      await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const files = [...journal.entries]
+      .sort((a, b) => a.idx - b.idx)
+      .map((entry) => `${entry.tag}.sql`);
 
     for (const file of files) {
       const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');

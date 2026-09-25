@@ -351,7 +351,7 @@ interface WorkspaceMemberOption {
   email?: string | null;
 }
 
-function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
+function MeetingReadyAddPeople({ meetingLink }: Readonly<{ meetingLink: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
@@ -365,7 +365,7 @@ function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
 
   const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
-    try { navigator.clipboard.writeText(meetingLink); } catch { /* ignore */ }
+    navigator.clipboard?.writeText(meetingLink).catch(() => { /* ignore */ });
   };
 
   return (

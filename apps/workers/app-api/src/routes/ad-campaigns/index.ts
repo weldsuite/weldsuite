@@ -67,7 +67,7 @@ const patchSchema = z
 app.get('/', requirePermission('ad_campaigns:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(campaigns.deletedAt)];
   if (q.adAccountId) conditions.push(eq(campaigns.adAccountId, q.adAccountId));

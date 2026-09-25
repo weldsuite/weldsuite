@@ -19,7 +19,7 @@ function formatTime(iso?: string | null): string {
   return `${format(d, 'MMM d')}, ${time}`;
 }
 
-export function MeetingCard({ meeting, onPress }: Props) {
+export function MeetingCard({ meeting, onPress }: Readonly<Props>) {
   const { colors } = useTheme();
   const Icon = meeting.meetingType === 'audio' ? Mic : Video;
   const live = meeting.status === 'in_progress';

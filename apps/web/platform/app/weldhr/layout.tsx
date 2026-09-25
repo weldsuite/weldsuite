@@ -12,7 +12,7 @@ import { ModuleContent } from '@/components/layout/module-content';
  * panel and drawer hosts). Section navigation comes from the module sidebar
  * (`MODULE_CONFIGS.weldhr`).
  */
-export default function WeldHrLayout({ children }: { children: React.ReactNode }) {
+export default function WeldHrLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('weldhr');
   const t = useTranslations();
 

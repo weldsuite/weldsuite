@@ -87,7 +87,7 @@ export function ConversationList({
   onAssigneeFilterChange,
   selectedId,
   onSelect,
-}: ConversationListProps) {
+}: Readonly<ConversationListProps>) {
   const t = getTranslations('deskInbox2');
   const combinedFilters: DeskConversationFilters = { ...filters, state };
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useDeskConversations(

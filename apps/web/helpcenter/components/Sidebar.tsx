@@ -10,7 +10,7 @@ interface SidebarProps {
   folders: Folder[]
 }
 
-export function Sidebar({ folders }: SidebarProps) {
+export function Sidebar({ folders }: Readonly<SidebarProps>) {
   const pathname = usePathname()
   const rootFolders = folders.filter((f) => !f.parentId)
   const childrenOf = (parentId: string) => folders.filter((f) => f.parentId === parentId)

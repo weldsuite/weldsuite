@@ -11,7 +11,7 @@ export interface KpiCardProps {
   onPress?: () => void;
 }
 
-export function KpiCard({ label, value, sub, warn, onPress }: KpiCardProps) {
+export function KpiCard({ label, value, sub, warn, onPress }: Readonly<KpiCardProps>) {
   const { colors } = useTheme();
 
   const body = (
@@ -49,7 +49,7 @@ export function KpiCard({ label, value, sub, warn, onPress }: KpiCardProps) {
   );
 }
 
-export function KpiGrid({ children }: { children: React.ReactNode }) {
+export function KpiGrid({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <ScrollView
       horizontal
@@ -62,7 +62,7 @@ export function KpiGrid({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function KpiSkeletonGrid({ count = 4 }: { count?: number }) {
+export function KpiSkeletonGrid({ count = 4 }: Readonly<{ count?: number }>) {
   const { colors } = useTheme();
   return (
     <ScrollView

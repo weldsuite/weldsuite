@@ -21,7 +21,7 @@ export function SendInvoiceDialog({
   contactEmail,
   open,
   onOpenChange,
-}: SendInvoiceDialogProps) {
+}: Readonly<SendInvoiceDialogProps>) {
   const sendInvoice = useSendInvoice();
   const { t } = useI18n();
   const ts = t.accounting.sendInvoice;

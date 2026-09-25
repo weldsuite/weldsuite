@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  * icon (18px vs the usual 16px) so the lighter outline glyph reads at the same
  * optical size — any incoming `h-*`/`w-*` is overridden via tailwind-merge.
  */
-export function VideoCameraIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
+export function VideoCameraIcon({ className, ...props }: Readonly<SVGProps<SVGSVGElement>>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

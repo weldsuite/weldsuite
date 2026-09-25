@@ -27,7 +27,7 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-export function AttendeeList({ attendees }: { attendees: MeetingAttendee[] }) {
+export function AttendeeList({ attendees }: Readonly<{ attendees: MeetingAttendee[] }>) {
   const { colors } = useTheme();
 
   if (!attendees?.length) {

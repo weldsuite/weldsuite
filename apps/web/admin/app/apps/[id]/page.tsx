@@ -9,9 +9,9 @@ import { EditAppPanel } from './edit-app-panel';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditAppPage(props: {
+export default async function EditAppPage(props: Readonly<{
   params: Promise<{ id: string }>;
-}) {
+}>) {
   await requireAdmin();
   const { id } = await props.params;
   const app = await getAppById(id);

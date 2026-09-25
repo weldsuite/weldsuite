@@ -782,7 +782,7 @@ export function WorkflowsClient({
                 disabled={isResetting}
               >
                 <RotateCcw className={cn("h-3.5 w-3.5 mr-1", isResetting && "animate-spin")} />
-                {isResetting ? t.weldconnect.workflows.resetDefaults.confirmLabel : t.weldconnect.workflows.resetDefaults.confirmLabel}
+                {t.weldconnect.workflows.resetDefaults.confirmLabel}
               </Button>
             )}
             {onNewFromTemplate && (

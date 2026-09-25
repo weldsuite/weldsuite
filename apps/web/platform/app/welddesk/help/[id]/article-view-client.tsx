@@ -51,7 +51,7 @@ interface ArticleViewClientProps {
   article: Article;
 }
 
-export function ArticleViewClient({ article }: ArticleViewClientProps) {
+export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const th = t.helpdesk.helpArticles;

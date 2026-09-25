@@ -12,7 +12,7 @@ interface GeneratePickListDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function GeneratePickListDialog({ open, onOpenChange }: GeneratePickListDialogProps) {
+export function GeneratePickListDialog({ open, onOpenChange }: Readonly<GeneratePickListDialogProps>) {
   const t = getTranslations('common').weldstash.pickLists;
   const generate = useGenerateWeldstashPickList();
   const warehouses = useWeldstashWarehouses({ limit: 100 });

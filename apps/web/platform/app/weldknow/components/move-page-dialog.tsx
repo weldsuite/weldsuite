@@ -46,7 +46,7 @@ function subtreeIds(nodes: { id: string; parentId: string | null }[], rootId: st
   return ids;
 }
 
-export function MovePageDialog({ pageId, open, onOpenChange }: MovePageDialogProps) {
+export function MovePageDialog({ pageId, open, onOpenChange }: Readonly<MovePageDialogProps>) {
   const t = getTranslations('weldknow');
   const { data: spacesData } = useKnowledgeSpaces();
   const { data: treeData } = useKnowledgePageTree();

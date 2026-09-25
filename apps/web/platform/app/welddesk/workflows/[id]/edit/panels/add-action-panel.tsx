@@ -21,7 +21,7 @@ export function AddActionPanel({
   trigger,
   onAddAction,
   onClose,
-}: AddActionPanelProps) {
+}: Readonly<AddActionPanelProps>) {
   const { t } = useI18n();
   const aap = t.helpdesk.addActionPanel;
   const wc = t.helpdesk.workflowConstants;

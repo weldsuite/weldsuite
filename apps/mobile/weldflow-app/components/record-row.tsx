@@ -37,7 +37,7 @@ export function RecordRow({
   leading,
   onPress,
   onLongPress,
-}: RecordRowProps) {
+}: Readonly<RecordRowProps>) {
   const { colors } = useTheme();
 
   const content = (

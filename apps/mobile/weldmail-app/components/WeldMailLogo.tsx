@@ -7,10 +7,10 @@ import Svg, { Path } from 'react-native-svg';
 export default function WeldMailLogo({
   size = 24,
   color = '#FFFFFF',
-}: {
+}: Readonly<{
   size?: number;
   color?: string;
-}) {
+}>) {
   return (
     <Svg width={size} height={size * (669.01 / 937.21)} viewBox="0 0 937.21 669.01">
       <Path

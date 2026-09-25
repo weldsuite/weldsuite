@@ -21,7 +21,7 @@ interface EventNotificationDialogProps {
   variant: 'delete' | 'update';
 }
 
-export function EventNotificationDialog({ open, onOpenChange, onConfirm, isPending, variant }: EventNotificationDialogProps) {
+export function EventNotificationDialog({ open, onOpenChange, onConfirm, isPending, variant }: Readonly<EventNotificationDialogProps>) {
   const [sendNotification, setSendNotification] = useState(true);
   const t = getTranslations('weldcalendar');
 

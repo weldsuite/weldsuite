@@ -331,7 +331,7 @@ export function WysiwygEditor({
           }
         }
         if (!detectedSize && el.style?.fontSize) {
-          const fs = parseInt(el.style.fontSize);
+          const fs = Number.parseInt(el.style.fontSize);
           if (fs && fontSizes.some(s => s.value === String(fs))) {
             setFontSize(String(fs));
             detectedSize = true;
@@ -448,7 +448,7 @@ export function WysiwygEditor({
             cursorFont = el.style.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
           }
           if (!cursorSize && el.style?.fontSize) {
-            cursorSize = parseInt(el.style.fontSize).toString();
+            cursorSize = Number.parseInt(el.style.fontSize).toString();
           }
           if (cursorFont && cursorSize) break;
           walk = walk.parentNode;

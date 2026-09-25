@@ -46,7 +46,7 @@ export function RecordPaymentDialog({
   balanceDue,
   open,
   onOpenChange,
-}: RecordPaymentDialogProps) {
+}: Readonly<RecordPaymentDialogProps>) {
   const recordPayment = useRecordInvoicePayment();
   const { t } = useI18n();
   const st = useTranslations();

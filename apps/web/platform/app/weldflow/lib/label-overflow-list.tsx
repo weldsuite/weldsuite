@@ -16,7 +16,7 @@ interface LabelOverflowListProps {
 
 const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
-export function LabelOverflowList({ labels, className }: LabelOverflowListProps) {
+export function LabelOverflowList({ labels, className }: Readonly<LabelOverflowListProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(labels.length);

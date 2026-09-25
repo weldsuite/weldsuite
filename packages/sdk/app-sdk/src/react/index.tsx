@@ -11,7 +11,14 @@ import {
 import { WeldApi } from '../core/api';
 import { WeldAppBridge } from '../core/bridge';
 import type { LocalDevOptions, WeldAppBridgeOptions } from '../core/local-dev';
-import type { InitPayload, RecordsClient, WeldAppUser, WeldTheme } from '../core/types';
+import type {
+  InitPayload,
+  RecordsClient,
+  WeldAppUser,
+  WeldBreadcrumb,
+  WeldSurface,
+  WeldTheme,
+} from '../core/types';
 
 export type WeldAppStatus = 'connecting' | 'ready' | 'error';
 
@@ -37,6 +44,10 @@ export interface WeldAppContextValue {
    * storage). False for bare-tab `localDev`.
    */
   isLocalShell: boolean;
+  /** Where the host renders this instance (`page`, or `modal` for `openModal`). */
+  surface: WeldSurface;
+  /** Title + params from the opener when {@link surface} is `modal`. */
+  modal: InitPayload['modal'] | null;
 }
 
 const WeldAppContext = createContext<WeldAppContextValue | null>(null);
@@ -131,6 +142,13 @@ export function WeldAppProvider({
         setLocale(payload.locale);
         setPath(payload.path && payload.path.length > 0 ? payload.path : '/');
         setStatus('ready');
+        // After React commits the first ready render, let the host swap its
+        // skeleton for the iframe.
+        requestAnimationFrame(() => {
+          if (!cancelled) {
+            bridge.notifyMounted();
+          }
+        });
       })
       .catch((cause: unknown) => {
         if (cancelled) {
@@ -173,6 +191,8 @@ export function WeldAppProvider({
       error,
       isLocalDev: bridge.isLocalDev,
       isLocalShell: bridge.isLocalShell,
+      surface: init?.surface ?? 'page',
+      modal: init?.modal ?? null,
     }),
     [init, theme, locale, path, api, bridge, status, error],
   );
@@ -213,6 +233,42 @@ export function useCollection<T extends Record<string, unknown> = Record<string,
   return useMemo(() => api.records<T>(collection), [api, collection]);
 }
 
+/**
+ * Show app-level breadcrumbs in the platform header while mounted. Pass a
+ * stable array (e.g. `useMemo`); the host keeps the app name as the root.
+ */
+export function useWeldBreadcrumbs(items: WeldBreadcrumb[]): void {
+  const { bridge, status } = useWeldApp();
+  const key = JSON.stringify(items);
+  useEffect(() => {
+    if (status !== 'ready') {
+      return;
+    }
+    const parsed = JSON.parse(key) as WeldBreadcrumb[];
+    bridge.setBreadcrumbs(parsed).catch(() => undefined);
+  }, [bridge, status, key]);
+}
+
+/**
+ * Guard unsaved changes: while `dirty` is true the platform asks the member
+ * to confirm before leaving the app. Cleared automatically on unmount.
+ */
+export function useWeldDirty(dirty: boolean, message?: string): void {
+  const { bridge, status } = useWeldApp();
+  useEffect(() => {
+    if (status !== 'ready') {
+      return;
+    }
+    bridge.setDirty(dirty, message).catch(() => undefined);
+    if (!dirty) {
+      return;
+    }
+    return () => {
+      bridge.setDirty(false).catch(() => undefined);
+    };
+  }, [bridge, status, dirty, message]);
+}
+
 export interface WeldAppGateProps {
   children: ReactNode;
   /** Rendered while the bridge is connecting. */
@@ -234,4 +290,4 @@ export function WeldAppGate({ children, fallback = null, errorFallback }: WeldAp
 }
 
 export { WeldApi, WeldAppBridge };
-export type { InitPayload, LocalDevOptions, RecordsClient, WeldAppUser, WeldTheme };
+export type { InitPayload, LocalDevOptions, RecordsClient, WeldAppUser, WeldBreadcrumb, WeldSurface, WeldTheme };

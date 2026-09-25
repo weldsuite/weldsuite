@@ -47,7 +47,7 @@ export function StatusFormDialog({
   status,
   onSubmit,
   isPending,
-}: StatusFormDialogProps) {
+}: Readonly<StatusFormDialogProps>) {
   const { t } = useI18n();
   const ts = t.crm.settings.customerStatuses;
   const isEdit = !!status;

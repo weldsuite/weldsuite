@@ -570,7 +570,7 @@ export class IframeManager {
     // Trigger open animation for widget on desktop
     if (type === IframeType.WIDGET && !this.deviceInfo.isMobile) {
       // Force reflow to ensure transition works
-      iframe.container.offsetHeight;
+      void iframe.container.offsetHeight;
       // Animate to visible state
       iframe.container.style.opacity = '1';
       iframe.container.style.transform = 'scale(1) translateY(0)';

@@ -54,7 +54,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-export function EditEmployeeDialog({ employee, onClose }: { employee: HrEmployeeDetail; onClose: () => void }) {
+export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: HrEmployeeDetail; onClose: () => void }>) {
   const t = useTranslations();
   const updateEmployee = useUpdateHrEmployee();
   const { data: departments } = useHrDepartments();

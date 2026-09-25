@@ -25,6 +25,13 @@ export interface SettingsApi {
   defaults(): Promise<DesktopSettings>;
 }
 
+/**
+ * The bridge the desktop shell's preload exposes. The platform is served live
+ * to every installed shell, including ones that predate newer methods, so any
+ * method added after the first shell release (0.1.0) is optional here and MUST
+ * be feature-detected. Calling a missing one throws inside a root-level effect
+ * and leaves the whole app on the "Something went wrong" screen.
+ */
 export interface WeldsuiteDesktopApi {
   readonly isDesktop: true;
   readonly platform: NodeJS.Platform;
@@ -48,7 +55,8 @@ export interface WeldsuiteDesktopApi {
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
   onAuthCallback(listener: (payload: AuthCallback) => void): () => void;
-  onNotificationClick(listener: (payload: { actionUrl?: string }) => void): () => void;
+  /** Not in shells older than 0.2.0; feature-detect. */
+  onNotificationClick?(listener: (payload: { actionUrl?: string }) => void): () => void;
   /**
    * Register the screen-share source picker.
    *
@@ -60,8 +68,10 @@ export interface WeldsuiteDesktopApi {
    * While no handler is registered the shell denies screen-share requests
    * outright, so this must stay mounted for the life of the session.
    * `<DesktopSourcePicker />` in the root route does that.
+   *
+   * Not in shells older than 0.2.0; feature-detect.
    */
-  onSelectSource(handler: (sources: DesktopSource[]) => Promise<string | null> | string | null): () => void;
+  onSelectSource?(handler: (sources: DesktopSource[]) => Promise<string | null> | string | null): () => void;
 }
 
 declare global {

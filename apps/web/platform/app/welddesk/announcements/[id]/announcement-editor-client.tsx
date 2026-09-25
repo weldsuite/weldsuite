@@ -54,7 +54,7 @@ interface AnnouncementEditorClientProps {
 // announcementId is not yet used: the editor currently seeds itself with mock
 // data instead of fetching the announcement by id.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorClientProps) {
+export function AnnouncementEditorClient({ announcementId }: Readonly<AnnouncementEditorClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.helpdesk.announcements;

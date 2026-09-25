@@ -14,7 +14,7 @@ import { getTranslations } from '@/lib/i18n';
  * panels have nowhere to render. Section navigation comes from the global
  * module sidebar (`MODULE_CONFIGS.weldcommerce`), not from this file.
  */
-export default function WeldCommerceLayout({ children }: { children: React.ReactNode }) {
+export default function WeldCommerceLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const t = getTranslations('commerce').module;
   const { isInstalled, isLoading } = useAppAccess('weldcommerce');
 

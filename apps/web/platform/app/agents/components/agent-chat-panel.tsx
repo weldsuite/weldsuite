@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Plus } from 'lucide-react';
+import { ArrowUp, CheckCircle2, ChevronDown, Clock, Plus, XCircle } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { useUser } from '@clerk/clerk-react';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
@@ -14,6 +20,10 @@ import {
   useCompleteConversationTurn,
   weldagentKeys,
 } from '@/hooks/queries/use-weldagent-queries';
+import {
+  useAgentApprovals,
+  useDecideAgentApproval,
+} from '@/hooks/queries/use-agent-parity-queries';
 import { AgentSetupPicker } from './agent-setup-picker';
 
 interface AgentChatPanelProps {
@@ -23,6 +33,115 @@ interface AgentChatPanelProps {
 }
 
 const setupSeedPromises = new Map<string, Promise<string>>();
+
+/** Background turns run in a durable workflow (10 min step budget). */
+const REPLY_TIMEOUT_MS = 10 * 60_000;
+/** After this long, reassure the user the agent is still on it. */
+const STILL_WORKING_AFTER_MS = 30_000;
+
+interface ToolInvocationView {
+  toolName: string;
+  state: 'call' | 'result' | 'error';
+  result?: unknown;
+}
+
+function readToolInvocations(raw: unknown): ToolInvocationView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (inv): inv is ToolInvocationView =>
+      !!inv &&
+      typeof inv === 'object' &&
+      typeof (inv as ToolInvocationView).toolName === 'string' &&
+      ((inv as ToolInvocationView).state === 'result' || (inv as ToolInvocationView).state === 'error'),
+  );
+}
+
+function pendingApprovalId(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as { pendingApproval?: unknown; approvalId?: unknown };
+  return r.pendingApproval === true && typeof r.approvalId === 'string' ? r.approvalId : null;
+}
+
+function isErrorResult(inv: ToolInvocationView): boolean {
+  if (inv.state === 'error') return true;
+  const r = inv.result as { error?: unknown } | null | undefined;
+  return !!r && typeof r === 'object' && typeof r.error === 'string';
+}
+
+function humanizeTool(name: string): string {
+  return name.replace(/_/g, ' ');
+}
+
+function ToolActivity({
+  invocations,
+  pendingIds,
+  onDecide,
+  deciding,
+}: {
+  invocations: ToolInvocationView[];
+  pendingIds: Set<string>;
+  onDecide: (approvalId: string, decision: 'approved' | 'rejected') => void;
+  deciding: boolean;
+}) {
+  const t = getTranslations('common').agents.detail.chat;
+  if (invocations.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5">
+      {invocations.map((inv, idx) => {
+        const tool = humanizeTool(inv.toolName);
+        const approvalId = pendingApprovalId(inv.result);
+        if (approvalId) {
+          const stillPending = pendingIds.has(approvalId);
+          return (
+            <div
+              key={`${inv.toolName}-${idx}`}
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[13px]"
+            >
+              <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              <span className="flex-1 min-w-0">
+                {(stillPending ? t.toolPending : t.toolDecided).replace('{tool}', tool)}
+              </span>
+              {stillPending && (
+                <span className="flex gap-1.5">
+                  <button
+                    type="button"
+                    disabled={deciding}
+                    className="rounded-full bg-foreground px-3 py-1 text-[12px] font-medium text-background disabled:opacity-50"
+                    onClick={() => onDecide(approvalId, 'approved')}
+                  >
+                    {t.approve}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deciding}
+                    className="rounded-full border px-3 py-1 text-[12px] font-medium disabled:opacity-50"
+                    onClick={() => onDecide(approvalId, 'rejected')}
+                  >
+                    {t.reject}
+                  </button>
+                </span>
+              )}
+            </div>
+          );
+        }
+        const failed = isErrorResult(inv);
+        return (
+          <div
+            key={`${inv.toolName}-${idx}`}
+            className="flex items-center gap-1.5 text-[12px] text-muted-foreground"
+          >
+            {failed ? (
+              <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+            )}
+            <span>{(failed ? t.toolFailed : t.toolRan).replace('{tool}', tool)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,6 +199,12 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
   const { data: conversations = [], isLoading: loadingList } = useWeldAgentConversations(50, agentId);
   const createConversation = useCreateConversation();
   const completeTurn = useCompleteConversationTurn();
+  const { data: pendingApprovals = [] } = useAgentApprovals(agentId);
+  const decideApproval = useDecideAgentApproval(agentId);
+  const pendingApprovalIds = useMemo(
+    () => new Set(pendingApprovals.map((a) => a.id)),
+    [pendingApprovals],
+  );
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -90,6 +215,7 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
   const [introLine, setIntroLine] = useState<string | null>(null);
   const [introComplete, setIntroComplete] = useState(false);
   const [pickerDismissed, setPickerDismissed] = useState(false);
+  const [stillWorking, setStillWorking] = useState(false);
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,12 +229,12 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
 
   const dateStamp = useMemo(() => formatTodayStamp(), []);
 
+  // Reset per-agent state only when switching agents — not on mount, where it
+  // would run after (and undo) the effect below that opens the latest thread.
+  const previousAgentId = useRef(agentId);
   useEffect(() => {
-    if (activeId && conversations.some((c) => c.id === activeId)) return;
-    setActiveId(conversations[0]?.id ?? null);
-  }, [conversations, activeId]);
-
-  useEffect(() => {
+    if (previousAgentId.current === agentId) return;
+    previousAgentId.current = agentId;
     setActiveId(null);
     setInput('');
     setPendingUser(null);
@@ -118,13 +244,23 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     setIntroLine(null);
     setIntroComplete(false);
     setPickerDismissed(false);
+    setStillWorking(false);
   }, [agentId]);
+
+  // Open the most recent thread when none is selected. A freshly created
+  // conversation may not be in the (refetching) list yet — keep it selected.
+  useEffect(() => {
+    if (activeId) return;
+    if (conversations[0]) setActiveId(conversations[0].id);
+  }, [conversations, activeId]);
 
   const awaitingReply = Boolean(awaitingReplyAfterId);
   const { data: messages = [], isLoading: loadingMessages } = useWeldAgentConversationMessages(
     activeId,
     100,
-    { refetchInterval: awaitingReply ? 1200 : false },
+    // Poll while a reply is being generated, or while an approved action's
+    // outcome may still be landing in the thread.
+    { refetchInterval: awaitingReply ? 1500 : decideApproval.isPending ? 1000 : false },
   );
 
   // Clear local pending state once the cloud reply lands in the thread.
@@ -134,7 +270,11 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     if (userIdx < 0) return;
     // Persisted user message is in — drop optimistic bubble.
     setPendingUser(null);
-    const reply = messages.slice(userIdx + 1).find((m) => m.role === 'assistant');
+    // Approval outcome notes can land in the thread meanwhile — they are not
+    // the reply to this turn.
+    const reply = messages
+      .slice(userIdx + 1)
+      .find((m) => m.role === 'assistant' && m.metadata?.kind !== 'approval_outcome');
     if (!reply) return;
     setAwaitingReplyAfterId(null);
     if (needsSetup) {
@@ -144,17 +284,34 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
 
   // Never leave the typing indicator stuck if the cloud finish never lands.
   useEffect(() => {
+    setStillWorking(false);
     if (!awaitingReplyAfterId) return;
+    const reassure = window.setTimeout(() => setStillWorking(true), STILL_WORKING_AFTER_MS);
     const timer = window.setTimeout(() => {
       setAwaitingReplyAfterId(null);
       setPendingUser(null);
+      setStillWorking(false);
       setSendError(t.replyTimedOut);
       void qc.invalidateQueries({
         queryKey: weldagentKeys.conversationMessages(activeId || ''),
       });
-    }, 90_000);
-    return () => window.clearTimeout(timer);
+    }, REPLY_TIMEOUT_MS);
+    return () => {
+      window.clearTimeout(reassure);
+      window.clearTimeout(timer);
+    };
   }, [awaitingReplyAfterId, activeId, qc, t.replyTimedOut]);
+
+  const handleDecide = useCallback(
+    (approvalId: string, decision: 'approved' | 'rejected') => {
+      setSendError(null);
+      decideApproval.mutate(
+        { id: approvalId, decision },
+        { onError: () => setSendError(t.approvalFailed) },
+      );
+    },
+    [decideApproval, t.approvalFailed],
+  );
 
   const hasUserMessage = messages.some((m) => m.role === 'user') || !!pendingUser;
   const isWaiting = awaitingReply || completeTurn.isPending;
@@ -277,7 +434,7 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
   const sendContent = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
-      if (!trimmed || completeTurn.isPending) return;
+      if (!trimmed || completeTurn.isPending || awaitingReplyAfterId) return;
 
       let conversationId = activeId;
       if (!conversationId) {
@@ -331,6 +488,7 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     [
       activeId,
       agentId,
+      awaitingReplyAfterId,
       completeTurn,
       createConversation,
       needsSetup,
@@ -345,7 +503,19 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     await sendContent(input);
   }, [input, sendContent]);
 
-  const canSend = Boolean(input.trim()) && !completeTurn.isPending && !createConversation.isPending && !seeding;
+  const canSend =
+    Boolean(input.trim()) &&
+    !completeTurn.isPending &&
+    !awaitingReply &&
+    !createConversation.isPending &&
+    !seeding;
+  const visibleMessages = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+  const openConversation = (conversationId: string) => {
+    if (conversationId === activeId || awaitingReply) return;
+    setActiveId(conversationId);
+    setPendingUser(null);
+    setSendError(null);
+  };
   const showEmpty =
     !needsSetup && !loadingMessages && !seeding && messages.length === 0 && !introLine && !pendingUser;
   const hidePersistedWhileRevealing = seeding && !!introLine;
@@ -359,14 +529,46 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
     <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] dark:bg-background">
       <div className="px-4 py-3 shrink-0 flex items-center justify-between gap-2">
         <span className="truncate text-[15px] font-medium text-foreground">{agentName}</span>
-        <button
-          type="button"
-          className="text-[13px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          onClick={() => void startNewChat()}
-          disabled={createConversation.isPending}
-        >
-          {t.newChat}
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {conversations.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={awaitingReply}
+                >
+                  {t.previousChats}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+                {conversations.map((c) => (
+                  <DropdownMenuItem
+                    key={c.id}
+                    className={cn('flex flex-col items-start gap-0.5', c.id === activeId && 'bg-accent')}
+                    onSelect={() => openConversation(c.id)}
+                  >
+                    <span className="w-full truncate text-[13px]">{c.name}</span>
+                    {c.lastMessageAt && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {new Date(c.lastMessageAt).toLocaleString()}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <button
+            type="button"
+            className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => void startNewChat()}
+            disabled={createConversation.isPending || awaitingReply}
+          >
+            {t.newChat}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-4">
@@ -383,12 +585,18 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
           )}
 
           {!hidePersistedWhileRevealing &&
-            messages.map((m) =>
+            visibleMessages.map((m) =>
               m.role === 'user' ? (
                 <UserBubble key={m.id}>{m.content}</UserBubble>
               ) : (
                 <div key={m.id} className="animate-in fade-in duration-200">
                   <AssistantBubble>{m.content}</AssistantBubble>
+                  <ToolActivity
+                    invocations={readToolInvocations(m.toolInvocations)}
+                    pendingIds={pendingApprovalIds}
+                    onDecide={handleDecide}
+                    deciding={decideApproval.isPending}
+                  />
                 </div>
               ),
             )}
@@ -416,10 +624,13 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
           )}
 
           {showTyping && (
-            <div className="min-h-[36px] flex items-center animate-in fade-in duration-150">
+            <div className="min-h-[36px] flex flex-col items-start gap-1 animate-in fade-in duration-150">
               <AssistantBubble className="py-3">
                 <TypingDots />
               </AssistantBubble>
+              {stillWorking && (
+                <p className="px-1 text-[12px] text-muted-foreground">{t.stillWorking}</p>
+              )}
             </div>
           )}
 

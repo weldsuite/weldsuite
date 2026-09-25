@@ -197,14 +197,14 @@ function SignInPreview({
   accentColor,
   welcomeMessage,
   hideWeldsuiteBranding,
-}: {
+}: Readonly<{
   displayName: string;
   logoUrl: string;
   primaryColor: string;
   accentColor: string;
   welcomeMessage: string;
   hideWeldsuiteBranding: boolean;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="max-w-sm overflow-hidden rounded-xl border shadow-sm" style={{ backgroundColor: accentColor }}>

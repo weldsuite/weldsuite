@@ -22,7 +22,7 @@ export function ReplacePinDialog({
   onOpenChange,
   pinnedMessages,
   onReplace,
-}: ReplacePinDialogProps) {
+}: Readonly<ReplacePinDialogProps>) {
   const { t } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

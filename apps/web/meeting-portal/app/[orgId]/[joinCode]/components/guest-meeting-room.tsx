@@ -77,7 +77,7 @@ export function GuestMeetingRoom({
   guestEmail,
   hostControls,
   onHostControlsBroadcast,
-}: GuestMeetingRoomProps) {
+}: Readonly<GuestMeetingRoomProps>) {
   const [participants, setParticipants] = useState<MeetingPeer[]>([]);
   const [handRaised, setHandRaised] = useState(false);
   const [captions, setCaptions] = useState<Array<{
@@ -269,7 +269,9 @@ export function GuestMeetingRoom({
   const stopScreenShare = useCallback(() => {
     if (!rtkClient) return;
     const client = rtkClient;
-    try { client.self.disableScreenShare?.(); } catch { /* ignore */ }
+    Promise.resolve()
+      .then(() => client.self.disableScreenShare?.())
+      .catch(() => { /* ignore */ });
     setIsScreenSharing(false);
   }, [rtkClient]);
 
@@ -286,14 +288,16 @@ export function GuestMeetingRoom({
         return next;
       });
       if (newState) playHandRaiseSound(); else playHandLowerSound();
-      try {
-        client.participants?.broadcastMessage?.(
-          newState ? 'call:hand-raised' : 'call:hand-lowered',
-          { peerId: selfPeerId },
-        );
-      } catch (err) {
-        console.error('[meeting-portal] broadcast hand-raise failed:', err);
-      }
+      Promise.resolve()
+        .then(() =>
+          client.participants?.broadcastMessage?.(
+            newState ? 'call:hand-raised' : 'call:hand-lowered',
+            { peerId: selfPeerId },
+          ),
+        )
+        .catch((err: unknown) => {
+          console.error('[meeting-portal] broadcast hand-raise failed:', err);
+        });
       return newState;
     });
   }, [rtkClient]);

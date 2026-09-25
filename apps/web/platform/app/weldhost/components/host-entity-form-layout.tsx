@@ -88,7 +88,7 @@ export function HostEntityFormLayout({
   backButtonText,
   hideMobileSummary = false,
   summaryHeaderAction,
-}: HostEntityFormLayoutProps) {
+}: Readonly<HostEntityFormLayoutProps>) {
   const router = useRouter();
   const t = useTranslations();
   const formId = `host-entity-form${useId()}`;

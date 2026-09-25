@@ -21,7 +21,7 @@ import {
   consumeWooCommerceAuthReturn,
 } from '@/app/weldconnect/connectors/connectors-client';
 
-function BrandLogo({ slug, alt }: { slug: string; alt: string }) {
+function BrandLogo({ slug, alt }: Readonly<{ slug: string; alt: string }>) {
   return (
     <img
       src={`https://api.iconify.design/logos:${slug}.svg`}
@@ -34,9 +34,9 @@ function BrandLogo({ slug, alt }: { slug: string; alt: string }) {
 
 export function EcommerceConnectorSettingsPage({
   provider,
-}: {
+}: Readonly<{
   provider: 'woocommerce' | 'shopify' | 'moneybird' | 'picqer';
-}) {
+}>) {
   const { t, format } = useI18n();
   const copy = t.settings.integrations[provider];
   const tc = t.weldconnect.connectors;

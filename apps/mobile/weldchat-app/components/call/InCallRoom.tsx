@@ -45,7 +45,7 @@ function JoinedCallBody({
   duration,
   onMinimize,
   onLeave,
-}: {
+}: Readonly<{
   meeting: MeetingClient;
   peerName?: string;
   peerAvatar?: string;
@@ -53,7 +53,7 @@ function JoinedCallBody({
   duration: number;
   onMinimize: () => void;
   onLeave: () => void;
-}) {
+}>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { storeStates, setStates } = useContext(RtkUIContext);
@@ -190,7 +190,7 @@ export function InCallRoom({
   duration,
   onMinimize,
   onLeave,
-}: {
+}: Readonly<{
   meeting: MeetingClient;
   peerName?: string;
   peerAvatar?: string;
@@ -198,7 +198,7 @@ export function InCallRoom({
   duration: number;
   onMinimize: () => void;
   onLeave: () => void;
-}) {
+}>) {
   return (
     <RtkUIProvider>
       <JoinedCallBody

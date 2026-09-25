@@ -130,7 +130,7 @@ export function EvaluationFormsTab() {
   );
 }
 
-function EvaluationFormEditor({ form, onClose }: { form: FormState; onClose: () => void }) {
+function EvaluationFormEditor({ form, onClose }: Readonly<{ form: FormState; onClose: () => void }>) {
   const t = useTranslations();
   const createForm = useCreateHrEvaluationForm();
   const updateForm = useUpdateHrEvaluationForm();
@@ -328,7 +328,7 @@ function EvaluationFormEditor({ form, onClose }: { form: FormState; onClose: () 
   );
 }
 
-function DeleteEvaluationFormDialog({ evalForm, onClose }: { evalForm: HrEvaluationForm; onClose: () => void }) {
+function DeleteEvaluationFormDialog({ evalForm, onClose }: Readonly<{ evalForm: HrEvaluationForm; onClose: () => void }>) {
   const t = useTranslations();
   const deleteForm = useDeleteHrEvaluationForm();
   const [failure, setFailure] = useState<string | null>(null);

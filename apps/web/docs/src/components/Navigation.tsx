@@ -7,10 +7,10 @@ import { navigation } from '@/lib/navigation'
 export function Navigation({
   className,
   onLinkClick,
-}: {
+}: Readonly<{
   className?: string
   onLinkClick?: React.MouseEventHandler<HTMLAnchorElement>
-}) {
+}>) {
   let pathname = usePathname()
 
   return (

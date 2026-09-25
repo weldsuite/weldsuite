@@ -225,7 +225,7 @@ function adaptEmailToDarkMode(doc: Document, surface: Hsla) {
 
     for (const side of sides) {
       if (cs.getPropertyValue(`border-${side}-style`) === 'none') continue;
-      if (parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
+      if (Number.parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
       const border = parseColor(cs.getPropertyValue(`border-${side}-color`));
       if (!border || border.a === 0) continue;
       const hsla = toHsla(border);
@@ -286,7 +286,7 @@ function useAppDarkMode(): boolean {
  *   - `width=device-width` lets responsive emails (media queries) reflow to the
  *     pane width, so the frame is responsive on mobile and narrow panes.
  */
-export function IsolatedHtmlContent({ html, className }: IsolatedHtmlContentProps) {
+export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlContentProps>) {
   const t = useTranslations();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(40);

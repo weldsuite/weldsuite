@@ -1352,6 +1352,27 @@
       "when": 1788200000000,
       "tag": "0192_weldhr_employee_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1788300000000,
+      "tag": "0193_member_permission_denies",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0194_weldagent_parity",
+      "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "7",
+      "when": 1788500000000,
+      "tag": "0195_commerce_portal_and_schema_drift",
+      "breakpoints": true
     }
   ]
 }

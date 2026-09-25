@@ -18,13 +18,13 @@ export function ComposeAttachButton({
   testId = 'compose-attach-input',
   className,
   iconClassName,
-}: {
+}: Readonly<{
   onFilesSelected: (files: File[]) => void;
   title: string;
   testId?: string;
   className?: string;
   iconClassName?: string;
-}) {
+}>) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (

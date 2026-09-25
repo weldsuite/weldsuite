@@ -5,6 +5,8 @@
  * Falls back to a generated initials avatar when no logo is found.
  */
 
+import { logSafe } from './log-safe';
+
 /**
  * Extract a bare domain from a URL or domain string.
  * Strips protocol, www prefix, path, query, and fragment.
@@ -158,7 +160,7 @@ export async function fetchAndStoreLogo({
         httpMetadata: { contentType: gravatar.contentType },
       });
       const publicUrl = `${r2PublicUrl}/${r2Key}`;
-      console.log('[LogoFetch] Stored gravatar for', email, 'at', publicUrl);
+      console.log('[LogoFetch] Stored gravatar for', logSafe(email), 'at', logSafe(publicUrl));
       return publicUrl;
     }
   }
@@ -188,7 +190,7 @@ export async function fetchAndStoreLogo({
               });
 
               const publicUrl = `${r2PublicUrl}/${r2Key}`;
-              console.log('[LogoFetch] Stored logo for', domain, 'at', publicUrl);
+              console.log('[LogoFetch] Stored logo for', logSafe(domain), 'at', logSafe(publicUrl));
               return publicUrl;
             }
           }
@@ -210,6 +212,6 @@ export async function fetchAndStoreLogo({
   });
 
   const publicUrl = `${r2PublicUrl}/${r2Key}`;
-  console.log('[LogoFetch] Stored initials avatar for', customerName, 'at', publicUrl);
+  console.log('[LogoFetch] Stored initials avatar for', logSafe(customerName), 'at', logSafe(publicUrl));
   return publicUrl;
 }

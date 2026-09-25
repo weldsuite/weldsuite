@@ -59,7 +59,7 @@ function mapOpportunityToDeal(opp: Opportunity, customer: Customer) {
   return {
     id: opp.id,
     title: opp.name,
-    value: opp.amount ? parseFloat(opp.amount) : 0,
+    value: opp.amount ? Number.parseFloat(opp.amount) : 0,
     stage: opp.stage,
     company: {
       id: customer.id,
@@ -107,7 +107,7 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-export function DealsPipelineSection({ customer, opportunities }: DealsPipelineSectionProps) {
+export function DealsPipelineSection({ customer, opportunities }: Readonly<DealsPipelineSectionProps>) {
   const t = useTranslations();
   const { currentWorkspace } = useWorkspace();
   const ctx = useCustomerDetailContextSafe();
@@ -159,7 +159,7 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
           // Only count deals that have a matching stage in this pipeline
           const matchedOpps = opps.filter(opp => stageIds.has(opp.stage));
           const totalValue = matchedOpps.reduce(
-            (sum, opp) => sum + (opp.amount ? parseFloat(opp.amount) : 0), 0
+            (sum, opp) => sum + (opp.amount ? Number.parseFloat(opp.amount) : 0), 0
           );
           return {
             id: pipelineId,
@@ -266,7 +266,7 @@ function MultiPipelineList({
   lockedCustomer,
   onDealMove,
   onDealCreate,
-}: {
+}: Readonly<{
   pipelineGroups: PipelineRow[];
   customer: Customer;
   customers: PipelineCustomer[];
@@ -274,7 +274,7 @@ function MultiPipelineList({
   lockedCustomer: { id: string; name: string };
   onDealMove: (dealId: string, fromStage: string, toStage: string) => Promise<void>;
   onDealCreate: (data: Record<string, unknown>) => Promise<void>;
-}) {
+}>) {
   const t = useTranslations();
   const [expandedPipelines, setExpandedPipelines] = useState<Set<string>>(new Set());
 

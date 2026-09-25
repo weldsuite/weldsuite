@@ -24,7 +24,7 @@ export function CustomersGrid({
   customers,
   pagination,
   searchParams,
-}: CustomersGridProps) {
+}: Readonly<CustomersGridProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const tc = t.helpdesk.customers;

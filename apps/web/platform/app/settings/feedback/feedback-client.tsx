@@ -36,7 +36,7 @@ interface FeedbackClientProps {
   initialStats: FeedbackStats | null;
 }
 
-export function FeedbackClient({ initialRequests, initialStats }: FeedbackClientProps) {
+export function FeedbackClient({ initialRequests, initialStats }: Readonly<FeedbackClientProps>) {
   const { t } = useI18n();
   const ts = t.settings.feedback;
   const [requests, setRequests] = useState(initialRequests);

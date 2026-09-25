@@ -111,7 +111,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 
 // ---------- DroppableColumn ----------
 
-function DroppableColumn({ id, children, containerRef }: { id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }) {
+function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
   const stageRef = useRef<HTMLDivElement>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
@@ -152,7 +152,7 @@ function DroppableColumn({ id, children, containerRef }: { id: string; children:
 
 // ---------- TaskCard ----------
 
-function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel, onClick }: { task: Task; availableLabels?: ProjectLabel[]; priorityConfig: Record<string, { label: string; color: string; bg: string }>; unassignedLabel: string; onClick?: () => void }) {
+function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel, onClick }: Readonly<{ task: Task; availableLabels?: ProjectLabel[]; priorityConfig: Record<string, { label: string; color: string; bg: string }>; unassignedLabel: string; onClick?: () => void }>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
@@ -313,7 +313,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
 
 // ---------- ColumnHeader ----------
 
-function ColumnHeader({ column, taskCount, onAddTask }: { column: PipelineColumn; taskCount: number; onAddTask: () => void }) {
+function ColumnHeader({ column, taskCount, onAddTask }: Readonly<{ column: PipelineColumn; taskCount: number; onAddTask: () => void }>) {
   return (
     <div className="mb-0">
       <div className="flex items-center justify-between mb-1 rounded-md px-2 py-1 -mx-2 transition-colors group hover:bg-gray-100 dark:hover:bg-secondary">
@@ -348,7 +348,7 @@ export function MyTasksPipeline({
   onReorder,
   onCreateTask,
   viewToggle,
-}: MyTasksPipelineProps) {
+}: Readonly<MyTasksPipelineProps>) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
 

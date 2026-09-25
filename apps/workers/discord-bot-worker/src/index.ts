@@ -526,7 +526,7 @@ async function handleWorkflowButton(env: Env, interaction: any, customId: string
       )?.label || value;
     payload.selectedLabel = label;
   } else if (action === 'wf_csat') {
-    payload.rating = parseInt(value, 10);
+    payload.rating = Number.parseInt(value, 10);
   } else {
     return;
   }

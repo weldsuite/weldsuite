@@ -9,7 +9,7 @@ interface TypingIndicatorProps {
   client?: RoomClient | null;
 }
 
-export function TypingIndicator({ client }: TypingIndicatorProps) {
+export function TypingIndicator({ client }: Readonly<TypingIndicatorProps>) {
   const { t } = useI18n();
   const typingUsers = useTypingSubscriber(client ?? null);
   const { data: membersData } = useWorkspaceMembers();

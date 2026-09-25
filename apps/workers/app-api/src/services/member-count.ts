@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
 import { masterSchema, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
+import { logSafe } from '../lib/log-safe';
 
 const { users, userWorkspaces } = masterSchema;
 
@@ -77,7 +78,7 @@ export async function getAccurateMemberCount(
 
     // Counts differ — sync userWorkspaces from Clerk data (fire-and-forget)
     console.warn(
-      `[member-count] Member count mismatch for workspace ${workspaceId}: DB=${dbCount}, Clerk=${clerkCount}. Syncing...`,
+      `[member-count] Member count mismatch for workspace ${logSafe(workspaceId)}: DB=${dbCount}, Clerk=${logSafe(clerkCount)}. Syncing...`,
     );
 
     syncUserWorkspacesFromClerk(masterDb, workspaceId, dbMembers, memberships.data).catch(

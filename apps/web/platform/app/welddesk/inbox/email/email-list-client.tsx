@@ -46,7 +46,7 @@ interface EmailListClientProps {
   accessToken?: string;
 }
 
-export default function EmailListClient({ initialConversations, accessToken }: EmailListClientProps) {
+export default function EmailListClient({ initialConversations, accessToken }: Readonly<EmailListClientProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();

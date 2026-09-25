@@ -249,7 +249,7 @@ function parseMainContent(bodyHtml?: string, bodyText?: string): { main: string;
   return { main: content, quoted: '' };
 }
 
-function ThreadMessageContent({ threadMsg }: { threadMsg: EmailMessage }) {
+function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage }>) {
   const { t } = useI18n();
   const [showQuoted, setShowQuoted] = useState(false);
   const { main, quoted } = parseMainContent(threadMsg.bodyHtml, threadMsg.bodyText);
@@ -296,12 +296,12 @@ function ThreadMessageContent({ threadMsg }: { threadMsg: EmailMessage }) {
   );
 }
 
-function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: {
+function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: Readonly<{
   messageId: string;
   scheduledFor: string | Date;
   accountId: string;
   folder: string;
-}) {
+}>) {
   const { t } = useI18n();
   const router = useRouter();
   const [isCancelling, setIsCancelling] = useState(false);
@@ -450,7 +450,7 @@ interface MessageDetailProps {
   drafts?: ThreadDraft[];
 }
 
-export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [] }: MessageDetailProps) {
+export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [] }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();

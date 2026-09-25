@@ -52,7 +52,7 @@ export default function AccountingSettingsPage() {
   const handleXafDownload = async () => {
     setXafDownloading(true);
     try {
-      const xml = await accountingApi.getXafAuditfile(parseInt(xafYear, 10));
+      const xml = await accountingApi.getXafAuditfile(Number.parseInt(xafYear, 10));
       const blob = new Blob([xml], { type: 'application/xml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

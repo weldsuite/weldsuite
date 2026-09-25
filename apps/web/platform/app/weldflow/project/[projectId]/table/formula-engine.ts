@@ -34,7 +34,7 @@ export function parseRef(ref: string): CellRef | null {
   if (!m) return null;
   return {
     col: colIndex(m[2]),
-    row: parseInt(m[4], 10) - 1,
+    row: Number.parseInt(m[4], 10) - 1,
     absCol: m[1] === '$',
     absRow: m[3] === '$',
   };
@@ -105,7 +105,7 @@ function tokenize(formula: string): Token[] {
     if ((s[i] >= '0' && s[i] <= '9') || (s[i] === '.' && i + 1 < s.length && s[i + 1] >= '0' && s[i + 1] <= '9')) {
       let num = '';
       while (i < s.length && ((s[i] >= '0' && s[i] <= '9') || s[i] === '.')) { num += s[i]; i++; }
-      tokens.push({ type: TokenType.NUMBER, value: num, numValue: parseFloat(num) });
+      tokens.push({ type: TokenType.NUMBER, value: num, numValue: Number.parseFloat(num) });
       continue;
     }
 
@@ -348,7 +348,7 @@ function toNumber(v: CellValue): number {
   if (v === null || v === '') return 0;
   if (typeof v === 'boolean') return v ? 1 : 0;
   const n = Number(v);
-  if (isNaN(n)) throw new Error('#VALUE!');
+  if (Number.isNaN(n)) throw new Error('#VALUE!');
   return n;
 }
 
@@ -392,7 +392,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n)) sum += n;
+      if (!Number.isNaN(n)) sum += n;
     }
     return sum;
   },
@@ -404,7 +404,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n)) { sum += n; count++; }
+      if (!Number.isNaN(n)) { sum += n; count++; }
     }
     return count === 0 ? '#DIV/0!' : sum / count;
   },
@@ -416,7 +416,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n) && n < min) min = n;
+      if (!Number.isNaN(n) && n < min) min = n;
     }
     return min === Infinity ? 0 : min;
   },
@@ -428,7 +428,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
       if (isError(v)) return v;
       if (v === null || v === '' || typeof v === 'boolean') continue;
       const n = Number(v);
-      if (!isNaN(n) && n > max) max = n;
+      if (!Number.isNaN(n) && n > max) max = n;
     }
     return max === -Infinity ? 0 : max;
   },
@@ -437,7 +437,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
     const vals = flattenArgs(args, get, vis, ev);
     let count = 0;
     for (const v of vals) {
-      if (v !== null && v !== '' && !isNaN(Number(v))) count++;
+      if (v !== null && v !== '' && !Number.isNaN(Number(v))) count++;
     }
     return count;
   },
@@ -687,19 +687,19 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
   YEAR: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getFullYear();
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getFullYear();
   },
 
   MONTH: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getMonth() + 1;
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getMonth() + 1;
   },
 
   DAY: (args, get, vis, ev) => {
     const v = toString(ev(args[0], get, vis));
     const d = new Date(v);
-    return isNaN(d.getTime()) ? '#VALUE!' : d.getDate();
+    return Number.isNaN(d.getTime()) ? '#VALUE!' : d.getDate();
   },
 
   COUNTIF: (args, get, vis, ev) => {
@@ -736,7 +736,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
           const colOffset = c - minCol;
           const sv = getCellValue(sumMinCol + colOffset, sumMinRow + rowOffset);
           const n = Number(sv);
-          if (!isNaN(n)) sum += n;
+          if (!Number.isNaN(n)) sum += n;
         }
       }
     }
@@ -923,7 +923,7 @@ export function adjustFormula(formula: string, rowDelta: number, colDelta: numbe
   const refRe = /(\$?)([A-Z]+)(\$?)(\d+)/gi;
   const adjusted = expr.replace(refRe, (match, absc, col, absr, row) => {
     const colIdx = colIndex(col.toUpperCase());
-    const rowIdx = parseInt(row, 10) - 1;
+    const rowIdx = Number.parseInt(row, 10) - 1;
     const newCol = absc === '$' ? colIdx : Math.max(0, colIdx + colDelta);
     const newRow = absr === '$' ? rowIdx : Math.max(0, rowIdx + rowDelta);
     return `${absc}${colLabel(newCol)}${absr}${newRow + 1}`;

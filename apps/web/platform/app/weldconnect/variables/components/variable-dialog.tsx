@@ -33,7 +33,7 @@ interface VariableDialogProps {
   mode?: 'create' | 'edit';
 }
 
-export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }: VariableDialogProps) {
+export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }: Readonly<VariableDialogProps>) {
   const { t } = useI18n();
   const createVariableMutation = useCreateVariable();
   const updateVariableMutation = useUpdateVariable();

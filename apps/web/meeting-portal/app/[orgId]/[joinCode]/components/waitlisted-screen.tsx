@@ -104,7 +104,7 @@ export function WaitlistedScreen({
   applyImage,
   removeBackground,
   onLeave,
-}: WaitlistedScreenProps) {
+}: Readonly<WaitlistedScreenProps>) {
   const waitInitials = guestName
     ? guestName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : 'Y';

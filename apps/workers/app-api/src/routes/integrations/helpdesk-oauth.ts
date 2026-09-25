@@ -29,6 +29,7 @@ import {
   putDiscordGuildMapping,
 } from '../../services/helpdesk-integrations';
 import type { IntegrationsEnv } from '../../services/integrations/connections';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -230,8 +231,10 @@ app.get('/slack/callback', async (c) => {
     };
 
     if (!tokenData.ok || !tokenData.access_token) {
-      console.error('[app-api/integrations-helpdesk] Slack token exchange failed:', tokenData.error);
-      return c.redirect(`${appUrl}/welddesk/settings/integrations/slack?error=${tokenData.error || 'token_exchange_failed'}`);
+      console.error('[app-api/integrations-helpdesk] Slack token exchange failed:', logSafe(tokenData.error));
+      return c.redirect(
+        `${appUrl}/welddesk/settings/integrations/slack?error=${encodeURIComponent(tokenData.error || 'token_exchange_failed')}`,
+      );
     }
 
     const teamId = tokenData.team?.id;
@@ -289,7 +292,9 @@ app.get('/slack/callback', async (c) => {
       );
     }
 
-    console.log(`[app-api/integrations-helpdesk] Connected Slack team "${teamName}" (${teamId}) for org ${orgId}`);
+    console.log(
+      `[app-api/integrations-helpdesk] Connected Slack team "${logSafe(teamName)}" (${logSafe(teamId)}) for org ${logSafe(orgId)}`,
+    );
 
     return c.redirect(`${appUrl}/welddesk/settings/integrations/slack?connected=true`);
   } catch (err) {

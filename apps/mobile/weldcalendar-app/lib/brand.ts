@@ -57,9 +57,9 @@ export const CALENDAR_COLORS = [
 /** ~12% tint of an accent, for the rounded icon tiles on menu rows. */
 export function tint(hex: string, alpha = 0.12): string {
   const value = hex.replace('#', '');
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
+  const r = Number.parseInt(value.slice(0, 2), 16);
+  const g = Number.parseInt(value.slice(2, 4), 16);
+  const b = Number.parseInt(value.slice(4, 6), 16);
   if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return BRAND_TINT;
   return `rgba(${r},${g},${b},${alpha})`;
 }

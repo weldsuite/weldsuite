@@ -13,7 +13,7 @@ interface ProjectsHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: ProjectsHeaderProps) {
+export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<ProjectsHeaderProps>) {
   const { t } = useI18n();
   const pathname = usePathname();
 

@@ -113,7 +113,7 @@ function getDateTruncUnit(groupBy: string): TruncUnit {
 
 function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  if (isNaN(d.getTime())) return String(date);
+  if (Number.isNaN(d.getTime())) return String(date);
 
   switch (truncUnit) {
     case 'hour':

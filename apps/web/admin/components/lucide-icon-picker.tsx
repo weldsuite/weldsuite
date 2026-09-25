@@ -32,7 +32,7 @@ const ICON_NAMES: string[] = Object.keys(LucideIcons)
     const Comp = (LucideIcons as Record<string, unknown>)[key];
     return typeof Comp === 'object' || typeof Comp === 'function';
   })
-  .sort();
+  .sort((a, b) => a.localeCompare(b));
 
 export function getLucideComponent(name: string | null | undefined): LucideIcon | null {
   if (!name) return null;
@@ -46,10 +46,10 @@ export function getLucideComponent(name: string | null | undefined): LucideIcon 
 export function LucideIconPreview({
   name,
   className,
-}: {
+}: Readonly<{
   name: string | null | undefined;
   className?: string;
-}) {
+}>) {
   const Comp = getLucideComponent(name);
   if (Comp) return <Comp className={className} />;
   return <HelpCircle className={cn('text-muted-foreground', className)} />;
@@ -58,10 +58,10 @@ export function LucideIconPreview({
 export function LucideIconPicker({
   value,
   onChange,
-}: {
+}: Readonly<{
   value: string;
   onChange: (name: string) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 

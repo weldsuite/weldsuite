@@ -69,7 +69,7 @@ export function CustomFieldsSidebarSection({
   onSaved,
   hideHeader,
   layout = 'stacked',
-}: CustomFieldsSidebarSectionProps) {
+}: Readonly<CustomFieldsSidebarSectionProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [fieldDefs, setFieldDefs] = useState<CustomFieldDefinition[]>([]);
@@ -193,12 +193,12 @@ function EditableCustomField({
   value,
   onUpdate,
   layout = 'stacked',
-}: {
+}: Readonly<{
   def: CustomFieldDefinition;
   value: unknown;
   onUpdate: (slug: string, value: unknown) => Promise<void>;
   layout?: 'stacked' | 'row';
-}) {
+}>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>('');

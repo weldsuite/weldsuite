@@ -201,8 +201,8 @@ export function DealDetailsModal({
       await onSubmit({
         name: title.trim(),
         customerId: selectedCustomer.id,
-        amount: value ? parseFloat(value) : 1,
-        probability: probability ? parseInt(probability) : undefined,
+        amount: value ? Number.parseFloat(value) : 1,
+        probability: probability ? Number.parseInt(probability) : undefined,
         closeDate: closeDate ? closeDate.toISOString() : undefined,
         description: description || undefined,
         status: 'open',

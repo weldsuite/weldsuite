@@ -18,7 +18,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   createConversationSchema,
@@ -31,10 +31,11 @@ import {
 import { InsufficientAiCreditsError } from '../../services/ai/billing';
 import {
   acceptConversationTurn,
-  finishAcceptedTurn,
   completeConversationTurn,
+  toAcceptedTurnRef,
   ConversationNotFoundError,
 } from '../../services/weldagent/complete-turn';
+import { enqueueWeldAgentJob } from '../../services/weldagent/jobs';
 import { getAgent } from '../../services/weldagent/agents';
 import {
   AllGatewaysFailedError,
@@ -90,7 +91,10 @@ app.get('/conversations', async (c) => {
       eq(weldagentConversations.userId, userId),
       isNull(weldagentConversations.deletedAt),
     ];
-    if (agentId) {
+    // `agentId=none` → personal assistant chats only (home sidebar "Recent").
+    if (agentId === 'none') {
+      conditions.push(isNull(weldagentConversations.agentId));
+    } else if (agentId) {
       conditions.push(eq(weldagentConversations.agentId, agentId));
     }
 
@@ -182,20 +186,33 @@ app.get('/conversations/:conversationId/messages', async (c) => {
       return error.notFound(c, 'Conversation', conversationId);
     }
 
-    const messages = await db
+    const where = and(
+      eq(weldagentMessages.conversationId, conversationId),
+      isNull(weldagentMessages.deletedAt),
+    );
+
+    // With an explicit offset: legacy oldest-first paging. Without one: the
+    // latest `limit` messages, still in chronological order — chat UIs need
+    // the tail of a long thread, not its first page.
+    if (c.req.query('offset') !== undefined) {
+      const page = await db
+        .select()
+        .from(weldagentMessages)
+        .where(where)
+        .orderBy(weldagentMessages.createdAt, weldagentMessages.id)
+        .limit(limit)
+        .offset(offset);
+      return success(c, page);
+    }
+
+    const latest = await db
       .select()
       .from(weldagentMessages)
-      .where(
-        and(
-          eq(weldagentMessages.conversationId, conversationId),
-          isNull(weldagentMessages.deletedAt),
-        ),
-      )
-      .orderBy(weldagentMessages.createdAt)
-      .limit(limit)
-      .offset(offset);
+      .where(where)
+      .orderBy(desc(weldagentMessages.createdAt), desc(weldagentMessages.id))
+      .limit(limit);
 
-    return success(c, messages);
+    return success(c, latest.reverse());
   } catch (err) {
     console.error('[app-api/weldagent] list messages failed:', err);
     return error.internal(c, 'Failed to get messages');
@@ -281,6 +298,8 @@ app.post(
     const env = c.env;
     const workspaceId = c.get('workspaceId');
     const userId = c.get('userId');
+    // The agent acts on the user's behalf: its grants are narrowed to theirs.
+    const actorPermissions = (await ensurePermissionsResolved(c))?.permissions ?? [];
 
     try {
       if (wait) {
@@ -292,6 +311,7 @@ app.post(
           conversationId,
           content,
           agentId,
+          actorPermissions,
         });
 
         c.executionCtx.waitUntil(
@@ -315,25 +335,16 @@ app.post(
         conversationId,
         content,
         agentId,
+        actorPermissions,
       });
 
-      c.executionCtx.waitUntil(
-        finishAcceptedTurn({ db, env, accepted }).catch(async (err) => {
-          // finishAcceptedTurn already persists failures internally; this is a
-          // last-resort write if something escapes that try/catch.
-          console.error('[app-api/weldagent] complete-turn background finish failed:', err);
-          try {
-            const { persistFailedAssistantTurn } = await import(
-              '../../services/weldagent/complete-turn'
-            );
-            await persistFailedAssistantTurn({ db, accepted, error: err });
-          } catch (persistErr) {
-            console.error(
-              '[app-api/weldagent] complete-turn failed to persist error reply:',
-              persistErr,
-            );
-          }
-        }),
+      // Generate the reply in the durable WeldAgent job workflow — a tool loop
+      // routinely outlives the ~30s waitUntil budget after this response.
+      await enqueueWeldAgentJob(
+        env,
+        (p) => c.executionCtx.waitUntil(p),
+        { kind: 'chat-turn', ...toAcceptedTurnRef(accepted) },
+        db,
       );
 
       return success(c, {

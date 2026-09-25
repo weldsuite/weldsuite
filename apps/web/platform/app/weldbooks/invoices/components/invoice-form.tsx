@@ -86,7 +86,7 @@ interface InvoiceFormProps {
   invoice?: InvoiceDetail;
 }
 
-export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
+export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { t } = useI18n();
@@ -122,12 +122,12 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
           invoice.items && invoice.items.length > 0
             ? invoice.items.map((item) => ({
                 description: item.description ?? '',
-                quantity: parseFloat(item.quantity ?? '1') || 1,
-                unitPrice: parseFloat(item.unitPrice) || 0,
+                quantity: Number.parseFloat(item.quantity ?? '1') || 1,
+                unitPrice: Number.parseFloat(item.unitPrice) || 0,
                 taxRateId: item.taxRateId ?? null,
                 accountId: item.accountId ?? null,
                 unit: item.unit ?? '',
-                discountPercent: parseFloat(item.discountPercent ?? '0') || 0,
+                discountPercent: Number.parseFloat(item.discountPercent ?? '0') || 0,
               }))
             : [{ description: '', quantity: 1, unitPrice: 0, taxRateId: null, accountId: null, unit: '', discountPercent: 0 }],
       };
@@ -163,7 +163,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   const taxRateMap = useMemo(() => {
     const map: Record<string, number> = {};
     for (const tr of taxRates) {
-      map[tr.id] = parseFloat(tr.rate ?? '0');
+      map[tr.id] = Number.parseFloat(tr.rate ?? '0');
     }
     return map;
   }, [taxRates]);

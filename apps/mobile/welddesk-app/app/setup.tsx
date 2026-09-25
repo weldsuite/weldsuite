@@ -29,7 +29,7 @@ import {
 // Progress Dots
 // ============================================================================
 
-function ProgressDots({ current, total, colors }: { current: number; total: number; colors: any }) {
+function ProgressDots({ current, total, colors }: Readonly<{ current: number; total: number; colors: any }>) {
   const { t, format } = useI18n();
   return (
     <View style={progressStyles.container}>
@@ -65,9 +65,9 @@ const progressStyles = StyleSheet.create({
 // Step Header
 // ============================================================================
 
-function StepHeader({ onBack, showBack, current, total, colors }: {
+function StepHeader({ onBack, showBack, current, total, colors }: Readonly<{
   onBack: () => void; showBack: boolean; current: number; total: number; colors: any;
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <View style={headerStyles.container}>
@@ -95,9 +95,9 @@ const headerStyles = StyleSheet.create({
 // Profile Step
 // ============================================================================
 
-function ProfileStep({ data, onNext, isLoading, colors }: {
+function ProfileStep({ data, onNext, isLoading, colors }: Readonly<{
   data: ProfileData; onNext: (data: ProfileData) => void; isLoading: boolean; colors: any;
-}) {
+}>) {
   const [firstName, setFirstName] = useState(data.firstName);
   const [lastName, setLastName] = useState(data.lastName);
   const [phone, setPhone] = useState(data.phone);
@@ -177,9 +177,9 @@ function ProfileStep({ data, onNext, isLoading, colors }: {
 // Workspace Step
 // ============================================================================
 
-function WorkspaceStep({ data, onNext, isLoading, colors }: {
+function WorkspaceStep({ data, onNext, isLoading, colors }: Readonly<{
   data: WorkspaceData; onNext: (data: WorkspaceData) => void; isLoading: boolean; colors: any;
-}) {
+}>) {
   const [name, setName] = useState(data.name);
   const [slug, setSlug] = useState(data.slug);
   const [country, setCountry] = useState(data.country);
@@ -276,9 +276,9 @@ function WorkspaceStep({ data, onNext, isLoading, colors }: {
 // Provisioning Step
 // ============================================================================
 
-function ProvisioningStep({ onComplete, colors }: {
+function ProvisioningStep({ onComplete, colors }: Readonly<{
   onComplete: () => void; colors: any;
-}) {
+}>) {
   const [currentPhase, setCurrentPhase] = useState(0);
   const [, setPollCount] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -411,9 +411,9 @@ const provisionStyles = StyleSheet.create({
 // Notification Step
 // ============================================================================
 
-function NotificationStep({ onNext, colors }: {
+function NotificationStep({ onNext, colors }: Readonly<{
   onNext: () => void; colors: any;
-}) {
+}>) {
   const { requestPermissions } = useNotifications();
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
@@ -486,9 +486,9 @@ const notifStyles = StyleSheet.create({
 // Welcome Step
 // ============================================================================
 
-function WelcomeStep({ onFinish, isLoading, colors }: {
+function WelcomeStep({ onFinish, isLoading, colors }: Readonly<{
   onFinish: () => void; isLoading: boolean; colors: any;
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <View style={welcomeStyles.container}>
@@ -578,7 +578,7 @@ export default function SetupScreen() {
         ]);
 
         if (savedStep) {
-          const step = parseInt(savedStep, 10);
+          const step = Number.parseInt(savedStep, 10);
           if (step >= 1 && step <= totalSteps) setCurrentStep(step);
         }
 

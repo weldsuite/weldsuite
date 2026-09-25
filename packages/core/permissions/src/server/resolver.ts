@@ -5,6 +5,7 @@
  * Generic over the database type so it works in any Hono worker.
  *
  * effectivePermissions = rolePermissions UNION teamPermissions[] UNION memberExtraPermissions
+ * denies               = memberDenies (applied at check time, a deny always wins)
  */
 
 import { SYSTEM_ROLES } from '../catalog';
@@ -21,6 +22,8 @@ export interface PermissionDbQuery {
     role: string;
     roleId: string | null;
     permissions: string[] | null;
+    /** Explicit per-member denies. Absent until the column exists. */
+    permissionDenies?: string[] | null;
   } | null>;
 
   getRolePermissions(roleId: string): Promise<string[] | null>;
@@ -45,14 +48,14 @@ export async function resolveEffectivePermissions(
   const member = await queries.getMember(userId);
 
   if (!member) {
-    return { permissions: [], role: '', roleId: null, isOwner: false };
+    return { permissions: [], denies: [], role: '', roleId: null, isOwner: false };
   }
 
   const isOwner = member.role === 'OWNER';
 
-  // OWNER shortcut
+  // OWNER shortcut — the owner can never be restricted, so no denies.
   if (isOwner) {
-    return { permissions: ['*'], role: 'OWNER', roleId: member.roleId, isOwner: true };
+    return { permissions: ['*'], denies: [], role: 'OWNER', roleId: member.roleId, isOwner: true };
   }
 
   // 1. Role permissions
@@ -79,6 +82,7 @@ export async function resolveEffectivePermissions(
 
   return {
     permissions: [...all],
+    denies: member.permissionDenies ?? [],
     role: member.role,
     roleId: member.roleId,
     isOwner: false,
@@ -108,13 +112,19 @@ export function createDrizzlePermissionQueries(
 
   return {
     async getMember(userId: string) {
+      const columns: Record<string, unknown> = {
+        id: schema.workspaceMembers.id,
+        role: schema.workspaceMembers.role,
+        roleId: schema.workspaceMembers.roleId,
+        permissions: schema.workspaceMembers.permissions,
+      };
+      // Only selected once the schema declares the column, so this adapter
+      // keeps working against tenant DBs that predate it.
+      if (schema.workspaceMembers.permissionDenies) {
+        columns.permissionDenies = schema.workspaceMembers.permissionDenies;
+      }
       const [member] = await db
-        .select({
-          id: schema.workspaceMembers.id,
-          role: schema.workspaceMembers.role,
-          roleId: schema.workspaceMembers.roleId,
-          permissions: schema.workspaceMembers.permissions,
-        })
+        .select(columns)
         .from(schema.workspaceMembers)
         .where(
           and(

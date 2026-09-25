@@ -53,7 +53,7 @@ export function DashboardSidebarClient({
   currentWorkspace,
   workspaces = [],
   installedApps
-}: DashboardSidebarClientProps) {
+}: Readonly<DashboardSidebarClientProps>) {
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
   const { switchWorkspace } = useWorkspace();
   const t = getTranslations('navigation');

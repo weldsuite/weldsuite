@@ -38,10 +38,10 @@ const DEFAULT_PRESET = 30;
 export function WorkspacesList({
   workspaces,
   initialSearch,
-}: {
+}: Readonly<{
   workspaces: WorkspaceRow[];
   initialSearch: string;
-}) {
+}>) {
   const router = useRouter();
   const [search, setSearch] = useState(initialSearch);
   const [scheduleTarget, setScheduleTarget] = useState<WorkspaceRow | null>(null);
@@ -269,12 +269,12 @@ function ScheduleDialog({
   isMutating,
   onClose,
   onConfirm,
-}: {
+}: Readonly<{
   workspace: WorkspaceRow;
   isMutating: boolean;
   onClose: () => void;
   onConfirm: (deleteAtIso: string, reason: string) => void;
-}) {
+}>) {
   const [mode, setMode] = useState<'preset' | 'custom'>('preset');
   const [presetDays, setPresetDays] = useState<number>(DEFAULT_PRESET);
   const [customValue, setCustomValue] = useState<string>('');
@@ -387,7 +387,7 @@ function ScheduleDialog({
   );
 }
 
-function StatCard({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+function StatCard({ label, value, muted }: Readonly<{ label: string; value: number; muted?: boolean }>) {
   return (
     <Card className="py-4">
       <CardContent className="px-4">

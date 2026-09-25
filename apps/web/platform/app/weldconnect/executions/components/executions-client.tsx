@@ -102,7 +102,7 @@ function formatRelativeTime(
   return translate('sweep.weldconnect.executionsClient.daysAgoShort', { count: Math.floor(diffMins / 1440) });
 }
 
-export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
+export function ExecutionsClient({ initialExecutions }: Readonly<ExecutionsClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
 

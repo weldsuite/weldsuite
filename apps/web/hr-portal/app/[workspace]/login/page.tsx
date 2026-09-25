@@ -4,7 +4,7 @@ import { PortalNotAvailable } from '@/components/portal-not-available';
 import LoginView from './view';
 
 /** Server-rendered sign-in: branding is loaded on the server, so the page arrives on-brand. */
-export default async function LoginPage({ params }: { params: Promise<{ workspace: string }> }) {
+export default async function LoginPage({ params }: Readonly<{ params: Promise<{ workspace: string }> }>) {
   const { workspace } = await params;
   const config = await getPortalConfig(workspace);
   if (!config) return <PortalNotAvailable />;

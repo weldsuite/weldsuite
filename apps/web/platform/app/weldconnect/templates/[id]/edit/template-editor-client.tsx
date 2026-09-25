@@ -97,7 +97,7 @@ export function TemplateEditorClient({
   template: initialTemplate,
   emailAccounts = [],
   workspaceMembers = [],
-}: TemplateEditorClientProps) {
+}: Readonly<TemplateEditorClientProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.templateEditorClient;
 

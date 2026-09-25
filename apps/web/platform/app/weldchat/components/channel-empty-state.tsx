@@ -30,7 +30,7 @@ function formatCreationDate(iso: string | null | undefined): string {
   }
 }
 
-export function ChannelEmptyState({ channel }: ChannelEmptyStateProps) {
+export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { data: membersData } = useWorkspaceMembers();

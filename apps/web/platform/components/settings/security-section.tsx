@@ -56,7 +56,7 @@ export function SecuritySection({
             </div>
             <Select
               value={security.sessionTimeout.toString()}
-              onValueChange={(v) => handleChange('sessionTimeout', parseInt(v))}
+              onValueChange={(v) => handleChange('sessionTimeout', Number.parseInt(v))}
             >
               <SelectTrigger className="w-32">
                 <SelectValue />

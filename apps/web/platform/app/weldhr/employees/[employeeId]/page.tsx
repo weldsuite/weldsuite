@@ -203,10 +203,10 @@ export default function WeldHrEmployeeDetailPage() {
 function OverviewTab({
   employee,
   canManagePortal,
-}: {
+}: Readonly<{
   employee: NonNullable<ReturnType<typeof useHrEmployee>['data']>;
   canManagePortal: boolean;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -269,7 +269,7 @@ function OverviewTab({
   );
 }
 
-function ClientsTab({ employeeId, canUpdate }: { employeeId: string; canUpdate: boolean }) {
+function ClientsTab({ employeeId, canUpdate }: Readonly<{ employeeId: string; canUpdate: boolean }>) {
   const t = useTranslations();
   const { data: assignments, isLoading, error } = useHrAssignments({ employeeId });
   const updateAssignment = useUpdateHrAssignment();

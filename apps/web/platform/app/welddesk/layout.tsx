@@ -7,9 +7,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export default function HelpdeskLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { t } = useI18n();
   const { isInstalled, isLoading } = useAppAccess('welddesk');
 

@@ -10,7 +10,7 @@ import type { OverviewSectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
  
-export function OverviewSection(_props: OverviewSectionProps) {
+export function OverviewSection(_props: Readonly<OverviewSectionProps>) {
   const t = useTranslations();
   return (
     <div className="p-4 text-sm text-muted-foreground">

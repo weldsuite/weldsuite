@@ -42,6 +42,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { logSafe } from '../../lib/log-safe';
 import {
   getBotUser,
   getGuildChannels,
@@ -667,7 +668,7 @@ app.get('/slack/channels', requirePermission('settings:read'), async (c) => {
 
     const result = await slackListChannels(botToken);
     if (!result.ok) {
-      console.error('[app-api/helpdesk-integrations] Slack channels error:', result.error);
+      console.error('[app-api/helpdesk-integrations] Slack channels error:', logSafe(result.error));
       return error.internal(c, `Slack API error: ${result.error}`);
     }
 

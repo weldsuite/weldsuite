@@ -29,11 +29,11 @@ export function TaskBoard({
   columns,
   data,
   onDataChange,
-}: {
+}: Readonly<{
   columns: KanbanColumnProps[];
   data: Task[];
   onDataChange: (data: Task[]) => void;
-}) {
+}>) {
   return (
     <div className="h-full overflow-x-auto p-4">
       <KanbanProvider

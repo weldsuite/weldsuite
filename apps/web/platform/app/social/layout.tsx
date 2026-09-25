@@ -3,7 +3,7 @@ import { SocialLayoutClient } from './components/social-layout-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
-export default function SocialLayout({ children }: { children: React.ReactNode }) {
+export default function SocialLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const { isInstalled, isLoading } = useAppAccess('social');
   if (isLoading) return <PageLoader />;

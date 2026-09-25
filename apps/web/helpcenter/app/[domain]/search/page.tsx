@@ -7,10 +7,10 @@ export const metadata = { title: 'Search' }
 export default async function SearchPage({
   params,
   searchParams,
-}: {
+}: Readonly<{
   params: Promise<{ domain: string }>
   searchParams: Promise<{ q?: string; page?: string }>
-}) {
+}>) {
   const { domain } = await params
   const { q, page } = await searchParams
   const query = q?.trim()

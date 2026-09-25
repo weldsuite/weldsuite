@@ -25,7 +25,7 @@ export {
   type FloatingTabBarProps,
 };
 
-export function FloatingTabBar(props: FloatingTabBarProps) {
+export function FloatingTabBar(props: Readonly<FloatingTabBarProps>) {
   const { queue } = useOfflineQueue();
 
   return (

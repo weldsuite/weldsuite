@@ -39,13 +39,13 @@ export function KpiValueDialog({
   employeeId: lockedEmployeeId,
   employeeLabel: lockedEmployeeLabel,
   onClose,
-}: {
+}: Readonly<{
   value?: HrKpiValue | null;
   kpiId?: string;
   employeeId?: string;
   employeeLabel?: string;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const isEdit = Boolean(value);
   const { data: kpis } = useHrKpis();

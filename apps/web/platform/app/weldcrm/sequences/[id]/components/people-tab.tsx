@@ -98,7 +98,7 @@ export function PeopleTab({
   sequenceId,
   initialEnrollments,
   initialPagination,
-}: PeopleTabProps) {
+}: Readonly<PeopleTabProps>) {
   const t = useTranslations();
 
   const getStatusDescription = useCallback((enrollment: SequenceEnrollment): string => {

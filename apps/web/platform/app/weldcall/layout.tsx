@@ -3,7 +3,7 @@ import { WeldCallLayoutClient } from './components/weldcall-layout-client';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
-export default function WeldCallLayout({ children }: { children: React.ReactNode }) {
+export default function WeldCallLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('weldcall');
   const t = getTranslations('weldmeet');
 

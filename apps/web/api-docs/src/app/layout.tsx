@@ -19,9 +19,9 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   const pages = await glob('**/*.mdx', { cwd: 'src/app' })
   const allSectionsEntries = (await Promise.all(
     pages.map(async (filename) => [

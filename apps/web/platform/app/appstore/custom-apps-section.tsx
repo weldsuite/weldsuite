@@ -21,7 +21,7 @@ import {
   type StoreUserApp,
 } from '@/hooks/queries/use-user-apps-queries';
 
-function CustomAppIcon({ icon, className = 'h-5 w-5' }: { icon?: string | null; className?: string }) {
+function CustomAppIcon({ icon, className = 'h-5 w-5' }: Readonly<{ icon?: string | null; className?: string }>) {
   if (icon && (/^https?:\/\//i.test(icon) || icon.startsWith('/') || icon.startsWith('data:image/'))) {
     return <img src={icon} alt="" className={cn(className, 'object-contain')} />;
   }
@@ -43,13 +43,13 @@ function UserAppStoreGrid({
   emptyTitle,
   emptyDescription,
   isLoading,
-}: {
+}: Readonly<{
   apps: StoreUserApp[];
   heading: string;
   emptyTitle?: string;
   emptyDescription?: string;
   isLoading: boolean;
-}) {
+}>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const { can, isOwner } = usePermissions();

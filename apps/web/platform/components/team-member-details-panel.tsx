@@ -23,7 +23,6 @@ import {
   Users,
   PanelLeftOpen,
   PanelRightOpen,
-  Search,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -63,28 +62,7 @@ import {
   type WorkingHours,
 } from '@/hooks/queries/use-settings-queries';
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { PERMISSION_CATALOG_OBJECTS, hasPermission } from '@weldsuite/permissions';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
-import {
-  STANDARD_ACTIONS,
-  getActionLabels,
-  COMING_SOON_CATEGORIES,
-  CategoryIcon,
-  ComingSoonBadge,
-  categoryFor,
-  groupByCategory,
-  type StandardAction,
-  type CategoryRow,
-  type CategoryGroup,
-} from '@/components/settings/permission-categories';
+import { MemberAppPermissions } from '@/components/settings/member-app-permissions';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { ActivitySection } from '@/components/customer-detail/sections/activity-section';
 import type { Customer } from '@/components/customer-detail/types';
@@ -1331,6 +1309,8 @@ interface WorkspaceRoleOption {
   memberCount: number;
 }
 
+const NO_KEYS: string[] = [];
+
 function PermissionsContent({
   member,
   isOwner,
@@ -1364,73 +1344,31 @@ function PermissionsContent({
   onAppToggle: (appCode: string, currentlyAssigned: boolean) => void;
   onMemberUpdated: () => void;
 }) {
+  const t = useTranslations();
   const activeRole = isOwner ? 'OWNER' : localRole;
-  const [localOverrides, setLocalOverrides] = useState<Set<string>>(new Set(memberOverrides));
-  const [savingOverrides, setSavingOverrides] = useState(false);
-  const [permSearchOpen, setPermSearchOpen] = useState(false);
-  const [permSearchQuery, setPermSearchQuery] = useState('');
-  const permSearchInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (permSearchOpen) permSearchInputRef.current?.focus();
-  }, [permSearchOpen]);
+  // Denies and the role's effective grants (system tiers included) come from
+  // the same cached breakdown the panel already loaded.
+  const { data: memberPermsData } = useMemberPermissions(member.id, context === 'settings');
+  const memberDenies = memberPermsData?.data?.memberDenies ?? NO_KEYS;
+  const inheritedPermissions = memberPermsData?.data?.inheritedPermissions ?? rolePermissions;
+  const installedAppCodes = memberApps.map((app) => app.appCode);
 
-  // Sync local overrides when server data changes
-  useEffect(() => {
-    setLocalOverrides(new Set(memberOverrides));
-  }, [memberOverrides]);
-
-  const isRoleGranted = (permKey: string) => {
-    return rolePermissions.some(rp => hasPermission([rp], permKey));
-  };
-
-  const toggleOverride = (permKey: string) => {
-    setLocalOverrides(prev => {
-      const next = new Set(prev);
-      if (next.has(permKey)) next.delete(permKey);
-      else next.add(permKey);
-      return next;
-    });
-  };
-
-  const toggleAllModuleOverrides = (permissions: { key: string }[], grant: boolean) => {
-    setLocalOverrides(prev => {
-      const next = new Set(prev);
-      for (const p of permissions) {
-        if (isRoleGranted(p.key)) continue; // skip already inherited
-        if (grant) next.add(p.key);
-        else next.delete(p.key);
-      }
-      return next;
-    });
-  };
-
-  const hasOverrideChanges = (() => {
-    const saved = new Set(memberOverrides);
-    if (localOverrides.size !== saved.size) return true;
-    for (const k of localOverrides) {
-      if (!saved.has(k)) return true;
-    }
-    return false;
-  })();
-
-  const handleSaveOverrides = async () => {
-    setSavingOverrides(true);
+  const handleSaveOverrides = async (permissions: string[], permissionDenies: string[]) => {
     try {
       const result = await updateMemberMutation.mutateAsync({
         id: member.id,
-        data: { permissions: Array.from(localOverrides) },
+        data: { permissions, permissionDenies },
       });
       if (result.success) {
-        toast.success('Permission overrides saved');
+        toast.success(t('sweep.settings.appPermissions.saved'));
         onMemberUpdated();
-      } else {
-        toast.error('Failed to save permission overrides');
+        return true;
       }
     } catch {
-      toast.error('Failed to save permission overrides');
-    } finally {
-      setSavingOverrides(false);
+      // fall through to the error toast
     }
+    toast.error(t('sweep.settings.appPermissions.saveFailed'));
+    return false;
   };
 
   return (
@@ -1593,301 +1531,20 @@ function PermissionsContent({
         </div>
       )}
 
-      {/* Per-Member Permission Overrides — settings only */}
+      {/* Per-app permission overrides — settings only */}
       {context === 'settings' && !isOwner && (
         <div className="w-[848px] max-w-full mx-auto border-t border-border/70 pt-10">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-medium text-foreground">Permission Overrides</h3>
-            <div className="flex items-center gap-2">
-              <div className="relative flex items-center">
-                <div
-                  className={cn(
-                    'flex items-center transition-all duration-200 ease-out',
-                    permSearchOpen ? 'w-48' : 'w-8',
-                  )}
-                >
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    className={cn(
-                      'h-8 w-8 p-0 flex-shrink-0 transition-opacity duration-200',
-                      permSearchOpen && 'opacity-0 pointer-events-none absolute',
-                    )}
-                    onClick={() => setPermSearchOpen(true)}
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                  <div
-                    className={cn(
-                      'relative transition-all duration-200 ease-out',
-                      permSearchOpen ? 'opacity-100 w-48' : 'opacity-0 w-0 pointer-events-none',
-                    )}
-                  >
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <input
-                      ref={permSearchInputRef}
-                      type="text"
-                      placeholder="Search permissions..."
-                      value={permSearchQuery}
-                      onChange={(e) => setPermSearchQuery(e.target.value)}
-                      onBlur={() => !permSearchQuery && setPermSearchOpen(false)}
-                      className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-              {canManageMembers && hasOverrideChanges && (
-                <Button
-                  size="sm"
-                  className="h-7 text-xs shadow-none"
-                  onClick={handleSaveOverrides}
-                  disabled={savingOverrides}
-                >
-                  {savingOverrides ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
-                  Save
-                </Button>
-              )}
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mb-6">
-            Grant additional permissions for this member only, beyond their role. Inherited permissions are shown as locked.
-          </p>
-
-          <PermissionOverrideTables
-            isRoleGranted={isRoleGranted}
-            localOverrides={localOverrides}
-            canManageMembers={canManageMembers}
-            toggleOverride={toggleOverride}
-            toggleAllModuleOverrides={toggleAllModuleOverrides}
-            inheritedTitle={(perm) => `Inherited from ${getRoleLabel(activeRole)} role — ${perm.label}`}
-            searchQuery={permSearchQuery}
+          <MemberAppPermissions
+            inheritedPermissions={inheritedPermissions}
+            memberOverrides={memberOverrides}
+            memberDenies={memberDenies}
+            installedAppCodes={installedAppCodes}
+            roleLabel={getRoleLabel(activeRole)}
+            canManage={canManageMembers}
+            onSave={handleSaveOverrides}
           />
         </div>
       )}
-    </div>
-  );
-}
-
-/* ─── Permission Override Tables ──────────────────────────────────── */
-
-type OverridePerm = {
-  key: string;
-  label: string;
-  action: string;
-};
-
-function PermissionOverrideTables({
-  isRoleGranted,
-  localOverrides,
-  canManageMembers,
-  toggleOverride,
-  toggleAllModuleOverrides,
-  inheritedTitle,
-  searchQuery = '',
-}: {
-  isRoleGranted: (permKey: string) => boolean;
-  localOverrides: Set<string>;
-  canManageMembers: boolean;
-  toggleOverride: (permKey: string) => void;
-  toggleAllModuleOverrides: (perms: { key: string }[], grant: boolean) => void;
-  inheritedTitle: (perm: OverridePerm) => string;
-  searchQuery?: string;
-}) {
-  const t = useTranslations();
-  const ACTION_LABELS = React.useMemo(() => getActionLabels(t), [t]);
-  const rows: CategoryRow<OverridePerm>[] = React.useMemo(() => {
-    return PERMISSION_CATALOG_OBJECTS.map((obj) => {
-      const perAction: Partial<Record<StandardAction, OverridePerm>> = {};
-      const extras: OverridePerm[] = [];
-      const allPerms: OverridePerm[] = [];
-      for (const p of obj.permissions) {
-        const action = p.key.split(':').slice(1).join(':') || 'read';
-        const perm: OverridePerm = { key: p.key, label: p.label, action };
-        allPerms.push(perm);
-        if ((STANDARD_ACTIONS as readonly string[]).includes(action)) {
-          perAction[action as StandardAction] = perm;
-        } else {
-          extras.push(perm);
-        }
-      }
-      return {
-        object: obj.key,
-        objectName: obj.label,
-        category: categoryFor(obj.key),
-        perAction,
-        extras,
-        allPerms,
-      };
-    });
-  }, []);
-
-  const groups: CategoryGroup<OverridePerm>[] = React.useMemo(() => groupByCategory(rows), [rows]);
-
-  const filteredGroups = React.useMemo<CategoryGroup<OverridePerm>[]>(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        rows: group.rows.filter(
-          (row) =>
-            row.objectName.toLowerCase().includes(q) ||
-            row.object.toLowerCase().includes(q) ||
-            group.category.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((group) => group.rows.length > 0);
-  }, [groups, searchQuery]);
-
-  const isGranted = (perm: OverridePerm) => isRoleGranted(perm.key) || localOverrides.has(perm.key);
-
-  const renderCheckbox = (perm: OverridePerm, ariaLabel: string) => {
-    const inherited = isRoleGranted(perm.key);
-    const granted = isGranted(perm);
-    return (
-      <Checkbox
-        checked={granted}
-        onCheckedChange={() => {
-          if (!inherited) toggleOverride(perm.key);
-        }}
-        disabled={inherited || !canManageMembers}
-        className={cn('h-3.5 w-3.5', inherited && 'opacity-70')}
-        aria-label={ariaLabel}
-        title={inherited ? inheritedTitle(perm) : perm.label}
-      />
-    );
-  };
-
-  return (
-    <div className="space-y-10">
-      {filteredGroups.length === 0 && (
-        <p className="text-sm text-muted-foreground w-[848px] max-w-full mx-auto">
-          No permissions match &ldquo;{searchQuery}&rdquo;.
-        </p>
-      )}
-      {filteredGroups.map((group) => {
-        const allPerms = group.rows.flatMap((r) => r.allPerms);
-        const nonInherited = allPerms.filter((p) => !isRoleGranted(p.key));
-        const allNonInheritedGranted =
-          nonInherited.length > 0 && nonInherited.every((p) => localOverrides.has(p.key));
-        const groupHasExtras = group.rows.some((r) => r.extras.length > 0);
-
-        return (
-          <div key={group.category} className="space-y-3 w-[848px] max-w-full mx-auto">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h4 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                  <CategoryIcon category={group.category} className="h-4 w-4 shrink-0" />
-                  <span>{group.category}</span>
-                </h4>
-                {COMING_SOON_CATEGORIES.has(group.category) && <ComingSoonBadge />}
-              </div>
-              {canManageMembers && nonInherited.length > 0 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="text-[11px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors whitespace-nowrap"
-                  onClick={() => toggleAllModuleOverrides(nonInherited, !allNonInheritedGranted)}
-                >
-                  {allNonInheritedGranted ? 'Revoke all' : 'Grant all'}
-                </Button>
-              )}
-            </div>
-            <div className="rounded-md border border-border/70 overflow-hidden">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-background [&_tr]:border-border/70">
-                    <TableRow>
-                      <TableHead className="w-[220px] text-[13px]">Object</TableHead>
-                      {STANDARD_ACTIONS.map((action) => (
-                        <TableHead key={action} className="w-[90px] text-center text-[13px]">
-                          {ACTION_LABELS[action]}
-                        </TableHead>
-                      ))}
-                      {groupHasExtras && <TableHead className="text-[13px]">Other</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody className="[&_tr]:border-border/70">
-                    {group.rows.map((row) => {
-                      const rowNonInherited = row.allPerms.filter((p) => !isRoleGranted(p.key));
-                      const rowAllGranted =
-                        rowNonInherited.length > 0 &&
-                        rowNonInherited.every((p) => localOverrides.has(p.key));
-                      return (
-                        <TableRow key={row.object} className="h-10 hover:bg-muted/30">
-                          <TableCell className="py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium">{row.objectName}</span>
-                              {canManageMembers && rowNonInherited.length > 0 && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="text-[11px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors whitespace-nowrap"
-                                  onClick={() =>
-                                    toggleAllModuleOverrides(rowNonInherited, !rowAllGranted)
-                                  }
-                                >
-                                  {rowAllGranted ? 'Revoke all' : 'Grant all'}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-
-                          {STANDARD_ACTIONS.map((action) => {
-                            const perm = row.perAction[action];
-                            return (
-                              <TableCell
-                                key={action}
-                                className="py-2 px-3 text-center [&:has([role=checkbox])]:pr-3 [&:has([role=checkbox])]:pl-3"
-                              >
-                                <div className="flex items-center justify-center">
-                                  {perm ? (
-                                    renderCheckbox(perm, `${ACTION_LABELS[action]} ${row.objectName}`)
-                                  ) : (
-                                    <span className="text-muted-foreground/40 text-sm tabular-nums select-none">
-                                      —
-                                    </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                            );
-                          })}
-
-                          {groupHasExtras && (
-                            <TableCell className="py-2">
-                              {row.extras.length > 0 ? (
-                                <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                  {row.extras.map((perm) => (
-                                    <label
-                                      key={perm.key}
-                                      className={cn(
-                                        'flex items-center gap-1.5 text-sm',
-                                        canManageMembers && !isRoleGranted(perm.key)
-                                          ? 'cursor-pointer'
-                                          : 'cursor-default',
-                                      )}
-                                    >
-                                      {renderCheckbox(perm, perm.action)}
-                                      <span className="text-muted-foreground capitalize">
-                                        {perm.action.replace(/-/g, ' ')}
-                                      </span>
-                                    </label>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

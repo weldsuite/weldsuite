@@ -8,9 +8,9 @@ import {
 
 export default function MailAccountLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const params = useParams<{ accountId: string }>();
   const { data: preferences } = useUserPreferences();
   const updateLastAccount = useUpdateMailLastAccount();

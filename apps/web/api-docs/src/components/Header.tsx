@@ -18,10 +18,10 @@ import { CloseButton } from '@headlessui/react'
 function TopLevelNavItem({
   href,
   children,
-}: {
+}: Readonly<{
   href: string
   children: React.ReactNode
-}) {
+}>) {
   return (
     <li>
       <Link

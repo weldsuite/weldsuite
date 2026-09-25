@@ -29,7 +29,7 @@ export function CustomersList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: CustomersListProps) {
+}: Readonly<CustomersListProps>) {
   const t = getTranslations('commerce').module;
   const deleteCompany = useDeleteCompany();
   const deletePerson = useDeletePerson();

@@ -140,14 +140,14 @@ function FieldCombobox({
   onValueChange,
   onFocus,
   usedFields,
-}: {
+}: Readonly<{
   t: Tfn;
   fields: ImportFieldDef[];
   value: string;
   onValueChange: (value: string) => void;
   onFocus: () => void;
   usedFields: Set<string>;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const selected = fields.find((f) => f.accessorKey === value);
 
@@ -220,11 +220,11 @@ function DataPreviewList({
   t,
   focusedColumn,
   data,
-}: {
+}: Readonly<{
   t: Tfn;
   focusedColumn: string | null;
   data: Record<string, unknown>[];
-}) {
+}>) {
   if (!focusedColumn || data.length === 0) return null;
   const preview = data.slice(0, 5);
   return (
@@ -260,7 +260,7 @@ export function ImportEntitiesDialog({
   templateExample,
   templateName,
   onImportBatch,
-}: ImportEntitiesDialogProps) {
+}: Readonly<ImportEntitiesDialogProps>) {
   const t = useTranslations();
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);

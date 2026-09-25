@@ -20,7 +20,7 @@ interface MentionPickerProps {
   onSelect: (member: Member) => void;
 }
 
-export function MentionPicker({ query, visible, onSelect }: MentionPickerProps) {
+export function MentionPicker({ query, visible, onSelect }: Readonly<MentionPickerProps>) {
   const [members, setMembers] = useState<Member[]>([]);
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);

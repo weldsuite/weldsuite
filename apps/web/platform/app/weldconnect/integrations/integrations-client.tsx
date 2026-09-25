@@ -160,7 +160,7 @@ function IntegrationCard({
   isTesting,
   canConnect,
   canManage,
-}: IntegrationCardProps) {
+}: Readonly<IntegrationCardProps>) {
   const { t } = useI18n();
   const ti = t.weldconnect.integrations;
   const Icon = getIcon(def.icon || def.type);

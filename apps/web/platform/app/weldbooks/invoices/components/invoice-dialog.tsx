@@ -71,7 +71,7 @@ interface InvoiceDialogProps {
   onCreated?: (invoice: { id: string }) => void;
 }
 
-export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogProps) {
+export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<InvoiceDialogProps>) {
   const [isPending, startTransition] = useTransition();
   const createMutation = useCreateInvoice();
   const { t } = useI18n();
@@ -137,7 +137,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
   const taxRateMap = useMemo(() => {
     const map: Record<string, number> = {};
     for (const tr of taxRates) {
-      map[tr.id] = parseFloat(tr.rate ?? '0');
+      map[tr.id] = Number.parseFloat(tr.rate ?? '0');
     }
     return map;
   }, [taxRates]);

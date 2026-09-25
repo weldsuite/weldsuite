@@ -20,7 +20,7 @@ import {
   createDrizzlePermissionQueries,
   resolveEffectivePermissions,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasAppPermission } from '@weldsuite/permissions';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { schema } from '../../db';
@@ -58,12 +58,11 @@ app.get('/', async (c) => {
     // Resolve actual permissions for accurate checks
     const queries = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
     const resolved = await resolveEffectivePermissions(queries, userId);
-    const perms = resolved.permissions;
 
     return success(c, {
       role,
-      canManageMembers: hasPermission(perms, 'team:update'),
-      canManageRoles: hasPermission(perms, 'roles:update'),
+      canManageMembers: hasAppPermission(resolved, 'team:update', null),
+      canManageRoles: hasAppPermission(resolved, 'roles:update', null),
     });
   } catch (err) {
     console.error('[app-api/my-role] Failed to fetch my role:', err);

@@ -28,7 +28,7 @@ export function CreateTicketDialog({
   onOpenChange,
   onTicketCreated,
   prefillData,
-}: CreateTicketDialogProps) {
+}: Readonly<CreateTicketDialogProps>) {
   const { t } = useI18n();
   const ctd = t.helpdesk.createTicketDialog;
   const [step, setStep] = useState<'select' | 'form'>('select');

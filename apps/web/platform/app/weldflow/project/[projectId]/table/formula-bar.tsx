@@ -18,7 +18,7 @@ export function FormulaBar({
   onCellValueChange,
   onCommit,
   onCancel,
-}: FormulaBarProps) {
+}: Readonly<FormulaBarProps>) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [localValue, setLocalValue] = useState(cellValue);

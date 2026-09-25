@@ -51,7 +51,7 @@ const OfflineQueueContext = createContext<OfflineQueueContextType>({
 
 export const useOfflineQueue = () => useContext(OfflineQueueContext);
 
-export function OfflineQueueProvider({ children }: { children: React.ReactNode }) {
+export function OfflineQueueProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);

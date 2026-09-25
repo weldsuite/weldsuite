@@ -63,9 +63,9 @@ const WELDMAIL_ICON = (
 
 function ChooseMethodContent({
   onSelectMethod,
-}: {
+}: Readonly<{
   onSelectMethod: (method: SetupMethod) => void;
-}) {
+}>) {
   const { t } = useI18n();
 
   return (
@@ -102,7 +102,7 @@ function ChooseMethodContent({
   );
 }
 
-function WeldMailContent({ onSuccess }: { onSuccess: () => void }) {
+function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
   const { t } = useI18n();
   const st = useTranslations();
   const reserveAddressMutation = useReserveWeldMailAddress();
@@ -272,7 +272,7 @@ function WeldMailContent({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
-function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
+function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
   const { t } = useI18n();
   const st = useTranslations();
   const createAccountMutation = useCreateMailAccount();

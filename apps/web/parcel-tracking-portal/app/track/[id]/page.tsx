@@ -78,7 +78,7 @@ const SAMPLE_RETURNS = {
   }
 };
 
-export default function TrackingPage({ params }: { params: Promise<{ id: string }> }) {
+export default function TrackingPage({ params }: Readonly<{ params: Promise<{ id: string }> }>) {
   const { id } = use(params);
   const [returnData, setReturnData] = useState<any>(null);
   const [loading, setLoading] = useState(true);

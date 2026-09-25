@@ -85,11 +85,11 @@ function EditableHeaderName({
   name,
   onSave,
   className,
-}: {
+}: Readonly<{
   name: string;
   onSave: (newName: string) => void;
   className?: string;
-}) {
+}>) {
   const [isEditing, setIsEditing] = useState(false);
   const [localName, setLocalName] = useState(name);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -163,7 +163,7 @@ function EditableHeaderName({
 export function CustomerDetailHeader({
   variant = 'page',
   onDelete,
-}: CustomerDetailHeaderProps) {
+}: Readonly<CustomerDetailHeaderProps>) {
   const t = useTranslations();
   const router = useRouter();
   const {
@@ -1109,12 +1109,12 @@ function AddToListPicker({
   onOpenChange,
   isContact,
   onPick,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isContact: boolean;
   onPick: (listId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data, isLoading } = useCustomerLists(open ? { pageSize: 100 } : undefined);
   const lists = ((data?.data ?? []) as CustomerListRow[]).filter((l) => isContact ? l.kind === 'contact' || !l.kind : l.kind === 'customer' || !l.kind);
@@ -1221,7 +1221,7 @@ function ShareDialog({
   recordTitle,
   recordAvatar,
   url,
-}: ShareDialogProps) {
+}: Readonly<ShareDialogProps>) {
   const st = useTranslations();
   const { data: membersData } = useWorkspaceMembers(1, 100);
   const { data: channelsData } = useChannels();

@@ -2,9 +2,11 @@
  * Shared types for the WeldSuite app bridge protocol.
  *
  * PROTOCOL SYNC WARNING: the message shapes below (`weldapp:ready`,
- * `weldapp:init`, `weldapp:request`, `weldapp:response`, `weldapp:event`)
- * are implemented by the platform host iframe wrapper. Any change here must
- * be mirrored on the host side in `apps/web/platform` and vice versa.
+ * `weldapp:init`, `weldapp:request`, `weldapp:response`, `weldapp:event`,
+ * `weldapp:notify`) are implemented by the platform host
+ * (`apps/web/platform/app/weldapps/host/`) and the CLI local shell
+ * (`packages/sdk/cli/src/local-shell/`). Any change here must be mirrored on
+ * both host sides and vice versa.
  */
 
 /** Theme values delivered by the WeldSuite host. */
@@ -21,14 +23,33 @@ export interface WeldAppUser {
 }
 
 /**
- * Token bundle returned by the host on init and on every `getToken` request.
+ * Token bundle returned by the host on a legacy `getToken` request.
  * `tokenExpiresAt` is an ISO-8601 timestamp; epoch milliseconds are also
  * accepted defensively.
+ *
+ * Protocol 2 hosts never put a token in the iframe: API requests are proxied
+ * through the host (see {@link BridgeFetchRequest}).
  */
 export interface WeldTokenInfo {
   token: string;
   tokenExpiresAt: string | number;
   apiBaseUrl: string;
+}
+
+/** Where this app instance is rendered by the host. */
+export type WeldSurface = 'page' | 'modal';
+
+/**
+ * Platform design tokens pushed by the host so apps render with the exact
+ * suite palette, radius and font instead of a copied approximation.
+ */
+export interface WeldDesignTokens {
+  /** Suite token values keyed by name without the `--wui-` prefix (`primary`, `radius`, …). */
+  vars: Record<string, string>;
+  /** CSS `font-family` of the platform body text. */
+  fontFamily?: string;
+  /** Stylesheet URL that loads {@link fontFamily} (Google Fonts only). */
+  fontStylesheet?: string;
 }
 
 /** Payload of the host's `weldapp:init` handshake reply. */
@@ -37,8 +58,13 @@ export interface InitPayload {
   theme: WeldTheme;
   locale: WeldLocale;
   apiBaseUrl: string;
-  token: string;
-  tokenExpiresAt: string | number;
+  /**
+   * Legacy (protocol 1) hosts put a workspace-scoped token here. Protocol 2
+   * hosts send `null` and proxy API requests instead, so no credential ever
+   * enters the sandbox.
+   */
+  token: string | null;
+  tokenExpiresAt: string | number | null;
   user: WeldAppUser;
   /**
    * App-relative path from the platform URL (`/` or `/products`), derived from
@@ -52,12 +78,29 @@ export interface InitPayload {
    * navigate / theme. Production platform hosts never set this.
    */
   localPreview?: boolean;
+  /** Bridge protocol spoken by the host. Absent means 1 (token in init). */
+  protocol?: number;
+  /** Platform design tokens (protocol 2). Updated via `designTokens` events. */
+  designTokens?: WeldDesignTokens;
+  /** Where the host renders this instance. Absent means `page`. */
+  surface?: WeldSurface;
+  /** Set when {@link surface} is `modal`: what the opener passed to `openModal`. */
+  modal?: { title?: string; params?: unknown };
 }
 
 /** Methods the app can invoke on the host. */
-export type BridgeRequestMethod = 'getToken' | 'navigate' | 'toast';
+export type BridgeRequestMethod =
+  | 'getToken'
+  | 'navigate'
+  | 'toast'
+  | 'fetch'
+  | 'setBreadcrumbs'
+  | 'setDirty'
+  | 'confirm'
+  | 'openModal'
+  | 'closeModal';
 
-/** Push events the host can send to the app. */
+/** Push events apps can subscribe to with `bridge.on()`. */
 export type BridgeEventName = 'theme' | 'locale' | 'route';
 
 /** App → host: sent once on boot to start the handshake. */
@@ -88,15 +131,89 @@ export interface ResponseMessage {
   error?: { message: string };
 }
 
-/** Host → app: push event (theme / locale changes). */
-export interface EventMessage {
-  type: 'weldapp:event';
-  event: BridgeEventName;
-  payload: { value: string };
+/** Host → app: push event (theme / locale / route / design tokens). */
+export type EventMessage =
+  | {
+      type: 'weldapp:event';
+      event: BridgeEventName;
+      payload: { value: string };
+    }
+  | {
+      type: 'weldapp:event';
+      event: 'designTokens';
+      payload: { value: WeldDesignTokens };
+    };
+
+/** Global shortcut the SDK hands to the host (e.g. Cmd/Ctrl+K). */
+export interface ShortcutPayload {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
 }
 
+/** App → host: fire-and-forget notification (no response). */
+export type NotifyMessage =
+  | { type: 'weldapp:notify'; event: 'mounted' }
+  | { type: 'weldapp:notify'; event: 'shortcut'; payload: ShortcutPayload };
+
 export type HostMessage = InitMessage | ResponseMessage | EventMessage;
-export type AppMessage = ReadyMessage | RequestMessage;
+export type AppMessage = ReadyMessage | RequestMessage | NotifyMessage;
+
+/**
+ * `fetch` request payload: the host performs the call with the member's
+ * platform session and returns the response. `path` is relative to the API
+ * the app targets (`/v1/...` for community apps).
+ */
+export interface BridgeFetchRequest {
+  method: string;
+  path: string;
+  headers: [string, string][];
+  body: string | ArrayBuffer | null;
+}
+
+/** `fetch` response payload. */
+export interface BridgeFetchResponse {
+  status: number;
+  statusText?: string;
+  headers: [string, string][];
+  body: ArrayBuffer | null;
+}
+
+/** One app-level breadcrumb; `path` is app-relative (`/orders/42`). */
+export interface WeldBreadcrumb {
+  label: string;
+  path?: string;
+}
+
+/** Options for a host-rendered confirmation dialog. */
+export interface ConfirmOptions {
+  title: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** Style the confirm button as destructive. */
+  destructive?: boolean;
+}
+
+/** Options for a host-rendered modal showing another route of this app. */
+export interface OpenModalOptions {
+  /** App-relative route rendered inside the modal. */
+  path: string;
+  title?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** Structured-cloneable data handed to the modal instance as `init.modal.params`. */
+  params?: unknown;
+}
+
+/** How a modal opened with `openModal` ended. */
+export interface ModalResult<T = unknown> {
+  /** True when the user closed it (Escape, backdrop, close button). */
+  dismissed: boolean;
+  /** Value the modal passed to `closeModal(result)`. */
+  result?: T;
+}
 
 /** Toast variants supported by the host shell. */
 export type ToastVariant = 'default' | 'success' | 'error' | 'warning';

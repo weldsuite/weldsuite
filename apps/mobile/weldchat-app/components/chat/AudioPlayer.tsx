@@ -64,7 +64,7 @@ function clearActivePlayer(pause: () => void) {
   if (activePauseFn === pause) activePauseFn = null;
 }
 
-export function AudioPlayer({ uri }: AudioPlayerProps) {
+export function AudioPlayer({ uri }: Readonly<AudioPlayerProps>) {
   const { colors } = useTheme();
   const [speed, setSpeed] = useState(1);
   const [smoothPositionMs, setSmoothPositionMs] = useState(0);

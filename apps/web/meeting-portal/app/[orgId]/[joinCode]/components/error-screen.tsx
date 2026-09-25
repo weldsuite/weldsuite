@@ -8,7 +8,7 @@ interface ErrorScreenProps {
   message: string;
 }
 
-export function ErrorScreen({ message }: ErrorScreenProps) {
+export function ErrorScreen({ message }: Readonly<ErrorScreenProps>) {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
       <Card className="w-full max-w-md mx-4">
@@ -29,7 +29,7 @@ interface EndedScreenProps {
   onReturnHome: () => void;
 }
 
-export function EndedScreen({ onRejoin, onReturnHome }: EndedScreenProps) {
+export function EndedScreen({ onRejoin, onReturnHome }: Readonly<EndedScreenProps>) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6">
       <h1 className="text-3xl sm:text-4xl font-medium tracking-tight text-foreground mb-8 text-center">

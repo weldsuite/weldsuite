@@ -16,8 +16,7 @@ import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createPhoneNumberSchema,
@@ -28,6 +27,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -35,8 +35,7 @@ const CALL_DENIED = 'You do not have access to this call';
 
 /** Own-only (call owner) unless the caller holds activities:scope:all. */
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  if (hasPermission(resolved?.permissions ?? [], 'activities:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'activities:scope:all')) return undefined;
   return c.get('userId');
 }
 
@@ -223,7 +222,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
       });
       if (!credResp.ok) {
         const credErr = await credResp.text();
-        console.error('[app-api/call-intelligence] Telnyx credential creation failed:', credResp.status, credErr);
+        console.error('[app-api/call-intelligence] Telnyx credential creation failed:', credResp.status, logSafe(credErr));
         throw new Error(`Failed to create credential: ${credResp.status}`);
       }
       const credData = (await credResp.json()) as { data: { id: string } };
@@ -236,7 +235,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
     );
     if (!tokenResp.ok) {
       const tokenErr = await tokenResp.text();
-      console.error('[app-api/call-intelligence] Telnyx token generation failed:', tokenResp.status, tokenErr);
+      console.error('[app-api/call-intelligence] Telnyx token generation failed:', tokenResp.status, logSafe(tokenErr));
       throw new Error(`Failed to generate token: ${tokenResp.status}`);
     }
     const token = await tokenResp.text();

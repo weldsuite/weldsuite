@@ -51,7 +51,7 @@ export function FilterLocationInput({
   onChange,
   scope,
   placeholder,
-}: FilterLocationInputProps) {
+}: Readonly<FilterLocationInputProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');

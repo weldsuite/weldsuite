@@ -29,7 +29,7 @@ interface AnalyticsListClientProps {
   initialReports: AnalyticsReport[];
 }
 
-export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps) {
+export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListClientProps>) {
   const router = useRouter();
   const [isPending] = useTransition();
   const { t } = useI18n();

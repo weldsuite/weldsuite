@@ -65,7 +65,7 @@ function generateWaveform(seed: string, count: number): number[] {
 // Audio Clip Player
 // ============================================================================
 
-function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) {
+function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
   const { t } = useI18n();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -85,7 +85,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onDurationChange = () => {
-      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+      if (audio.duration && Number.isFinite(audio.duration)) setDuration(audio.duration);
     };
     const onEnded = () => setIsPlaying(false);
     const onPlay = () => setIsPlaying(true);
@@ -266,7 +266,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 // Video/Screen Clip Player
 // ============================================================================
 
-function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) {
+function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -284,7 +284,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
     const onDurationChange = () => {
-      if (video.duration && isFinite(video.duration)) setDuration(video.duration);
+      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
     };
     const onEnded = () => { setIsPlaying(false); setShowOverlay(true); };
     const onPlay = () => { setIsPlaying(true); setShowOverlay(false); };
@@ -476,7 +476,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
 // Video Lightbox
 // ============================================================================
 
-function VideoLightbox({ attachment, onClose }: { attachment: ChatClipAttachment; onClose: () => void }) {
+function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipAttachment; onClose: () => void }>) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -491,7 +491,7 @@ function VideoLightbox({ attachment, onClose }: { attachment: ChatClipAttachment
 
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
     const onDurationChange = () => {
-      if (video.duration && isFinite(video.duration)) setDuration(video.duration);
+      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
     };
     const onEnded = () => setIsPlaying(false);
     const onPlay = () => setIsPlaying(true);
@@ -693,7 +693,7 @@ function VideoLightbox({ attachment, onClose }: { attachment: ChatClipAttachment
 // Transcript Button (for video overlay)
 // ============================================================================
 
-function TranscriptButton({ channelId, messageId, attachmentId }: { channelId: string; messageId: string; attachmentId: string }) {
+function TranscriptButton({ channelId, messageId, attachmentId }: Readonly<{ channelId: string; messageId: string; attachmentId: string }>) {
   const { t } = useI18n();
   const { mutate: triggerTranscribe, isPending } = useTranscribeClip();
 
@@ -721,7 +721,7 @@ function TranscriptButton({ channelId, messageId, attachmentId }: { channelId: s
 // Main Component
 // ============================================================================
 
-export function ClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) {
+export function ClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
   if (attachment.clipType === 'audio') {
     return <AudioClipPlayer attachment={attachment} channelId={channelId} messageId={messageId} />;
   }

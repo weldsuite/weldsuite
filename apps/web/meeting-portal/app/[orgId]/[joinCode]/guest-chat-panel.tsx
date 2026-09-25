@@ -84,7 +84,7 @@ export function GuestChatPanel({
   onOpen,
   notificationHost,
   participants,
-}: GuestChatPanelProps) {
+}: Readonly<GuestChatPanelProps>) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 

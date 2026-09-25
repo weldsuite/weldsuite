@@ -36,7 +36,7 @@ function toViewReview(item: ApiReviewItem): Review {
 
 export default function ReviewsPage() {
   const searchParams = useSearchParams();
-  const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
+  const page = searchParams.get('page') ? Number.parseInt(searchParams.get('page')!) : 1;
   const search = searchParams.get('search') || undefined;
   const status = searchParams.get('status') || undefined;
 

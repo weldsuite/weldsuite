@@ -139,7 +139,7 @@ export default function PortStatusPage() {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+function Detail({ label, value }: Readonly<{ label: string; value: string | null | undefined }>) {
   return (
     <div className="grid grid-cols-3 gap-4 border-b py-2 last:border-b-0">
       <div className="text-sm text-muted-foreground">{label}</div>

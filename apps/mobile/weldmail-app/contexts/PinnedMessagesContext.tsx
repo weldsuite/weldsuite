@@ -16,7 +16,7 @@ const PinnedMessagesContext = createContext<PinnedMessagesContextType | undefine
  * context keeps the inbox and the email detail page in sync, and AsyncStorage
  * lets pins survive app restarts.
  */
-export function PinnedMessagesProvider({ children }: { children: ReactNode }) {
+export function PinnedMessagesProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [pinned, setPinned] = useState<Set<string>>(new Set());
 
   // Hydrate from storage once on mount.

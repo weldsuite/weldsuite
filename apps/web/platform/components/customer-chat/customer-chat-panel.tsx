@@ -17,7 +17,7 @@ export function CustomerChatPanel({
   customerId,
   customerName,
   entityType = 'customer',
-}: CustomerChatPanelProps) {
+}: Readonly<CustomerChatPanelProps>) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex min-h-0 flex-1 flex-col">

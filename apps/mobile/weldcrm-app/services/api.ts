@@ -336,7 +336,7 @@ const api = {
       const totalLeads = leadsAll.pagination.totalCount;
       const converted = leadsConverted.pagination.totalCount;
       const revenue = wonOpps.data.reduce((sum, opp) => {
-        const amount = parseFloat(opp.amount ?? '0');
+        const amount = Number.parseFloat(opp.amount ?? '0');
         return sum + (Number.isFinite(amount) ? amount : 0);
       }, 0);
       return ok({

@@ -11,6 +11,8 @@ import type { Database } from '../../db';
 import { schema } from '../../db';
 import type { Env } from '../../types';
 import { runAgentOnce } from '../weldagent/executor';
+import { explicitToolAllowList } from '../weldagent/tools';
+import { resolveActorPermissions } from '../weldagent/actor-permissions';
 import { createAgentRun, completeAgentRun, markRunRunning } from '../weldagent/agents';
 import {
   parseAgentRoomPolicy,
@@ -26,6 +28,13 @@ export interface DispatchAgentMentionsContext {
   /** The user whose message started the chain (credits / audit). */
   invokerUserId: string;
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Tool-loop budget per reply (longer inside the durable job workflow). */
+  timeoutMs?: number;
+  /**
+   * Permissions of the human who started the chain. Agents never act beyond
+   * them; resolved from `invokerUserId` when not supplied.
+   */
+  actorPermissions?: string[];
 }
 
 export interface DispatchAgentMentionsInput {
@@ -149,12 +158,17 @@ export async function dispatchAgentRoomReplies(
 
   const activeById = new Map(activeAgents.map((a) => [a.id, a]));
   const recent = await loadRecentChannelContext(db, input.channelId, input.messageId);
+  // Resolve once per dispatch; hop replies reuse it through ctx.
+  const actorCtx: DispatchAgentMentionsContext = {
+    ...ctx,
+    actorPermissions: ctx.actorPermissions ?? (await resolveActorPermissions(db as never, ctx.invokerUserId)),
+  };
 
   for (const agentId of toReply) {
     const agent = activeById.get(agentId);
     if (!agent) continue;
 
-    const runPromise = replyAsAgent({ ctx, agent, input, recent });
+    const runPromise = replyAsAgent({ ctx: actorCtx, agent, input, recent });
 
     if (ctx.waitUntil) {
       ctx.waitUntil(
@@ -252,12 +266,15 @@ async function replyAsAgent(params: {
         maxTokens: agent.maxTokens,
         maxIterations: Math.min(agent.maxIterations, 8),
         permissions: (agent.permissions ?? []) as string[],
+        autoReviewEnabled: ((agent.enabledTools ?? []) as string[]).includes('agent.auto_review'),
         enabledTools:
           (() => {
-            const base = (agent.enabledTools ?? []) as string[];
+            const flags = (agent.enabledTools ?? []) as string[];
+            const base = explicitToolAllowList(flags);
             const chatTools = ['chat.message_agent', 'chat.create_agent_group'];
-            if (base.length === 0) return [];
-            return Array.from(new Set([...base, ...chatTools]));
+            // No explicit allow-list: keep flags only, so every granted tool stays on.
+            if (base.length === 0) return flags;
+            return Array.from(new Set([...flags, ...chatTools]));
           })(),
       },
       toolContext: {
@@ -278,6 +295,8 @@ async function replyAsAgent(params: {
         },
       ],
       extraSystem,
+      timeoutMs: ctx.timeoutMs,
+      actorPermissions: ctx.actorPermissions ?? [],
     });
 
     const text = (result.text || '').trim();

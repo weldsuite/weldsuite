@@ -33,10 +33,10 @@ const PROJECT_VARIANTS: Record<string, Variant> = {
 export function TaskStatusBadge({
   status,
   size = 'sm',
-}: {
+}: Readonly<{
   status: string;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <Badge
@@ -50,10 +50,10 @@ export function TaskStatusBadge({
 export function ProjectStatusBadge({
   status,
   size = 'sm',
-}: {
+}: Readonly<{
   status: string;
   size?: BadgeProps['size'];
-}) {
+}>) {
   const { t } = useI18n();
   return (
     <Badge
@@ -65,7 +65,7 @@ export function ProjectStatusBadge({
 }
 
 /** @deprecated Prefer TaskStatusBadge / ProjectStatusBadge. */
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: Readonly<{ status: string }>) {
   if (status in PROJECT_VARIANTS) {
     return <ProjectStatusBadge status={status} />;
   }

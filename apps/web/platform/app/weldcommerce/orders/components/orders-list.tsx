@@ -31,7 +31,7 @@ export function OrdersList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: OrdersListProps) {
+}: Readonly<OrdersListProps>) {
   const t = getTranslations('commerce').module;
   const deleteMut = useDeleteCommerceOrder();
   const { open: openObjectPanel } = useObjectPanel();

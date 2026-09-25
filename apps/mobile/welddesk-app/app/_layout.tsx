@@ -44,7 +44,7 @@ if (!CLERK_PUBLISHABLE_KEY) {
   console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
 }
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
+function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();
@@ -254,7 +254,7 @@ function AuthenticatedApp() {
   );
 }
 
-function Splash({ label }: { label: string }) {
+function Splash({ label }: Readonly<{ label: string }>) {
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color={BRAND} />

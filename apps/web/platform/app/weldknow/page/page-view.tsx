@@ -72,7 +72,7 @@ interface PageViewProps {
   pageId: string;
 }
 
-export default function PageView({ pageId }: PageViewProps) {
+export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const t = getTranslations('weldknow');
   const router = useRouter();
   const canUpdate = useCan('knowledge:update');

@@ -35,7 +35,7 @@ const t = schema.notificationPreferences;
 app.get('/', requirePermission('general:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   // Preferences are personal: always scope to the authenticated user and
   // ignore any `?userId=` filter (which previously allowed cross-user reads).

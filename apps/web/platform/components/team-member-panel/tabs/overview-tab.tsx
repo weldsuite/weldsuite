@@ -134,11 +134,11 @@ export function OverviewTab({ profile }: OverviewTabProps) {
         label={t('sweep.shared.hoursPerWeek')}
         value={profile.hoursPerWeek}
         // The API takes a number; an unparseable entry clears the field rather
-        // than sending NaN (which the Zod schema would reject).
+        // than sending Number.NaN (which the Zod schema would reject).
         readOnly={!canEdit}
         onSave={(v) => {
           const trimmed = v?.trim();
-          const parsed = trimmed ? Number(trimmed) : NaN;
+          const parsed = trimmed ? Number(trimmed) : Number.NaN;
           saveField({ hoursPerWeek: Number.isFinite(parsed) ? parsed : null });
         }}
       />

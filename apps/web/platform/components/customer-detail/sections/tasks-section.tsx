@@ -43,7 +43,7 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-export function TasksSection({ customer }: TasksSectionProps) {
+export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   const t = useTranslations();
   const { mode, isExpanded } = useCustomerDetailContext();
 

@@ -24,7 +24,7 @@ interface DmCreateDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function DmCreateDialog({ open, onOpenChange }: DmCreateDialogProps) {
+export function DmCreateDialog({ open, onOpenChange }: Readonly<DmCreateDialogProps>) {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);

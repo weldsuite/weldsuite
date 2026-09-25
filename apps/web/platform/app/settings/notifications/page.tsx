@@ -434,7 +434,7 @@ export default function NotificationsSettingsPage() {
                     </div>
                     <Select
                       value={String(digestSettings?.sendHour ?? 8)}
-                      onValueChange={(v) => handleDigestUpdate({ sendHour: parseInt(v, 10) })}
+                      onValueChange={(v) => handleDigestUpdate({ sendHour: Number.parseInt(v, 10) })}
                       disabled={saving}
                     >
                       <SelectTrigger className="w-[120px]">

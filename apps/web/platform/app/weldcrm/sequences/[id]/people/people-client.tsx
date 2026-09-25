@@ -15,7 +15,7 @@ export function SequencePeopleClient({
   sequence,
   initialEnrollments,
   initialPagination,
-}: SequencePeopleClientProps) {
+}: Readonly<SequencePeopleClientProps>) {
   const t = getTranslations('crm');
   useBreadcrumbs([
     { label: t.sequences.breadcrumbCRM, href: '/weldcrm' },

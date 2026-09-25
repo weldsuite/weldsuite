@@ -19,7 +19,7 @@ interface WorkflowSettingsContentProps {
   hideHeader?: boolean;
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader }: WorkflowSettingsContentProps) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
   const [isPending, startTransition] = useTransition();
@@ -183,7 +183,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
                   type="number"
                   min={1}
                   value={maxCreditsPerRun ?? ''}
-                  onChange={(e) => setMaxCreditsPerRun(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                  onChange={(e) => setMaxCreditsPerRun(e.target.value ? Number.parseInt(e.target.value, 10) : undefined)}
                   className="w-32 pr-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">

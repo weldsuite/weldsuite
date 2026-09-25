@@ -34,7 +34,7 @@ export function getEnv(): Env {
   if (_env) return _env;
 
   _env = {
-    PORT: parseInt(process.env.PORT || '3060', 10),
+    PORT: Number.parseInt(process.env.PORT || '3060', 10),
     ENVIRONMENT: process.env.ENVIRONMENT || 'development',
     DISCORD_BOT_TOKEN: requiredEnv('DISCORD_BOT_TOKEN'),
     DISCORD_APPLICATION_ID: requiredEnv('DISCORD_APPLICATION_ID'),

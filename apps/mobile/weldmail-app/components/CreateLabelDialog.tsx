@@ -32,7 +32,7 @@ interface CreateLabelDialogProps {
   accountId: string;
 }
 
-export default function CreateLabelDialog({ visible, onClose, accountId }: CreateLabelDialogProps) {
+export default function CreateLabelDialog({ visible, onClose, accountId }: Readonly<CreateLabelDialogProps>) {
   const { colors } = useTheme();
   const { refreshLabels } = useMail();
 

@@ -6,7 +6,7 @@ import { en } from '@weldsuite/i18n/locales/en';
 
 const t = en.commerce.portalApp;
 
-export default function ShopLayout({ children }: { children: React.ReactNode }) {
+export default function ShopLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const slug = String(useParams().workspace ?? '');
   const pathname = usePathname();
   const router = useRouter();

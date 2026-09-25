@@ -2181,6 +2181,28 @@ export const sweep = {
       },
       "comingSoon": "Binnenkort beschikbaar"
     },
+    "appPermissions": {
+      "sectionsLabel": "Apps",
+      "workspace": "Werkruimte",
+      "intro": "Rechten stel je per app in. Een object dat in meerdere apps voorkomt, zoals bedrijven, kun je in de ene app toestaan en in de andere niet.",
+      "workspaceDescription": "Werkruimte-instellingen en gegevens die niet bij één app horen.",
+      "appDescription": "Wat leden met elk object in {app} mogen doen.",
+      "canOpenApp": "Leden met deze rol kunnen {app} openen",
+      "readOnly": "Alleen lezen",
+      "copyFrom": "Kopiëren van…",
+      "copyFromApp": "Kopiëren van {app}",
+      "grantedByPattern": "Toegekend via \"{pattern}\". Uitvinken vervangt dit door losse rechten.",
+      "otherApps": "Overige apps",
+      "memberTitle": "Rechten per app",
+      "memberDescription": "Klik op een recht om het alleen voor dit lid te wijzigen: sta iets toe wat de rol {role} niet geeft, of weiger iets wat de rol wel geeft. Weigeren gaat altijd voor.",
+      "inheritedFrom": "Van de rol {role}",
+      "allowed": "Toegestaan voor dit lid",
+      "denied": "Geweigerd voor dit lid",
+      "save": "Opslaan",
+      "saved": "Uitzonderingen op rechten opgeslagen",
+      "saveFailed": "Opslaan van uitzonderingen op rechten mislukt",
+      "resetOverrides": "Uitzonderingen wissen"
+    },
     "roles": {
       "kind": "Type",
       "loadFailed": "Rollen laden mislukt",

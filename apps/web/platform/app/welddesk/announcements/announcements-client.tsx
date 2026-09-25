@@ -36,7 +36,7 @@ export function AnnouncementsClient({
   params,
   statusFilters,
   additionalFilters,
-}: AnnouncementsClientProps) {
+}: Readonly<AnnouncementsClientProps>) {
   const { t } = useI18n();
   const ta = t.helpdesk.announcements;
   useBreadcrumbs([

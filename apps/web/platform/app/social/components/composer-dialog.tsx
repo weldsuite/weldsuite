@@ -70,7 +70,7 @@ function mediaKindFromMime(mimeType: string, fileName: string): 'image' | 'video
   return 'image';
 }
 
-export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds }: ComposerDialogProps) {
+export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds }: Readonly<ComposerDialogProps>) {
   const { t, format } = useI18n();
   const st = useTranslations();
   const fileInputRef = useRef<HTMLInputElement>(null);

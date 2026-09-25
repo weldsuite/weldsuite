@@ -224,7 +224,7 @@ export default function CustomerDetailPage() {
             <Text style={styles.avatarText}>{getInitials()}</Text>
           </View>
           <Text style={[styles.profileName, { color: colors.text }]}>{getDisplayName()}</Text>
-          {formData.companyName && !isEditing && (
+          {!!formData.companyName && !isEditing && (
             <Text style={[styles.profileCompany, { color: colors.muted }]}>{formData.companyName}</Text>
           )}
 

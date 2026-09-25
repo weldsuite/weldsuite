@@ -52,7 +52,7 @@ export function CustomerDetailView({
   navigation,
   visitorLocation,
   onBack,
-}: CustomerDetailViewProps) {
+}: Readonly<CustomerDetailViewProps>) {
   // Panel mode
   if (mode === 'panel') {
     // When stacked on a parent panel (`onBack` set), the X button inside the
@@ -159,10 +159,10 @@ const MAX_CUSTOMER_CHAT_WIDTH = 900;
 function CustomerDetailPageLayout({
   onDelete,
   onNavigateToCustomer,
-}: {
+}: Readonly<{
   onDelete?: () => void;
   onNavigateToCustomer?: (customerId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data, customerId, entityType, isLoading } = useCustomerDetailContext();
 
@@ -327,7 +327,7 @@ function CustomerDetailPanelLayout({
   width,
   isExpanded,
   onBack,
-}: {
+}: Readonly<{
   isOpen: boolean;
   onClose?: () => void;
   onDelete?: () => void;
@@ -335,12 +335,12 @@ function CustomerDetailPanelLayout({
   topOffset: string;
   isExpanded?: boolean;
   onBack?: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { isLoading, data, customerId, entityType } = useCustomerDetailContext();
 
   // Parse width to number for events
-  const widthNum = parseInt(width, 10) || 500;
+  const widthNum = Number.parseInt(width, 10) || 500;
 
   // Bottom-pinned, resizable chat — mirrors the task detail panel pattern
   // in apps/web/platform/components/task-detail/task-detail-panel.tsx.
@@ -350,7 +350,7 @@ function CustomerDetailPanelLayout({
   const [chatHeight, setChatHeight] = React.useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_CHAT_HEIGHT;
     const raw = window.localStorage.getItem(CHAT_HEIGHT_KEY);
-    const parsed = raw ? Number(raw) : NaN;
+    const parsed = raw ? Number(raw) : Number.NaN;
     return Number.isFinite(parsed) && parsed >= MIN_CHAT_HEIGHT ? parsed : DEFAULT_CHAT_HEIGHT;
   });
   // Whether the chat is collapsed (only the drag line stays visible at the

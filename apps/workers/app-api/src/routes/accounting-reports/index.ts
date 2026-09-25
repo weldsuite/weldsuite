@@ -76,11 +76,11 @@ app.get('/profit-loss', requirePermission('reports:read'), async (c) => {
     const expenses = results.filter((r) => r.accountType === 'expense');
 
     const totalRevenue = revenue.reduce(
-      (sum, r) => sum + parseFloat(r.totalCredit) - parseFloat(r.totalDebit),
+      (sum, r) => sum + Number.parseFloat(r.totalCredit) - Number.parseFloat(r.totalDebit),
       0,
     );
     const totalExpenses = expenses.reduce(
-      (sum, r) => sum + parseFloat(r.totalDebit) - parseFloat(r.totalCredit),
+      (sum, r) => sum + Number.parseFloat(r.totalDebit) - Number.parseFloat(r.totalCredit),
       0,
     );
 
@@ -88,11 +88,11 @@ app.get('/profit-loss', requirePermission('reports:read'), async (c) => {
       period: { from, to },
       revenue: revenue.map((r) => ({
         ...r,
-        balance: (parseFloat(r.totalCredit) - parseFloat(r.totalDebit)).toFixed(2),
+        balance: (Number.parseFloat(r.totalCredit) - Number.parseFloat(r.totalDebit)).toFixed(2),
       })),
       expenses: expenses.map((r) => ({
         ...r,
-        balance: (parseFloat(r.totalDebit) - parseFloat(r.totalCredit)).toFixed(2),
+        balance: (Number.parseFloat(r.totalDebit) - Number.parseFloat(r.totalCredit)).toFixed(2),
       })),
       totalRevenue: totalRevenue.toFixed(2),
       totalExpenses: totalExpenses.toFixed(2),
@@ -153,8 +153,8 @@ app.get('/balance-sheet', requirePermission('reports:read'), async (c) => {
       .orderBy(accounts.code);
 
     const computeBalance = (r: (typeof results)[0]) => {
-      const debit = parseFloat(r.totalDebit);
-      const credit = parseFloat(r.totalCredit);
+      const debit = Number.parseFloat(r.totalDebit);
+      const credit = Number.parseFloat(r.totalCredit);
       return r.normalSide === 'debit'
         ? (debit - credit).toFixed(2)
         : (credit - debit).toFixed(2);
@@ -170,9 +170,9 @@ app.get('/balance-sheet', requirePermission('reports:read'), async (c) => {
       .filter((r) => r.accountType === 'equity')
       .map((r) => ({ ...r, balance: computeBalance(r) }));
 
-    const totalAssets = assets.reduce((sum, r) => sum + parseFloat(r.balance), 0);
-    const totalLiabilities = liabilities.reduce((sum, r) => sum + parseFloat(r.balance), 0);
-    const totalEquity = equity.reduce((sum, r) => sum + parseFloat(r.balance), 0);
+    const totalAssets = assets.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
+    const totalLiabilities = liabilities.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
+    const totalEquity = equity.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
 
     return success(c, {
       asOf,
@@ -229,8 +229,8 @@ app.get('/trial-balance', requirePermission('reports:read'), async (c) => {
       .groupBy(accounts.code, accounts.name, accounts.type)
       .orderBy(accounts.code);
 
-    const totalDebit = results.reduce((sum, r) => sum + parseFloat(r.totalDebit), 0);
-    const totalCredit = results.reduce((sum, r) => sum + parseFloat(r.totalCredit), 0);
+    const totalDebit = results.reduce((sum, r) => sum + Number.parseFloat(r.totalDebit), 0);
+    const totalCredit = results.reduce((sum, r) => sum + Number.parseFloat(r.totalCredit), 0);
 
     return success(c, {
       period: { from, to },
@@ -284,7 +284,7 @@ app.get('/aged-receivables', requirePermission('reports:read'), async (c) => {
       const daysPast = Math.floor(
         (now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24),
       );
-      const balance = parseFloat(inv.balanceDue ?? '0');
+      const balance = Number.parseFloat(inv.balanceDue ?? '0');
 
       if (daysPast <= 0) {
         buckets.current += balance;
@@ -358,7 +358,7 @@ app.get('/aged-payables', requirePermission('reports:read'), async (c) => {
       const daysPast = Math.floor(
         (now.getTime() - new Date(bill.dueDate).getTime()) / (1000 * 60 * 60 * 24),
       );
-      const balance = parseFloat(bill.balanceDue ?? '0');
+      const balance = Number.parseFloat(bill.balanceDue ?? '0');
       if (daysPast <= 0) buckets.current += balance;
       else if (daysPast <= 30) buckets.days30 += balance;
       else if (daysPast <= 60) buckets.days60 += balance;
@@ -453,8 +453,8 @@ app.get('/general-ledger', requirePermission('reports:read'), async (c) => {
 
   const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
   const to = q.to ?? new Date().toISOString();
-  const page = parseInt(q.page ?? '1', 10);
-  const pageSize = parseInt(q.pageSize ?? '50', 10);
+  const page = Number.parseInt(q.page ?? '1', 10);
+  const pageSize = Number.parseInt(q.pageSize ?? '50', 10);
 
   try {
     const entityId = await resolveEntityId(c, db);
@@ -570,9 +570,9 @@ app.get('/cash-flow', requirePermission('reports:read'), async (c) => {
       .groupBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`)
       .orderBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`);
 
-    const totalInflows = monthly.reduce((sum, m) => sum + parseFloat(m.inflows), 0);
-    const totalOutflows = monthly.reduce((sum, m) => sum + parseFloat(m.outflows), 0);
-    const totalNet = monthly.reduce((sum, m) => sum + parseFloat(m.net), 0);
+    const totalInflows = monthly.reduce((sum, m) => sum + Number.parseFloat(m.inflows), 0);
+    const totalOutflows = monthly.reduce((sum, m) => sum + Number.parseFloat(m.outflows), 0);
+    const totalNet = monthly.reduce((sum, m) => sum + Number.parseFloat(m.net), 0);
 
     return success(c, {
       period: { from, to },
@@ -633,7 +633,7 @@ app.get('/revenue-by-customer', requirePermission('reports:read'), async (c) => 
         ),
       );
 
-    const grandTotal = results.reduce((sum, r) => sum + parseFloat(r.totalRevenue), 0);
+    const grandTotal = results.reduce((sum, r) => sum + Number.parseFloat(r.totalRevenue), 0);
 
     return success(c, {
       period: { from, to },
@@ -689,7 +689,7 @@ app.get('/expense-by-category', requirePermission('reports:read'), async (c) => 
         ),
       );
 
-    const grandTotal = results.reduce((sum, r) => sum + parseFloat(r.totalExpense), 0);
+    const grandTotal = results.reduce((sum, r) => sum + Number.parseFloat(r.totalExpense), 0);
 
     return success(c, {
       period: { from, to },

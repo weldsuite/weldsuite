@@ -12,7 +12,7 @@ function formatDuration(seconds?: number | null): string {
   return `${m}:${s}`;
 }
 
-export function RecordingItem({ recording }: { recording: RecordingSummary }) {
+export function RecordingItem({ recording }: Readonly<{ recording: RecordingSummary }>) {
   const { colors } = useTheme();
   const url = recording.recordingUrl;
   const open = () => {

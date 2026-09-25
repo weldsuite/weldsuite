@@ -42,7 +42,7 @@ if (!CLERK_PUBLISHABLE_KEY) {
   console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
 }
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
+function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();

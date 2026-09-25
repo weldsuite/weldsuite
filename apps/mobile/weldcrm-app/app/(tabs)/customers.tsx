@@ -116,8 +116,8 @@ export default function CustomersScreen() {
 
   const formatCurrency = (value?: string) => {
     if (!value) return undefined;
-    const num = parseFloat(value);
-    if (isNaN(num)) return value;
+    const num = Number.parseFloat(value);
+    if (Number.isNaN(num)) return value;
     return `$${num.toLocaleString()}`;
   };
 
@@ -216,13 +216,13 @@ export default function CustomersScreen() {
       if (newDealClosingDate) {
         // Try to parse the date string (e.g., "1 Jan 2026")
         const parsed = new Date(newDealClosingDate);
-        closeDate = !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        closeDate = !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       } else {
         closeDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       }
 
       // Parse probability from chance string (e.g., "50%" -> 50)
-      const probability = newDealChance ? parseInt(newDealChance.replace('%', '')) : undefined;
+      const probability = newDealChance ? Number.parseInt(newDealChance.replace('%', '')) : undefined;
 
       // Get the first pipeline ID if available
       const pipelineId = pipelines.length > 0 ? pipelines[0].id : undefined;
@@ -231,7 +231,7 @@ export default function CustomersScreen() {
       const response = await api.createOpportunity({
         name: newDealTitle.trim(),
         customerId: selectedCustomer.id,
-        amount: newDealValue ? parseFloat(newDealValue) : 0,
+        amount: newDealValue ? Number.parseFloat(newDealValue) : 0,
         stageId: selectedColumnId,
         probability,
         closeDate,
@@ -244,7 +244,7 @@ export default function CustomersScreen() {
         const newDeal: Deal = {
           id: response.data.id,
           title: newDealTitle,
-          value: newDealValue ? `$${parseFloat(newDealValue).toLocaleString()}` : undefined,
+          value: newDealValue ? `$${Number.parseFloat(newDealValue).toLocaleString()}` : undefined,
           date: formatDate(closeDate),
           customerId: selectedCustomer.id,
         };
@@ -439,7 +439,7 @@ export default function CustomersScreen() {
             </View>
 
             <View style={styles.customerDetails}>
-              {item.email && (
+              {!!item.email && (
                 <View style={styles.detailRow}>
                   <Mail size={14} color={colors.muted} />
                   <Text style={[styles.detailText, { color: colors.text }]}>{item.email}</Text>

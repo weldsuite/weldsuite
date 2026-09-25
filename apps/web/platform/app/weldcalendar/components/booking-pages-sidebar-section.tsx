@@ -31,7 +31,7 @@ interface BookingPagesSidebarSectionProps {
   onAdd?: () => void;
 }
 
-export function BookingPagesSidebarSection({ bookingPages, onAdd }: BookingPagesSidebarSectionProps) {
+export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<BookingPagesSidebarSectionProps>) {
   const navigate = useNavigate();
   const { organization } = useOrganization();
   const deleteBookingPage = useDeleteBookingPage();

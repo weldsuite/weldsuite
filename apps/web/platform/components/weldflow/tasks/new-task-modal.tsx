@@ -53,7 +53,7 @@ export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
       title,
       description,
       completed: false,
-      duration: duration ? parseInt(duration, 10) : undefined,
+      duration: duration ? Number.parseInt(duration, 10) : undefined,
       dueDate: dueDate ? new Date(dueDate) : undefined,
       assignee: assigneeId ? { 
         id: assigneeId, 

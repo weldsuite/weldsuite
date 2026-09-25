@@ -62,7 +62,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
   email: Mail,
 };
 
-export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientProps) {
+export function TriggersClient({ triggerTypes, entityEvents }: Readonly<TriggersClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },

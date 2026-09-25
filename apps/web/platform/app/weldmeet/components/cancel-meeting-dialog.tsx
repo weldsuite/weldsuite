@@ -20,7 +20,7 @@ interface CancelMeetingDialogProps {
   isPending?: boolean;
 }
 
-export function CancelMeetingDialog({ open, onOpenChange, onConfirm, isPending }: CancelMeetingDialogProps) {
+export function CancelMeetingDialog({ open, onOpenChange, onConfirm, isPending }: Readonly<CancelMeetingDialogProps>) {
   const t = getTranslations('weldmeet');
   const [sendNotification, setSendNotification] = useState(true);
 

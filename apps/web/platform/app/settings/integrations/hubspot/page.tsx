@@ -49,7 +49,7 @@ function formatDuration(ms: number | null): string {
   return `${Math.round(ms / 60000)}m`;
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: Readonly<{ status: string }>) {
   const t = useTranslations();
   const styles: Record<string, string> = {
     active: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50',
@@ -77,13 +77,13 @@ function ConnectionCard({
   onDisconnect,
   onFieldMappings,
   isSyncing,
-}: {
+}: Readonly<{
   connection: IntegrationConnection;
   onSync: () => void;
   onDisconnect: () => void;
   onFieldMappings: () => void;
   isSyncing: boolean;
-}) {
+}>) {
   const t = useTranslations();
   const { data: logsResult } = useIntegrationSyncLogs(connection.id);
   const updateSettings = useUpdateConnectionSettings();
@@ -214,7 +214,7 @@ function ConnectionCard({
             onValueChange={(v) => {
               updateSettings.mutate({
                 connectionId: connection.id,
-                syncSettings: { syncIntervalHours: parseInt(v, 10) },
+                syncSettings: { syncIntervalHours: Number.parseInt(v, 10) },
               });
             }}
           >

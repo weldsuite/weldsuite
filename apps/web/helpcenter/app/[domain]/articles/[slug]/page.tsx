@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: { params: Promise<{ domain: s
   return { title: article.title, description: article.excerpt }
 }
 
-export default async function ArticlePage({ params }: { params: Promise<{ domain: string; slug: string }> }) {
+export default async function ArticlePage({ params }: Readonly<{ params: Promise<{ domain: string; slug: string }> }>) {
   const { domain, slug } = await params
   const [article, folders] = await Promise.all([
     getArticle(domain, slug),
@@ -61,7 +61,7 @@ function extractHeadings(html: string): { id: string; text: string; level: numbe
   const regex = /<h([23])\b([^>]*)>([\s\S]*?)<\/h\1>/gi
   let match
   while ((match = regex.exec(html)) !== null) {
-    const level = parseInt(match[1], 10)
+    const level = Number.parseInt(match[1], 10)
     const attrs = match[2]
     const inner = match[3]
     const text = inner.replace(/<[^>]*>/g, '').trim()

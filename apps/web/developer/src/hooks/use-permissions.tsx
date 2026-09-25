@@ -11,7 +11,7 @@ interface PermissionResponse {
   isOwner: boolean;
 }
 
-export function DeveloperPermissionProvider({ children }: { children: ReactNode }) {
+export function DeveloperPermissionProvider({ children }: Readonly<{ children: ReactNode }>) {
   const { getClient } = useAppApiClient();
   const { isSignedIn, orgId } = useAuth();
 

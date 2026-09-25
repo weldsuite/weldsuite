@@ -9,7 +9,7 @@ interface CrmLayoutClientProps {
   children: ReactNode;
 }
 
-export function CrmLayoutClient({ children }: CrmLayoutClientProps) {
+export function CrmLayoutClient({ children }: Readonly<CrmLayoutClientProps>) {
   const t = useTranslations();
 
   return (

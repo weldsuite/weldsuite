@@ -145,7 +145,7 @@ export const TIMEZONES: TimezoneOption[] = (() => {
       ? Intl.supportedValuesOf('timeZone')
       : ['UTC', 'Europe/Amsterdam', 'America/New_York'];
 
-  const list = ['UTC', ...ids.filter((tz) => tz !== 'UTC').sort()];
+  const list = ['UTC', ...ids.filter((tz) => tz !== 'UTC').sort((a, b) => a.localeCompare(b))];
   return list.map((id) => ({
     id,
     label: `${id.replace(/_/g, ' ')} (${getUtcOffset(id)})`,

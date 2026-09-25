@@ -6,12 +6,12 @@ function Step({
   title,
   body,
   code,
-}: {
+}: Readonly<{
   n: number;
   title: string;
   body: string;
   code: string;
-}) {
+}>) {
   return (
     <li className="relative pl-10">
       <span className="absolute left-0 top-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">

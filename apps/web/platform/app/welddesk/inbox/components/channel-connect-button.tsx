@@ -61,7 +61,7 @@ export function ChannelConnectButton({
   className,
   hideIcon,
   buttonColor,
-}: ChannelConnectButtonProps) {
+}: Readonly<ChannelConnectButtonProps>) {
   const { t } = useI18n();
   const ti = t.helpdesk.inbox;
   const connectOAuthMutation = useConnectChannelOAuth();

@@ -148,7 +148,7 @@ const NUMBER_TYPES = [
 export function PhoneNumberSettingsClient({
   phoneNumbers: initialPhoneNumbers,
   isConfigured,
-}: PhoneNumberSettingsClientProps) {
+}: Readonly<PhoneNumberSettingsClientProps>) {
   const router = useRouter();
   const ts = getTranslations('settings');
   const tp = ts.phoneNumbers;
@@ -333,7 +333,7 @@ export function PhoneNumberSettingsClient({
   const filterConfigs: FilterConfig[] = useMemo(() => {
     const countries = Array.from(
       new Set(phoneNumbers.map((p) => p.countryCode).filter(Boolean) as string[]),
-    ).sort();
+    ).sort((a, b) => a.localeCompare(b));
     return [
       {
         field: 'type',

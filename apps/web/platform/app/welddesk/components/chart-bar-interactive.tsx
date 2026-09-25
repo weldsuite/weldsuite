@@ -33,7 +33,7 @@ interface ChartBarInteractiveProps {
   data: HelpdeskChartDataPoint[]
 }
 
-export function ChartBarInteractive({ data }: ChartBarInteractiveProps) {
+export function ChartBarInteractive({ data }: Readonly<ChartBarInteractiveProps>) {
   const { t } = useI18n();
   const td = t.helpdesk.dashboard;
   const chartConfig = {

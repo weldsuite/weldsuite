@@ -71,7 +71,7 @@ export function WeldbooksEntityList<T extends { id: string }>({
   createButton,
   actionButtons,
   emptyState,
-}: WeldbooksEntityListProps<T>) {
+}: Readonly<WeldbooksEntityListProps<T>>) {
   return (
     <EntityList<T>
       items={items}

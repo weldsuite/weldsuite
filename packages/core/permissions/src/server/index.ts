@@ -10,4 +10,9 @@ export {
   initPermissionMiddleware,
   getPermissionsFromContext,
   ensurePermissionsResolved,
+  hasContextPermission,
+  isAppPermissionEnforced,
+  APP_CONTEXT_KEY,
 } from './middleware';
+
+export { appContextMiddleware, getAppFromContext } from './app-context';

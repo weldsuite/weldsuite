@@ -28,6 +28,11 @@ export const workspaceMembers = pgTable(
     // Additional permissions beyond role
     permissions: jsonb('permissions').$type<string[]>().default([]),
 
+    // Explicit per-member denies (e.g. `weldbooks:companies:read`). A deny
+    // always wins over a grant from the role or the member's own extras.
+    // See @weldsuite/permissions app-scope.ts.
+    permissionDenies: jsonb('permission_denies').$type<string[]>().default([]),
+
     // Working hours per week (defaults to 40 in application code)
     hoursPerWeek: numeric('hours_per_week', { precision: 5, scale: 2 }),
 

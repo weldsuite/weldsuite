@@ -299,14 +299,13 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     const url = `${baseUrl}/api/chat-calls/${cId}/leave`;
     const token = authTokenRef.current;
     if (!token) return;
-    try {
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: '{}',
-        keepalive: true,
-      }).catch(() => {});
-    } catch { /* best effort */ }
+    // Best effort: a failed leave notification must never block teardown.
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: '{}',
+      keepalive: true,
+    }).catch(() => {});
   }, []);
 
   // Notify backend on tab close / navigation so the call doesn't stay open
@@ -420,7 +419,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       // reliably release the camera/mic, so the device indicator would otherwise
       // stay on after the call ends.
       stopLocalMediaTracks(meeting);
-      try { meeting.leave(); } catch { /* ignore */ }
+      meeting.leave().catch(() => { /* ignore */ });
     }
     // Restore getUserMedia first, then dispose the suppressor.
     try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }

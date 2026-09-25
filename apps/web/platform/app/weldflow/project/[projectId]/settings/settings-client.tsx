@@ -62,7 +62,7 @@ export function SettingsClient({
   isAdmin,
   canWrite,
   isViewer,
-}: SettingsClientProps) {
+}: Readonly<SettingsClientProps>) {
   const { t } = useI18n();
 
   const tabs: { id: SubTab; label: string; description: string }[] = [

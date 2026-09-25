@@ -129,9 +129,9 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       const rubriek = (rate?.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
       if (!rubriek) continue;
 
-      const credit = parseFloat(line.credit || '0');
-      const debit = parseFloat(line.debit || '0');
-      const taxAmount = parseFloat(line.taxAmount || '0');
+      const credit = Number.parseFloat(line.credit || '0');
+      const debit = Number.parseFloat(line.debit || '0');
+      const taxAmount = Number.parseFloat(line.taxAmount || '0');
       const baseAmount = Math.abs(credit - debit) - Math.abs(taxAmount);
 
       switch (rubriek) {

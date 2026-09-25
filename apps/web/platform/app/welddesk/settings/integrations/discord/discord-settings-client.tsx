@@ -51,7 +51,7 @@ import {
 // inside the popover so the parent form (and all five tabs) doesn't re-render
 // on every pixel of mouse movement. Commits the chosen colour back to the
 // parent only when the popover closes.
-function EmbedColorPicker({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+function EmbedColorPicker({ value, onChange }: Readonly<{ value: string; onChange: (next: string) => void }>) {
   const st = useTranslations();
   const [open, setOpen] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -112,7 +112,7 @@ export function DiscordSettingsClient({
   initialSettings,
   guildInfo,
   isNewSetup,
-}: DiscordSettingsClientProps) {
+}: Readonly<DiscordSettingsClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const updateDiscordSettingsMutation = useUpdateDiscordSettings();

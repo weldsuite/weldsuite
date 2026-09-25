@@ -122,7 +122,7 @@ function setFormatKey<K extends keyof CellFormat>(
 
 // `onBack` / `tableName` are part of the shared ToolbarProps contract but this
 // toolbar doesn't render a back button or title — kept for callers that pass them.
-function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintFormatActive, onPaintFormat, showFormulaBar, onToggleFormulaBar, zoom, onZoomChange, activeFormat, onMergeCells, mergeActive, onInsertLink, onComment, onInsertFunction }: ToolbarProps) {
+function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintFormatActive, onPaintFormat, showFormulaBar, onToggleFormulaBar, zoom, onZoomChange, activeFormat, onMergeCells, mergeActive, onInsertLink, onComment, onInsertFunction }: Readonly<ToolbarProps>) {
   const [fontFamily, setFontFamily] = useState('sans-serif');
   const [fontSize, setFontSize] = useState('10');
   const [fontFamilyOpen, setFontFamilyOpen] = useState(false);
@@ -480,11 +480,11 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
 }
 
 // --- Status Bar ---
-function StatusBar({ columns, rows, selBounds }: {
+function StatusBar({ columns, rows, selBounds }: Readonly<{
   columns: { id: string; position: number }[];
   rows: { id: string; position: number; data: Record<string, CellDataValue> }[];
   selBounds: { minCol: number; maxCol: number; minRow: number; maxRow: number } | null;
-}) {
+}>) {
   const stats = useMemo(() => {
     if (!selBounds) return null;
     const sortedCols = [...columns].sort((a, b) => a.position - b.position);
@@ -498,7 +498,7 @@ function StatusBar({ columns, rows, selBounds }: {
         if (val !== null && val !== undefined && val !== '') {
           count++;
           const n = Number(val);
-          if (!isNaN(n)) { sum += n; numCount++; }
+          if (!Number.isNaN(n)) { sum += n; numCount++; }
         }
       }
     }
@@ -526,7 +526,7 @@ interface SpreadsheetViewProps {
   onBack: () => void;
 }
 
-export function SpreadsheetView({ projectId, tableId, tableName, onBack }: SpreadsheetViewProps) {
+export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Readonly<SpreadsheetViewProps>) {
   const { t } = useI18n();
   const {
     sheets,
@@ -1465,7 +1465,7 @@ interface ColumnFilterPopoverProps {
   onClose: () => void;
 }
 
-function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClose }: ColumnFilterPopoverProps) {
+function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClose }: Readonly<ColumnFilterPopoverProps>) {
   const { t } = useI18n();
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allowed ?? values));
 

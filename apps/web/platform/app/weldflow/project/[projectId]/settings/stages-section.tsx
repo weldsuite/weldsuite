@@ -71,7 +71,7 @@ const SYSTEM_STATUS_BADGE: Record<string, { color: string; bg: string }> = {
 };
 const DEFAULT_BADGE = SYSTEM_STATUS_BADGE.todo;
 
-export function StagesSection({ projectId, isAdmin }: StagesSectionProps) {
+export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProps>) {
   const { t } = useI18n();
 
   const SYSTEM_STATUSES = useMemo(() => [
@@ -438,12 +438,12 @@ function StageRow({
   isAdmin,
   onEdit,
   onDelete,
-}: {
+}: Readonly<{
   stage: Stage;
   isAdmin: boolean;
   onEdit: () => void;
   onDelete: () => void;
-}) {
+}>) {
   const { t } = useI18n();
   const SYSTEM_STATUS_LABELS: Record<string, string> = {
     backlog: t.projects.settings.backlogStatus,
@@ -502,7 +502,7 @@ function StageRow({
   );
 }
 
-function ColorSwatch({ color, onChange }: { color: string; onChange: (c: string) => void }) {
+function ColorSwatch({ color, onChange }: Readonly<{ color: string; onChange: (c: string) => void }>) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -39,7 +39,7 @@ export interface ConversationFlowBuilderProps {
 // SVG Edge rendering
 // ============================================================================
 
-function EdgePath({ from, to }: { from: { x: number; y: number }; to: { x: number; y: number } }) {
+function EdgePath({ from, to }: Readonly<{ from: { x: number; y: number }; to: { x: number; y: number } }>) {
   const midX = from.x + (to.x - from.x) / 2;
   const r = Math.min(20, Math.abs(to.y - from.y) / 2, Math.abs(to.x - from.x) / 4);
   const dy = to.y - from.y;
@@ -82,12 +82,12 @@ function CanvasEdges({
   connectors,
   width,
   height,
-}: {
+}: Readonly<{
   edges: CanvasEdge[];
   connectors: Map<string, { x: number; y: number }>;
   width: number;
   height: number;
-}) {
+}>) {
   return (
     <svg
       className="absolute inset-0 pointer-events-none"
@@ -122,7 +122,7 @@ export function ConversationFlowBuilder({
   onDeselect,
   selectedNodeId,
   className,
-}: ConversationFlowBuilderProps) {
+}: Readonly<ConversationFlowBuilderProps>) {
   const canvasLayerRef = useRef<HTMLDivElement>(null);
 
   // Derived layout

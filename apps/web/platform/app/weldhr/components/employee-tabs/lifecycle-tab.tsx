@@ -30,7 +30,7 @@ import { ErrorBanner, StatusBadge, errorMessage, formatDate, todayIso } from '..
 
 const ASSIGNEE_ROLES: HrAssigneeRole[] = ['hr', 'manager', 'it', 'employee', 'other'];
 
-export function EmployeeLifecycleTab({ employeeId }: { employeeId: string }) {
+export function EmployeeLifecycleTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canWrite = can('employees:update');
@@ -270,7 +270,7 @@ export function EmployeeLifecycleTab({ employeeId }: { employeeId: string }) {
   );
 }
 
-function AddTaskForm({ checklistId, onDone }: { checklistId: string; onDone: () => void }) {
+function AddTaskForm({ checklistId, onDone }: Readonly<{ checklistId: string; onDone: () => void }>) {
   const t = useTranslations();
   const addTask = useAddHrChecklistTask();
   const [title, setTitle] = useState('');

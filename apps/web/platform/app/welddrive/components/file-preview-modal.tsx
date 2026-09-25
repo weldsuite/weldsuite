@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 
-function PreviewTooltip({ label, children, side = 'top' }: { label: string; children: React.ReactNode; side?: 'top' | 'bottom' }) {
+function PreviewTooltip({ label, children, side = 'top' }: Readonly<{ label: string; children: React.ReactNode; side?: 'top' | 'bottom' }>) {
   const [show, setShow] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -116,7 +116,7 @@ interface FilePreviewModalProps {
   onDelete?: (file: UnifiedFile) => void;
 }
 
-export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onToggleStar, onMoveToFolder, onRename, onCopyLink, onDelete }: FilePreviewModalProps) {
+export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onToggleStar, onMoveToFolder, onRename, onCopyLink, onDelete }: Readonly<FilePreviewModalProps>) {
   const { t } = useI18n();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);

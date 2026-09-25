@@ -70,7 +70,7 @@ function ChannelListingFields({
   onStatusChange,
   onSave,
   isSaving,
-}: {
+}: Readonly<{
   price: string;
   listingStatus: SalesChannelListingStatus;
   disabled?: boolean;
@@ -78,7 +78,7 @@ function ChannelListingFields({
   onStatusChange: (value: SalesChannelListingStatus) => void;
   onSave: () => void;
   isSaving?: boolean;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   return (
@@ -93,7 +93,7 @@ function ChannelListingFields({
           value={price}
           disabled={disabled}
           onChange={(e) => onPriceChange(e.target.value)}
-          onBlur={() => void onSave()}
+          onBlur={onSave}
         />
       </div>
       <div className="grid gap-1">
@@ -113,7 +113,7 @@ function ChannelListingFields({
           </SelectContent>
         </Select>
       </div>
-      <Button type="button" size="sm" variant="outline" disabled={disabled || isSaving} onClick={() => void onSave()}>
+      <Button type="button" size="sm" variant="outline" disabled={disabled || isSaving} onClick={onSave}>
         {tc.actions.save}
       </Button>
     </div>
@@ -125,12 +125,12 @@ function ChannelEditor({
   channel,
   currency,
   compact,
-}: {
+}: Readonly<{
   productId: string;
   channel: ProductSalesChannel;
   currency?: string | null;
   compact?: boolean;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const update = useUpdateProductSalesChannel();
   const [price, setPrice] = useState(channel.price ?? '');
@@ -238,14 +238,14 @@ export function ProductSalesChannelsEditor({
   catalogPrice,
   catalogStatus,
   currency,
-}: {
+}: Readonly<{
   productId: string;
   channels: ProductSalesChannel[];
   compact?: boolean;
   catalogPrice?: string | number | null;
   catalogStatus?: string | null;
   currency?: string | null;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const add = useAddProductSalesChannel();
   const remove = useRemoveProductSalesChannel();

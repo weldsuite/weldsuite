@@ -58,7 +58,7 @@ export interface MeetingChatPanelProps {
 // Slide-out panel wrapper (matches original public API exactly)
 // ============================================================================
 
-export function MeetingChatPanel({ meetingId, isOpen, onClose, onOpen, notificationHost, onClickAuthor, participants }: MeetingChatPanelProps) {
+export function MeetingChatPanel({ meetingId, isOpen, onClose, onOpen, notificationHost, onClickAuthor, participants }: Readonly<MeetingChatPanelProps>) {
   return (
     <MeetingChatDataProvider
       meetingId={meetingId}
@@ -85,7 +85,7 @@ function MeetingChatDataProvider({
   onClickAuthor,
   inlineMode = false,
   participants,
-}: {
+}: Readonly<{
   meetingId: string;
   isOpen: boolean;
   onClose: () => void;
@@ -94,7 +94,7 @@ function MeetingChatDataProvider({
   onClickAuthor?: (author: { id: string; name: string; avatar?: string | null }) => void;
   inlineMode?: boolean;
   participants?: ChatParticipant[];
-}) {
+}>) {
   const t = useTranslations();
   const { userId } = useAuth();
   const { user } = useUser();

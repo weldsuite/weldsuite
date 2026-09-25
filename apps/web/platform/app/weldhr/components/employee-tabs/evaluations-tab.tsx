@@ -12,7 +12,7 @@ import { EvaluationDialog } from '../../evaluations/components/evaluation-dialog
 import { SectionCard, EmptyText } from '../page-kit';
 import { ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate } from '../shared';
 
-export function EmployeeEvaluationsTab({ employeeId }: { employeeId: string }) {
+export function EmployeeEvaluationsTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canCreate = can('evaluations:create');
@@ -90,7 +90,7 @@ export function EmployeeEvaluationsTab({ employeeId }: { employeeId: string }) {
 }
 
 /** Minimal inline line chart — no charting library needed for a single series. */
-function ScoreTrendChart({ points }: { points: number[] }) {
+function ScoreTrendChart({ points }: Readonly<{ points: number[] }>) {
   const width = 480;
   const height = 96;
   const padding = 8;

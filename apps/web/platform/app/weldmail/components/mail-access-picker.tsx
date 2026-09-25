@@ -118,11 +118,11 @@ export function useMailAccessSelection(
 export function MailAccessPicker({
   selection,
   idPrefix = 'mail-access',
-}: {
+}: Readonly<{
   selection: MailAccessSelection;
   /** Distinguishes the switch when two pickers share a page. */
   idPrefix?: string;
-}) {
+}>) {
   const tma = getTranslations('settings').weldmail.manageAccess;
   const [pickerOpen, setPickerOpen] = useState(false);
   const { isShared, setIsShared, selectedUserIds, toggleUser, members, membersLoading } =

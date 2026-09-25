@@ -7,7 +7,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
 import { cn } from '@/lib/utils';
 
-export function InboxLayout({ children }: { children: ReactNode }) {
+export function InboxLayout({ children }: Readonly<{ children: ReactNode }>) {
   const { t } = useI18n();
   const tInbox = getTranslations('deskInbox2');
   const { isInstalled, isLoading } = useAppAccess('welddesk');
@@ -39,7 +39,7 @@ interface DeskSplitLayoutProps {
   detail: ReactNode;
 }
 
-export function DeskSplitLayout({ list, detail }: DeskSplitLayoutProps) {
+export function DeskSplitLayout({ list, detail }: Readonly<DeskSplitLayoutProps>) {
   const pathname = usePathname();
   const pathParts = pathname?.split('/').filter(Boolean) ?? [];
   const hasConversationSelected = pathParts[0] === 'welddesk' && pathParts[1] === 'inbox' && pathParts.length >= 3;

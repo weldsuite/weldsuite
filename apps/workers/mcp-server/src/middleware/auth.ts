@@ -266,7 +266,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
       'Token is not scoped to an organization. Re-authorize requesting the "user:org:read" scope and select a workspace.',
       `no org_id for user ${userId} via client ${clientId}: ` +
         `format=${payload ? 'jwt' : 'opaque'}, ` +
-        `claims=[${payload ? Object.keys(payload).sort().join(',') : ''}], ` +
+        `claims=[${payload ? Object.keys(payload).sort((a, b) => a.localeCompare(b)).join(',') : ''}], ` +
         'userinfo also had none — the client most likely lacks the user:org:read scope',
     );
   }
@@ -309,6 +309,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // token. A member who cannot delete leads in the UI cannot delete them
   // through an AI assistant either.
   let permissions: string[];
+  let permissionDenies: string[];
   let role: string;
   let roleId: string | null;
   try {
@@ -320,6 +321,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     });
     const resolved = await resolveEffectivePermissions(queries, userId);
     permissions = resolved.permissions;
+    permissionDenies = resolved.denies ?? [];
     role = resolved.role;
     roleId = resolved.roleId;
   } catch (error) {
@@ -381,6 +383,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     tier: workspace.tier,
     databaseUrl: workspace.databaseUrl,
     permissions,
+    permissionDenies,
     role,
     clientId,
   };

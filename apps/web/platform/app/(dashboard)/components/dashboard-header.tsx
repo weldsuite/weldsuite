@@ -9,7 +9,7 @@ interface DashboardHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function DashboardHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: DashboardHeaderProps) {
+export function DashboardHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<DashboardHeaderProps>) {
   const pathname = usePathname();
   const { t } = useI18n();
 

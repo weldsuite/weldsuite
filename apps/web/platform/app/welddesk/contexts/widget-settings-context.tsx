@@ -27,7 +27,7 @@ interface WidgetSettingsProviderProps {
   initialSettings?: WidgetPageSettings;
 }
 
-export function WidgetSettingsProvider({ children, initialSettings }: WidgetSettingsProviderProps) {
+export function WidgetSettingsProvider({ children, initialSettings }: Readonly<WidgetSettingsProviderProps>) {
   const [settings, setSettings] = useState<WidgetPageSettings>(initialSettings ?? defaultSettings);
 
   const updateSettings = useCallback((newSettings: Partial<WidgetPageSettings>) => {

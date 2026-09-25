@@ -28,14 +28,14 @@ export function RecordFormDialog({
   fields,
   initialValues,
   onSubmit,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   object: CustomObject;
   fields: CustomFieldDefinition[];
   initialValues?: Record<string, unknown>;
   onSubmit: (values: Record<string, unknown>) => Promise<void>;
-}) {
+}>) {
   const { t: i18n } = useI18n();
   const t = i18n.weldobjects;
   const [values, setValues] = React.useState<Record<string, unknown>>(initialValues ?? {});

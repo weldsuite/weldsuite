@@ -88,7 +88,7 @@ export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
   const handleAdmit = useCallback(
     async (id: string) => {
       try {
-        await meeting?.participants?.acceptWaitingRoomRequest(id);
+        meeting?.participants?.acceptWaitingRoomRequest(id);
       } catch {
         /* ignore */
       }

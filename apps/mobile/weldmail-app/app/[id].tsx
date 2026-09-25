@@ -80,7 +80,7 @@ const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: numb
 function formatPlatformDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return '';
   const day = date.getDate();
   const month = date.toLocaleDateString('en-US', { month: 'short' });
   const hh = date.getHours().toString().padStart(2, '0');
@@ -102,7 +102,7 @@ function getInitialColor(name: string): string {
 }
 
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: {
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: Readonly<{
   message: any;
   colors: any;
   isExpanded: boolean;
@@ -111,7 +111,7 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   onReplyAll: (msg: any) => void;
   onForward: (msg: any) => void;
   router: any;
-}) {
+}>) {
   const senderName = getSenderName(message.from);
   const senderEmail = getSenderEmail(message.from);
   const avatarColor = getInitialColor(senderName);
@@ -764,7 +764,7 @@ export default function EmailDetailScreen() {
                   const d = email.receivedAt || email.receivedDate || email.createdAt;
                   if (!d) return '';
                   const date = new Date(d);
-                  if (isNaN(date.getTime())) return '';
+                  if (Number.isNaN(date.getTime())) return '';
                   return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 })()}
               </Text>

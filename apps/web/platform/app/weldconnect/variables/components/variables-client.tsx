@@ -87,7 +87,7 @@ function formatValue(variable: Variable, revealed: boolean): string {
   return String(value);
 }
 
-export function VariablesClient({ initialVariables, isLoading = false }: VariablesClientProps) {
+export function VariablesClient({ initialVariables, isLoading = false }: Readonly<VariablesClientProps>) {
   const { t } = useI18n();
   const vc = t.weldconnect.variablesClient;
 

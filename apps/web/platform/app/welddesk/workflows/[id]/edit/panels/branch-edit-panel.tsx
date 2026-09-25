@@ -34,7 +34,7 @@ export function BranchEditPanel({
   onSelectStep,
   onAddStepToBranch,
   onClose,
-}: BranchEditPanelProps) {
+}: Readonly<BranchEditPanelProps>) {
   const { t } = useI18n();
   const bep = t.helpdesk.branchEditPanel;
 

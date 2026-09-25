@@ -29,7 +29,7 @@ export function OverviewPanel({
   onSelectTrigger,
   onSelectStep,
   onCloseMobile,
-}: OverviewPanelProps) {
+}: Readonly<OverviewPanelProps>) {
   const { t } = useI18n();
   const op = t.helpdesk.overviewPanel;
 

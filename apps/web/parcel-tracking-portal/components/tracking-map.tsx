@@ -12,7 +12,7 @@ interface TrackingMapProps {
   selectedShipment: string;
 }
 
-export default function TrackingMap({ selectedShipment }: TrackingMapProps) {
+export default function TrackingMap({ selectedShipment }: Readonly<TrackingMapProps>) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [lng, setLng] = useState(8.6821);

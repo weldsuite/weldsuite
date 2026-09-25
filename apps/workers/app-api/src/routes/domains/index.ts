@@ -36,6 +36,7 @@ import { getMasterDb } from '../../db';
 import { CloudflareApiError, CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
+import { logSafe } from '../../lib/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -71,12 +72,14 @@ function registrarFailure(
   if (err instanceof RealtimeRegistrarError) {
     console.error(
       `[app-api/domains] ${scope} failed:`,
-      JSON.stringify({
-        status: err.status,
-        endpoint: err.endpoint,
-        code: err.code,
-        message: err.message,
-      }),
+      logSafe(
+        JSON.stringify({
+          status: err.status,
+          endpoint: err.endpoint,
+          code: err.code,
+          message: err.message,
+        }),
+      ),
     );
     if (err.status === 401 || err.status === 403) {
       return c.json(
@@ -107,13 +110,15 @@ function registrarFailure(
   if (err instanceof CloudflareApiError) {
     console.error(
       `[app-api/domains] ${scope} failed:`,
-      JSON.stringify({
-        status: err.status,
-        endpoint: err.endpoint,
-        cfCode: err.code,
-        cfMessage: err.message,
-        cfErrors: err.errors,
-      }),
+      logSafe(
+        JSON.stringify({
+          status: err.status,
+          endpoint: err.endpoint,
+          cfCode: err.code,
+          cfMessage: err.message,
+          cfErrors: err.errors,
+        }),
+      ),
     );
     if (err.status === 401 || err.status === 403) {
       return c.json(
@@ -143,7 +148,7 @@ function registrarFailure(
 
   console.error(
     `[app-api/domains] ${scope} failed:`,
-    err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err),
+    logSafe(err instanceof Error ? `${err.name}: ${err.message} | ${err.stack ?? ''}` : String(err)),
   );
   return error.internal(c, fallback);
 }

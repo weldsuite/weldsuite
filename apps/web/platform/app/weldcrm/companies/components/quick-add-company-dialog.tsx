@@ -26,7 +26,7 @@ interface Props {
   onCreated?: (company: Company) => void;
 }
 
-export function QuickAddCompanyDialog({ open, onOpenChange, initialName, onCreated }: Props) {
+export function QuickAddCompanyDialog({ open, onOpenChange, initialName, onCreated }: Readonly<Props>) {
   const t = useTranslations();
 
   return (

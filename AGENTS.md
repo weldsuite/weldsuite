@@ -2,7 +2,41 @@
 
 The authoritative map of this monorepo (modules, routing, API/DB conventions,
 commands) lives in [CLAUDE.md](./CLAUDE.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).
-Read those first. This file only adds cloud-environment caveats.
+Read those first. This file adds one hard architecture rule plus
+cloud-environment caveats.
+
+## Never periodically wake tenant databases
+
+Every workspace has its own Neon Postgres (tenant DB), which suspends when
+idle. **No service may open tenant DBs on a timer** — no cron, scheduled
+Workflow, polling loop or queue job that iterates workspaces and connects to
+each tenant "to check if anything is due". With hundreds of workspaces that
+wakes every compute every tick, costing money and cold starts for nothing.
+
+Instead, keep the *timing* in an always-on store and open a tenant only when
+it has real work:
+
+- **D1 index** (preferred for schedules): the schedule-index D1 database
+  (`SCHEDULE_INDEX` binding). WeldConnect schedules use `schedule_index`
+  (`app-api/src/lib/schedule-index.ts` → `workflow-worker` sweep); WeldAgent
+  routines use `weldagent_routine_index`
+  (`app-api/src/lib/weldagent-routine-index.ts` → `app-api/src/cron/weldagent-routines.ts`).
+  Write the row on every create / update / pause / delete and re-derive it
+  from the tenant when the tenant is open anyway; the sweep reads only D1.
+  Migrations live in `apps/workers/workflow-worker/migrations/d1/` and
+  `deploy.yml` applies them.
+- **Master DB** (single always-on Neon), when the data already lives there,
+  e.g. the digest sweep filters on master `digest_schedules` first.
+- **Event-driven** work (entity-event queues, Workflows started by a request)
+  only touches the tenant that produced the event, which is fine.
+
+If a D1 read fails, skip the tick and log it — never fall back to a tenant
+fan-out. A one-time backfill that opens every tenant (guarded by a KV flag,
+like `weldagent:routine-index:backfill:v1`) is acceptable when introducing a
+new index.
+
+Known offenders still to migrate: `app-api/src/cron/calendar-replan.ts` and
+`app-api/src/cron/domain-auto-renew.ts` open every active tenant daily.
 
 ## Cursor Cloud specific instructions
 

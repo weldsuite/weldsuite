@@ -75,7 +75,7 @@ const PAGE_CORNER_RADIUS = 30;
  * covered). Child screens see a zeroed top inset because this container already
  * clears the status bar, so they don't double-pad.
  */
-export function CallInsetContainer({ children }: { children: React.ReactNode }) {
+export function CallInsetContainer({ children }: Readonly<{ children: React.ReactNode }>) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { minimized, session } = useCall();
@@ -111,7 +111,7 @@ export function CallHost() {
   return <ActiveCall key={session.callId} session={session} />;
 }
 
-function ActiveCall({ session }: { session: CallSession }) {
+function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   const { minimized, minimizeCall, expandCall, leaveCall, markConnected } = useCall();
   const [meeting, initMeeting] = useRealtimeKitClient();
 
@@ -310,14 +310,14 @@ function MinimizedCallBar({
   onToggleMute,
   onExpand,
   onLeave,
-}: {
+}: Readonly<{
   peerName?: string;
   status: string;
   isMuted: boolean;
   onToggleMute: () => void;
   onExpand: () => void;
   onLeave: () => void;
-}) {
+}>) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   return (

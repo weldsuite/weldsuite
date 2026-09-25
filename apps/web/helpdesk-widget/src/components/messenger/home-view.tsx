@@ -11,7 +11,7 @@ interface HomeViewProps {
   onClose?: () => void;
 }
 
-export function HomeView({ config, messenger, onNewConversation, onOpenConversation, onClose }: HomeViewProps) {
+export function HomeView({ config, messenger, onNewConversation, onOpenConversation, onClose }: Readonly<HomeViewProps>) {
   const color = config.branding.primaryColor;
   const onColor = readableOn(color);
   const recent = messenger.conversations.find((c) => c.state === 'open') ?? null;

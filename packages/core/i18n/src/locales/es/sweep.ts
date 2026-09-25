@@ -2179,6 +2179,28 @@ export const sweep = {
       },
       "comingSoon": "Coming soon"
     },
+    "appPermissions": {
+      "sectionsLabel": "Apps",
+      "workspace": "Espacio de trabajo",
+      "intro": "Los permisos se configuran por app. Un objeto que aparece en varias apps, como las empresas, puede permitirse en una app y no en otra.",
+      "workspaceDescription": "Ajustes y datos del espacio de trabajo que no pertenecen a una sola app.",
+      "appDescription": "Lo que los miembros pueden hacer con cada objeto dentro de {app}.",
+      "canOpenApp": "Los miembros con este rol pueden abrir {app}",
+      "readOnly": "Solo lectura",
+      "copyFrom": "Copiar de…",
+      "copyFromApp": "Copiar de {app}",
+      "grantedByPattern": "Concedido por \"{pattern}\". Al desmarcarlo se sustituye por permisos individuales.",
+      "otherApps": "Otras apps",
+      "memberTitle": "Permisos por app",
+      "memberDescription": "Haz clic en un permiso para cambiarlo solo para este miembro: permite algo que el rol {role} no concede o deniega algo que sí concede. Denegar siempre prevalece.",
+      "inheritedFrom": "Del rol {role}",
+      "allowed": "Permitido para este miembro",
+      "denied": "Denegado para este miembro",
+      "save": "Guardar",
+      "saved": "Excepciones de permisos guardadas",
+      "saveFailed": "No se pudieron guardar las excepciones de permisos",
+      "resetOverrides": "Restablecer excepciones"
+    },
     "roles": {
       "kind": "Kind",
       "loadFailed": "Failed to load roles",

@@ -70,7 +70,7 @@ interface EntityMentionChipProps {
   fallbackLabel: string | null;
 }
 
-export function EntityMentionChip({ type, id, fallbackLabel }: EntityMentionChipProps) {
+export function EntityMentionChip({ type, id, fallbackLabel }: Readonly<EntityMentionChipProps>) {
   const t = useTranslations();
   const { open: openEntitySheet } = useEntitySheet();
   const newTabRef = useRef(false);

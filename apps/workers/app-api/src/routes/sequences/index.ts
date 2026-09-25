@@ -16,7 +16,6 @@ import { z } from 'zod';
 import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { unenrollFromSequenceSchema } from '@weldsuite/core-api-client/schemas/sequences';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -221,10 +220,9 @@ app.delete('/enrollments/:enrollmentId', requirePermission('contacts:update'), a
   }
 });
 
-// Acknowledge the body schema export so tooling sees it used; the field is
-// sent by the client when unenrolling for logging purposes and will be wired
-// through when the audit-events binding is added to app-api.
-void unenrollFromSequenceSchema;
+// The unenroll body (unenrollFromSequenceSchema) carries a reason the client
+// sends for logging; it will be validated here once the audit-events binding
+// is added to app-api.
 
 // ============================================================================
 // Workflow-engine actions — enroll, launch, start, pause/resume sequence,

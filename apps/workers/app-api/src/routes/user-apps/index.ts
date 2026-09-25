@@ -57,6 +57,17 @@ import {
   isAllowedDevSessionUrl,
   upsertDevSession,
 } from '../../services/user-app-dev-sessions';
+import {
+  GATEWAY_METHODS,
+  MAX_GATEWAY_BODY_BYTES,
+  dropGatewayToken,
+  forwardToExternalApi,
+  getGatewayToken,
+  normalizeGatewayPath,
+  pickRequestHeaders,
+  pickResponseHeaders,
+  resolveActiveInstall,
+} from '../../services/user-app-gateway';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -137,7 +148,7 @@ app.get('/', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
   const q = c.req.query();
-  const parsedLimit = q.limit ? parseInt(q.limit, 10) : 25;
+  const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
   const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 25;
 
   const conditions = [eq(uApps.ownerWorkspaceId, workspaceId), isNull(uApps.deletedAt)];
@@ -432,46 +443,15 @@ app.post('/code/:code/session-token', requirePermission('weldapps:read'), async 
   const code = c.req.param('code');
 
   try {
-    const [appRow] = await master
-      .select()
-      .from(uApps)
-      .where(and(eq(uApps.code, code), eq(uApps.isActive, true), isNull(uApps.deletedAt)))
-      .limit(1);
-    if (!appRow) return error.notFound(c, 'App', code);
-
-    const [tenantRow] = await db
-      .select()
-      .from(wsApps)
-      .where(
-        and(
-          eq(wsApps.appCode, code),
-          eq(wsApps.appType, 'user'),
-          eq(wsApps.isActive, true),
-          isNull(wsApps.deletedAt),
-        ),
-      )
-      .limit(1);
-    if (!tenantRow) return error.notFound(c, 'App install', code);
-
-    const [install] = await master
-      .select()
-      .from(uInstalls)
-      .where(
-        and(
-          eq(uInstalls.appId, appRow.id),
-          eq(uInstalls.workspaceId, workspaceId),
-          eq(uInstalls.status, 'active'),
-        ),
-      )
-      .limit(1);
+    const install = await resolveActiveInstall(master, db, workspaceId, code);
     if (!install) return error.notFound(c, 'App install', code);
 
     const { token, expiresAt } = await mintAppToken(master, {
-      installId: install.id,
-      appId: appRow.id,
+      installId: install.installId,
+      appId: install.appId,
       workspaceId,
       tokenType: 'session',
-      scopes: install.grantedScopes ?? [],
+      scopes: install.grantedScopes,
     });
 
     return success(c, {
@@ -482,6 +462,75 @@ app.post('/code/:code/session-token', requirePermission('weldapps:read'), async 
   } catch (err) {
     console.error('[app-api/user-apps] session-token failed:', err);
     return error.internal(c, 'Failed to mint session token');
+  }
+});
+
+// ============================================================================
+// ALL /code/:code/gateway/v1/* — host-proxied app data plane
+// ============================================================================
+//
+// The platform host makes a community app's external-api calls on its
+// behalf with the member's Clerk session, so the sandboxed iframe never
+// receives a token. The wsat_ session token is minted + cached server-side
+// (services/user-app-gateway.ts) and external-api still enforces the
+// install's granted scopes. Not a mutation of an app-api entity: the
+// forwarded writes publish their entity events in external-api.
+
+const GATEWAY_PATH = /\/code\/[^/]+\/gateway(\/.*)$/;
+
+app.all('/code/:code/gateway/*', requirePermission('weldapps:read'), async (c) => {
+  const code = c.req.param('code');
+  const method = c.req.method.toUpperCase();
+  if (!GATEWAY_METHODS.has(method)) {
+    return error.badRequest(c, `Method ${method} is not supported by the app gateway`);
+  }
+
+  const url = new URL(c.req.url);
+  const rawPath = GATEWAY_PATH.exec(url.pathname)?.[1] ?? '';
+  const path = normalizeGatewayPath(rawPath);
+  if (!path) {
+    return error.badRequest(c, 'App gateway paths must be external API paths under /v1/');
+  }
+
+  let body: ArrayBuffer | null = null;
+  if (method !== 'GET' && method !== 'HEAD') {
+    const declared = Number(c.req.header('content-length') ?? '0');
+    if (declared > MAX_GATEWAY_BODY_BYTES) {
+      return error.badRequest(c, 'Request body too large for the app gateway');
+    }
+    body = await c.req.arrayBuffer();
+    if (body.byteLength > MAX_GATEWAY_BODY_BYTES) {
+      return error.badRequest(c, 'Request body too large for the app gateway');
+    }
+    if (body.byteLength === 0) body = null;
+  }
+
+  const master = getMasterDb(c.env);
+  const db = c.get('tenantDb');
+  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const headers = pickRequestHeaders(c.req.raw.headers);
+  const pathAndQuery = `${path}${url.search}`;
+
+  try {
+    let token = await getGatewayToken(c.env, master, db, workspaceId, code);
+    if (!token) return error.notFound(c, 'App install', code);
+
+    let upstream = await forwardToExternalApi(c.env, { method, pathAndQuery, headers, body, token });
+    if (upstream.status === 401) {
+      // Cached token revoked or expired early — re-resolve the install once.
+      await dropGatewayToken(c.env, workspaceId, code);
+      token = await getGatewayToken(c.env, master, db, workspaceId, code);
+      if (!token) return error.notFound(c, 'App install', code);
+      upstream = await forwardToExternalApi(c.env, { method, pathAndQuery, headers, body, token });
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: pickResponseHeaders(upstream.headers),
+    });
+  } catch (err) {
+    console.error('[app-api/user-apps] gateway failed:', err);
+    return error.internal(c, 'App gateway request failed');
   }
 });
 

@@ -29,7 +29,7 @@ function buildMonthGroups(
   for (const e of entries) {
     if (!e.date) continue;
     const d = new Date(e.date);
-    if (isNaN(d.getTime())) continue;
+    if (Number.isNaN(d.getTime())) continue;
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     if (!monthLabels.has(key)) {
       monthLabels.set(
@@ -38,7 +38,7 @@ function buildMonthGroups(
       );
     }
   }
-  const keys = [...monthLabels.keys()].sort().reverse();
+  const keys = [...monthLabels.keys()].sort((a, b) => b.localeCompare(a));
   const groups: GroupConfig<JournalEntryRow>[] = keys.map((key, i) => ({
     id: key,
     label: monthLabels.get(key)!,
@@ -46,7 +46,7 @@ function buildMonthGroups(
     filter: (e) => {
       if (!e.date) return false;
       const d = new Date(e.date);
-      if (isNaN(d.getTime())) return false;
+      if (Number.isNaN(d.getTime())) return false;
       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       return k === key;
     },
@@ -55,7 +55,7 @@ function buildMonthGroups(
     id: 'ungrouped',
     label: ungroupedLabel,
     sortOrder: keys.length,
-    filter: (e) => !e.date || isNaN(new Date(e.date).getTime()),
+    filter: (e) => !e.date || Number.isNaN(new Date(e.date).getTime()),
   });
   return groups;
 }

@@ -45,12 +45,12 @@ export function MilestoneDialog({
   employeeId: lockedEmployeeId,
   employeeLabel: lockedEmployeeLabel,
   onClose,
-}: {
+}: Readonly<{
   milestone?: HrMilestone | null;
   employeeId?: string;
   employeeLabel?: string;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const isEdit = Boolean(milestone);
   const createMilestone = useCreateHrMilestone();

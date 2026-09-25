@@ -17,7 +17,7 @@ function CalendarEventPanelSlot() {
   return <div id="weldcalendar-event-panel-slot" className="contents" />;
 }
 
-export function CalendarLayoutClient({ children }: CalendarLayoutClientProps) {
+export function CalendarLayoutClient({ children }: Readonly<CalendarLayoutClientProps>) {
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 overflow-hidden">
       <CalendarHeader />

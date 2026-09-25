@@ -4409,8 +4409,8 @@ const isTextEditing = editingElement === element.id;
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             const circle = e.currentTarget;
-                            const cx = parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = parseFloat(circle.getAttribute('cy') || '0');
+                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
+                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
                             setIsDrawingConnection(true);
                             setConnectionStart({ elementId: element.id, point: 'top', x: cx, y: cy });
                             setConnectionEndPoint({ x: cx, y: cy });
@@ -4429,8 +4429,8 @@ const isTextEditing = editingElement === element.id;
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             const circle = e.currentTarget;
-                            const cx = parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = parseFloat(circle.getAttribute('cy') || '0');
+                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
+                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
                             setIsDrawingConnection(true);
                             setConnectionStart({ elementId: element.id, point: 'right', x: cx, y: cy });
                             setConnectionEndPoint({ x: cx, y: cy });
@@ -4449,8 +4449,8 @@ const isTextEditing = editingElement === element.id;
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             const circle = e.currentTarget;
-                            const cx = parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = parseFloat(circle.getAttribute('cy') || '0');
+                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
+                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
                             setIsDrawingConnection(true);
                             setConnectionStart({ elementId: element.id, point: 'bottom', x: cx, y: cy });
                             setConnectionEndPoint({ x: cx, y: cy });
@@ -4469,8 +4469,8 @@ const isTextEditing = editingElement === element.id;
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             const circle = e.currentTarget;
-                            const cx = parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = parseFloat(circle.getAttribute('cy') || '0');
+                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
+                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
                             setIsDrawingConnection(true);
                             setConnectionStart({ elementId: element.id, point: 'left', x: cx, y: cy });
                             setConnectionEndPoint({ x: cx, y: cy });
@@ -5183,7 +5183,7 @@ const pathData = element.points?.map((p, i) =>
               <div className="w-px h-6 bg-gray-300 dark:bg-accent mx-1" />
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600 dark:text-muted-foreground">{st('sweep.weldflow.whiteboardView.fontLabel')}</span>
-                <Select value={fontSize.toString()} onValueChange={(value) => setFontSize(parseInt(value))}>
+                <Select value={fontSize.toString()} onValueChange={(value) => setFontSize(Number.parseInt(value))}>
                   <SelectTrigger size="sm" className="h-8 w-20">
                     <SelectValue />
                   </SelectTrigger>
@@ -5419,7 +5419,7 @@ const pathData = element.points?.map((p, i) =>
               value={(element.fontSize || 16).toString()}
               onValueChange={(value) => {
                 setElements(elements.map(el =>
-                  el.id === selectedElement ? { ...el, fontSize: parseInt(value) } : el
+                  el.id === selectedElement ? { ...el, fontSize: Number.parseInt(value) } : el
                 ));
                 setTimeout(addToHistory, 100);
               }}

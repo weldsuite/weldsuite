@@ -38,7 +38,7 @@ interface SnoozedClientProps {
   initialEmails: SnoozedEmail[];
 }
 
-export function SnoozedClient({ initialEmails }: SnoozedClientProps) {
+export function SnoozedClient({ initialEmails }: Readonly<SnoozedClientProps>) {
   const { t } = useI18n();
 
   useBreadcrumbs([

@@ -20,7 +20,9 @@
     "backfill:pile-a:execute": "tsx src/backfill-pile-a-columns.ts --execute",
     "audit:blobs": "tsx src/audit-custom-field-blobs.ts",
     "extract:blobs": "tsx src/extract-blob-fields.ts",
-    "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute"
+    "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute",
+    "migrate:app-permissions": "tsx src/migrate-app-permissions.ts",
+    "migrate:app-permissions:execute": "tsx src/migrate-app-permissions.ts --execute --clients-ready"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.958.0",

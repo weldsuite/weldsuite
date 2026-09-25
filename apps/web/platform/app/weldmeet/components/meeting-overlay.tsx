@@ -63,7 +63,7 @@ interface WorkspaceMemberOption {
   email?: string | null;
 }
 
-function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
+function AddPeopleDialogContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
@@ -77,7 +77,7 @@ function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
 
   const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
-    try { navigator.clipboard.writeText(shareUrl); } catch { /* ignore */ }
+    navigator.clipboard?.writeText(shareUrl).catch(() => { /* ignore */ });
   };
 
   return (
@@ -135,7 +135,7 @@ function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
   );
 }
 
-function InvitePopoverContent({ shareUrl }: { shareUrl: string }) {
+function InvitePopoverContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
@@ -149,7 +149,7 @@ function InvitePopoverContent({ shareUrl }: { shareUrl: string }) {
 
   const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
-    try { navigator.clipboard.writeText(shareUrl); } catch { /* ignore */ }
+    navigator.clipboard?.writeText(shareUrl).catch(() => { /* ignore */ });
   };
 
   return (
@@ -438,11 +438,9 @@ function MeetingRoomAdapter() {
     if (!meetingData?.autoRecord) return;
     if (isRecording || recordingState !== 'IDLE') return;
     autoRecordedRef.current = true;
-    try {
-      startRecording();
-    } catch (err) {
+    startRecording().catch((err: unknown) => {
       console.error('[WeldMeet] auto-record start failed:', err);
-    }
+    });
   }, [meeting, isOrganizer, meetingData?.autoRecord, isRecording, recordingState, startRecording]);
 
   // Reset the auto-record latch when the meeting changes.

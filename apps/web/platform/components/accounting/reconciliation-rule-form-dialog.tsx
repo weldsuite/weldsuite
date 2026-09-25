@@ -58,7 +58,7 @@ export function ReconciliationRuleFormDialog({
   open,
   onOpenChange,
   rule,
-}: RuleFormDialogProps) {
+}: Readonly<RuleFormDialogProps>) {
   const st = useTranslations();
   const isEdit = !!rule;
 

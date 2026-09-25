@@ -5,9 +5,9 @@ import { WorkspaceDetail } from './workspace-detail';
 
 export const dynamic = 'force-dynamic';
 
-export default async function WorkspaceDetailPage(props: {
+export default async function WorkspaceDetailPage(props: Readonly<{
   params: Promise<{ id: string }>;
-}) {
+}>) {
   await requireAdmin();
   const { id } = await props.params;
 

@@ -119,7 +119,7 @@ function GridSkeleton() {
  * in CRM live in the right-click menu; enrichment columns get run / edit /
  * delete from their header menu.
  */
-export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsGridProps) {
+export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<WelddataLeadsGridProps>) {
   const t = useTranslations();
   const router = useRouter();
   const { open: openObjectPanel } = useObjectPanel();

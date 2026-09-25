@@ -81,11 +81,17 @@ export function computeThreadId(message: {
 export function normalizeSubject(subject: string): string {
   if (!subject) return '(no subject)';
 
-  // Pattern matches Re:, Fwd:, FW:, RE:, Fw: etc. at the start
-  // Also handles multiple prefixes and optional spaces
-  const prefixPattern = /^(\s*(re|fwd|fw)\s*:\s*)+/i;
+  // Pattern matches one Re:, Fwd:, FW:, RE:, Fw: etc. at the start. Stripped
+  // in a loop rather than with a repeated group, which backtracks
+  // exponentially on long runs of whitespace.
+  const prefixPattern = /^\s*(?:re|fwd|fw)\s*:/i;
 
-  return subject.replace(prefixPattern, '').trim() || '(no subject)';
+  let normalized = subject;
+  while (prefixPattern.test(normalized)) {
+    normalized = normalized.replace(prefixPattern, '');
+  }
+
+  return normalized.trim() || '(no subject)';
 }
 
 /**

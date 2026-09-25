@@ -12,6 +12,6 @@ export function toPriceNumber(price: ProductPrice | undefined | null): number {
   if (price === undefined || price === null || price === '') return 0;
   if (typeof price === 'number') return Number.isFinite(price) ? price : 0;
   if (typeof price === 'object') return Number.isFinite(price.amount) ? price.amount : 0;
-  const parsed = parseFloat(price);
+  const parsed = Number.parseFloat(price);
   return Number.isNaN(parsed) ? 0 : parsed;
 }

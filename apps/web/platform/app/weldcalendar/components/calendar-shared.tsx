@@ -37,7 +37,7 @@ export const HEADER_HEIGHT = 78.5;
  * Pass `days` as 1..7 dates; the component decorates today's column with the
  * shared blue text + zinc-50 background.
  */
-export function WeekDayHeader({ days }: { days: Date[] }) {
+export function WeekDayHeader({ days }: Readonly<{ days: Date[] }>) {
   return (
     <div
       className="grid border-b sticky top-0 bg-background z-[5]"
@@ -89,7 +89,7 @@ export function WeekDayHeader({ days }: { days: Date[] }) {
  * with the label nudged up `-7px` so the digits sit on the hour gridline like
  * macOS Calendar / Google Calendar.
  */
-export function TimeLabelColumn({ hourHeight = DEFAULT_HOUR_HEIGHT }: { hourHeight?: number }) {
+export function TimeLabelColumn({ hourHeight = DEFAULT_HOUR_HEIGHT }: Readonly<{ hourHeight?: number }>) {
   return (
     <div className="border-r border-border">
       {HOURS.map((hour) => (
@@ -142,11 +142,11 @@ export function TimeGridInner({
   days,
   children,
   style,
-}: {
+}: Readonly<{
   days: Date[];
   children: React.ReactNode;
   style?: React.CSSProperties;
-}) {
+}>) {
   return (
     <div
       className="grid relative"

@@ -14,10 +14,9 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
 import {
-  ensurePermissionsResolved,
+  hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { hasPermission } from '@weldsuite/permissions';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   checkCredits,
@@ -57,16 +56,14 @@ async function resolveMetering(
 }
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
-  const resolved = await ensurePermissionsResolved(c);
-  const perms = resolved?.permissions ?? [];
-  if (hasPermission(perms, 'activities:scope:all')) return undefined;
+  if (await hasContextPermission(c, 'activities:scope:all')) return undefined;
   return c.get('userId');
 }
 
 app.get('/', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const scope = await scopeFor(c);
 
   const conditions: any[] = [];

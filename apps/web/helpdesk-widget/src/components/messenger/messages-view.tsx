@@ -11,7 +11,7 @@ interface MessagesViewProps {
   onClose?: () => void;
 }
 
-export function MessagesView({ config, messenger, onNewConversation, onOpenConversation, onClose }: MessagesViewProps) {
+export function MessagesView({ config, messenger, onNewConversation, onOpenConversation, onClose }: Readonly<MessagesViewProps>) {
   const color = config.branding.primaryColor;
   const { conversations, conversationsLoaded } = messenger;
 

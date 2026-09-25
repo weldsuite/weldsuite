@@ -1,262 +1,515 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { BookOpen, Clock, Brain, ShieldCheck, Share2, Monitor, GraduationCap } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { BookOpen, Brain, Clock, Monitor, Share2, ShieldCheck, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { getTranslations } from '@/lib/i18n';
 import { useAppApi } from '@/lib/api/use-app-api';
+import {
+  useAgentApprovals,
+  useAgentMemories,
+  useAgentRoutines,
+  useAgentSkills,
+  useCreateAgentMemory,
+  useCreateAgentRoutine,
+  useCreateAgentSkill,
+  useDecideAgentApproval,
+  useDeleteAgentMemory,
+  useDeleteAgentRoutine,
+  useDisableAgentSkill,
+  useTestAgentRoutine,
+  useUpdateAgentRoutine,
+  type AgentRoutine,
+} from '@/hooks/queries/use-agent-parity-queries';
 
 interface AgentParityPanelsProps {
   agentId: string;
 }
 
-export function AgentParityPanels({ agentId }: AgentParityPanelsProps) {
-  const { weldAgentParity } = useAppApi();
-  const [skills, setSkills] = useState<Array<{ id: string; name: string; status: string }>>([]);
-  const [routines, setRoutines] = useState<Array<{ id: string; name: string; enabled: boolean; nextRunAt: string | null }>>([]);
-  const [memories, setMemories] = useState<Array<{ id: string; kind: string; content: string }>>([]);
-  const [approvals, setApprovals] = useState<Array<{ id: string; toolName: string; status: string }>>([]);
-  const [files, setFiles] = useState<unknown>(null);
-  const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [skillName, setSkillName] = useState('');
-  const [skillInstructions, setSkillInstructions] = useState('');
-  const [routineName, setRoutineName] = useState('');
-  const [routineInstructions, setRoutineInstructions] = useState('');
-  const [memoryContent, setMemoryContent] = useState('');
-  const [teachTitle, setTeachTitle] = useState('Taught browser workflow');
-  const [shareToken, setShareToken] = useState<string | null>(null);
+type SchedulePreset = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom';
 
-  const refresh = async () => {
-    const [s, r, m, a, f] = await Promise.all([
-      weldAgentParity.listAgentSkills(agentId),
-      weldAgentParity.listRoutines(agentId),
-      weldAgentParity.listMemories(agentId),
-      weldAgentParity.listApprovals({ agentId, status: 'pending' }),
-      weldAgentParity.listComputerFiles(agentId, '/workspace'),
-    ]);
-    setSkills((s.data as typeof skills) ?? []);
-    setRoutines((r.data as typeof routines) ?? []);
-    setMemories((m.data as typeof memories) ?? []);
-    setApprovals((a.data as typeof approvals) ?? []);
-    setFiles(f.data);
+const SCHEDULE_CRON: Record<Exclude<SchedulePreset, 'custom'>, string> = {
+  hourly: '0 * * * *',
+  daily: '0 8 * * *',
+  weekdays: '0 8 * * 1-5',
+  weekly: '0 8 * * 1',
+};
+
+function errorText(err: unknown, fallback: string): string {
+  return err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message
+    ? err.message
+    : fallback;
+}
+
+function browserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+function Section({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: typeof BookOpen;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3 rounded-xl border p-4">
+      <div className="flex items-center gap-2">
+        <Icon className="h-4 w-4" />
+        <h3 className="text-sm font-medium">{title}</h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function StateLine({ loading, error, empty, emptyText }: {
+  loading: boolean;
+  error: boolean;
+  empty: boolean;
+  emptyText: string;
+}) {
+  const t = getTranslations('common').agents.detail;
+  if (loading) return <p className="text-xs text-muted-foreground">{t.feedback.loading}</p>;
+  if (error) return <p className="text-xs text-destructive">{t.parity.loadFailed}</p>;
+  if (empty) return <p className="text-xs text-muted-foreground">{emptyText}</p>;
+  return null;
+}
+
+function routineScheduleLabel(routine: AgentRoutine): string {
+  const t = getTranslations('common').agents.detail.parity.routines;
+  if (routine.scheduleKind === 'event' && routine.eventKey) {
+    return t.onEvent.replace('{event}', routine.eventKey);
+  }
+  if (routine.scheduleKind === 'cron' && routine.nextRunAt && routine.enabled) {
+    return t.next.replace('{time}', new Date(routine.nextRunAt).toLocaleString());
+  }
+  return routine.cronExpr ?? routine.scheduleKind;
+}
+
+function SkillsSection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const skills = useAgentSkills(agentId);
+  const createSkill = useCreateAgentSkill(agentId);
+  const disableSkill = useDisableAgentSkill(agentId);
+  const [name, setName] = useState('');
+  const [instructions, setInstructions] = useState('');
+
+  const valid = name.trim().length >= 2 && instructions.trim().length >= 20;
+
+  const save = async () => {
+    if (!valid) {
+      toast.error(t.skills.invalid);
+      return;
+    }
+    try {
+      await createSkill.mutateAsync({ name: name.trim(), instructions: instructions.trim() });
+      setName('');
+      setInstructions('');
+      toast.success(t.skills.saved);
+    } catch (err) {
+      toast.error(errorText(err, t.actionFailed));
+    }
   };
 
-  useEffect(() => {
-    void refresh().catch((err) => setMessage(err instanceof Error ? err.message : 'Failed to load'));
-  }, [agentId]);
-
+  const list = skills.data ?? [];
   return (
-    <div className="space-y-6">
-      {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Skills</h3>
-        </div>
-        <div className="space-y-2">
-          {skills.map((s) => (
-            <div key={s.id} className="flex items-center justify-between text-sm">
-              <span>{s.name}</span>
+    <Section icon={BookOpen} title={t.skills.title}>
+      <StateLine
+        loading={skills.isLoading}
+        error={skills.isError}
+        empty={list.length === 0}
+        emptyText={t.skills.empty}
+      />
+      <div className="space-y-2">
+        {list.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-2 text-sm">
+            <span className="truncate">{s.name}</span>
+            <div className="flex items-center gap-2 shrink-0">
               <Badge variant="secondary">{s.status}</Badge>
-            </div>
-          ))}
-        </div>
-        <Input placeholder="Skill name" value={skillName} onChange={(e) => setSkillName(e.target.value)} />
-        <Textarea
-          placeholder="Instructions (steps, rules, approvals)"
-          value={skillInstructions}
-          onChange={(e) => setSkillInstructions(e.target.value)}
-          rows={3}
-        />
-        <Button
-          size="sm"
-          onClick={async () => {
-            const created = await weldAgentParity.createSkill({
-              name: skillName,
-              instructions: skillInstructions,
-              status: 'active',
-            });
-            const id = (created.data as { id: string }).id;
-            await weldAgentParity.enableSkill(agentId, id);
-            setSkillName('');
-            setSkillInstructions('');
-            await refresh();
-            setMessage('Skill saved and enabled');
-          }}
-        >
-          Save skill
-        </Button>
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <GraduationCap className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Teach by demonstration</h3>
-        </div>
-        <Input value={teachTitle} onChange={(e) => setTeachTitle(e.target.value)} />
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={async () => {
-              const session = await weldAgentParity.startTeach(agentId, teachTitle);
-              const id = (session.data as { id: string }).id;
-              await weldAgentParity.appendTeachStep(id, { action: 'note', text: 'Recording started from Configure' });
-              const stopped = await weldAgentParity.stopTeach(id, { createSkill: true, skillName: teachTitle });
-              setMessage(`Teach session saved as skill ${(stopped.data as { skillId?: string }).skillId ?? ''}`);
-              await refresh();
-            }}
-          >
-            Capture draft skill
-          </Button>
-        </div>
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Routines</h3>
-        </div>
-        {routines.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
-            <div>
-              <div>{r.name}</div>
-              <div className="text-xs text-muted-foreground">Next: {r.nextRunAt ?? '—'}</div>
-            </div>
-            <div className="flex gap-2">
-              <Badge variant={r.enabled ? 'default' : 'secondary'}>{r.enabled ? 'on' : 'paused'}</Badge>
-              <Button size="sm" variant="outline" onClick={() => void weldAgentParity.testRoutine(r.id).then(() => setMessage('Test run started'))}>
-                Test
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disableSkill.isPending}
+                onClick={() =>
+                  disableSkill.mutate(s.id, { onError: (err) => toast.error(errorText(err, t.actionFailed)) })
+                }
+              >
+                {t.skills.disable}
               </Button>
             </div>
           </div>
         ))}
-        <Input placeholder="Routine name" value={routineName} onChange={(e) => setRoutineName(e.target.value)} />
-        <Textarea
-          placeholder="What should run every hour?"
-          value={routineInstructions}
-          onChange={(e) => setRoutineInstructions(e.target.value)}
-          rows={3}
-        />
-        <Button
-          size="sm"
-          onClick={async () => {
-            await weldAgentParity.createRoutine({
-              agentId,
-              name: routineName,
-              instructions: routineInstructions,
-              scheduleKind: 'cron',
-              cronExpr: '0 * * * *',
-              requireApproval: true,
-            });
-            setRoutineName('');
-            setRoutineInstructions('');
-            await refresh();
-            setMessage('Hourly routine created');
-          }}
+      </div>
+      <Input placeholder={t.skills.namePlaceholder} value={name} onChange={(e) => setName(e.target.value)} />
+      <Textarea
+        placeholder={t.skills.instructionsPlaceholder}
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        rows={3}
+      />
+      <Button size="sm" disabled={createSkill.isPending || !valid} onClick={() => void save()}>
+        {t.skills.save}
+      </Button>
+    </Section>
+  );
+}
+
+function RoutinesSection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const routines = useAgentRoutines(agentId);
+  const createRoutine = useCreateAgentRoutine(agentId);
+  const updateRoutine = useUpdateAgentRoutine(agentId);
+  const deleteRoutine = useDeleteAgentRoutine(agentId);
+  const testRoutine = useTestAgentRoutine(agentId);
+  const [name, setName] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [preset, setPreset] = useState<SchedulePreset>('daily');
+  const [customCron, setCustomCron] = useState('');
+  const [requireApproval, setRequireApproval] = useState(true);
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  const cronExpr = preset === 'custom' ? customCron.trim() : SCHEDULE_CRON[preset];
+  const valid =
+    name.trim().length >= 2 &&
+    instructions.trim().length >= 10 &&
+    cronExpr.split(/\s+/).filter(Boolean).length === 5;
+
+  const onError = (err: unknown) => toast.error(errorText(err, t.actionFailed));
+
+  const create = async () => {
+    if (!valid) {
+      toast.error(t.routines.invalid);
+      return;
+    }
+    try {
+      await createRoutine.mutateAsync({
+        name: name.trim(),
+        instructions: instructions.trim(),
+        scheduleKind: 'cron',
+        cronExpr,
+        timezone: browserTimezone(),
+        requireApproval,
+      });
+      setName('');
+      setInstructions('');
+      toast.success(t.routines.created);
+    } catch (err) {
+      onError(err);
+    }
+  };
+
+  const test = async (id: string) => {
+    setTestingId(id);
+    try {
+      await testRoutine.mutateAsync(id);
+      toast.success(t.routines.testStarted);
+    } catch (err) {
+      toast.error(t.routines.testFailed.replace('{error}', errorText(err, '')));
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const list = routines.data ?? [];
+  return (
+    <Section icon={Clock} title={t.routines.title}>
+      <StateLine
+        loading={routines.isLoading}
+        error={routines.isError}
+        empty={list.length === 0}
+        emptyText={t.routines.empty}
+      />
+      {list.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <div className="min-w-0">
+            <div className="truncate">{r.name}</div>
+            <div className="text-xs text-muted-foreground">{routineScheduleLabel(r)}</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={r.enabled ? 'default' : 'secondary'}>
+              {r.enabled ? t.routines.on : t.routines.off}
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={testingId !== null}
+              onClick={() => void test(r.id)}
+            >
+              {testingId === r.id ? t.routines.testing : t.routines.test}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={updateRoutine.isPending}
+              onClick={() => updateRoutine.mutate({ id: r.id, data: { enabled: !r.enabled } }, { onError })}
+            >
+              {r.enabled ? t.routines.pause : t.routines.resume}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              aria-label={t.routines.delete}
+              disabled={deleteRoutine.isPending}
+              onClick={() => deleteRoutine.mutate(r.id, { onError })}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Input placeholder={t.routines.namePlaceholder} value={name} onChange={(e) => setName(e.target.value)} />
+      <Textarea
+        placeholder={t.routines.instructionsPlaceholder}
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        rows={3}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs text-muted-foreground" htmlFor={`routine-schedule-${agentId}`}>
+          {t.routines.scheduleLabel}
+        </label>
+        <select
+          id={`routine-schedule-${agentId}`}
+          className="h-9 rounded-md border bg-background px-2 text-sm"
+          value={preset}
+          onChange={(e) => setPreset(e.target.value as SchedulePreset)}
         >
-          Create hourly routine
-        </Button>
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Approvals</h3>
-        </div>
-        {approvals.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No pending approvals</p>
-        ) : (
-          approvals.map((a) => (
-            <div key={a.id} className="flex items-center justify-between gap-2 text-sm">
-              <span>{a.toolName}</span>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => void weldAgentParity.decideApproval(a.id, { decision: 'approved' }).then(refresh)}>
-                  Approve
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => void weldAgentParity.decideApproval(a.id, { decision: 'rejected' }).then(refresh)}>
-                  Reject
-                </Button>
-              </div>
-            </div>
-          ))
+          {(['hourly', 'daily', 'weekdays', 'weekly', 'custom'] as const).map((key) => (
+            <option key={key} value={key}>
+              {t.routines.schedules[key]}
+            </option>
+          ))}
+        </select>
+        {preset === 'custom' && (
+          <Input
+            className="h-9 w-48 font-mono text-xs"
+            placeholder={t.routines.cronPlaceholder}
+            value={customCron}
+            onChange={(e) => setCustomCron(e.target.value)}
+          />
         )}
-      </section>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={requireApproval} onCheckedChange={(v) => setRequireApproval(v === true)} />
+        {t.routines.requireApproval}
+      </label>
+      <p className="text-xs text-muted-foreground">{t.routines.hint}</p>
+      <Button size="sm" disabled={createRoutine.isPending || !valid} onClick={() => void create()}>
+        {t.routines.create}
+      </Button>
+    </Section>
+  );
+}
 
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Memory</h3>
+function ApprovalsSection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const approvals = useAgentApprovals(agentId);
+  const decide = useDecideAgentApproval(agentId);
+
+  const onDecide = async (id: string, decision: 'approved' | 'rejected') => {
+    try {
+      const res = await decide.mutateAsync({ id, decision });
+      if (decision === 'rejected') {
+        toast.success(t.approvals.rejected);
+      } else if (res?.execution && !res.execution.ok) {
+        toast.error(t.approvals.approvedFailed.replace('{error}', res.execution.error ?? ''));
+      } else {
+        toast.success(t.approvals.approved);
+      }
+    } catch (err) {
+      toast.error(errorText(err, t.actionFailed));
+    }
+  };
+
+  const list = approvals.data ?? [];
+  return (
+    <Section icon={ShieldCheck} title={t.approvals.title}>
+      <StateLine
+        loading={approvals.isLoading}
+        error={approvals.isError}
+        empty={list.length === 0}
+        emptyText={t.approvals.empty}
+      />
+      {list.map((a) => (
+        <div key={a.id} className="space-y-1.5 rounded-lg border p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium">{a.toolName.replace(/_/g, ' ')}</span>
+            <div className="flex gap-2">
+              <Button size="sm" disabled={decide.isPending} onClick={() => void onDecide(a.id, 'approved')}>
+                {t.approvals.approve}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={decide.isPending}
+                onClick={() => void onDecide(a.id, 'rejected')}
+              >
+                {t.approvals.reject}
+              </Button>
+            </div>
+          </div>
+          <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-2 text-[11px]">
+            {JSON.stringify(a.args, null, 2)}
+          </pre>
         </div>
-        {memories.map((m) => (
-          <div key={m.id} className="text-sm">
-            <Badge variant="outline" className="mr-2">{m.kind}</Badge>
+      ))}
+    </Section>
+  );
+}
+
+function MemorySection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const memories = useAgentMemories(agentId);
+  const createMemory = useCreateAgentMemory(agentId);
+  const deleteMemory = useDeleteAgentMemory(agentId);
+  const [content, setContent] = useState('');
+
+  const onError = (err: unknown) => toast.error(errorText(err, t.actionFailed));
+  const list = memories.data ?? [];
+  return (
+    <Section icon={Brain} title={t.memory.title}>
+      <StateLine
+        loading={memories.isLoading}
+        error={memories.isError}
+        empty={list.length === 0}
+        emptyText={t.memory.empty}
+      />
+      {list.map((m) => (
+        <div key={m.id} className="flex items-start justify-between gap-2 text-sm">
+          <div className="min-w-0">
+            <Badge variant="outline" className="mr-2">
+              {m.kind}
+            </Badge>
             {m.content}
           </div>
-        ))}
-        <Textarea placeholder="Preference or fact" value={memoryContent} onChange={(e) => setMemoryContent(e.target.value)} rows={2} />
-        <Button
-          size="sm"
-          onClick={async () => {
-            await weldAgentParity.createMemory({ agentId, kind: 'preference', content: memoryContent });
-            setMemoryContent('');
-            await refresh();
-          }}
-        >
-          Save memory
-        </Button>
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <Share2 className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Template / share</h3>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={async () => {
-            const tpl = await weldAgentParity.exportTemplate({ agentId, isPublic: false });
-            setShareToken((tpl.data as { shareToken?: string }).shareToken ?? null);
-            setMessage('Template exported');
-          }}
-        >
-          Export template
-        </Button>
-        {shareToken ? <p className="text-xs font-mono break-all">Share token: {shareToken}</p> : null}
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <div className="flex items-center gap-2">
-          <Monitor className="h-4 w-4" />
-          <h3 className="text-sm font-medium">Cloud computer</h3>
-        </div>
-        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
-            variant="outline"
-            onClick={async () => {
-              const res = await weldAgentParity.liveView(agentId);
-              setLiveViewUrl((res.data as { liveViewUrl?: string }).liveViewUrl ?? null);
-            }}
+            variant="ghost"
+            disabled={deleteMemory.isPending}
+            onClick={() => deleteMemory.mutate(m.id, { onError })}
           >
-            Open live view
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void refresh()}>
-            Refresh files
+            {t.memory.delete}
           </Button>
         </div>
-        {liveViewUrl ? (
-          <iframe title="Agent live view" src={liveViewUrl} className="h-64 w-full rounded-lg border bg-black" />
-        ) : null}
+      ))}
+      <Textarea
+        placeholder={t.memory.placeholder}
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        rows={2}
+      />
+      <Button
+        size="sm"
+        disabled={createMemory.isPending || !content.trim()}
+        onClick={() =>
+          createMemory.mutate(content.trim(), { onSuccess: () => setContent(''), onError })
+        }
+      >
+        {t.memory.save}
+      </Button>
+    </Section>
+  );
+}
+
+function TemplateSection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const { weldAgentParity } = useAppApi();
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const exportTemplate = async () => {
+    setBusy(true);
+    try {
+      const tpl = await weldAgentParity.exportTemplate({ agentId, isPublic: false });
+      setShareToken((tpl.data as { shareToken?: string }).shareToken ?? null);
+      toast.success(t.templates.exported);
+    } catch (err) {
+      toast.error(errorText(err, t.actionFailed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section icon={Share2} title={t.templates.title}>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void exportTemplate()}>
+        {t.templates.export}
+      </Button>
+      {shareToken ? (
+        <p className="text-xs font-mono break-all">{t.templates.shareToken.replace('{token}', shareToken)}</p>
+      ) : null}
+    </Section>
+  );
+}
+
+function ComputerSection({ agentId }: { agentId: string }) {
+  const t = getTranslations('common').agents.detail.parity;
+  const { weldAgentParity } = useAppApi();
+  const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
+  const files = useQuery({
+    queryKey: ['weldagent-parity', 'computer-files', agentId],
+    queryFn: async () => (await weldAgentParity.listComputerFiles(agentId, '/workspace')).data,
+    retry: false,
+  });
+
+  const openLiveView = async () => {
+    try {
+      const res = await weldAgentParity.liveView(agentId);
+      setLiveViewUrl((res.data as { liveViewUrl?: string }).liveViewUrl ?? null);
+    } catch (err) {
+      toast.error(errorText(err, t.actionFailed));
+    }
+  };
+
+  return (
+    <Section icon={Monitor} title={t.computer.title}>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={() => void openLiveView()}>
+          {t.computer.liveView}
+        </Button>
+        <Button size="sm" variant="outline" disabled={files.isFetching} onClick={() => void files.refetch()}>
+          {t.computer.refreshFiles}
+        </Button>
+      </div>
+      {liveViewUrl ? (
+        <iframe title={t.computer.liveView} src={liveViewUrl} className="h-64 w-full rounded-lg border bg-black" />
+      ) : null}
+      {files.isError ? (
+        <p className="text-xs text-muted-foreground">{t.loadFailed}</p>
+      ) : files.data ? (
         <pre className="max-h-40 overflow-auto rounded-lg bg-muted/40 p-2 text-[11px]">
-          {JSON.stringify(files, null, 2)}
+          {JSON.stringify(files.data, null, 2)}
         </pre>
-      </section>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t.computer.noFiles}</p>
+      )}
+    </Section>
+  );
+}
+
+export function AgentParityPanels({ agentId }: AgentParityPanelsProps) {
+  return (
+    <div className="space-y-6">
+      <ApprovalsSection agentId={agentId} />
+      <RoutinesSection agentId={agentId} />
+      <SkillsSection agentId={agentId} />
+      <MemorySection agentId={agentId} />
+      <TemplateSection agentId={agentId} />
+      <ComputerSection agentId={agentId} />
     </div>
   );
 }

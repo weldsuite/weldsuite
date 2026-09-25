@@ -62,6 +62,15 @@ if (window.weldsuiteDesktop?.isDesktop) {
 Typings live at `apps/web/platform/types/weldsuite-desktop.d.ts` and must stay
 in lockstep with `src/preload/index.ts`.
 
+The platform is served live, so it also runs inside **every shell already
+installed**, including ones older than the preload you're editing. A bridge
+method added after a shell release must be optional in the platform typings
+and feature-detected before use (`typeof desktop?.foo === 'function'`);
+calling a missing one from a root-level component leaves the whole app on the
+"Something went wrong" screen. Bump `version` in `package.json` for every
+release too: electron-updater only offers an update to a higher version, so a
+release with an unchanged version never reaches existing installs.
+
 ## Screen sharing (WeldMeet / WeldChat)
 
 The call SDK (RealtimeKit) calls `getDisplayMedia()` **itself** inside

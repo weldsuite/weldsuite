@@ -34,7 +34,7 @@ interface CreateSpaceDialogProps {
   space?: KnowledgeSpace | null;
 }
 
-export function CreateSpaceDialog({ open, onOpenChange, space }: CreateSpaceDialogProps) {
+export function CreateSpaceDialog({ open, onOpenChange, space }: Readonly<CreateSpaceDialogProps>) {
   const t = getTranslations('weldknow');
   const isEdit = !!space;
   const createSpace = useCreateKnowledgeSpace();

@@ -1234,7 +1234,9 @@ export function QuickCreateCard({
   calendars,
   defaultCalendarId,
   onClose,
-  onMoreOptions,
+  // onMoreOptions stays in the props contract for callers (new-event-dialog.tsx,
+  // weldmeet's schedule-meeting flow) that still pass it; this simplified inline
+  // card has no "more options" trigger of its own.
   showTypeTabs = true,
   editEvent,
 }: {
@@ -1254,10 +1256,6 @@ export function QuickCreateCard({
   onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
 }) {
-  // Kept in the props contract for callers (new-event-dialog.tsx, weldmeet's
-  // schedule-meeting flow) that still pass it; this simplified inline card has
-  // no "more options" trigger of its own.
-  void onMoreOptions;
   const t = getTranslations('weldcalendar');
   const [type, setType] = useState(editEvent?.type || defaultType);
   const [title, setTitle] = useState(editEvent?.title || defaultTitle || '');
@@ -2306,7 +2304,6 @@ function MonthView({
 function MobileWeekDayStrip({
   weekDate,
   selectedDate,
-  events,
   onSelectDay,
 }: {
   weekDate: Date;
@@ -2316,7 +2313,6 @@ function MobileWeekDayStrip({
 }) {
   const weekStart = startOfWeek(weekDate, { weekStartsOn: 1 });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  void events; // event-dot indicator removed by request
 
   return (
     <div className="flex border-b shrink-0 px-1 py-2 bg-background">

@@ -30,7 +30,7 @@ export interface MonthGridProps {
   onSelect: (date: Date) => void;
 }
 
-export function MonthGrid({ month, selected, events, onSelect }: MonthGridProps) {
+export function MonthGrid({ month, selected, events, onSelect }: Readonly<MonthGridProps>) {
   const { colors } = useTheme();
   const { intlLocale } = useI18n();
 

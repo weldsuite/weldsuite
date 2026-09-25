@@ -21,6 +21,6 @@ export {
   type FloatingTabBarProps,
 };
 
-export function FloatingTabBar(props: FloatingTabBarProps) {
+export function FloatingTabBar(props: Readonly<FloatingTabBarProps>) {
   return <SharedFloatingTabBar {...props} badgeColor={BRAND} />;
 }

@@ -67,7 +67,7 @@ export function isSequenceWorkflow(tags: unknown): boolean {
 }
 
 // Cron — the grammar the schedule sweep's matcher understands
-// (workflow-worker/src/lib/cron.ts): `*`, `*/n`, and comma lists of numbers or
+// (@weldsuite/workflow-integrations/cron): `*`, `*/n`, and comma lists of numbers or
 // `a-b` ranges, per field. Anything else would silently never fire.
 const CRON_FIELD_BOUNDS: Array<[number, number]> = [
   [0, 59], // minute

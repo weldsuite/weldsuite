@@ -51,7 +51,7 @@ interface ArticleEditorProps {
   article: Article;
 }
 
-export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
+export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEditorProps>) {
   const { t } = useI18n();
   const router = useRouter();
   const [article, setArticle] = useState(initialArticle);

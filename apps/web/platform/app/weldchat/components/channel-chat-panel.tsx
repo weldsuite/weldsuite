@@ -84,7 +84,7 @@ export function ChannelChatPanel({
   onClose,
   onOpen,
   notificationHost,
-}: ChannelChatPanelProps) {
+}: Readonly<ChannelChatPanelProps>) {
   const { userId } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();

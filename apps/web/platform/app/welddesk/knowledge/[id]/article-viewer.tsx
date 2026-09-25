@@ -34,7 +34,7 @@ interface ArticleViewerProps {
   article: Article;
 }
 
-export function ArticleViewer({ article }: ArticleViewerProps) {
+export function ArticleViewer({ article }: Readonly<ArticleViewerProps>) {
   const { t } = useI18n();
   const router = useRouter();
   const [isHelpful, setIsHelpful] = useState<boolean | null>(null);

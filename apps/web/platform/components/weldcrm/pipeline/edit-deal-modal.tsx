@@ -124,7 +124,7 @@ export function EditDealModal({
 
   const isValidDate = (date: Date | undefined) => {
     if (!date) return false;
-    return !isNaN(date.getTime());
+    return !Number.isNaN(date.getTime());
   };
 
   const handleSubmit = async () => {
@@ -134,8 +134,8 @@ export function EditDealModal({
     try {
       await onSubmit(deal.id, {
         title: dealTitle,
-        value: parseFloat(dealValue),
-        probability: probability ? parseInt(probability) : undefined,
+        value: Number.parseFloat(dealValue),
+        probability: probability ? Number.parseInt(probability) : undefined,
         expectedCloseDate: expectedCloseDate?.toISOString(),
         description: notes,
       });

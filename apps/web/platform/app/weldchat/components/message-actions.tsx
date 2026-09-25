@@ -67,7 +67,7 @@ interface MessageActionsProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-export function MessageActions({ message, channelId, readBy, onOpenChange }: MessageActionsProps) {
+export function MessageActions({ message, channelId, readBy, onOpenChange }: Readonly<MessageActionsProps>) {
   const { t } = useI18n();
   const { data: pinnedData } = usePinnedMessages(channelId);
   const { mutate: pinMessage } = usePinMessage();

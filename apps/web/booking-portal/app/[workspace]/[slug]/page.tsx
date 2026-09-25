@@ -36,7 +36,7 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
-export default async function BookingPage({ params }: Props) {
+export default async function BookingPage({ params }: Readonly<Props>) {
   const { workspace: workspaceSlug, slug } = await params;
 
   const tenant = await getTenantDbBySlug(workspaceSlug);

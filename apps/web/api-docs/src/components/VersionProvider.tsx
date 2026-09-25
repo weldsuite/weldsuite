@@ -58,7 +58,7 @@ export function getVersionInfo(version: string): ApiVersion | undefined {
 // Context for SSR safety
 const VersionContext = createContext<string>(CURRENT_VERSION)
 
-export function VersionProvider({ children }: { children: React.ReactNode }) {
+export function VersionProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <VersionContext.Provider value={CURRENT_VERSION}>
       {children}

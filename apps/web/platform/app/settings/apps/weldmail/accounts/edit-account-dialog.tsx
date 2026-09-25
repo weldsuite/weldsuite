@@ -48,7 +48,7 @@ export function EditAccountDialog({
   accountId,
   accountEmail,
   defaultValues,
-}: EditAccountDialogProps) {
+}: Readonly<EditAccountDialogProps>) {
   const ts = getTranslations('settings');
   const tea = ts.weldmail.editAccount;
   const updateAccount = useUpdateMailAccount();

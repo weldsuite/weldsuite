@@ -14,7 +14,7 @@ import {
   formatKpiValue,
 } from '../../components/shared';
 
-function Sparkline({ values }: { values: number[] }) {
+function Sparkline({ values }: Readonly<{ values: number[] }>) {
   if (values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -30,7 +30,7 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function TrendKpiCard({ kpi }: { kpi: HrClientKpi }) {
+function TrendKpiCard({ kpi }: Readonly<{ kpi: HrClientKpi }>) {
   const t = useTranslations();
   const trendValues = kpi.trend.map((p) => p.average);
   return (
@@ -56,7 +56,7 @@ function TrendKpiCard({ kpi }: { kpi: HrClientKpi }) {
   );
 }
 
-export function ClientViewTab({ clientView }: { clientView: HrClientView }) {
+export function ClientViewTab({ clientView }: Readonly<{ clientView: HrClientView }>) {
   const t = useTranslations();
   const { summary } = clientView;
 

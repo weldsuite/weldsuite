@@ -13,7 +13,7 @@ import { getTranslations } from '@/lib/i18n';
  * product / supplier / warehouse panels somewhere to render. Section
  * navigation comes from the global module sidebar (`MODULE_CONFIGS.weldstash`).
  */
-export default function WeldStashLayout({ children }: { children: React.ReactNode }) {
+export default function WeldStashLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const t = getTranslations('common');
   const { isInstalled, isLoading } = useAppAccess('weldstash');
 

@@ -16,7 +16,7 @@ import { Skeleton } from '@weldsuite/mobile-ui/components/Skeleton';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { useI18n } from '@/lib/i18n';
 
-export function LoadingState({ label }: { label?: string }) {
+export function LoadingState({ label }: Readonly<{ label?: string }>) {
   return (
     <View style={styles.center}>
       <Spinner size="large" label={label} />
@@ -28,11 +28,11 @@ export function ErrorState({
   message,
   onRetry,
   retrying = false,
-}: {
+}: Readonly<{
   message?: string;
   onRetry?: () => void;
   retrying?: boolean;
-}) {
+}>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   return (
@@ -49,7 +49,7 @@ export function ErrorState({
 }
 
 /** Card-shaped placeholder rows, matching the density of the list screens. */
-export function ListSkeleton({ count = 6 }: { count?: number }) {
+export function ListSkeleton({ count = 6 }: Readonly<{ count?: number }>) {
   const { colors } = useTheme();
   return (
     <View>

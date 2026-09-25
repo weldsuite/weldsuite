@@ -191,13 +191,13 @@ export function GridProvider<TEntity>({
           case 'is_not_empty':
             return value && entityValue.trim() !== '';
           case 'gt':
-            return parseFloat(entityValue) > parseFloat(filterValue);
+            return Number.parseFloat(entityValue) > Number.parseFloat(filterValue);
           case 'lt':
-            return parseFloat(entityValue) < parseFloat(filterValue);
+            return Number.parseFloat(entityValue) < Number.parseFloat(filterValue);
           case 'gte':
-            return parseFloat(entityValue) >= parseFloat(filterValue);
+            return Number.parseFloat(entityValue) >= Number.parseFloat(filterValue);
           case 'lte':
-            return parseFloat(entityValue) <= parseFloat(filterValue);
+            return Number.parseFloat(entityValue) <= Number.parseFloat(filterValue);
           default:
             return true;
         }
@@ -402,7 +402,7 @@ export function GridProvider<TEntity>({
 
       const formatNum = (v: number) => fieldType === 'currency' ? `$${v.toLocaleString()}` : v.toLocaleString();
       const getNumericValues = () => values.filter((v) => typeof v === 'number') as number[];
-      const parseDates = () => values.filter((v) => v).map((v) => new Date(v as string)).filter((d) => !isNaN(d.getTime()));
+      const parseDates = () => values.filter((v) => v).map((v) => new Date(v as string)).filter((d) => !Number.isNaN(d.getTime()));
 
       switch (calculationType) {
         case 'count':

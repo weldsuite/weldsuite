@@ -16,7 +16,7 @@ interface HelpdeskLayoutClientProps {
   children: ReactNode;
 }
 
-export function HelpdeskLayoutClient({ children }: HelpdeskLayoutClientProps) {
+export function HelpdeskLayoutClient({ children }: Readonly<HelpdeskLayoutClientProps>) {
   const { t } = useI18n();
 
   return (

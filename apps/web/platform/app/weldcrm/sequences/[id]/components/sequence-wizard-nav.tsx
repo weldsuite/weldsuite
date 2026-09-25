@@ -20,7 +20,7 @@ export function SequenceWizardNav({
   rightContent,
   onBeforeNavigate,
   currentStep,
-}: SequenceWizardNavProps) {
+}: Readonly<SequenceWizardNavProps>) {
   const t = useTranslations();
   const basePath = `/weldcrm/sequences/${sequenceId}`;
 

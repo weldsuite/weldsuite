@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpSession } from './api-types';
 import type { Env } from '../types/env';
-import { canUseScope } from './permissions';
+import { canUseScope, type Grants } from './permissions';
 import { executeTool } from './proxy';
 import { allTools, toolError } from '../tools/registry';
 import {
@@ -20,6 +20,11 @@ const USER_APPS_SCOPE = 'user-apps:manage';
 
 /** Scope gating WeldObjects (user-defined custom object) agent tools. */
 const CUSTOM_OBJECTS_SCOPE = 'custom-objects:read';
+
+/** The session's grants and member denies, for tool visibility checks. */
+function grantsOf(session: McpSession): Grants {
+  return { permissions: session.permissions, denies: session.permissionDenies };
+}
 
 /**
  * Guidance sent to the client on `initialize`.
@@ -68,6 +73,20 @@ Making changes:
   rather than retrying.`;
 
 /**
+ * First free name for a dynamically registered tool: `base`, else `base_2`,
+ * `base_3`, … so a colliding tool stays reachable instead of being dropped.
+ */
+function uniqueToolName(base: string, taken: ReadonlySet<string>): string {
+  let name = base;
+  let suffix = 2;
+  while (taken.has(name)) {
+    name = `${base}_${suffix}`;
+    suffix++;
+  }
+  return name;
+}
+
+/**
  * Create an MCP server instance for one authenticated session.
  * A new instance is created per request (stateless).
  *
@@ -101,7 +120,7 @@ export async function createMcpServer(
   // still `requireScope` inside the API, so a listed tool can still be refused.
   const registeredNames = new Set<string>();
   for (const tool of allTools) {
-    if (!canUseScope(session.permissions, tool.scope)) continue;
+    if (!canUseScope(grantsOf(session), tool.scope)) continue;
     registeredNames.add(tool.name);
 
     server.tool(tool.name, tool.description, tool.inputSchema, async (args) => {
@@ -118,17 +137,14 @@ export async function createMcpServer(
   // Register user-created WeldApp agent tools (dynamic, scope-gated).
   // `loadUserAppTools` swallows failures and returns [] so a broken app can
   // never take the static tools down with it.
-  if (canUseScope(session.permissions, USER_APPS_SCOPE)) {
+  if (canUseScope(grantsOf(session), USER_APPS_SCOPE)) {
     const userAppTools = await loadUserAppTools(session, env, executionCtx);
 
     for (const appTool of userAppTools) {
       // `${appCode}_${name}`, deduped by numeric suffix on collision (with
       // static tools or other app tools sharing the same code + name).
       const baseName = `${appTool.appCode}_${appTool.name}`;
-      let toolName = baseName;
-      for (let i = 2; registeredNames.has(toolName); i++) {
-        toolName = `${baseName}_${i}`;
-      }
+      const toolName = uniqueToolName(baseName, registeredNames);
       registeredNames.add(toolName);
 
       server.tool(
@@ -157,7 +173,7 @@ export async function createMcpServer(
   // Register WeldObjects tools (dynamic, scope-gated). Same failure posture as
   // the WeldApp tools above: `loadCustomObjectTools` returns [] on any error so
   // a misconfigured object can never take the static tools down with it.
-  if (canUseScope(session.permissions, CUSTOM_OBJECTS_SCOPE)) {
+  if (canUseScope(grantsOf(session), CUSTOM_OBJECTS_SCOPE)) {
     const objects = await loadCustomObjectTools(session, env, executionCtx);
 
     for (const object of objects) {
@@ -166,10 +182,7 @@ export async function createMcpServer(
         // if someone names an object `products`) or with another object's
         // tools. Dedupe by numeric suffix rather than dropping the tool, so the
         // object stays reachable either way.
-        let toolName = objectTool.name;
-        for (let i = 2; registeredNames.has(toolName); i++) {
-          toolName = `${objectTool.name}_${i}`;
-        }
+        const toolName = uniqueToolName(objectTool.name, registeredNames);
         registeredNames.add(toolName);
 
         server.tool(

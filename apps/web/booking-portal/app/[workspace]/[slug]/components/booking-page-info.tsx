@@ -25,7 +25,7 @@ export function BookingPageInfo({
   timezone,
   onTimezoneChange,
   accentColor = '#111827',
-}: BookingPageInfoProps) {
+}: Readonly<BookingPageInfoProps>) {
   return (
     <div className="w-full md:w-[280px] shrink-0 md:border-r md:border-b-0 md:border-gray-200 dark:md:border-[#26262B] flex flex-col overflow-hidden">
       <div className="flex flex-col flex-1 px-6 pt-6 pb-6">

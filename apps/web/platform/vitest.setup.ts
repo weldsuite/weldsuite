@@ -30,10 +30,12 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 // jsdom doesn't implement IntersectionObserver — used by virtualized
 // lists, sticky headers, and lazy-loaded images.
 if (typeof window !== 'undefined' && !('IntersectionObserver' in window)) {
+  // Observers are inert in jsdom: nothing is ever reported, so every method
+  // is intentionally a no-op.
   class MockIntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe() { /* no-op */ }
+    unobserve() { /* no-op */ }
+    disconnect() { /* no-op */ }
     takeRecords() {
       return [];
     }
@@ -46,9 +48,9 @@ if (typeof window !== 'undefined' && !('IntersectionObserver' in window)) {
 // charts, virtualized tables.
 if (typeof window !== 'undefined' && !('ResizeObserver' in window)) {
   class MockResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe() { /* no-op */ }
+    unobserve() { /* no-op */ }
+    disconnect() { /* no-op */ }
   }
   // @ts-expect-error -- minimal mock
   window.ResizeObserver = MockResizeObserver;

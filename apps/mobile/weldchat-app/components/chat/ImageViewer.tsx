@@ -73,7 +73,7 @@ function ZoomablePage({
   onDismiss,
   onZoomChange,
   onToggleChrome,
-}: {
+}: Readonly<{
   uri: string;
   width: number;
   height: number;
@@ -84,7 +84,7 @@ function ZoomablePage({
   onDismiss: () => void;
   onZoomChange: (zoomed: boolean) => void;
   onToggleChrome: () => void;
-}) {
+}>) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -237,7 +237,7 @@ function ZoomablePage({
   );
 }
 
-export function ImageViewer({ images, initialUrl, origin, onClose }: ImageViewerProps) {
+export function ImageViewer({ images, initialUrl, origin, onClose }: Readonly<ImageViewerProps>) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const pagerRef = useRef<FlatList<ImageItem>>(null);

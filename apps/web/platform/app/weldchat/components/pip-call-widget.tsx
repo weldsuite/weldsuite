@@ -25,7 +25,7 @@ function formatDuration(seconds: number): string {
  * this sink the user would see the PiP but hear no one. Only mounted while the
  * PiP is the active surface, so it never double-plays alongside the tiles.
  */
-function RemotePiPAudio({ participant }: { participant: RTKParticipant | RTKSelf }) {
+function RemotePiPAudio({ participant }: Readonly<{ participant: RTKParticipant | RTKSelf }>) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;

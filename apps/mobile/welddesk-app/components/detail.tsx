@@ -7,11 +7,11 @@ export function IconTile({
   icon: Icon,
   color,
   size = 38,
-}: {
+}: Readonly<{
   icon: React.ComponentType<{ size: number; color: string }>;
   color: string;
   size?: number;
-}) {
+}>) {
   return (
     <View
       style={[

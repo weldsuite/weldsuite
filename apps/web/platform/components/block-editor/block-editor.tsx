@@ -328,9 +328,9 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   // Convert HTML to blocks if initialHtml is provided and no JSON content
   useEffect(() => {
     if (initialHtml && (!initialContent || initialContent.length === 0)) {
-      async function convert() {
+      function convert() {
         try {
-          const blocks = await editor.tryParseHTMLToBlocks(initialHtml!);
+          const blocks = editor.tryParseHTMLToBlocks(initialHtml!);
           if (blocks.length > 0) {
             editor.replaceBlocks(editor.document, blocks);
           }
@@ -644,11 +644,11 @@ function readEffectiveFontSize(): string {
   if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
   if (!(node instanceof Element)) return '16px';
   const size = window.getComputedStyle(node).fontSize;
-  const px = parseFloat(size);
+  const px = Number.parseFloat(size);
   return Number.isFinite(px) ? `${Math.round(px)}px` : '16px';
 }
 
-export function StaticFormattingToolbar({ editor }: { editor: BlockNoteEditorInstance }) {
+export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNoteEditorInstance }>) {
   const [state, setState] = useState<ToolbarState>(INITIAL_TOOLBAR_STATE);
   const { activeStyles, activeBlockType, activeHeadingLevel, activeTextAlignment } = state;
   const lastStateRef = useRef<ToolbarState>(INITIAL_TOOLBAR_STATE);
@@ -1378,7 +1378,7 @@ export function StaticFormattingToolbar({ editor }: { editor: BlockNoteEditorIns
   );
 }
 
-function TT({ label, children }: { label: string; children: React.ReactElement }) {
+function TT({ label, children }: Readonly<{ label: string; children: React.ReactElement }>) {
   // The shared shadcn Tooltip wrapper always nests its own TooltipProvider
   // with a default 300ms delay, which shadows whatever `delayDuration` the
   // outer TooltipProvider is set to. Passing `delayDuration` directly on
@@ -1396,10 +1396,10 @@ function TT({ label, children }: { label: string; children: React.ReactElement }
 function FontFamilyPicker({
   currentFamily,
   onPick,
-}: {
+}: Readonly<{
   currentFamily: string;
   onPick: (value: string) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -1466,13 +1466,13 @@ function ColorSwatchGridWithCustom({
   onPick,
   swatchBorder,
   checkIconClass,
-}: {
+}: Readonly<{
   swatches: { value: string; label: string; swatch: string }[];
   current: string | undefined;
   onPick: (value: string) => void;
   swatchBorder?: boolean;
   checkIconClass: string;
-}) {
+}>) {
   const [showCustom, setShowCustom] = useState(false);
   const [customValue, setCustomValue] = useState(
     typeof current === 'string' && current.startsWith('#') ? current : '#3b82f6',
@@ -1555,10 +1555,10 @@ function ColorSwatchGridWithCustom({
 function LinkButton({
   onApply,
   getSelectionText,
-}: {
+}: Readonly<{
   onApply: (url: string, text?: string) => void;
   getSelectionText: () => string;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');

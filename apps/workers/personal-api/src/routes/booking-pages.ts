@@ -73,7 +73,7 @@ app.get('/', async (c) => {
   if (!personalAccountId) return error.personalAccountRequired(c);
 
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const db = getPersonalDb(c.env);
 
   const conditions = [isNull(t.deletedAt), eq(t.personalAccountId, personalAccountId)];

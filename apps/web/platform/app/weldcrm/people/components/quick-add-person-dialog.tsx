@@ -26,7 +26,7 @@ interface Props {
   onCreated?: (person: Person) => void;
 }
 
-export function QuickAddPersonDialog({ open, onOpenChange, initialName, onCreated }: Props) {
+export function QuickAddPersonDialog({ open, onOpenChange, initialName, onCreated }: Readonly<Props>) {
   const t = useTranslations();
 
   return (

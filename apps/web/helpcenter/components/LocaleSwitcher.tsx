@@ -8,7 +8,7 @@ interface LocaleSwitcherProps {
   className?: string
 }
 
-export function LocaleSwitcher({ className }: LocaleSwitcherProps) {
+export function LocaleSwitcher({ className }: Readonly<LocaleSwitcherProps>) {
   const { language, setLanguage } = useLazyI18n()
 
   return (

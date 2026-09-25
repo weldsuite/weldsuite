@@ -30,10 +30,10 @@ function useInitialValue<T>(value: T, condition = true) {
 function TopLevelNavItem({
   href,
   children,
-}: {
+}: Readonly<{
   href: string
   children: React.ReactNode
-}) {
+}>) {
   return (
     <li className="md:hidden">
       <CloseButton
@@ -53,13 +53,13 @@ function NavLink({
   tag,
   active = false,
   isAnchorLink = false,
-}: {
+}: Readonly<{
   href: string
   children: React.ReactNode
   tag?: string
   active?: boolean
   isAnchorLink?: boolean
-}) {
+}>) {
   return (
     <CloseButton
       as={Link}
@@ -86,10 +86,10 @@ function NavLink({
 function VisibleSectionHighlight({
   group,
   pathname,
-}: {
+}: Readonly<{
   group: NavGroup
   pathname: string
-}) {
+}>) {
   const [sections, visibleSections] = useInitialValue(
     [
       useSectionStore((s) => s.sections),
@@ -128,10 +128,10 @@ function VisibleSectionHighlight({
 function ActivePageMarker({
   group,
   pathname,
-}: {
+}: Readonly<{
   group: NavGroup
   pathname: string
-}) {
+}>) {
   const itemHeight = remToPx(2)
   const offset = remToPx(0.25)
   const activePageIndex = group.links.findIndex((link) => link.href === pathname)
@@ -152,10 +152,10 @@ function ActivePageMarker({
 function NavigationGroup({
   group,
   className,
-}: {
+}: Readonly<{
   group: NavGroup
   className?: string
-}) {
+}>) {
   // If this is the mobile navigation then we always render the initial
   // state, so that the state does not change during the close animation.
   // The state will still update when we re-open (re-render) the navigation.
@@ -311,7 +311,7 @@ export const navigation: Array<NavGroup> = [
   },
 ]
 
-export function Navigation(props: React.ComponentPropsWithoutRef<'nav'>) {
+export function Navigation(props: Readonly<React.ComponentPropsWithoutRef<'nav'>>) {
   return (
     <nav {...props}>
       <ul role="list">

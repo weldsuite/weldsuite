@@ -61,7 +61,7 @@ function formatRelativeTime(dateStr: string | null): string {
   return date.toLocaleDateString();
 }
 
-function StatusBadge({ status }: { status: GithubConnection['status'] }) {
+function StatusBadge({ status }: Readonly<{ status: GithubConnection['status'] }>) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 
@@ -87,10 +87,10 @@ function StatusBadge({ status }: { status: GithubConnection['status'] }) {
 function LinkedReposTable({
   repos,
   canManage,
-}: {
+}: Readonly<{
   repos: GithubRepoLink[];
   canManage: boolean;
-}) {
+}>) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 
@@ -195,13 +195,13 @@ function RepoRow({
   isSyncing,
   onSync,
   onUnlink,
-}: {
+}: Readonly<{
   repo: GithubRepoLink;
   canManage: boolean;
   isSyncing: boolean;
   onSync: () => void;
   onUnlink: () => void;
-}) {
+}>) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
   const updateMutation = useUpdateRepoLink(repo.id);
@@ -309,10 +309,10 @@ function RepoRow({
 function RecoverDialog({
   open,
   onOpenChange,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+}>) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 

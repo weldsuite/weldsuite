@@ -75,7 +75,7 @@ interface ProjectTab {
   icon: LucideIcon;
 }
 
-function SortableTab({ id, children }: { id: string; children: React.ReactNode }) {
+function SortableTab({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
   const {
     attributes,
     listeners,
@@ -98,7 +98,7 @@ function SortableTab({ id, children }: { id: string; children: React.ReactNode }
   );
 }
 
-export default function ProjectLayout({ children }: { children: React.ReactNode }) {
+export default function ProjectLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const params = useParams();
   const pathname = usePathname();
@@ -142,7 +142,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const [chatWidth, setChatWidth] = React.useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_CHAT_WIDTH;
     const raw = window.localStorage.getItem(CHAT_SIZE_KEY);
-    const parsed = raw ? Number(raw) : NaN;
+    const parsed = raw ? Number(raw) : Number.NaN;
     return Number.isFinite(parsed) && parsed >= MIN_CHAT_WIDTH && parsed <= MAX_CHAT_WIDTH
       ? parsed
       : DEFAULT_CHAT_WIDTH;

@@ -12,7 +12,7 @@ interface WeldCallGateProps {
   children: ReactNode;
 }
 
-export function WeldCallGate({ children }: WeldCallGateProps) {
+export function WeldCallGate({ children }: Readonly<WeldCallGateProps>) {
   const { data: subscription, isLoading: subLoading } = useSubscription();
   const { data: phoneNumbersData, isLoading: phoneLoading } = useVoipPhoneNumbers();
   const { data: voipConfiguredData, isLoading: configLoading } = useVoipConfigured();

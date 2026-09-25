@@ -11,7 +11,7 @@ import { ensureNotificationPermission } from '@/lib/desktop-notifications';
 // warms the chunk in the browser cache, avoiding a lazy-load delay at call time.
 import('@cloudflare/realtimekit').catch(() => {});
 
-export default function ChatLayout({ children }: { children: React.ReactNode }) {
+export default function ChatLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
   const { isInstalled, isLoading } = useAppAccess('weldchat');
   useWeldChatUserEvents();

@@ -150,7 +150,7 @@ type UiPreferencesWithGroupFilters = NonNullable<UserPreferences['uiPreferences'
   weldchatGroupFilters?: WeldchatGroupFilters;
 };
 
-export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSettingsDialogProps) {
+export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<GroupSettingsDialogProps>) {
   const { t } = useI18n();
 
   const NAV: { key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = useMemo(
@@ -1203,7 +1203,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
 function normalize(s: GroupFilterSettings): GroupFilterSettings {
   return {
     ...s,
-    channelIds: [...(s.channelIds ?? [])].sort(),
+    channelIds: [...(s.channelIds ?? [])].sort((a, b) => a.localeCompare(b)),
   };
 }
 
@@ -1212,12 +1212,12 @@ function ToggleRow({
   label,
   checked,
   onChange,
-}: {
+}: Readonly<{
   id: string;
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
-}) {
+}>) {
   return (
     <div className="flex items-center justify-between gap-3">
       <Label htmlFor={id} className="text-sm font-normal flex-1 cursor-pointer">
@@ -1266,11 +1266,11 @@ function QuietHoursSection({
   draft,
   update,
   setDraft,
-}: {
+}: Readonly<{
   draft: GroupFilterSettings;
   update: <K extends keyof GroupFilterSettings>(key: K, value: GroupFilterSettings[K]) => void;
   setDraft: React.Dispatch<React.SetStateAction<GroupFilterSettings>>;
-}) {
+}>) {
   const { t } = useI18n();
   const d = t.weldchat.groupSettings.notifications.days;
   const translatedDays: { key: DayOfWeek; short: string; long: string }[] = [
@@ -1416,11 +1416,11 @@ function CollapseBehaviorSection({
   draft,
   update,
   setDraft,
-}: {
+}: Readonly<{
   draft: GroupFilterSettings;
   update: <K extends keyof GroupFilterSettings>(key: K, value: GroupFilterSettings[K]) => void;
   setDraft: React.Dispatch<React.SetStateAction<GroupFilterSettings>>;
-}) {
+}>) {
   const { t } = useI18n();
   const mode: CollapseMode = !draft.collapsedByDefault
     ? 'expanded'
@@ -1599,7 +1599,7 @@ const PEEK_OPTIONS: { key: PeekKey; label: string; icon: React.ComponentType<{ c
   { key: 'peekRecentlyActive', label: 'Recently active', icon: Clock },
 ];
 
-function SortOptionGrid({ value, onChange }: { value: SortBy; onChange: (v: SortBy) => void }) {
+function SortOptionGrid({ value, onChange }: Readonly<{ value: SortBy; onChange: (v: SortBy) => void }>) {
   const { t } = useI18n();
   const sortLabels: Record<string, string> = {
     'name-asc': t.weldchat.groupSettings.display.sortOptions.nameAsc,
@@ -1643,11 +1643,11 @@ function ChipToggleGroup<K extends string>({
   options,
   isOn,
   onToggle,
-}: {
+}: Readonly<{
   options: { key: K; label: string; icon: React.ComponentType<{ className?: string }> }[];
   isOn: (key: K) => boolean;
   onToggle: (key: K) => void;
-}) {
+}>) {
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((opt) => {

@@ -12,7 +12,7 @@ interface MailSplitLayoutProps {
   className?: string;
 }
 
-export function MailSplitLayout({ list, detail, className }: MailSplitLayoutProps) {
+export function MailSplitLayout({ list, detail, className }: Readonly<MailSplitLayoutProps>) {
   const pathname = usePathname();
 
   // Check if we're viewing a specific message (has messageId in path)

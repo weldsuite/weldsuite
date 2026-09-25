@@ -30,12 +30,12 @@ export type PlaceOfSupplyContext = {
 };
 
 function parseQuantity(raw: string | undefined): number {
-  const parsed = parseFloat(raw ?? '');
+  const parsed = Number.parseFloat(raw ?? '');
   return Number.isFinite(parsed) ? parsed : 1;
 }
 
 function parseAmount(raw: string | undefined, fallback = 0): number {
-  const parsed = parseFloat(raw ?? '');
+  const parsed = Number.parseFloat(raw ?? '');
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 

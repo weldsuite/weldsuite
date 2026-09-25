@@ -24,7 +24,7 @@ interface ConversationHeaderProps {
   visitorOnline?: boolean;
 }
 
-export function ConversationHeader({ conversation, liveCall = false, visitorOnline = false }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation, liveCall = false, visitorOnline = false }: Readonly<ConversationHeaderProps>) {
   const t = getTranslations('deskInbox2');
   const router = useRouter();
   const { user } = useUser();

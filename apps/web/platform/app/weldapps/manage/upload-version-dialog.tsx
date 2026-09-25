@@ -28,7 +28,7 @@ interface FileWithRelativePath extends File {
 }
 
 function bumpPatch(version: string): string {
-  const parts = version.split('.').map((p) => parseInt(p, 10));
+  const parts = version.split('.').map((p) => Number.parseInt(p, 10));
   if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return '0.0.1';
   return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
 }
@@ -65,7 +65,7 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   directory?: string;
 };
 
-export function UploadVersionDialog({ open, onOpenChange, app }: UploadVersionDialogProps) {
+export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<UploadVersionDialogProps>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const inputRef = useRef<HTMLInputElement>(null);

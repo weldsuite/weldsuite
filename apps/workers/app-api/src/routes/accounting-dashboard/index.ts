@@ -234,8 +234,8 @@ app.get('/', requirePermission('reports:read'), async (c) => {
         year: expensesYear.total,
       },
       profit: {
-        month: String(parseFloat(revenueMonth.total) - parseFloat(expensesMonth.total)),
-        year: String(parseFloat(revenueYear.total) - parseFloat(expensesYear.total)),
+        month: String(Number.parseFloat(revenueMonth.total) - Number.parseFloat(expensesMonth.total)),
+        year: String(Number.parseFloat(revenueYear.total) - Number.parseFloat(expensesYear.total)),
       },
       receivables: {
         outstanding: receivables.total,

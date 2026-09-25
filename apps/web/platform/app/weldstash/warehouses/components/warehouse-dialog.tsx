@@ -25,11 +25,11 @@ export function WarehouseDialog({
   open,
   onOpenChange,
   warehouse,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   warehouse?: WeldstashWarehouse;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const ts = getTranslations('common');
   const isEdit = !!warehouse;

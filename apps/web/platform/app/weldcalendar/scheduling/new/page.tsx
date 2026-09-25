@@ -77,7 +77,7 @@ export default function NewBookingPage() {
   return <BookingPageEditor mode="create" />;
 }
 
-export function BookingPageEditor({ mode = 'create', bookingPageId, initialData }: BookingPageEditorProps) {
+export function BookingPageEditor({ mode = 'create', bookingPageId, initialData }: Readonly<BookingPageEditorProps>) {
   const t = getTranslations('weldcalendar');
 
   // Booking pages are inherently week-based, but we expose the same view
@@ -1190,14 +1190,14 @@ function DatePickerInput({
   placeholder = 'Select date',
   showIcon = true,
   showPlusIcon = false,
-}: {
+}: Readonly<{
   value?: Date;
   onChange: (date: Date | undefined) => void;
   fullWidth?: boolean;
   placeholder?: string;
   showIcon?: boolean;
   showPlusIcon?: boolean;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
 
   return (

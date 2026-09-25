@@ -47,7 +47,7 @@ const NotificationContext = createContext<NotificationContextType>({
 
 export const useNotifications = () => useContext(NotificationContext);
 
-export function NotificationProvider({ children }: { children: React.ReactNode }) {
+export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);

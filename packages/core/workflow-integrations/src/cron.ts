@@ -1,5 +1,6 @@
 /**
- * Cron matching + next-run computation for WeldConnect workflow schedules.
+ * Cron matching + next-run computation — shared by the WeldConnect schedule
+ * sweep (workflow-worker) and WeldAgent routines (app-api).
  *
  * Standard 5-field cron: `minute hour day-of-month month day-of-week`.
  * Timezone-aware via `Intl.DateTimeFormat`. Pure — no I/O, no `Date.now()` reads
@@ -71,7 +72,7 @@ function matchField(field: string, value: number): boolean {
   }
   for (const token of field.split(',')) {
     if (token.includes('-')) {
-      const [start, end] = token.split('-').map(Number);
+      const [start = Number.NaN, end = Number.NaN] = token.split('-').map(Number);
       if (Number.isFinite(start) && Number.isFinite(end) && value >= start && value <= end) return true;
     } else if (parseInt(token, 10) === value) {
       return true;
@@ -82,12 +83,14 @@ function matchField(field: string, value: number): boolean {
 
 function matchesWithFormatter(fields: string[], formatter: Intl.DateTimeFormat, at: Date): boolean {
   const p = partsFrom(formatter, at);
+  // Callers guarantee 5 fields; defaults only satisfy strict index typing.
+  const [minute = '', hour = '', dayOfMonth = '', month = '', dayOfWeek = ''] = fields;
   return (
-    matchField(fields[0], p.minute) &&
-    matchField(fields[1], p.hour) &&
-    matchField(fields[2], p.dayOfMonth) &&
-    matchField(fields[3], p.month) &&
-    matchField(fields[4], p.dayOfWeek)
+    matchField(minute, p.minute) &&
+    matchField(hour, p.hour) &&
+    matchField(dayOfMonth, p.dayOfMonth) &&
+    matchField(month, p.month) &&
+    matchField(dayOfWeek, p.dayOfWeek)
   );
 }
 
