@@ -9,7 +9,7 @@ interface ImportSectionProps {
   canWrite: boolean;
 }
 
-export function ImportSection({ projectId, canWrite }: ImportSectionProps) {
+export function ImportSection({ projectId, canWrite }: Readonly<ImportSectionProps>) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
