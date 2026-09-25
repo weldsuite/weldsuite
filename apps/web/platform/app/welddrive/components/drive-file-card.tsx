@@ -169,7 +169,7 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onToggleStar, onRename, onMoveToFolder, onCopyLink, onDelete, onDetails }: DriveFileCardProps) {
+export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onToggleStar, onRename, onMoveToFolder, onCopyLink, onDelete, onDetails }: Readonly<DriveFileCardProps>) {
   const { t } = useI18n();
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;

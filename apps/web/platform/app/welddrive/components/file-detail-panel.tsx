@@ -103,7 +103,7 @@ export function FileDetailPanel({
   onDeleteComment,
   currentUserId,
   width = '500px',
-}: FileDetailPanelProps) {
+}: Readonly<FileDetailPanelProps>) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('overview');
   const widthNum = Number.parseInt(width, 10) || 500;
