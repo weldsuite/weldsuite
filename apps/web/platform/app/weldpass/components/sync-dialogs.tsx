@@ -50,10 +50,10 @@ export function describeConfig(config: WeldPassSyncTargetConfig): string {
 export function CredentialDialog({
   projectId,
   onClose,
-}: {
+}: Readonly<{
   projectId: string;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const createCredential = useCreateWeldPassCredential(projectId);
 
@@ -196,12 +196,12 @@ export function TargetDialog({
   environments,
   credentials,
   onClose,
-}: {
+}: Readonly<{
   projectId: string;
   environments: WeldPassEnvironment[];
   credentials: WeldPassCredential[];
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const createTarget = useCreateWeldPassSyncTarget(projectId);
 

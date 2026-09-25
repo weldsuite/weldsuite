@@ -11,10 +11,10 @@ import type { WeldPassAutoSyncOutcome } from '@weldsuite/app-api-client/domains/
 export function ErrorBanner({
   error,
   onDismiss,
-}: {
+}: Readonly<{
   error: string | null;
   onDismiss?: () => void;
-}) {
+}>) {
   if (!error) return null;
   return (
     <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -41,11 +41,11 @@ export function EmptyState({
   title,
   description,
   action,
-}: {
+}: Readonly<{
   title: string;
   description?: string;
   action?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
       <p className="text-sm font-medium">{title}</p>
@@ -63,7 +63,7 @@ export function statusTone(status: string): 'default' | 'secondary' | 'destructi
 }
 
 /** Relative time, with the absolute value on hover. */
-export function TimeAgo({ value }: { value: string | null }) {
+export function TimeAgo({ value }: Readonly<{ value: string | null }>) {
   if (!value) return <span className="text-muted-foreground">—</span>;
 
   const date = new Date(value);
@@ -97,10 +97,10 @@ export function TimeAgo({ value }: { value: string | null }) {
 export function AutoSyncSummary({
   outcomes,
   onDismiss,
-}: {
+}: Readonly<{
   outcomes: WeldPassAutoSyncOutcome[];
   onDismiss: () => void;
-}) {
+}>) {
   const t = useTranslations();
   if (outcomes.length === 0) return null;
 
