@@ -370,7 +370,7 @@ export function SpreadsheetGrid({
   filter,
   onFilterClick,
   merges,
-}: SpreadsheetGridProps) {
+}: Readonly<SpreadsheetGridProps>) {
   // Quick lookup: does (col,row) fall inside a merge, and is it the anchor?
   const findMerge = useCallback(
     (col: number, row: number): MergeRange | undefined =>

@@ -322,7 +322,7 @@ const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: numb
   x: 0,
 });
 
-function SortableTaskRow({ id, isDragEnabled, children }: { id: string; isDragEnabled: boolean; children: React.ReactNode }) {
+function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string; isDragEnabled: boolean; children: React.ReactNode }>) {
   const {
     attributes,
     listeners,
@@ -385,7 +385,7 @@ export function TasksClient({
   sortState: sortStateProp,
   onSortChange,
   entityScope,
-}: TasksClientProps) {
+}: Readonly<TasksClientProps>) {
   const { t } = useI18n();
   // Entity mode: board is embedded inside a CRM panel scoped to a company/person.
   // Tasks span multiple projects; project-only features are suppressed.

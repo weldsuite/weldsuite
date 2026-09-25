@@ -65,7 +65,7 @@ export function TeamTimesheetView({
   fromDate,
   toDate,
   rangeLabel,
-}: TeamTimesheetViewProps) {
+}: Readonly<TeamTimesheetViewProps>) {
   const st = useTranslations();
   const { data, isLoading, error } = useTeamTimesheet(projectId, { fromDate, toDate });
 
@@ -293,11 +293,11 @@ function SummaryTile({
   label,
   value,
   tone,
-}: {
+}: Readonly<{
   label: string;
   value: string;
   tone?: 'billable' | 'muted';
-}) {
+}>) {
   return (
     <div className="rounded-lg border border-border px-4 py-3">
       <div className="text-xs text-muted-foreground">{label}</div>
@@ -318,11 +318,11 @@ function MemberRow({
   member,
   maxMinutes,
   formerLabel,
-}: {
+}: Readonly<{
   member: TeamTimesheetMember;
   maxMinutes: number;
   formerLabel: string;
-}) {
+}>) {
   const billableShare = member.totalMinutes
     ? (member.billableMinutes / member.totalMinutes) * 100
     : 0;
