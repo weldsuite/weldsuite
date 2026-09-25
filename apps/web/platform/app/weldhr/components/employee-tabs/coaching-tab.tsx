@@ -13,7 +13,7 @@ import { CoachingDialog } from '../../coaching/components/coaching-dialog';
 import { SectionCard, EmptyText } from '../page-kit';
 import { ErrorBanner, StatusBadge, errorMessage, formatDate } from '../shared';
 
-export function EmployeeCoachingTab({ employeeId }: { employeeId: string }) {
+export function EmployeeCoachingTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canCreate = can('coaching:create');
@@ -53,7 +53,7 @@ export function EmployeeCoachingTab({ employeeId }: { employeeId: string }) {
   );
 }
 
-function TimelineEntry({ log }: { log: HrCoachingLog }) {
+function TimelineEntry({ log }: Readonly<{ log: HrCoachingLog }>) {
   const t = useTranslations();
   return (
     <Card className="p-3">

@@ -25,7 +25,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ErrorBanner, PersonPicker, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
 import { EmptyText, SectionCard } from '../page-kit';
 
-export function ClientPortalContactsCard({ companyId, companyName }: { companyId: string; companyName: string | null }) {
+export function ClientPortalContactsCard({ companyId, companyName }: Readonly<{ companyId: string; companyName: string | null }>) {
   const t = useTranslations();
   const { data, isLoading, error } = useHrPortalAccess({ kind: 'client', companyId });
   const [inviting, setInviting] = useState(false);
@@ -121,11 +121,11 @@ function InviteContactDialog({
   companyId,
   companyName,
   onClose,
-}: {
+}: Readonly<{
   companyId: string;
   companyName: string | null;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const invite = useInviteHrPortalAccess();
   const settings = useHrPortalSettings();
@@ -175,7 +175,7 @@ function InviteContactDialog({
   );
 }
 
-function DeleteContactAccessDialog({ access, onClose }: { access: HrPortalAccess; onClose: () => void }) {
+function DeleteContactAccessDialog({ access, onClose }: Readonly<{ access: HrPortalAccess; onClose: () => void }>) {
   const t = useTranslations();
   const deleteAccess = useDeleteHrPortalAccess();
   const [failure, setFailure] = useState<string | null>(null);
