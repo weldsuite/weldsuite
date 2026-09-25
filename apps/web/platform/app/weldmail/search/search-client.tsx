@@ -47,7 +47,7 @@ interface SearchClientProps {
   initialEmails: Email[];
 }
 
-export function SearchClient({ initialEmails }: SearchClientProps) {
+export function SearchClient({ initialEmails }: Readonly<SearchClientProps>) {
   const { t, plural } = useI18n();
 
   // Set breadcrumbs for Search

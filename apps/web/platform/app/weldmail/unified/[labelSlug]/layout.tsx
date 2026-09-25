@@ -27,9 +27,9 @@ const PAGE_SIZE = 25;
 
 export default function UnifiedLabelLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { t } = useI18n();
   const params = useParams<{ labelSlug: string }>();
   const labelSlug = decodeURIComponent(params.labelSlug);
