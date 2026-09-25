@@ -47,12 +47,12 @@ export function AppsList({
   stats,
   initialSearch,
   initialCategory,
-}: {
+}: Readonly<{
   apps: AppCatalogEntry[];
   stats: AppCatalogStats;
   initialSearch: string;
   initialCategory: string;
-}) {
+}>) {
   const router = useRouter();
   const [search, setSearch] = useState(initialSearch);
   const [category, setCategory] = useState(initialCategory);
@@ -366,7 +366,7 @@ export function AppsList({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value }: Readonly<{ label: string; value: number }>) {
   return (
     <Card className="py-4">
       <CardContent className="px-4">
@@ -382,12 +382,12 @@ function ToggleBadge({
   onLabel,
   offLabel,
   onClick,
-}: {
+}: Readonly<{
   on: boolean;
   onLabel: string;
   offLabel: string;
   onClick: () => void;
-}) {
+}>) {
   return (
     <button type="button" onClick={onClick}>
       <Badge

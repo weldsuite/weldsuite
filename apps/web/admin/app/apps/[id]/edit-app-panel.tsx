@@ -42,7 +42,7 @@ function entryToFormValues(app: AppCatalogEntry): AppFormValues {
   };
 }
 
-export function EditAppPanel({ app }: { app: AppCatalogEntry }) {
+export function EditAppPanel({ app }: Readonly<{ app: AppCatalogEntry }>) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showDelete, setShowDelete] = useState(false);

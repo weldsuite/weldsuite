@@ -62,11 +62,11 @@ function ContactRow({
   person,
   selected,
   onClick,
-}: {
+}: Readonly<{
   person: Person;
   selected: boolean;
   onClick: () => void;
-}) {
+}>) {
   return (
     <button
       type="button"

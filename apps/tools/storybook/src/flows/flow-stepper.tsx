@@ -28,7 +28,7 @@ export interface FlowStepperProps {
  * Buttons expose accessible names ("Next step", "Previous step", "Restart") so
  * Storybook `play` functions can drive the flow programmatically.
  */
-export function FlowStepper({ title, steps }: FlowStepperProps) {
+export function FlowStepper({ title, steps }: Readonly<FlowStepperProps>) {
   const [index, setIndex] = React.useState(0);
   const active = steps[index];
   const isFirst = index === 0;

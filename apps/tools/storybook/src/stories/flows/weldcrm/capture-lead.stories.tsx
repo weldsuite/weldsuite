@@ -56,7 +56,7 @@ const STAGE_VARIANT: Record<LeadStage, React.ComponentProps<typeof Badge>['varia
   unqualified: 'destructive',
 };
 
-function StageBadge({ stage }: { stage: LeadStage }) {
+function StageBadge({ stage }: Readonly<{ stage: LeadStage }>) {
   return <Badge variant={STAGE_VARIANT[stage]}>{LEAD_STAGE_LABELS[stage]}</Badge>;
 }
 
