@@ -86,7 +86,7 @@ export function BreadcrumbHeader({
   onCalendarToggle,
   onNotificationsToggle,
   calendarOpen,
-}: BreadcrumbHeaderProps) {
+}: Readonly<BreadcrumbHeaderProps>) {
   // When no `onSearch` callback is supplied, drive the dropdown from the same
   // federated `POST /api/search` backend that powers Cmd+K. Modules don't have
   // to wire anything — global, cross-app results by default.
