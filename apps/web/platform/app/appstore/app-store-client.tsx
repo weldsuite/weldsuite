@@ -18,7 +18,7 @@ interface AppStoreClientProps {
   canManage?: boolean; // Only admins can install/uninstall apps
 }
 
-function AppLogo({ code, className = 'h-5 w-5' }: { code: string; className?: string }) {
+function AppLogo({ code, className = 'h-5 w-5' }: Readonly<{ code: string; className?: string }>) {
   const logoPath = getAppLogo(code, 'light');
   if (logoPath) {
     return <img src={logoPath} alt={code} className={cn(className, 'object-contain')} />;
@@ -59,7 +59,7 @@ function getConsolidatedCategory(originalCategory: string, appCode?: string): st
   return 'Work';
 }
 
-export function AppStoreClient({ initialApps, canManage = false }: AppStoreClientProps) {
+export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppStoreClientProps>) {
   const t = getTranslations('navigation');
   const [apps, setApps] = useState<AvailableApp[]>(initialApps);
   const [hoveredApp, setHoveredApp] = useState<string | null>(null);

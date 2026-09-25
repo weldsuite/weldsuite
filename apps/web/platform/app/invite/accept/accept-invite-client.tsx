@@ -15,7 +15,7 @@ interface AcceptInviteClientProps {
   initialError?: string | null;
 }
 
-export function AcceptInviteClient({ token, initialInvitation, initialError }: AcceptInviteClientProps) {
+export function AcceptInviteClient({ token, initialInvitation, initialError }: Readonly<AcceptInviteClientProps>) {
   const t = getTranslations('common');
   const router = useRouter();
   const { signOut } = useClerk();

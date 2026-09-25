@@ -26,7 +26,7 @@ export function InviteClient({
   isAuthenticated,
   clerkTicket,
   clerkStatus,
-}: InviteClientProps) {
+}: Readonly<InviteClientProps>) {
   const t = getTranslations('common');
   const [isLoading, setIsLoading] = useState(false);
   const [ticketStatus, setTicketStatus] = useState<'idle' | 'processing' | 'password_required' | 'success' | 'error' | 'signed_in_conflict' | 'expired' | 'used'>('idle');
