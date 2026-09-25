@@ -9,9 +9,9 @@ import { useInstalledApps } from '@/hooks/use-installed-apps';
 
 export default function DashboardLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const { user } = useUser();
   const { organization } = useOrganization();
   const { userMemberships } = useOrganizationList({ userMemberships: true });

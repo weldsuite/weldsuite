@@ -7,7 +7,7 @@ interface DashboardLayoutClientProps {
   children: ReactNode;
 }
 
-export function DashboardLayoutClient({ children }: DashboardLayoutClientProps) {
+export function DashboardLayoutClient({ children }: Readonly<DashboardLayoutClientProps>) {
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
       <DashboardHeader />

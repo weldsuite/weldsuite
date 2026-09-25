@@ -22,7 +22,7 @@ interface AgentSetupPickerProps {
   onSubmit: (payload: { presetIds: SetupPresetId[]; freeText: string; message: string }) => void;
 }
 
-export function AgentSetupPicker({ disabled, onDismiss, onSubmit }: AgentSetupPickerProps) {
+export function AgentSetupPicker({ disabled, onDismiss, onSubmit }: Readonly<AgentSetupPickerProps>) {
   const setupT = getTranslations('common').agents.detail.setup;
   const [freeText, setFreeText] = useState('');
   const [activeId, setActiveId] = useState<SetupPresetId | null>(null);

@@ -12,7 +12,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 
-function AppLogo({ code, className = 'h-7 w-7' }: { code: string; className?: string }) {
+function AppLogo({ code, className = 'h-7 w-7' }: Readonly<{ code: string; className?: string }>) {
   const logoPath = getAppLogo(code, 'light');
   if (logoPath) {
     return <img src={logoPath} alt={code} className={cn(className, 'object-contain')} />;
@@ -46,7 +46,7 @@ function getCategoryIcon(category: string): LucideIcon {
   return Layers;
 }
 
-export function AppDetailClient({ app: initialApp, canManage = false, content }: AppDetailClientProps) {
+export function AppDetailClient({ app: initialApp, canManage = false, content }: Readonly<AppDetailClientProps>) {
   const t = getTranslations('navigation');
   const router = useRouter();
   const [app, setApp] = useState(initialApp);
