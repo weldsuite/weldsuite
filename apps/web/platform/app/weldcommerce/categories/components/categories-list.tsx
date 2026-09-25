@@ -36,7 +36,7 @@ export function CategoriesList({
   hasMore,
   isFetchingMore,
   showHierarchy,
-}: CategoriesListProps) {
+}: Readonly<CategoriesListProps>) {
   const t = getTranslations('commerce').module;
   const deleteMut = useDeleteCommerceCategory();
   const { open: openObjectPanel } = useObjectPanel();

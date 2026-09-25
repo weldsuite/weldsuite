@@ -16,7 +16,7 @@ interface ThreadPanelProps {
 
 const THREAD_NAME_KEY = (id: string) => `weldchat:thread-name:${id}`;
 
-export function ThreadPanel({ channelId, messageId }: ThreadPanelProps) {
+export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>) {
   const { t } = useI18n();
   const { closeThread } = useChatContext();
   const { data: channelData } = useChannel(channelId);
