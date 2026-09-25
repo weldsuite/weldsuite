@@ -67,7 +67,7 @@ const formatDate = (date: string | Date) => {
   return new Date(date).toLocaleString();
 };
 
-export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailClientProps) {
+export function WebhookDetailClient({ webhook, initialEvents }: Readonly<WebhookDetailClientProps>) {
   const { t } = useI18n();
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
