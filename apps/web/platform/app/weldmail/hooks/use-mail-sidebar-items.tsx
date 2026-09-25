@@ -82,11 +82,11 @@ function KeywordTagInput({
   value,
   onChange,
   placeholder,
-}: {
+}: Readonly<{
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-}) {
+}>) {
   const [inputValue, setInputValue] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 

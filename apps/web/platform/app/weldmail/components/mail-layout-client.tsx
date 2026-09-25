@@ -22,7 +22,7 @@ interface MailLayoutClientProps {
   children: ReactNode;
 }
 
-function MailLayoutContent({ children }: MailLayoutClientProps) {
+function MailLayoutContent({ children }: Readonly<MailLayoutClientProps>) {
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
       <MailHeader />
@@ -36,7 +36,7 @@ function MailLayoutContent({ children }: MailLayoutClientProps) {
   );
 }
 
-export function MailLayoutClient({ children }: MailLayoutClientProps) {
+export function MailLayoutClient({ children }: Readonly<MailLayoutClientProps>) {
   const { t } = useI18n();
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: t.mail.header.mail, href: '/weldmail' }]}>
