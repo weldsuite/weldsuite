@@ -10,7 +10,7 @@ interface HelpdeskHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
-export function HelpdeskHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: HelpdeskHeaderProps) {
+export function HelpdeskHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<HelpdeskHeaderProps>) {
   const pathname = usePathname();
   const contextBreadcrumbs = useCurrentBreadcrumbs();
   const { t } = useI18n();

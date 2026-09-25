@@ -17,7 +17,7 @@ interface WidgetEditPageProps {
   widgetId: string;
 }
 
-export default function WidgetEditPage({ widgetId }: WidgetEditPageProps) {
+export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProps>) {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
   const { data, isLoading } = useDeskWidget(widgetId);

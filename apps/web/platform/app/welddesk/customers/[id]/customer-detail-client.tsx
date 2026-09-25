@@ -78,7 +78,7 @@ interface CustomerDetailClientProps {
   };
 }
 
-export function CustomerDetailClient({ customerData }: CustomerDetailClientProps) {
+export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
   const tc = t.helpdesk.customers;
