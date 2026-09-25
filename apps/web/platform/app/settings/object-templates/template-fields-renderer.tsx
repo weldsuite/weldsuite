@@ -58,7 +58,7 @@ export function TemplateFieldsRenderer<T extends FieldValues>({
   setTemplateId,
   templates,
   defaultTabLabel = 'Default',
-}: Props<T>) {
+}: Readonly<Props<T>>) {
   const activeTab = templateId || 'none';
 
   const tabs: PageTab[] = [

@@ -13,7 +13,7 @@ interface SocialLayoutClientProps {
  * Notifications toggles, and the "New Post" composer in the actions slot), then the active page in the
  * shared content row (content + object panel(s) + drawers) via ModuleContent.
  */
-export function SocialLayoutClient({ children }: SocialLayoutClientProps) {
+export function SocialLayoutClient({ children }: Readonly<SocialLayoutClientProps>) {
   const { t } = useI18n();
 
   return (

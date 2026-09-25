@@ -23,7 +23,7 @@ interface StatusRowProps {
   onDelete: (status: CustomerStatus) => void;
 }
 
-export function StatusRow({ status, isLast, onEdit, onDelete }: StatusRowProps) {
+export function StatusRow({ status, isLast, onEdit, onDelete }: Readonly<StatusRowProps>) {
   const ts = getTranslations('settings');
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: status.id,
