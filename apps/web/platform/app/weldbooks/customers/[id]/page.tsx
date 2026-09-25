@@ -13,7 +13,7 @@ import { ArrowLeft, Pencil } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailRow({ label, value }: Readonly<{ label: string; value: React.ReactNode }>) {
   if (!value && value !== 0) return null;
   return (
     <div className="flex justify-between py-2 border-b last:border-b-0">

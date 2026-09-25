@@ -3,7 +3,7 @@ import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
-export function KpiCards({ dashboard }: { dashboard: Dashboard }) {
+export function KpiCards({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
   const { t } = useI18n();
   const tk = t.accounting.kpiCards;
   const { formatMoney: fmt } = useCurrentEntityCurrency();

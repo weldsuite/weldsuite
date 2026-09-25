@@ -71,7 +71,7 @@ interface InvoiceDialogProps {
   onCreated?: (invoice: { id: string }) => void;
 }
 
-export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogProps) {
+export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<InvoiceDialogProps>) {
   const [isPending, startTransition] = useTransition();
   const createMutation = useCreateInvoice();
   const { t } = useI18n();
