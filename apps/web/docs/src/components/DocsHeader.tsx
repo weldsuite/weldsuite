@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 
 import { navigation } from '@/lib/navigation'
 
-export function DocsHeader({ title }: { title?: string }) {
+export function DocsHeader({ title }: Readonly<{ title?: string }>) {
   let pathname = usePathname()
   let section = navigation.find((section) =>
     section.links.find((link) => link.href === pathname),

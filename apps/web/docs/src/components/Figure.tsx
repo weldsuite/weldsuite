@@ -6,7 +6,7 @@ import clsx from 'clsx'
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3] as const
 
-function ZoomIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function ZoomIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" {...props}>
       <path d="M9 2a7 7 0 1 0 4.2 12.6l3.1 3.1 1.4-1.4-3.1-3.1A7 7 0 0 0 9 2Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z" />
@@ -19,12 +19,12 @@ function ToolbarButton({
   onClick,
   disabled,
   label,
-}: {
+}: Readonly<{
   children: React.ReactNode
   onClick: () => void
   disabled?: boolean
   label: string
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -42,11 +42,11 @@ export function Figure({
   src,
   alt,
   caption,
-}: {
+}: Readonly<{
   src: string
   alt: string
   caption?: string
-}) {
+}>) {
   const [open, setOpen] = useState(false)
   const [zoomIndex, setZoomIndex] = useState(0)
 

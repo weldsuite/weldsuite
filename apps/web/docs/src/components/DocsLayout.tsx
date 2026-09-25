@@ -10,11 +10,11 @@ export function DocsLayout({
   children,
   frontmatter: { title },
   nodes,
-}: {
+}: Readonly<{
   children: React.ReactNode
   frontmatter: { title?: string }
   nodes: Array<Node>
-}) {
+}>) {
   let tableOfContents = collectSections(nodes)
 
   return (
