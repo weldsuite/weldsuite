@@ -15,7 +15,7 @@ const themes = [
   { name: 'System', value: 'system', icon: SystemIcon },
 ]
 
-function LightIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function LightIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" {...props}>
       <path
@@ -27,7 +27,7 @@ function LightIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function DarkIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function DarkIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" {...props}>
       <path
@@ -39,7 +39,7 @@ function DarkIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function SystemIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function SystemIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" {...props}>
       <path
@@ -52,7 +52,7 @@ function SystemIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 export function ThemeSelector(
-  props: React.ComponentPropsWithoutRef<typeof Listbox<'div'>>,
+  props: Readonly<React.ComponentPropsWithoutRef<typeof Listbox<'div'>>>,
 ) {
   let { theme, setTheme } = useTheme()
   let [mounted, setMounted] = useState(false)
