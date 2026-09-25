@@ -25,7 +25,7 @@ const statusLabels: Record<VersionStatus, string> = {
   deprecated: 'Deprecated',
 }
 
-function ChevronDownIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function ChevronDownIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 8 6" aria-hidden="true" {...props}>
       <path
@@ -39,7 +39,7 @@ function ChevronDownIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function CheckIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function CheckIcon(props: Readonly<React.ComponentPropsWithoutRef<'svg'>>) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" {...props}>
       <path
@@ -51,7 +51,7 @@ function CheckIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function StatusBadge({ status }: { status: VersionStatus }) {
+function StatusBadge({ status }: Readonly<{ status: VersionStatus }>) {
   return (
     <span
       className={clsx(
