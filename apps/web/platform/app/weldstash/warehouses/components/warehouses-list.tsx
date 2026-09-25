@@ -28,7 +28,7 @@ export function WarehousesList({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: WarehousesListProps) {
+}: Readonly<WarehousesListProps>) {
   const t = getTranslations('commerce').module;
   const ts = getTranslations('common');
   const deleteMut = useDeleteWeldstashWarehouse();

@@ -46,7 +46,7 @@ export function BankAccountFormDialog({
   open,
   onOpenChange,
   bankAccount,
-}: BankAccountFormDialogProps) {
+}: Readonly<BankAccountFormDialogProps>) {
   const t = useTranslations();
   const isEdit = !!bankAccount;
   const { currency: entityCurrency } = useCurrentEntityCurrency();

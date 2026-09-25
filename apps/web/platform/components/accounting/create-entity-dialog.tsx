@@ -52,7 +52,7 @@ interface CreateEntityDialogProps {
  * is defaulted from the jurisdiction adapter. On success, the new entity is selected
  * automatically so the rest of the module is usable immediately.
  */
-export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEntityDialogProps) {
+export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly<CreateEntityDialogProps>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const { setEntityId } = useCurrentAccountingEntity();

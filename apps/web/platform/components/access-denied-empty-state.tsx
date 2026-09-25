@@ -23,7 +23,7 @@ export function AccessDeniedEmptyState({
   description,
   permission,
   pageLabel,
-}: AccessDeniedEmptyStateProps) {
+}: Readonly<AccessDeniedEmptyStateProps>) {
   const pathname = usePathname();
   const { mutate: requestAccess, isPending } = useCreateAccessRequest();
   const { data: pending } = useMyPendingAccessRequests();
