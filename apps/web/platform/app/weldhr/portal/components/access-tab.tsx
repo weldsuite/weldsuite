@@ -214,7 +214,7 @@ export function PortalAccessTab() {
   );
 }
 
-function InviteEmployeesDialog({ onClose }: { onClose: () => void }) {
+function InviteEmployeesDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const invite = useInviteHrPortalAccess();
   const settings = useHrPortalSettings();
@@ -318,7 +318,7 @@ function InviteEmployeesDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function InviteClientContactDialog({ onClose }: { onClose: () => void }) {
+function InviteClientContactDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const invite = useInviteHrPortalAccess();
   const settings = useHrPortalSettings();
@@ -383,10 +383,10 @@ function InviteClientContactDialog({ onClose }: { onClose: () => void }) {
 function BulkInviteActiveEmployeesDialog({
   existingEmployeeIds,
   onClose,
-}: {
+}: Readonly<{
   existingEmployeeIds: Set<string>;
   onClose: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const invite = useInviteHrPortalAccess();
   const { data, isLoading } = useHrEmployees({ status: 'active', limit: 200 });
@@ -459,7 +459,7 @@ function BulkInviteActiveEmployeesDialog({
   );
 }
 
-function DeleteAccessDialog({ access, onClose }: { access: HrPortalAccess; onClose: () => void }) {
+function DeleteAccessDialog({ access, onClose }: Readonly<{ access: HrPortalAccess; onClose: () => void }>) {
   const t = useTranslations();
   const deleteAccess = useDeleteHrPortalAccess();
   const [failure, setFailure] = useState<string | null>(null);

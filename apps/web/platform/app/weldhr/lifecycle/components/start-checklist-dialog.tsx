@@ -22,14 +22,14 @@ export function StartChecklistDialog({
   onClose,
   fixedEmployeeId,
   fixedEmployeeLabel,
-}: {
+}: Readonly<{
   /** When known ahead of time (e.g. the employee's own lifecycle tab), the Type picker is skipped. */
   kind?: 'onboarding' | 'offboarding';
   onClose: () => void;
   /** When starting from an employee's own lifecycle tab, the employee is already known. */
   fixedEmployeeId?: string;
   fixedEmployeeLabel?: string | null;
-}) {
+}>) {
   const t = useTranslations();
   const [kind, setKind] = useState<'onboarding' | 'offboarding'>(fixedKind ?? 'onboarding');
   const { data: templates, isLoading: templatesLoading } = useHrChecklistTemplates(kind);
