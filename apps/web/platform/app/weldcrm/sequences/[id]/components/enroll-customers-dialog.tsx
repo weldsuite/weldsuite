@@ -52,7 +52,7 @@ export function EnrollCustomersDialog({
   onOpenChange,
   sequenceId,
   onComplete,
-}: EnrollCustomersDialogProps) {
+}: Readonly<EnrollCustomersDialogProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [search, setSearch] = useState('');

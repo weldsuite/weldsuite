@@ -31,7 +31,7 @@ import {
 } from '@/hooks/queries/use-people-queries';
 import { AddMemberPicker } from './add-member-picker';
 
-function CompanyListView({ listId, listName }: { listId: string; listName: string }) {
+function CompanyListView({ listId, listName }: Readonly<{ listId: string; listName: string }>) {
   const t = useTranslations();
   const qc = useQueryClient();
   const removeMember = useRemoveListMember();
@@ -85,7 +85,7 @@ function CompanyListView({ listId, listName }: { listId: string; listName: strin
   );
 }
 
-function PersonListView({ listId, listName }: { listId: string; listName: string }) {
+function PersonListView({ listId, listName }: Readonly<{ listId: string; listName: string }>) {
   const t = useTranslations();
   const qc = useQueryClient();
   const removeMember = useRemoveListMember();
