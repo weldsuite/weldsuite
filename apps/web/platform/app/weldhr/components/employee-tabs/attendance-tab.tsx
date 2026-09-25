@@ -20,7 +20,7 @@ import {
   todayIso,
 } from '../shared';
 
-export function EmployeeAttendanceTab({ employeeId }: { employeeId: string }) {
+export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canWrite = can('attendance:create');

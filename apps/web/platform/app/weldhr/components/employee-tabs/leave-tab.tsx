@@ -15,7 +15,7 @@ import { ErrorBanner, StatusBadge, errorMessage, formatDate, todayIso } from '..
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 
-export function EmployeeLeaveTab({ employeeId }: { employeeId: string }) {
+export function EmployeeLeaveTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canApprove = can('leave:approve');

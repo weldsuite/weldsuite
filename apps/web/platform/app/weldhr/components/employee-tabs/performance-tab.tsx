@@ -16,7 +16,7 @@ import { MilestoneDialog } from '../../performance/components/milestone-dialog';
 import { SectionCard, EmptyText } from '../page-kit';
 import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatKpiValue } from '../shared';
 
-export function EmployeePerformanceTab({ employeeId }: { employeeId: string }) {
+export function EmployeePerformanceTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const canCreate = can('evaluations:create');
