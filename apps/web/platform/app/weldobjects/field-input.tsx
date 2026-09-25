@@ -33,7 +33,7 @@ interface FieldInputProps {
   disabled?: boolean;
 }
 
-export function FieldInput({ field, value, onChange, disabled }: FieldInputProps) {
+export function FieldInput({ field, value, onChange, disabled }: Readonly<FieldInputProps>) {
   switch (field.fieldType) {
     case 'textarea':
       return (
@@ -210,7 +210,7 @@ export function FieldRow({
   value,
   onChange,
   disabled,
-}: FieldInputProps) {
+}: Readonly<FieldInputProps>) {
   return (
     <div className="space-y-1.5">
       <Label className="flex items-center gap-1 text-sm">

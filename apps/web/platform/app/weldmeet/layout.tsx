@@ -3,7 +3,7 @@ import { WeldMeetLayoutClient } from './components/weldmeet-layout-client';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
-export default function WeldMeetLayout({ children }: { children: React.ReactNode }) {
+export default function WeldMeetLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const t = getTranslations('weldmeet');
   const { isInstalled, isLoading } = useAppAccess('weldmeet');
 

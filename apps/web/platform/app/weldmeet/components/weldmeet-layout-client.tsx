@@ -13,7 +13,7 @@ interface WeldMeetLayoutClientProps {
   children: ReactNode;
 }
 
-export function WeldMeetLayoutClient({ children }: WeldMeetLayoutClientProps) {
+export function WeldMeetLayoutClient({ children }: Readonly<WeldMeetLayoutClientProps>) {
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: 'WeldMeet', href: '/weldmeet' }]}>
       <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">

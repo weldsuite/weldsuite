@@ -11,7 +11,7 @@ export function WeldMeetHeader({
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-}: WeldMeetHeaderProps) {
+}: Readonly<WeldMeetHeaderProps>) {
   const breadcrumbs = useCurrentBreadcrumbs();
 
   return (
