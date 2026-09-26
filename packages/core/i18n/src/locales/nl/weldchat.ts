@@ -136,6 +136,8 @@ export const weldchat = {
       stopRecording: 'Opname stoppen',
       sendVoiceClip: 'Voiceclip versturen',
       cancel: 'Annuleren',
+      uploading: 'Uploaden…',
+      uploadFailed: '{fileName} kon niet worden geüpload',
     },
     channelEmptyState: {
       channelCreated: 'heeft dit kanaal aangemaakt',
