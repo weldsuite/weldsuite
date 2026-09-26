@@ -174,9 +174,6 @@ export const manifest: Record<string, SecretEntry[]> = {
   // app-api: GitHub App secrets for the install flow + callback + Projects API,
   // plus the WeldHost domain-purchase pair.
   "app-api": [
-    // WeldPass vault root key. Wraps every project KEK — losing it makes every
-    // stored secret unrecoverable, so keep a backup outside Doppler as well.
-    "WELDPASS_ROOT_KEY",
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
     "GITHUB_APP_PRIVATE_KEY",
@@ -238,6 +235,22 @@ export const manifest: Record<string, SecretEntry[]> = {
   // INTERNAL_API_SECRET from app-api — must match the same env's app-api value.
   "agent-runtime": [
     "INTERNAL_API_SECRET",
+  ],
+
+  // pass-api: the pass module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "pass-api": [
+    // WeldPass vault root key (moved here from app-api). Wraps every project
+    // KEK — losing it makes every stored secret unrecoverable, so keep a
+    // backup outside Doppler as well. Must be the SAME value app-api had:
+    // existing vaults are wrapped with it.
+    "WELDPASS_ROOT_KEY",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
   ],
 };
 

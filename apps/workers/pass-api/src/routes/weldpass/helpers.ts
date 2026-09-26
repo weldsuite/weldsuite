@@ -4,7 +4,7 @@
  */
 
 import type { Context } from 'hono';
-import { error } from '../../lib/response';
+import { error } from '@weldsuite/worker-kit/response';
 import { EnvelopeError, rootKeyringFromEnv, type RootKeyring } from '../../services/weldpass/envelope';
 import { ProviderError } from '../../services/weldpass/providers';
 import { SecretKeyError } from '../../services/weldpass/secrets';
@@ -14,7 +14,7 @@ import {
   requireEnvironment,
   type VaultProject,
 } from '../../services/weldpass/vault';
-import type { Database } from '../../db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
 
 type WeldPassContext = Context<{ Bindings: Env; Variables: Variables }>;

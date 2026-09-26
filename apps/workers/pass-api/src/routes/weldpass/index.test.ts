@@ -18,9 +18,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { weldpassRoutes } from './index';
-import { createTestApp, permissions } from '../../test/harness';
-import { createPgliteDb } from '../../test/pglite';
-import { schema, type Database } from '../../db';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const ROOT_KEY = 'a'.repeat(64);
 const BASE = '/api/weldpass';

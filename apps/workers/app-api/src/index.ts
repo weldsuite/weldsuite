@@ -16,7 +16,6 @@ import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
 import { clerkMiddleware } from './middleware/clerk';
-import { weldpassRoutes } from './routes/weldpass';
 import { weldhrRoutes } from './routes/weldhr';
 import { publicHrPortalRoutes } from './routes/public-hr-portal';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
@@ -692,8 +691,8 @@ app.route('/api/push-tokens', pushTokensRoutes);
 app.route('/api/workspaces', workspacesRoutes);
 app.route('/api/weldagent', weldagentRoutes);
 app.route('/api/welddata', welddataRoutes);
-// Workspace-scoped secret vaults — needs Clerk + tenant DB from the /api/* guard.
-app.route('/api/weldpass', weldpassRoutes);
+// WeldPass (/api/weldpass) moved to pass-api; the kit's forwarder hands those
+// paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldHR — employee operations; Clerk + tenant DB from the /api/* guard.
 app.route('/api/weldhr', weldhrRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
