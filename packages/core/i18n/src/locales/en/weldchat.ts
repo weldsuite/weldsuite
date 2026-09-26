@@ -136,6 +136,8 @@ export const weldchat = {
       stopRecording: 'Stop recording',
       sendVoiceClip: 'Send voice clip',
       cancel: 'Cancel',
+      uploading: 'Uploading…',
+      uploadFailed: 'Could not upload {fileName}',
     },
     channelEmptyState: {
       channelCreated: 'created this channel',
