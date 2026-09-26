@@ -59,6 +59,20 @@ config.resolver.extraNodeModules = Object.fromEntries(
   singletons.map((pkg) => [pkg, resolvePackageDir(pkg)])
 );
 
+// RN's AbortController polyfill (abort-controller) does EventTarget.call(signal).
+// The hoisted event-target-shim is v6 (pulled in by the WebRTC apps), whose
+// default export is a native ES6 class, which throws "Class constructor invoked
+// without new" under that pattern — an immediate production launch crash.
+// abort-controller's own nested v5 copy is invisible because
+// disableHierarchicalLookup is on, so force the ES5 build (same fix as
+// weldmail/weldchat/weldflow/welddesk).
+const eventTargetShimRoot = resolvePackageDir('event-target-shim');
+const eventTargetShimEntry = path.join(eventTargetShimRoot, 'es5.js');
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  'event-target-shim': eventTargetShimRoot,
+};
+
 // @tanstack/query-core's `exports` field only whitelists "." and "./package.json".
 // With unstable_enablePackageExports on, Metro can miss sibling modules. Resolve
 // the TS source directly (same fix as weldflow-app / weldstash-app).
@@ -68,6 +82,9 @@ const queryCoreSrc = path.resolve(
 );
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'event-target-shim') {
+    return { type: 'sourceFile', filePath: eventTargetShimEntry };
+  }
   if (moduleName === '@tanstack/query-core' && fs.existsSync(queryCoreSrc)) {
     return context.resolveRequest(
       { ...context, resolveRequest: undefined },
