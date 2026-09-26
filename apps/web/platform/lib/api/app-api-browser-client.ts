@@ -17,9 +17,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { getApiOriginForPath } from '@/lib/api/public-env';
 
 let browserTokenGetter: (() => Promise<string | null>) | null = null;
 
@@ -62,5 +60,5 @@ export async function getBrowserAccessToken(): Promise<string | null> {
  */
 export const appApi = createClientApi({
   getToken: getBrowserAccessToken,
-  baseUrl: APP_API_URL,
+  baseUrl: getApiOriginForPath,
 });

@@ -9,9 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { apiUrl } from '@/lib/api/public-env';
 
 // =============================================================================
 // Types
@@ -213,7 +211,7 @@ export function useDownloadLoaTemplate(id: string | undefined) {
       const token = await getToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await fetch(`${APP_API_URL}/api/porting/${id}/loa-template`, {
+      const response = await fetch(apiUrl(`/api/porting/${id}/loa-template`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

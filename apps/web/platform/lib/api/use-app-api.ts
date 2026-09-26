@@ -61,9 +61,7 @@ import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { getApiOriginForPath } from '@/lib/api/public-env';
 
 /**
  * Returns a token-aware ClientApi instance pointing at the app-api worker.
@@ -80,7 +78,7 @@ export function useAppApiClient() {
       tokenRef.current = token;
       clientRef.current = createClientApi({
         getToken: async () => token,
-        baseUrl: APP_API_URL,
+        baseUrl: getApiOriginForPath,
       });
     }
     return clientRef.current;

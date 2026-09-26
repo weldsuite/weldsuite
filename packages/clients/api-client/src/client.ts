@@ -135,7 +135,11 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
     return response.json();
   }
 
-  const url = (path: string) => `${baseUrl}${apiPrefix}${path}`;
+  const url = (path: string) => {
+    const fullPath = `${apiPrefix}${path}`;
+    const origin = typeof baseUrl === 'function' ? baseUrl(fullPath) : baseUrl;
+    return `${origin}${fullPath}`;
+  };
 
   return {
     async get<T>(path: string): Promise<T> {

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
-vi.mock('@/lib/api/public-env', () => ({ getAppApiUrl: () => 'https://app-api.test' }));
+vi.mock('@/lib/api/public-env', () => ({
+  getApiOrigins: () => ['https://app-api.test', 'https://pass-api.test'],
+}));
 
 const originalFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
 
@@ -39,6 +41,18 @@ describe('installAppContextHeader', () => {
     expect(first.get('Authorization')).toBe('Bearer t');
     expect(first.get('X-Weld-App')).toBe('welddesk');
     expect(headerOf(1)).toBe('workspace');
+  });
+
+  it('tags requests to module workers too', async () => {
+    goTo('/weldcrm');
+    await window.fetch('https://pass-api.test/api/weldpass/projects');
+    expect(headerOf(0)).toBe('weldcrm');
+  });
+
+  it('does not treat a lookalike host as an API origin', async () => {
+    goTo('/weldcrm');
+    await window.fetch('https://app-api.test.evil.example/api/companies');
+    expect(headerOf(0)).toBeNull();
   });
 
   it('leaves other origins and app-less screens alone', async () => {
