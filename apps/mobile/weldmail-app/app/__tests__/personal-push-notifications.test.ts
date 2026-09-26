@@ -31,7 +31,7 @@ describe('Personal mail notifications', () => {
     // A personal-only user has no org; `if (!user || !organizationId) return`
     // left them with no token registered anywhere.
     expect(notificationContext).not.toMatch(/if \(!user \|\| !organizationId\) return;/);
-    expect(notificationContext).toMatch(/if \(!user\) return;/);
+    expect(notificationContext).toMatch(/if \(!(user|userId)\) return;/);
   });
 
   it('re-registers once the personal account resolves', () => {

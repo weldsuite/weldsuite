@@ -55,6 +55,11 @@ describe('persistence', () => {
     expect(ops[0]).toMatchObject({ kind: 'update', messageId: 'm1', patch: { isStarred: true } });
   });
 
+  it('keeps every op when enqueues race each other', async () => {
+    await Promise.all([enqueueOp(ORG, archive('m1')), enqueueOp(ORG, archive('m2')), enqueueOp(ORG, send('k1'))]);
+    expect(await loadOutbox(ORG)).toHaveLength(3);
+  });
+
   it('scopes the queue by org', async () => {
     await enqueueOp(ORG, update('m1', { isRead: true }));
     expect(await loadOutbox('org_2')).toEqual([]);
@@ -189,7 +194,49 @@ describe('flushOutbox', () => {
     expect(res.remaining).toBe(2);
     const remaining = await loadOutbox(ORG);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].attempts).toBe(1); // incremented for retry
+    // Being offline doesn't spend the op's retry budget.
+    expect(remaining[0].attempts).toBe(0);
+  });
+
+  it('keeps a transient server failure for retry and spends one attempt', async () => {
+    await enqueueOp(ORG, send('k1'));
+    await enqueueOp(ORG, update('m2', { isRead: true }));
+    const run = jest.fn().mockImplementationOnce(() => Promise.reject(new Error('503'))).mockImplementationOnce(ok);
+    const res = await flushOutbox(ORG, run, isNet, (e) => (e as Error).message === '503');
+    expect(res).toMatchObject({ succeeded: 1, dropped: 0, remaining: 1 });
+    const remaining = await loadOutbox(ORG);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ kind: 'send', attempts: 1 });
+  });
+
+  it('does not lose ops enqueued while a flush is running', async () => {
+    await enqueueOp(ORG, archive('m1'));
+    let release!: () => void;
+    const run = jest.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    const flushing = flushOutbox(ORG, run, isNet);
+    // Let the flush load the queue and start the first request.
+    await new Promise((r) => setTimeout(r, 0));
+    await enqueueOp(ORG, archive('m2'));
+    release();
+    const res = await flushing;
+    expect(res).toMatchObject({ succeeded: 1, remaining: 1 });
+    const remaining = await loadOutbox(ORG);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ kind: 'archive', messageId: 'm2' });
+  });
+
+  it('re-runs an update whose patch was merged while it was in flight', async () => {
+    await enqueueOp(ORG, update('m1', { isRead: true }));
+    let release!: () => void;
+    const run = jest.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    const flushing = flushOutbox(ORG, run, isNet);
+    await new Promise((r) => setTimeout(r, 0));
+    await enqueueOp(ORG, update('m1', { isStarred: true }));
+    release();
+    await flushing;
+    const remaining = await loadOutbox(ORG);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ kind: 'update', patch: { isRead: true, isStarred: true } });
   });
 
   it('drops an op the server rejects and continues', async () => {

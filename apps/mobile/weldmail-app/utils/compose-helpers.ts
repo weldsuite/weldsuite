@@ -40,6 +40,15 @@ export function splitAddresses(raw: string): string[] {
 }
 
 /**
+ * The chips plus whatever the user typed into the field but never committed
+ * (no comma / return / suggestion tap). Typing `bob@x.com` and tapping Send
+ * straight away is normal, so that address has to count as a recipient.
+ */
+export function withPendingInput(chips: string[], input: string): string[] {
+  return [...chips, ...splitAddresses(input)];
+}
+
+/**
  * Resolve a required recipient list: prefer the chip array, else parse the raw
  * input. Always returns an array (possibly empty) — matches the old `to` logic.
  */
@@ -71,6 +80,34 @@ export function buildQuotedSuffix(
   }\n\n${params.quotedBody}`;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * The plain-text quoted suffix as HTML, for an HTML body. Appending the raw
+ * text to HTML ran the quote together into one paragraph and let `<` in the
+ * original (e.g. `Bob <bob@x.com>`) be parsed as a tag and stripped.
+ */
+export function quotedSuffixToHtml(quotedSuffix: string): string {
+  if (!quotedSuffix) return '';
+  return `<div>${escapeHtml(quotedSuffix).replace(/\r?\n/g, '<br>')}</div>`;
+}
+
+/**
+ * Body fields for a saved draft: the composer's body is HTML once the rich
+ * editor has been used, and must go in `htmlBody` or the web client shows the
+ * raw markup as text.
+ */
+export function draftBodyFields(body: string | undefined, isHtml: boolean): { body?: string; htmlBody?: string } {
+  if (!body) return {};
+  return isHtml ? { htmlBody: body } : { body };
+}
+
 /** A pre-uploaded attachment reference, as returned by `uploadMailAttachments`. */
 export interface UploadedAttachment {
   filename: string;
@@ -94,6 +131,26 @@ export interface ComposePayloadInput {
   bodyHtml: string;
   /** Quoted reply/forward suffix appended to the body (see buildQuotedSuffix). */
   quotedSuffix: string;
+  /** SMTP Message-ID of the message being replied to, for threading. */
+  inReplyTo?: string;
+  /** References chain of the message being replied to (ends with inReplyTo). */
+  references?: string[];
+}
+
+function composeBody(input: ComposePayloadInput): { useHtml: boolean; fullBody: string } {
+  const useHtml = !!input.bodyHtml;
+  const fullBody = useHtml
+    ? input.bodyHtml + quotedSuffixToHtml(input.quotedSuffix)
+    : input.body + input.quotedSuffix;
+  return { useHtml, fullBody };
+}
+
+function threadingFields(input: ComposePayloadInput): { inReplyTo?: string; references?: string[] } {
+  if (!input.inReplyTo) return {};
+  return {
+    inReplyTo: input.inReplyTo,
+    references: input.references && input.references.length > 0 ? input.references : undefined,
+  };
 }
 
 export interface SendPayload {
@@ -106,6 +163,8 @@ export interface SendPayload {
   attachments?: UploadedAttachment[];
   /** Idempotency key — makes a queued/retried send safe to replay (see outbox). */
   idempotencyKey?: string;
+  inReplyTo?: string;
+  references?: string[];
 }
 
 /**
@@ -120,8 +179,7 @@ export function buildSendPayload(
   uploadedAttachments: UploadedAttachment[],
   idempotencyKey?: string,
 ): SendPayload {
-  const fullBody = (input.bodyHtml || input.body) + input.quotedSuffix;
-  const useHtml = !!input.bodyHtml;
+  const { useHtml, fullBody } = composeBody(input);
   return {
     to: resolveRecipients(input.toRecipients, input.to),
     cc: resolveOptionalRecipients(input.ccRecipients, input.cc),
@@ -131,6 +189,7 @@ export function buildSendPayload(
     htmlBody: useHtml ? fullBody : undefined,
     attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     idempotencyKey,
+    ...threadingFields(input),
   };
 }
 
@@ -143,12 +202,15 @@ export interface ScheduledPayload {
   body?: string;
   htmlBody?: string;
   scheduledFor: string;
+  inReplyTo?: string;
+  references?: string[];
 }
 
 /**
- * Assemble the scheduled-send payload for `mailScheduled.schedule`. Mirrors the
- * inline logic in handleSend: unlike the immediate send, `body` is always set
- * (when non-empty) and `subject` falls back to `undefined` (not "(No subject)").
+ * Assemble the scheduled-send payload for `mailScheduled.schedule`. The body is
+ * shaped like the immediate send (HTML in `htmlBody` only: the backend stores
+ * `body` as the text part, so HTML there showed as raw markup in the plain-text
+ * alternative). `subject` falls back to `undefined` (not "(No subject)").
  * Scheduled emails can't carry attachments, so none are included.
  */
 export function buildScheduledPayload(
@@ -156,17 +218,17 @@ export function buildScheduledPayload(
   accountId: string,
   scheduledForISO: string,
 ): ScheduledPayload {
-  const fullBody = (input.bodyHtml || input.body) + input.quotedSuffix;
-  const useHtml = !!input.bodyHtml;
+  const { useHtml, fullBody } = composeBody(input);
   return {
     accountId,
     to: resolveRecipients(input.toRecipients, input.to),
     cc: resolveOptionalRecipients(input.ccRecipients, input.cc),
     bcc: resolveOptionalRecipients(input.bccRecipients, input.bcc),
     subject: input.subject.trim() || undefined,
-    body: fullBody || undefined,
+    body: useHtml ? undefined : fullBody || undefined,
     htmlBody: useHtml ? fullBody : undefined,
     scheduledFor: scheduledForISO,
+    ...threadingFields(input),
   };
 }
 

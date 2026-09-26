@@ -235,11 +235,15 @@ export const EMAIL_LAYOUT_PROBE = `
   function report(){
     try{
       fitToViewport();
+      // Measure the body only. The root element's scrollHeight is never less
+      // than the viewport, i.e. the WebView's current height, so including it
+      // let the pane grow but never shrink (short mails kept a blank gap, and a
+      // wider layout after rotation kept the old, taller height). body has
+      // margin:0 and overflow-x:auto (its own formatting context), so its
+      // scrollHeight covers child margins and floats.
       var b=document.body, e=document.documentElement;
-      var h=Math.max(
-        b?b.scrollHeight:0, b?b.offsetHeight:0,
-        e?e.scrollHeight:0, e?e.offsetHeight:0
-      );
+      var h=b ? Math.max(b.scrollHeight, b.offsetHeight)
+              : (e ? Math.max(e.scrollHeight, e.offsetHeight) : 0);
       if(h>0 && window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(String(Math.ceil(h))); }
     }catch(_){}
   }
@@ -291,4 +295,30 @@ export function buildEmailDocument(html: string, opts: EmailDocumentOptions = {}
     `<style>${style}</style>` +
     `</head><body>${body}</body></html>`
   );
+}
+
+/** Base URL the inline email document is loaded under (see EmailHtmlView). */
+export const INLINE_BASE_URL = 'https://email.local/';
+/** `https://email.local`, `…/` or `…/#anchor`, and nothing else. */
+const INLINE_DOCUMENT_URL = /^https:\/\/email\.local\/?(#.*)?$/i;
+
+/**
+ * Whether a WebView navigation is the inline email document loading (or
+ * scrolling to an in-page anchor), as opposed to a link in the mail.
+ *
+ * The whole URL must match: a prefix test let `https://email.local@evil.com/`
+ * (host evil.com) or `https://email.local.evil.com/` load an attacker's page
+ * inside the message pane. A relative link (`/x`) resolves under the base URL
+ * and is blocked instead of replacing the body with an error page. The
+ * bootstrap schemes (data:/file:/applewebdata:/about:) are allowed only until
+ * the document has loaded; after that they can only come from a link.
+ *
+ * A regex rather than `new URL()`: React Native's URL polyfill doesn't
+ * implement the host/path getters on every version, and a throw here would
+ * block the document's own load (blank pane).
+ */
+export function isInlineDocumentLoad(url: string, initialLoadDone: boolean): boolean {
+  if (!url || url === 'about:blank') return true;
+  if (/^(about|data|applewebdata|file):/i.test(url)) return !initialLoadDone;
+  return INLINE_DOCUMENT_URL.test(url);
 }

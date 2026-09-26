@@ -358,9 +358,16 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   // token registered anywhere. `hasPersonalAccount` is in the deps so the
   // personal token registers as soon as the account list resolves — it is
   // usually still false on the first pass.
+  // Keyed on the user id, not the `user` object (a new object on every auth
+  // provider render, which re-ran registration each time).
+  const userId = user?.id;
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let removeTokenRefresh: (() => void) | undefined;
+    // Registration awaits a permission prompt and token fetch; a re-run or
+    // unmount in between must not register again or attach a listener that
+    // nothing will ever remove.
+    let cancelled = false;
 
     const initToken = async () => {
       try {
@@ -371,6 +378,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         const { status } = await Notifications.getPermissionsAsync();
         if (EAS_PROJECT_ID && (status === 'granted' || status === 'undetermined')) {
           const token = await registerForPushNotificationsAsync(EAS_PROJECT_ID);
+          if (cancelled) return;
           if (token) {
             setIsPermissionGranted(true);
             registerDeviceToken(token);
@@ -379,6 +387,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           console.warn('[Notifications] EAS project ID is not configured; push notifications disabled');
         }
 
+        if (cancelled) return;
         removeTokenRefresh = addPushTokenRefreshListener(() => {
           if (!EAS_PROJECT_ID) return;
           registerForPushNotificationsAsync(EAS_PROJECT_ID)
@@ -392,8 +401,11 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
 
     initToken();
-    return () => { removeTokenRefresh?.(); };
-  }, [user, organizationId, hasPersonalAccount, getCredentials]);
+    return () => {
+      cancelled = true;
+      removeTokenRefresh?.();
+    };
+  }, [userId, organizationId, hasPersonalAccount, getCredentials]);
 
   return (
     <NotificationContext.Provider value={{

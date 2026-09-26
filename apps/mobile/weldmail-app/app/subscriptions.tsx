@@ -4,7 +4,7 @@
  * mailboxes; `services/mail-tenant.ts` picks app-api or personal-api.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -72,17 +72,28 @@ export default function SubscriptionsScreen() {
     if (!account && accounts.length > 0) setAccount(selectedAccount ?? accounts[0]!);
   }, [account, accounts, selectedAccount]);
 
+  // The account whose list is on screen. A slower response for the mailbox
+  // the user just switched away from must not land under the new one (its
+  // Unsubscribe would then target the wrong account).
+  const activeAccountIdRef = useRef<string | null>(null);
+  activeAccountIdRef.current = account?.id ?? null;
+
   const load = useCallback(async () => {
     if (!account) return;
+    const requestedId = account.id;
     setLoadError(false);
     try {
-      setItems(await listSubscriptions(account));
+      const next = await listSubscriptions(account);
+      if (activeAccountIdRef.current === requestedId) setItems(next);
     } catch (err) {
+      if (activeAccountIdRef.current !== requestedId) return;
       console.error('Failed to load subscriptions:', err);
       setLoadError(true);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (activeAccountIdRef.current === requestedId) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [account]);
 

@@ -27,12 +27,15 @@ import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { clearOrgCache } from '@/lib/offline/cache';
+import { clearOutbox } from '@/lib/offline/outbox';
 
 const LATCH_KEY = 'weldmail.cache.orgId';
 
 // Process-wide latch shared by every hook instance.
 let latch: string | null = null;
 let hydrateStarted = false;
+// Mirrors Clerk's signed-out state for the async hydrate below.
+let knownSignedOut = false;
 const listeners = new Set<() => void>();
 
 function subscribe(cb: () => void): () => void {
@@ -61,7 +64,18 @@ export function useCacheOrgId(): string | null {
     hydrateStarted = true;
     AsyncStorage.getItem(LATCH_KEY)
       .then((v) => {
-        if (v && !latch) setLatch(v);
+        if (!v || latch) return;
+        if (knownSignedOut) {
+          // Cold start after the session ended while the app was closed: the
+          // sign-out effect below already ran (with no latch to clear), so
+          // wipe the previous user's scope here. Latching it would show their
+          // cached mail to the next user who signs in.
+          AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
+          clearOrgCache(v);
+          clearOutbox(v);
+          return;
+        }
+        setLatch(v);
       })
       .catch(() => {});
   }, []);
@@ -77,14 +91,19 @@ export function useCacheOrgId(): string | null {
     }
   }, [organizationId]);
 
-  // On sign-out, forget the latch and wipe its cache so a different user signing
-  // in on the same device never reads the previous user's mail.
+  // On sign-out, forget the latch and wipe its cache (and its pending offline
+  // outbox) so a different user signing in on the same device never reads the
+  // previous user's mail or replays their queued actions.
   useEffect(() => {
+    knownSignedOut = isSignedIn === false;
     if (isSignedIn === false && latch) {
       const prev = latch;
       setLatch(null);
       AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
-      if (prev) clearOrgCache(prev);
+      if (prev) {
+        clearOrgCache(prev);
+        clearOutbox(prev);
+      }
     }
   }, [isSignedIn]);
 

@@ -76,7 +76,7 @@ export default function SearchScreen() {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [activeFilterType, setActiveFilterType] = useState<string | null>(null);
   const [filterSearchQuery, setFilterSearchQuery] = useState('');
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -86,6 +86,10 @@ export default function SearchScreen() {
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (!searchQuery.trim()) { setSearchResults([]); return; }
+    // Set by cleanup once the query changes: a slower response for an older
+    // query ("inv") must not overwrite newer results ("invoice"), or refill
+    // the list after the field was cleared.
+    let cancelled = false;
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
@@ -94,13 +98,16 @@ export default function SearchScreen() {
           search: searchQuery,
           limit: 50,
         });
-        setSearchResults(items);
+        if (!cancelled) setSearchResults(items);
       } catch (error) {
-        console.error('Search error:', error);
+        if (!cancelled) console.error('Search error:', error);
       }
     }, 150);
 
-    return () => { if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current); };
+    return () => {
+      cancelled = true;
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
   }, [searchQuery]);
 
   useEffect(() => {

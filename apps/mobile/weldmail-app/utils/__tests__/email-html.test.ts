@@ -4,6 +4,7 @@ import {
   trimTrailingEmptyHtml,
   unwrapEmailHtml,
   EMAIL_LAYOUT_PROBE,
+  isInlineDocumentLoad,
   EMAIL_CANVAS_BG,
   EMAIL_CANVAS_TEXT,
   buildResponsiveEmailCss,
@@ -190,5 +191,30 @@ describe('buildResponsiveEmailCss', () => {
     expect(css).not.toMatch(/table\{width:100% !important/);
     expect(css).toContain('img,video{max-width:100% !important;height:auto !important;}');
     expect(css).toContain('overflow-wrap:anywhere');
+  });
+});
+
+describe('isInlineDocumentLoad', () => {
+  it('allows the inline document and in-page anchors', () => {
+    expect(isInlineDocumentLoad('https://email.local/', false)).toBe(true);
+    expect(isInlineDocumentLoad('https://email.local/', true)).toBe(true);
+    expect(isInlineDocumentLoad('https://email.local/#section-2', true)).toBe(true);
+    expect(isInlineDocumentLoad('about:blank', true)).toBe(true);
+  });
+
+  it('allows bootstrap schemes only before the document has loaded', () => {
+    expect(isInlineDocumentLoad('applewebdata://abc', false)).toBe(true);
+    expect(isInlineDocumentLoad('data:text/html,<p>x</p>', false)).toBe(true);
+    expect(isInlineDocumentLoad('data:text/html,<p>x</p>', true)).toBe(false);
+    expect(isInlineDocumentLoad('file:///etc/hosts', true)).toBe(false);
+  });
+
+  it('rejects look-alike hosts and other paths', () => {
+    expect(isInlineDocumentLoad('https://email.local@evil.com/login', true)).toBe(false);
+    expect(isInlineDocumentLoad('https://email.local.evil.com/', true)).toBe(false);
+    expect(isInlineDocumentLoad('https://email.localhost/', true)).toBe(false);
+    expect(isInlineDocumentLoad('https://email.local/x', true)).toBe(false);
+    expect(isInlineDocumentLoad('https://email.local/?q=1', true)).toBe(false);
+    expect(isInlineDocumentLoad('https://example.com/', true)).toBe(false);
   });
 });

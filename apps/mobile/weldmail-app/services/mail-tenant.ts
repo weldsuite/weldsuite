@@ -314,13 +314,12 @@ export async function listDrafts(opts: { accountId?: string; isUnified: boolean;
     return personalApi.mailDrafts.list({ accountId: opts.accountId });
   }
 
+  // A single workspace mailbox only has workspace drafts: listing every
+  // personal draft alongside inflated its Drafts count and list.
+  const includePersonal = personalAccountIds.size > 0 && (opts.isUnified || !opts.accountId);
   const [workspace, personal] = await Promise.allSettled([
     appApi.mailDrafts.list(opts.accountId ? { accountId: opts.accountId } : {}),
-    personalAccountIds.size > 0
-      ? personalApi.mailDrafts.list(
-          opts.accountId && isPersonalAccountId(opts.accountId) ? { accountId: opts.accountId } : {},
-        )
-      : Promise.resolve({ data: [] }),
+    includePersonal ? personalApi.mailDrafts.list({}) : Promise.resolve({ data: [] }),
   ]);
   const ws = workspace.status === 'fulfilled' ? workspace.value.data : [];
   const pe = personal.status === 'fulfilled' ? personal.value.data : [];

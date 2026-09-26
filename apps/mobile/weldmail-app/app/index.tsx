@@ -27,6 +27,7 @@ import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { listInboxMessages, listDrafts, createDraft, deleteDraft } from '@/services/mail-tenant';
+import { draftBodyFields } from '@/utils/compose-helpers';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
@@ -265,7 +266,7 @@ export default function MailScreen() {
   const isDark = theme === 'dark';
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
+  const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string; draftIsHtml?: string }>();
   const insets = useSafeAreaInsets();
   const { width: _windowWidth } = useWindowDimensions();
   const {
@@ -337,6 +338,8 @@ export default function MailScreen() {
   // Draft undo/discard state
   const lastDraftIdRef = useRef<string | null>(null);
   const lastDraftDataRef = useRef<any>(null);
+  // The in-flight background createDraft after the compose sheet closed.
+  const pendingDraftRef = useRef<Promise<string | null> | null>(null);
 
   const currentLabelName = labels.find((l) => l.slug === selectedLabel)?.name || selectedLabel;
 
@@ -629,9 +632,10 @@ export default function MailScreen() {
           bcc: params.draftBcc || '',
           subject: params.draftSubject || '',
           body: params.draftBody || '',
+          isHtml: params.draftIsHtml === '1',
         };
       }
-      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
+      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined, draftIsHtml: undefined } as any);
 
       showSnackbar('Draft saved');
     }
@@ -644,6 +648,7 @@ export default function MailScreen() {
     params.draftBcc,
     params.draftSubject,
     params.draftBody,
+    params.draftIsHtml,
     router,
     showSnackbar,
   ]);
@@ -659,26 +664,32 @@ export default function MailScreen() {
       bcc: info.draftBcc || '',
       subject: info.draftSubject || '',
       body: info.draftBody || '',
+      isHtml: info.draftIsHtml === '1',
     };
     lastDraftDataRef.current = draftData;
     lastDraftIdRef.current = info.draftId || null;
+    pendingDraftRef.current = null;
     showSnackbar('Draft saved');
     // The compose sheet closed instantly without waiting on the network, so
     // persist the draft here in the background and capture its id (used by the
     // snackbar's Discard action to delete the draft).
     if (!info.draftId && draftData.emailAccountId) {
-      createDraft({
+      // Kept so Discard, tapped before this resolves, can wait for the id
+      // instead of finding none and leaving the draft behind.
+      const pending = createDraft({
         accountId: draftData.emailAccountId,
         to: draftData.to ? draftData.to.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         bcc: draftData.bcc ? draftData.bcc.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         subject: draftData.subject || undefined,
-        body: draftData.body || undefined,
+        ...draftBodyFields(draftData.body, draftData.isHtml),
       })
         .then((res) => {
-          lastDraftIdRef.current = res.data.id;
+          if (pendingDraftRef.current === pending) lastDraftIdRef.current = res.data.id;
+          return res.data.id as string;
         })
-        .catch(() => {});
+        .catch(() => null);
+      pendingDraftRef.current = pending;
     }
   }, [showSnackbar]);
 
@@ -806,11 +817,22 @@ export default function MailScreen() {
 
   // Keep the triage snapshot in lockstep with the rows on screen (pinned first,
   // then date sections) so Check on the detail pane advances in visual order.
+  // Only while this screen is focused (always, on tablet): the inbox stays
+  // mounted under search and the detail screen, and a background refetch there
+  // replaced the list the user is triaging (e.g. search results) with inbox ids.
+  const isFocusedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      publishVisibleIds();
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, [publishVisibleIds]),
+  );
   useEffect(() => {
-    publishVisibleIds();
+    if (isFocusedRef.current) publishVisibleIds();
   }, [publishVisibleIds]);
-
-  useFocusEffect(publishVisibleIds);
 
   const renderSectionHeader = ({ section }: { section: { title: string } }) => (
     <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
@@ -997,7 +1019,7 @@ export default function MailScreen() {
                     cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
                     bcc: draftData.bcc ? draftData.bcc.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
                     subject: draftData.subject || undefined,
-                    body: draftData.body || undefined,
+                    ...draftBodyFields(draftData.body, !!draftData.isHtml),
                   });
                   lastDraftIdRef.current = res.data.id;
                   showSnackbar('Draft saved');
@@ -1011,9 +1033,10 @@ export default function MailScreen() {
           {snackbar === 'Draft saved' && (
             <TouchableOpacity
               onPress={async () => {
-                const draftId = lastDraftIdRef.current;
-                if (!draftId) { dismissSnackbar(); return; }
                 dismissSnackbar();
+                const draftId = lastDraftIdRef.current ?? (await pendingDraftRef.current);
+                pendingDraftRef.current = null;
+                if (!draftId) return;
                 try {
                   await deleteDraft(draftId, lastDraftDataRef.current?.emailAccountId);
                   lastDraftIdRef.current = null;
