@@ -862,6 +862,8 @@ export interface UserPreferences {
     mailDefaultAccountId?: string | null;
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
+    /** WeldFlow: move unfinished auto-scheduled tasks forward each night. Absent = true. */
+    autoRescheduleTasks?: boolean;
     homeWidgets?: {
       slots: [
         { widgetId: string; settings: Record<string, unknown> } | null,

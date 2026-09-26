@@ -41,6 +41,12 @@ export const userPreferences = pgTable('user_preferences', {
     mailDefaultAccountId?: string | null;
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
+    /**
+     * WeldFlow: when false, the nightly calendar replan leaves auto-scheduled
+     * task slots in the past instead of moving them to the next free day.
+     * Absent = true (move them).
+     */
+    autoRescheduleTasks?: boolean;
     homeWidgets?: {
       slots: [
         { widgetId: string; settings: Record<string, unknown> } | null,
