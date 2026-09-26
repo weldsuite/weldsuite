@@ -79,7 +79,7 @@ export default function AddAccountScreen() {
   const [checking, setChecking] = useState(false);
   const [availability, setAvailability] = useState<{ available: boolean; message?: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const checkTimerRef = useRef<NodeJS.Timeout>();
+  const checkTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Custom domain form state
   const [selectedDomain, setSelectedDomain] = useState('');
@@ -124,18 +124,24 @@ export default function AddAccountScreen() {
   useEffect(() => {
     if (screen !== 'weldmail' && screen !== 'personal') return;
     if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
+    let cancelled = false;
     setAvailability(null);
 
     if (address.length >= 3) {
       setChecking(true);
+      // A response for an earlier value of the field must not mark the current
+      // address available (typing `john` then `johnx` enabled Create for johnx).
+      const applyAvailability = (next: { available: boolean; message?: string } | null) => {
+        if (!cancelled) setAvailability(next);
+      };
       checkTimerRef.current = setTimeout(() => {
         const check = screen === 'personal'
           ? personalApi.weldmail.check(address).then(({ data }) => {
               if (data.available) {
-                setAvailability({ available: true });
+                applyAvailability({ available: true });
               } else {
                 const reason = 'reason' in data ? data.reason : 'taken';
-                setAvailability({
+                applyAvailability({
                   available: false,
                   message: reason === 'reserved' ? 'Reserved' : 'Already taken',
                 });
@@ -143,27 +149,32 @@ export default function AddAccountScreen() {
             })
           : appApi.mailWeldmail.check({ address }).then(({ data }) => {
               if (data.available) {
-                setAvailability({ available: true });
+                applyAvailability({ available: true });
               } else {
-                setAvailability({ available: false, message: (data as { reason?: string }).reason || 'Not available' });
+                applyAvailability({ available: false, message: (data as { reason?: string }).reason || 'Not available' });
               }
             });
         check
           .catch((err: { status?: number }) => {
-            setAvailability({
+            applyAvailability({
               available: false,
               message: err?.status === 401
                 ? 'Could not verify your session'
                 : 'Could not check availability',
             });
           })
-          .finally(() => setChecking(false));
+          .finally(() => {
+            if (!cancelled) setChecking(false);
+          });
       }, 500);
     } else {
       setChecking(false);
     }
 
-    return () => { if (checkTimerRef.current) clearTimeout(checkTimerRef.current); };
+    return () => {
+      cancelled = true;
+      if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
+    };
   }, [address, screen]);
 
   const handleWeldMailSubmit = useCallback(async () => {

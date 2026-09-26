@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { createDraft } from '@/services/mail-tenant';
+import { draftBodyFields } from '@/utils/compose-helpers';
 import ComposeScreen, { type ComposeCloseInfo, type ComposePrefill } from '@/app/compose';
 
 type OpenComposeOptions = {
@@ -35,6 +36,12 @@ export function ComposeOverlayProvider({ children }: Readonly<{ children: React.
   // Bumped on every open so ComposeScreen remounts with fresh internal state.
   const [instance, setInstance] = useState(0);
   const onCloseRef = useRef<OpenComposeOptions['onClose']>(undefined);
+  // The mounted ComposeScreen's own close handler (saves unsent content as a
+  // draft). Hardware back goes through it instead of closing blindly.
+  const screenCloseRef = useRef<(() => void) | null>(null);
+  const registerCloseHandler = useCallback((handler: (() => void) | null) => {
+    screenCloseRef.current = handler;
+  }, []);
 
   const screenHeight = Dimensions.get('window').height;
   const anim = useRef(new Animated.Value(0)).current; // 0 = hidden (off-screen), 1 = shown
@@ -66,7 +73,7 @@ export function ComposeOverlayProvider({ children }: Readonly<{ children: React.
           cc: info.draftCc ? info.draftCc.split(/[,;]\s*/).filter(Boolean) : undefined,
           bcc: info.draftBcc ? info.draftBcc.split(/[,;]\s*/).filter(Boolean) : undefined,
           subject: info.draftSubject || undefined,
-          body: info.draftBody || undefined,
+          ...draftBodyFields(info.draftBody, info.draftIsHtml === '1'),
         }).catch(() => {});
       }
       toast.success('Draft saved');
@@ -94,7 +101,8 @@ export function ComposeOverlayProvider({ children }: Readonly<{ children: React.
   useEffect(() => {
     if (!open) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeCompose();
+      if (screenCloseRef.current) screenCloseRef.current();
+      else closeCompose();
       return true;
     });
     return () => sub.remove();
@@ -174,6 +182,7 @@ export function ComposeOverlayProvider({ children }: Readonly<{ children: React.
               key={instance}
               prefillOverride={prefill}
               onCloseOverride={closeCompose}
+              registerCloseHandler={registerCloseHandler}
             />
           </Animated.View>
         </View>

@@ -81,7 +81,7 @@ export default function SearchScreen() {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [activeFilterType, setActiveFilterType] = useState<string | null>(null);
   const [filterSearchQuery, setFilterSearchQuery] = useState('');
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   // Cursor for the next page of results for the current query; null when done.
   const [searchCursor, setSearchCursor] = useState<InboxCursor | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -111,7 +111,7 @@ export default function SearchScreen() {
         setSearchResults(page.items);
         setSearchCursor(page.cursor);
       } catch (error) {
-        console.error('Search error:', error);
+        if (seq === searchSeqRef.current) console.error('Search error:', error);
       }
     }, 250);
 

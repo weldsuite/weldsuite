@@ -29,12 +29,14 @@ import { AppState } from 'react-native';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useNetworkStatus } from '@/contexts/NetworkContext';
 import { useMail } from '@/contexts/MailContext';
+import { useCacheOrgId } from '@/hooks/useCacheOrgId';
 import { flushMailOutbox } from '@/lib/offline/flush';
 import { shouldReconcileAfterFlush } from '@/lib/offline/outbox';
 
 export function OutboxFlusher() {
-  const { organizationId, user } = useClerkAuth();
-  const orgId = organizationId ?? 'no-org';
+  const { user } = useClerkAuth();
+  // Same latched scope as useMailOutbox writes to (see useCacheOrgId).
+  const orgId = useCacheOrgId() ?? 'no-org';
   const { isOnline } = useNetworkStatus();
   const { refreshMail } = useMail();
   const wasOnlineRef = useRef(isOnline);

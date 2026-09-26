@@ -21,8 +21,8 @@ import { WebView } from 'react-native-webview';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadMailAttachments } from '@/utils/upload-attachment';
-import { buildQuotedSuffix, resolveRecipients, resolveOptionalRecipients, mapContactSuggestions, buildSendPayload, buildScheduledPayload, sendThenQueueOnOffline } from '@/utils/compose-helpers';
-import { MAX_SCHEDULE_DAYS, formatClock, isWithinScheduleWindow, stepTime } from '@/utils/schedule-time';
+import { buildQuotedSuffix, mapContactSuggestions, buildSendPayload, buildScheduledPayload, sendThenQueueOnOffline, withPendingInput, draftBodyFields, type ComposePayloadInput } from '@/utils/compose-helpers';
+import { MAX_SCHEDULE_DAYS, combineDateAndTime, formatClock, isWithinScheduleWindow, stepTime } from '@/utils/schedule-time';
 import SendTimePickerModal from '@/components/SendTimePickerModal';
 import {
   X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,Clock, Paperclip, SendHorizontal,
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { appApi, appApiClient } from '@/services/app-api';
 import { sendFromAccount as sendMailFromAccount, createDraft, isPersonalAccount } from '@/services/mail-tenant';
@@ -88,18 +89,28 @@ export type ComposePrefill = {
   quotedSubject?: string;
   quotedBody?: string;
   emailAccountId?: string;
+  /** SMTP Message-ID being replied to (threading). */
+  inReplyTo?: string;
+  /** Space-separated References chain for the reply. */
+  references?: string;
 };
 
-export type ComposeCloseInfo = { draftSaved?: boolean; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string } | undefined;
+/** `draftIsHtml` is '1' when `draftBody` came from the rich editor (HTML). */
+export type ComposeCloseInfo = { draftSaved?: boolean; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string; draftIsHtml?: '1' } | undefined;
 
 interface ComposeScreenProps {
   // When rendered as a Modal child, the parent provides these. When rendered
   // as a Stack route, we fall back to expo-router hooks.
   onCloseOverride?: (info?: ComposeCloseInfo) => void;
   prefillOverride?: ComposePrefill;
+  /**
+   * Lets the overlay host route Android hardware back through this screen's
+   * close handler, so unsent content is kept as a draft like the X button does.
+   */
+  registerCloseHandler?: (handler: (() => void) | null) => void;
 }
 
-export default function ComposeScreen({ onCloseOverride, prefillOverride }: ComposeScreenProps = {}) {
+export default function ComposeScreen({ onCloseOverride, prefillOverride, registerCloseHandler }: ComposeScreenProps = {}) {
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
   // Toolbar pill palette. The light values are the ones the group already used
@@ -109,7 +120,18 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   const toolbarActiveBg = { backgroundColor: isDark ? 'rgba(59,130,246,0.20)' : '#EFF6FF' };
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { accounts, selectedAccount, selectAccount } = useMail();
+  const { accounts: allAccounts, selectedAccount, selectAccount } = useMail();
+  const { organizationId } = useClerkAuth();
+  // Mail can only be sent from a personal inbox or one in the active workspace:
+  // the request carries the current org's token, so another workspace's
+  // account 404s (and an offline-queued send to it is dropped on replay).
+  const accounts = useMemo(
+    () =>
+      allAccounts.filter(
+        (a) => a.tenantKind === 'personal' || !a.clerkOrgId || !organizationId || a.clerkOrgId === organizationId,
+      ),
+    [allAccounts, organizationId],
+  );
   const outbox = useMailOutbox();
   const toast = useToast();
   const routeParams = useLocalSearchParams<ComposePrefill>();
@@ -149,7 +171,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   }, []);
   const [contactSuggestions, setContactSuggestions] = useState<{ id: string; email: string; name: string; company?: string | null }[]>([]);
   const [, setLoadingSuggestions] = useState(false);
-  const contactSearchRef = useRef<NodeJS.Timeout>();
+  const contactSearchRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -245,10 +267,32 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     setToRecipients(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  const sendFromAccount = selectedAccount || (accounts.length > 0 ? accounts[0] : null);
-  const to = toRecipients.join(', ');
-  const cc = ccRecipients.join(', ');
-  const bcc = bccRecipients.join(', ');
+  const sendFromAccount =
+    (selectedAccount && accounts.some((a) => a.id === selectedAccount.id) ? selectedAccount : null) ||
+    (accounts.length > 0 ? accounts[0] : null);
+  // Chips plus anything typed but not yet committed as a chip, so an address
+  // typed straight before tapping Send (or closing) isn't silently dropped.
+  const allTo = useMemo(() => withPendingInput(toRecipients, toInput), [toRecipients, toInput]);
+  const allCc = useMemo(() => withPendingInput(ccRecipients, ccInput), [ccRecipients, ccInput]);
+  const allBcc = useMemo(() => withPendingInput(bccRecipients, bccInput), [bccRecipients, bccInput]);
+  const to = allTo.join(', ');
+  const cc = allCc.join(', ');
+  const bcc = allBcc.join(', ');
+
+  const buildPayloadInput = useCallback((): ComposePayloadInput => ({
+    toRecipients: allTo,
+    to,
+    ccRecipients: allCc,
+    cc,
+    bccRecipients: allBcc,
+    bcc,
+    subject,
+    body,
+    bodyHtml,
+    quotedSuffix: buildQuotedSuffix(composeMode, params),
+    inReplyTo: params.inReplyTo || undefined,
+    references: params.references ? params.references.split(/\s+/).filter(Boolean) : undefined,
+  }), [allTo, to, allCc, cc, allBcc, bcc, subject, body, bodyHtml, composeMode, params]);
   const hasContent = toRecipients.length > 0 || toInput.trim() || subject.trim() || body.trim();
   const activeInput = activeRecipientField === 'to' ? toInput : activeRecipientField === 'cc' ? ccInput : activeRecipientField === 'bcc' ? bccInput : '';
   const showSuggestions = activeRecipientField !== null && activeInput.trim().length > 0;
@@ -306,19 +350,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     sendingRef.current = true;
     try {
       setSending(true);
-      const quotedSuffix = buildQuotedSuffix(composeMode, params);
-      const payloadInput = {
-        toRecipients,
-        to,
-        ccRecipients,
-        cc,
-        bccRecipients,
-        bcc,
-        subject,
-        body,
-        bodyHtml,
-        quotedSuffix,
-      };
+      const payloadInput = buildPayloadInput();
 
       if (scheduledDate) {
         if (isPersonalAccount(sendFromAccount)) {
@@ -360,7 +392,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
       sendingRef.current = false;
       setSending(false);
     }
-  }, [sendFromAccount, to, cc, bcc, subject, body, bodyHtml, scheduledDate, attachments, toRecipients, ccRecipients, bccRecipients, composeMode, params, router, onCloseOverride, dismissKeyboard, outbox]);
+  }, [sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, router, onCloseOverride, dismissKeyboard, outbox]);
 
   const handleClose = useCallback(async () => {
     // Drop the keyboard up front so it animates away with the sheet, not after.
@@ -378,6 +410,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
       draftBcc: bcc,
       draftSubject: subject,
       draftBody: bodyHtml || body,
+      ...(bodyHtml ? { draftIsHtml: '1' as const } : {}),
     };
 
     if (onCloseOverride) {
@@ -397,8 +430,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
         cc: cc.trim() ? cc.trim().split(/[,;]\s*/).filter(Boolean) : undefined,
         bcc: bcc.trim() ? bcc.trim().split(/[,;]\s*/).filter(Boolean) : undefined,
         subject: subject || undefined,
-        body: bodyHtml ? undefined : ((bodyHtml || body) || undefined),
-        htmlBody: bodyHtml || undefined,
+        ...draftBodyFields(bodyHtml || body, !!bodyHtml),
       });
       draftId = res.data.id;
     } catch {}
@@ -408,6 +440,12 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     } as any);
   }, [hasContent, sendFromAccount, to, cc, bcc, subject, body, bodyHtml, router, onCloseOverride, dismissKeyboard]);
 
+  useEffect(() => {
+    if (!registerCloseHandler) return;
+    registerCloseHandler(() => { handleClose(); });
+    return () => registerCloseHandler(null);
+  }, [registerCloseHandler, handleClose]);
+
   // Schedule the email for a given time AND send it (one-tap "Send later").
   const sendScheduled = useCallback(async (date: Date) => {
     if (sendingRef.current) return;
@@ -415,7 +453,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
       Alert.alert('Error', 'No email account available');
       return;
     }
-    if (toRecipients.length === 0 && !to.trim()) {
+    if (!to.trim()) {
       Alert.alert('Error', 'Please enter a recipient');
       return;
     }
@@ -430,25 +468,13 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     sendingRef.current = true;
     try {
       setSending(true);
-      const quotedSuffix = buildQuotedSuffix(composeMode, params);
-      const fullBody = (bodyHtml || body) + quotedSuffix;
-      const toList = resolveRecipients(toRecipients, to);
-      const ccList = resolveOptionalRecipients(ccRecipients, cc);
-      const bccList = resolveOptionalRecipients(bccRecipients, bcc);
       if (isPersonalAccount(sendFromAccount)) {
         Alert.alert('Not available', 'Scheduling isn’t available for personal inboxes yet.');
         return;
       }
-      await appApi.mailScheduled.schedule({
-        accountId: sendFromAccount.id,
-        to: toList,
-        cc: ccList,
-        bcc: bccList,
-        subject: subject.trim() || undefined,
-        body: fullBody || undefined,
-        htmlBody: bodyHtml ? fullBody : undefined,
-        scheduledFor: date.toISOString(),
-      });
+      await appApi.mailScheduled.schedule(
+        buildScheduledPayload(buildPayloadInput(), sendFromAccount.id, date.toISOString()),
+      );
       if (onCloseOverride) onCloseOverride(); else router.back();
     } catch (error) {
       console.error('Schedule error:', error);
@@ -457,7 +483,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
       sendingRef.current = false;
       setSending(false);
     }
-  }, [sendFromAccount, to, cc, bcc, subject, body, bodyHtml, toRecipients, ccRecipients, bccRecipients, composeMode, params, attachments, onCloseOverride, router, dismissKeyboard]);
+  }, [sendFromAccount, to, buildPayloadInput, attachments, onCloseOverride, router, dismissKeyboard]);
 
   // When the custom date picker is opened from "Send later", remember to send
   // (not just set the scheduled date) once the user confirms a time.
@@ -597,8 +623,12 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
         quality: 0.8,
       });
       if (!result.canceled && result.assets) {
-        const newAttachments = result.assets.map(asset => ({
-          name: asset.fileName || `photo_${Date.now()}.jpg`,
+        const stamp = Date.now();
+        const newAttachments = result.assets.map((asset, i) => ({
+          // Unnamed assets (common for camera-roll photos) need distinct names:
+          // they're uploaded in parallel and the storage key is derived from
+          // the name, so identical names overwrote each other.
+          name: asset.fileName || `photo_${stamp}_${i + 1}.jpg`,
           uri: asset.uri,
           type: asset.mimeType || 'image/jpeg',
         }));
@@ -1056,7 +1086,8 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
                   <TouchableOpacity
                     key={`day-${day}`}
                     style={styles.calendarDayCell}
-                    onPress={() => !isPast && setSelectedDate(cellDate)}
+                    // Keep the time already chosen; picking a day used to reset it to 00:00.
+                    onPress={() => !isPast && setSelectedDate(combineDateAndTime(cellDate, selectedDate))}
                     disabled={isPast}
                     activeOpacity={0.6}
                   >

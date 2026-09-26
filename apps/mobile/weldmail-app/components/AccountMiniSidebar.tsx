@@ -56,7 +56,7 @@ export default function AccountMiniSidebar() {
         selectAccount(account);
         return;
       }
-      selectAccountById(account.id);
+      selectAccountById(account.id, { force: true });
       try {
         await prepareWorkspaceSwitch();
         await switchWorkspace(account.clerkOrgId);

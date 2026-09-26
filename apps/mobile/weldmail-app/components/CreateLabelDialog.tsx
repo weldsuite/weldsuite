@@ -13,6 +13,7 @@ import CenteredModalShell from './CenteredModalShell';
 import { X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { appApi } from '@/services/app-api';
+import { isApiError } from '@weldsuite/api-client/client';
 import { useMail } from '@/contexts/MailContext';
 
 const LABEL_COLORS = [
@@ -63,9 +64,10 @@ export default function CreateLabelDialog({ visible, onClose, accountId }: Reado
       await refreshLabels();
       resetForm();
       onClose();
-    } catch (err: any) {
-      const raw = err?.message || '';
-      const msg = typeof raw === 'string' && raw.includes('409')
+    } catch (err) {
+      // The client error message is the server's text, not the status code,
+      // so check the status to recognise a duplicate name.
+      const msg = isApiError(err) && err.status === 409
         ? 'A label with this name already exists'
         : 'Failed to create label';
       Alert.alert('Error', msg);
