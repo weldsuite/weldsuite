@@ -17,8 +17,10 @@ test.describe('Chat Flow', () => {
       // At least one form field should be visible for new conversations
       const hasPreChatForm = await nameInput.isVisible() || await emailInput.isVisible();
 
-      // Log for debugging
-      console.log('Pre-chat form visible:', hasPreChatForm);
+      if (hasPreChatForm && await emailInput.isVisible()) {
+        // The email field is mandatory when the form is shown
+        await expect(emailInput.first()).toHaveAttribute('required', '');
+      }
     });
 
     test('should validate required fields', async ({ widgetPage, testUser }) => {
@@ -75,6 +77,9 @@ test.describe('Chat Flow', () => {
 
         // Wait for navigation or state change
         await widgetPage.page.waitForTimeout(1000);
+
+        // Valid data passes validation: no field is flagged invalid
+        await expect(widgetPage.page.locator('input:invalid')).toHaveCount(0);
       }
     });
   });
@@ -90,6 +95,9 @@ test.describe('Chat Flow', () => {
       );
 
       // Message input may be visible after pre-chat form
+      if (await messageInput.count() > 0) {
+        await expect(messageInput.first()).toBeEditable();
+      }
     });
 
     test('should allow typing messages', async ({ widgetPage }) => {
@@ -116,6 +124,12 @@ test.describe('Chat Flow', () => {
       );
 
       // Send button should exist in chat interface
+      const messageInput = widgetPage.page.locator('[data-testid="message-input"]');
+      if (await messageInput.isVisible()) {
+        await expect(sendButton.first()).toBeVisible();
+        // Nothing typed yet, so there is nothing to send
+        await expect(widgetPage.page.locator('[data-testid="send-button"]')).toBeDisabled();
+      }
     });
 
     test('should handle empty message submission', async ({ widgetPage }) => {
@@ -184,6 +198,15 @@ test.describe('Chat Flow', () => {
 
       await widgetPage.goto('/chat');
       await widgetPage.waitForReady();
+
+      const messageInput = widgetPage.page.locator('[data-testid="message-input"]');
+      if (await messageInput.isVisible()) {
+        await messageInput.fill('Test message');
+        await widgetPage.page.locator('[data-testid="send-button"]').click();
+
+        // The sent message shows up in the thread
+        await expect(widgetPage.page.getByText('Test message').first()).toBeVisible();
+      }
     });
 
     test('should display timestamps on messages', async ({ widgetPage }) => {
@@ -218,6 +241,8 @@ test.describe('Chat Flow', () => {
       );
 
       // Indicator should be defined but may not be visible initially
+      // No agent is typing in the mocked session, so it is not rendered yet
+      await expect(widgetPage.page.locator('[data-testid="typing-indicator"]')).toHaveCount(0);
     });
   });
 
