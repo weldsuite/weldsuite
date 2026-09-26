@@ -2,6 +2,7 @@ import { styles } from './index.styles';
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
   SectionList,
+  ActivityIndicator,
   TouchableOpacity,
   View,
   Text,
@@ -26,7 +27,13 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { listInboxMessages, listDrafts, createDraft, deleteDraft } from '@/services/mail-tenant';
+import {
+  listInboxMessagesPage,
+  listDrafts,
+  createDraft,
+  deleteDraft,
+  type InboxCursor,
+} from '@/services/mail-tenant';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
@@ -52,8 +59,11 @@ import {
 } from '@/utils/notification-target';
 import { hideAppSplash } from '@/utils/splash';
 import { idsFromSections, setVisibleMessageIds, getNextVisibleMessageId } from '@/utils/next-email';
+import { appendPage, mergeRefreshedFirstPage, withThreadCounts } from '@/utils/inbox-paging';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
+/** Rows per inbox request; more load as the user nears the end of the list. */
+const INBOX_PAGE_SIZE = 50;
 
 // Matches the platform row format: `format(date, 'h:mm a')` → "3:42 PM"
 function formatRowTime(input?: string): string {
@@ -297,7 +307,9 @@ export default function MailScreen() {
   const activeScopeRef = useRef(currentScope);
   // Per-scope in-memory snapshot of the last list shown, so switching between
   // already-visited mailboxes repaints instantly with no blank flash.
-  const scopeSnapshots = useRef<Map<string, EmailListItem[]>>(new Map());
+  const scopeSnapshots = useRef<
+    Map<string, { messages: EmailListItem[]; cursor: InboxCursor | null | undefined }>
+  >(new Map());
   const isTablet = useIsTablet();
   const { openCompose } = useComposeOverlay();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
@@ -309,6 +321,17 @@ export default function MailScreen() {
   }, [customLabels]);
 
   const [messages, setMessages] = useState<EmailListItem[]>([]);
+  // Where the next page starts: `null` once the whole mailbox is loaded,
+  // `undefined` while the list is an offline-cache paint with no known position.
+  const [nextCursor, setNextCursor] = useState<InboxCursor | null | undefined>(undefined);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Mirrors for async callbacks, which must see the latest list and cursor
+  // after their awaits rather than the values from when they started.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const nextCursorRef = useRef(nextCursor);
+  nextCursorRef.current = nextCursor;
+  const loadingMoreRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -346,28 +369,33 @@ export default function MailScreen() {
     // the wrong list.
     const requestScope = activeScopeRef.current;
     try {
-      const list = await listInboxMessages({
+      const page = await listInboxMessagesPage({
         isUnified: isUnifiedInbox,
         selected: selectedAccount,
         label: selectedLabel,
         search,
-        limit: 50,
+        limit: INBOX_PAGE_SIZE,
       });
       if (activeScopeRef.current !== requestScope) return;
-      // Enrich with thread count
-      const threadCounts: Record<string, number> = {};
-      list.forEach((m) => {
-        if (m.threadId) threadCounts[m.threadId] = (threadCounts[m.threadId] || 0) + 1;
-      });
-      const enriched = list.map((m) => ({
-        ...m,
-        threadCount: m.threadId ? (threadCounts[m.threadId] || 1) : 1,
-      }));
+      const list = page.items;
+      const enriched = withThreadCounts(list);
       // Fold any not-yet-synced mutations (offline star/delete/archive/…) onto
       // the fresh server data so the list doesn't briefly revert pending changes.
       const overlaid = await outbox.overlay(enriched, selectedLabel);
       if (activeScopeRef.current !== requestScope) return;
-      setMessages(overlaid);
+      // This only re-reads the first page; keep any older pages already
+      // scrolled into so a background re-sync doesn't snap the list back.
+      const merged = mergeRefreshedFirstPage(
+        messagesRef.current,
+        overlaid,
+        page.cursor,
+        nextCursorRef.current,
+      );
+      const next = withThreadCounts(merged.list);
+      messagesRef.current = next;
+      nextCursorRef.current = merged.cursor;
+      setMessages(next);
+      setNextCursor(merged.cursor);
       const unreadCount = list.filter((m) => !m.isRead).length;
       updateLabelCount(selectedLabel, unreadCount);
       // Persist the raw (un-overlaid) server result so the cache stays "last
@@ -389,6 +417,42 @@ export default function MailScreen() {
     }
   }, [selectedLabel, selectedAccount, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
 
+  // Infinite scroll: append the next page when the list nears its end.
+  const loadMore = useCallback(async () => {
+    const cursor = nextCursorRef.current;
+    if (!cursor || loadingMoreRef.current) return;
+    const requestScope = activeScopeRef.current;
+    // A refresh or mailbox switch replaces the cursor; a page fetched from the
+    // old one no longer lines up with the list and is dropped.
+    const stale = () =>
+      activeScopeRef.current !== requestScope || nextCursorRef.current !== cursor;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await listInboxMessagesPage({
+        isUnified: isUnifiedInbox,
+        selected: selectedAccount,
+        label: selectedLabel,
+        limit: INBOX_PAGE_SIZE,
+        cursor,
+      });
+      if (stale()) return;
+      const overlaid = await outbox.overlay(page.items, selectedLabel);
+      if (stale()) return;
+      const next = withThreadCounts(appendPage(messagesRef.current, overlaid));
+      messagesRef.current = next;
+      nextCursorRef.current = page.cursor;
+      setMessages(next);
+      setNextCursor(page.cursor);
+    } catch (error) {
+      // Keep the cursor: scrolling to the end again retries the same page.
+      if (!isNetworkError(error)) console.error('Failed to load more messages:', error);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [selectedLabel, selectedAccount, isUnifiedInbox, outbox]);
+
   // Always call the latest fetchMessages from effects/refs without re-subscribing.
   const fetchMessagesRef = useRef(fetchMessages);
   fetchMessagesRef.current = fetchMessages;
@@ -402,13 +466,13 @@ export default function MailScreen() {
     // in-memory snapshot if we have one; otherwise clear right away so the
     // previous mailbox's messages are never shown under the new one.
     const snapshot = scopeSnapshots.current.get(currentScope);
-    if (snapshot) {
-      setMessages(snapshot);
-      setLoading(false);
-    } else {
-      setMessages([]);
-      setLoading(true);
-    }
+    const nextMessages = snapshot?.messages ?? [];
+    const cursor = snapshot?.cursor;
+    messagesRef.current = nextMessages;
+    nextCursorRef.current = cursor;
+    setMessages(nextMessages);
+    setNextCursor(cursor);
+    setLoading(!snapshot);
 
     (async () => {
       // Second-chance paint from the persistent cache for scopes not yet
@@ -457,8 +521,8 @@ export default function MailScreen() {
   // screen, so optimistic changes (star/archive/delete/read) survive a
   // switch-away-and-back without a re-fetch flash.
   useEffect(() => {
-    scopeSnapshots.current.set(activeScopeRef.current, messages);
-  }, [messages]);
+    scopeSnapshots.current.set(activeScopeRef.current, { messages, cursor: nextCursor });
+  }, [messages, nextCursor]);
 
   // Cross-fade the list on every mailbox/label switch, and when an uncached
   // mailbox's first page finishes loading (loading → false). Pull-to-refresh
@@ -963,6 +1027,15 @@ export default function MailScreen() {
           initialNumToRender={12}
           maxToRenderPerBatch={10}
           windowSize={7}
+          onEndReached={loadMore}
+          onEndReachedThreshold={1}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.listFooter}>
+                <ActivityIndicator color={BRAND} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

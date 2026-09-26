@@ -251,6 +251,7 @@ export const weldchat = {
       cancel: 'Cancel',
       create: 'Create',
       creating: 'Creating...',
+      createFailed: "Couldn't create the channel. Please try again.",
     },
     messageContextMenu: {
       addReaction: 'Add reaction',

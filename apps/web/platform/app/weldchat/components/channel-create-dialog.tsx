@@ -15,6 +15,7 @@ import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useCreateChannel, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useNavigate } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -101,6 +102,7 @@ export function ChannelCreateDialog({
               params: { channelId: data.data.id },
             });
         },
+        onError: () => toast.error(t.weldchat.channelCreate.createFailed),
       },
     );
   };

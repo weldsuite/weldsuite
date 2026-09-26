@@ -251,6 +251,7 @@ export const weldchat = {
       cancel: 'Annuleren',
       create: 'Aanmaken',
       creating: 'Aanmaken...',
+      createFailed: 'Kanaal aanmaken is mislukt. Probeer het opnieuw.',
     },
     messageContextMenu: {
       addReaction: 'Reactie toevoegen',
