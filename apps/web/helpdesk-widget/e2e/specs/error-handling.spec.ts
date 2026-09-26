@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures';
+import { test, expect, setupMessengerApi, MESSENGER_WIDGET_ID } from '../fixtures';
 
 test.describe('Error Handling', () => {
   test.describe('Network Errors', () => {
@@ -75,30 +75,14 @@ test.describe('Error Handling', () => {
     });
 
     test('should retry failed requests', async ({ widgetPage, page }) => {
-      let requestCount = 0;
+      // First config request fails, the retry succeeds
+      const api = await setupMessengerApi(page, { configFailures: 1 });
 
-      // First request fails, second succeeds
-      await page.route('**/api/widget/**', async (route) => {
-        requestCount++;
-        if (requestCount === 1) {
-          await route.fulfill({
-            status: 500,
-            contentType: 'application/json',
-            body: JSON.stringify({ error: 'Temporary Error' }),
-          });
-        } else {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ id: 'test', name: 'Test Widget' }),
-          });
-        }
-      });
-
-      await widgetPage.goto('/');
-      await widgetPage.waitForReady();
+      await widgetPage.goto(`/?widgetId=${MESSENGER_WIDGET_ID}&open=true`);
 
       // Widget should eventually succeed after retry
+      await expect(widgetPage.widget).toBeVisible();
+      expect(api.configRequests).toBe(2);
     });
   });
 
@@ -148,23 +132,18 @@ test.describe('Error Handling', () => {
   });
 
   test.describe('Form Validation Errors', () => {
-    test('should display validation errors clearly', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should display validation errors clearly', async ({ widgetPage, page }) => {
+      const api = await setupMessengerApi(page);
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Hello, I need help');
 
-      // Try to submit empty form
-      const submitButton = widgetPage.page.locator('button[type="submit"]').first();
+      // Try to submit the email form empty
+      const emailCapture = page.locator('[data-testid="email-capture"]');
+      await emailCapture.locator('button[type="submit"]').click();
 
-      if (await submitButton.isVisible()) {
-        await submitButton.click();
-
-        // Look for error messages
-        const errorMessage = widgetPage.page.locator(
-          '[class*="error"], [role="alert"], [aria-invalid="true"]'
-        );
-
-        // Validation errors should be displayed
-      }
+      // The form's email field is flagged invalid and nothing is sent
+      await expect(emailCapture.locator('input[type="email"]:invalid')).toHaveCount(1);
+      expect(api.identifyRequests).toBe(0);
     });
 
     test('should highlight invalid fields', async ({ widgetPage }) => {
@@ -242,31 +221,19 @@ test.describe('Error Handling', () => {
 
     test('should handle message send failure', async ({ widgetPage, page }) => {
       // Setup message send failure
-      await page.route('**/api/widget/customer/conversations/*/messages', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 500,
-            contentType: 'application/json',
-            body: JSON.stringify({ error: 'Failed to send message' }),
-          });
-        }
-      });
+      const api = await setupMessengerApi(page, { failSend: true });
+      await widgetPage.openComposer();
 
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+      const sendResponse = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/conversations',
+      );
+      await widgetPage.sendMessage('Test message');
+      expect((await sendResponse).status()).toBe(500);
 
-      // Try to send a message
-      const messageInput = page.locator('textarea').first();
-      if (await messageInput.isVisible()) {
-        await messageInput.fill('Test message');
-
-        const sendButton = page.locator('button[type="submit"]').first();
-        if (await sendButton.isVisible()) {
-          await sendButton.click();
-
-          // Should show error or retry option
-        }
-      }
+      // Should show error or retry option
+      await expect(widgetPage.messageList.getByText('Test message')).toBeVisible();
+      await expect(page.getByText('Not sent · Tap to retry')).toBeVisible();
+      expect(api.sendRequests).toBe(1);
     });
   });
 
@@ -355,25 +322,14 @@ test.describe('Error Handling', () => {
 
   test.describe('Recovery', () => {
     test('should recover from transient errors', async ({ widgetPage, page }) => {
-      let errorCount = 0;
+      // The first two config requests fail, the third succeeds
+      const api = await setupMessengerApi(page, { configFailures: 2 });
 
-      await page.route('**/api/widget/**', async (route) => {
-        errorCount++;
-        if (errorCount <= 2) {
-          await route.fulfill({ status: 500 });
-        } else {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ id: 'test', name: 'Widget' }),
-          });
-        }
-      });
-
-      await widgetPage.goto('/');
-      await widgetPage.waitForReady();
+      await widgetPage.goto(`/?widgetId=${MESSENGER_WIDGET_ID}&open=true`);
 
       // After retries, widget should work
+      await expect(widgetPage.widget).toBeVisible();
+      expect(api.configRequests).toBe(3);
     });
 
     test('should preserve user input on error recovery', async ({ widgetPage, page }) => {

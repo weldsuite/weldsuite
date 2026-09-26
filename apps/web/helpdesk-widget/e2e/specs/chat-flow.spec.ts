@@ -1,4 +1,4 @@
-import { test, expect, setupMockApi, mockResponses } from '../fixtures';
+import { test, expect, setupMockApi, setupMessengerApi, mockResponses } from '../fixtures';
 
 test.describe('Chat Flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -6,19 +6,17 @@ test.describe('Chat Flow', () => {
   });
 
   test.describe('Pre-Chat Form', () => {
-    test('should display pre-chat form when starting chat', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should display pre-chat form when starting chat', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
-      // Look for form elements that indicate pre-chat form
-      const nameInput = widgetPage.page.locator('input[name="name"], input[placeholder*="name" i]');
-      const emailInput = widgetPage.page.locator('input[name="email"], input[type="email"]');
+      // The messenger asks for an email right after the first message
+      await widgetPage.sendMessage('Hello, I need help');
+      const emailCapture = page.locator('[data-testid="email-capture"]');
+      await expect(emailCapture).toBeVisible();
 
-      // At least one form field should be visible for new conversations
-      const hasPreChatForm = await nameInput.isVisible() || await emailInput.isVisible();
-
-      // Log for debugging
-      console.log('Pre-chat form visible:', hasPreChatForm);
+      // The email field is mandatory
+      await expect(emailCapture.locator('input[type="email"]')).toHaveAttribute('required', '');
     });
 
     test('should validate required fields', async ({ widgetPage, testUser }) => {
@@ -61,35 +59,31 @@ test.describe('Chat Flow', () => {
       }
     });
 
-    test('should successfully submit valid form', async ({ widgetPage, testUser }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should successfully submit valid form', async ({ widgetPage, page, testUser }) => {
+      const api = await setupMessengerApi(page);
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Hello, I need help');
 
-      // Fill in the form
-      await widgetPage.fillPreChatForm(testUser);
+      // Fill in and submit the email form
+      const emailCapture = page.locator('[data-testid="email-capture"]');
+      await emailCapture.locator('input[type="email"]').fill(testUser.email);
+      await emailCapture.locator('button[type="submit"]').click();
 
-      // Submit
-      const submitButton = widgetPage.page.locator('button[type="submit"]').first();
-      if (await submitButton.isVisible()) {
-        await submitButton.click();
-
-        // Wait for navigation or state change
-        await widgetPage.page.waitForTimeout(1000);
-      }
+      // The visitor is identified and the form turns into a confirmation
+      await expect(page.getByText(`You'll be notified at`)).toBeVisible();
+      await expect(page.getByText(testUser.email)).toBeVisible();
+      await expect(emailCapture).toHaveCount(0);
+      expect(api.identifyRequests).toBe(1);
     });
   });
 
   test.describe('Message Input', () => {
-    test('should have a message input field in chat', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should have a message input field in chat', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
-      // Look for message input
-      const messageInput = widgetPage.page.locator(
-        'textarea, input[type="text"][placeholder*="message" i], [contenteditable="true"]'
-      );
-
-      // Message input may be visible after pre-chat form
+      // The composer is ready for typing
+      await expect(widgetPage.messageInput).toBeEditable();
     });
 
     test('should allow typing messages', async ({ widgetPage }) => {
@@ -106,16 +100,16 @@ test.describe('Chat Flow', () => {
       }
     });
 
-    test('should have send button', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should have send button', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
-      // Look for send button
-      const sendButton = widgetPage.page.locator(
-        'button[type="submit"], button[aria-label*="send" i], button:has-text("Send")'
-      );
+      // Send button exists, but there is nothing to send until the visitor types
+      await expect(widgetPage.sendButton).toBeVisible();
+      await expect(widgetPage.sendButton).toBeDisabled();
 
-      // Send button should exist in chat interface
+      await widgetPage.messageInput.fill('Hello');
+      await expect(widgetPage.sendButton).toBeEnabled();
     });
 
     test('should handle empty message submission', async ({ widgetPage }) => {
@@ -160,30 +154,19 @@ test.describe('Chat Flow', () => {
 
   test.describe('Message Display', () => {
     test('should display sent messages', async ({ widgetPage, page }) => {
-      // Setup mock to return a message
-      await page.route('**/api/widget/customer/conversations/*/messages', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              id: 'msg-' + Date.now(),
-              content: 'Test message',
-              senderType: 'user',
-              createdAt: new Date().toISOString(),
-            }),
-          });
-        } else {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([mockResponses.message]),
-          });
-        }
-      });
+      const api = await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+      const sendResponse = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/conversations',
+      );
+      await widgetPage.sendMessage('Test message');
+      expect((await sendResponse).ok()).toBe(true);
+
+      // The sent message shows up in the thread and was accepted by the API
+      await expect(widgetPage.messageList.getByText('Test message')).toBeVisible();
+      await expect(page.getByText('Not sent')).toHaveCount(0);
+      expect(api.sendRequests).toBe(1);
     });
 
     test('should display timestamps on messages', async ({ widgetPage }) => {
@@ -208,16 +191,13 @@ test.describe('Chat Flow', () => {
   });
 
   test.describe('Typing Indicator', () => {
-    test('should show typing indicator when agent is typing', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should show typing indicator when agent is typing', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
+      await expect(widgetPage.chatView).toBeVisible();
 
-      // Typing indicator element
-      const typingIndicator = widgetPage.page.locator(
-        '[data-testid="typing-indicator"], [class*="typing"], [aria-label*="typing"]'
-      );
-
-      // Indicator should be defined but may not be visible initially
+      // No agent is typing in the mocked conversation, so no indicator is rendered
+      await expect(page.locator('[data-testid="typing-indicator"]')).toHaveCount(0);
     });
   });
 
