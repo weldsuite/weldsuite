@@ -1,10 +1,2 @@
-import { createMiddleware } from 'hono/factory';
-
-export const requestId = () => {
-  return createMiddleware(async (c, next) => {
-    const id = c.req.header('X-Request-Id') || crypto.randomUUID();
-    c.set('requestId', id);
-    c.header('X-Request-Id', id);
-    await next();
-  });
-};
+// Moved to @weldsuite/worker-kit; this re-export keeps existing imports working.
+export { requestId } from '@weldsuite/worker-kit/middleware/request-id';

@@ -64,6 +64,16 @@ jobs:
       - name: Type-check app-api
         working-directory: apps/workers/app-api
         run: pnpm type-check
+      # The shared API-worker packages and the per-module API workers
+      # (apps/workers/<module>-api, docs/plans/app-api-module-split.md).
+      - name: Type-check worker kit + module API workers
+        run: |
+          set -euo pipefail
+          pnpm --filter @weldsuite/api-modules --filter @weldsuite/worker-kit type-check
+          for w in $(node .github/scripts/module-workers.mjs --list); do
+            echo "=== $w ==="
+            pnpm --filter "$w" type-check
+          done
 
   type-check-platform:
     name: Type Check · platform
@@ -113,6 +123,17 @@ jobs:
       - name: Run Vitest
         working-directory: apps/workers/app-api
         run: pnpm test
+      # Includes the module ownership test: every app-api mount must belong to
+      # exactly one module in @weldsuite/api-modules, and API workers may not
+      # import from each other.
+      - name: Run Vitest · worker kit + module API workers
+        run: |
+          set -euo pipefail
+          pnpm --filter @weldsuite/api-modules --filter @weldsuite/worker-kit test
+          for w in $(node .github/scripts/module-workers.mjs --list); do
+            echo "=== $w ==="
+            pnpm --filter "$w" test
+          done
 
   unit-personal-api:
     name: Unit · personal-api

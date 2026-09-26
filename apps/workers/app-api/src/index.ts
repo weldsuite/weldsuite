@@ -12,23 +12,10 @@
  *   api.weldsuite.org       — external-api worker (third-party integrations)
  */
 
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import {
-  appContextMiddleware,
-  createDrizzlePermissionQueries,
-  initPermissionMiddleware,
-} from '@weldsuite/permissions/server';
+import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
-import { getMasterDb, schema } from './db';
 import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
-import { requestId } from './middleware/request-id';
 import { clerkMiddleware } from './middleware/clerk';
-import { workspaceDbMiddleware } from './middleware/workspace-db';
-import { featureFlagsMiddleware } from './middleware/feature-flags';
-import { resolveCorsOrigin } from './lib/cors-origins';
 import { weldpassRoutes } from './routes/weldpass';
 import { weldhrRoutes } from './routes/weldhr';
 import { publicHrPortalRoutes } from './routes/public-hr-portal';
@@ -318,77 +305,12 @@ registerWeldAgentEventRunner(async (payload) => {
   });
 });
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-initPermissionMiddleware({
-  createQueries: (c) =>
-    createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
-});
-
-// Global middleware
-app.use('*', requestId());
-app.use('*', logger());
-app.use(
-  '*',
-  cors({
-    origin: (origin) => resolveCorsOrigin(origin),
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    // X-Test-Token / X-Test-Flags are the test-only seams (gated by env +
-    // token in their respective middleware, inert in production). Allowing the
-    // header NAMES here just lets a browser-driven E2E send them cross-origin;
-    // it grants nothing on its own.
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Test-Token', 'X-Test-Flags', 'X-Accounting-Entity-Id', 'X-Weld-App'],
-    exposeHeaders: ['X-Request-Id'],
-    credentials: true,
-  }),
-);
-// X-Weld-App → c.get('app'), read by requirePermission for app-scoped keys.
-// A missing header means "no app context" (checked across all apps).
-app.use('*', appContextMiddleware());
-
-app.get('/robots.txt', (c) => c.text('User-agent: *\nDisallow: /\n'));
-
-app.get('/health', async (c) => {
-  const timestamp = new Date().toISOString();
-  let dbStatus: 'pass' | 'warn' | 'fail' = 'fail';
-  let dbTime = 0;
-  let dbError: string | undefined;
-  let httpStatus: 200 | 503 = 503;
-
-  try {
-    const db = getMasterDb(c.env);
-    const start = Date.now();
-    await Promise.race([
-      db.execute(sql`SELECT 1`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
-    ]);
-    dbTime = Date.now() - start;
-    dbStatus = dbTime > 1000 ? 'warn' : 'pass';
-    httpStatus = 200;
-  } catch (err) {
-    dbError = err instanceof Error ? err.message : 'unknown error';
-  }
-
-  return c.json(
-    {
-      status: httpStatus === 200 ? dbStatus : 'fail',
-      service: 'app-api',
-      environment: c.env.ENVIRONMENT,
-      timestamp,
-      checks: {
-        master_db: {
-          status: dbStatus,
-          componentType: 'datastore',
-          observedValue: dbTime,
-          observedUnit: 'ms',
-          ...(dbError && { error: dbError }),
-        },
-      },
-    },
-    httpStatus,
-    { 'Cache-Control': 'no-cache, no-store' },
-  );
-});
+// Global middleware (request id, logger, CORS, X-Weld-App), /robots.txt,
+// /health, the JSON notFound/onError envelope and the permission queries all
+// come from the kit, so every API worker behaves the same. `forwardModules`
+// hands paths of modules that moved to their own worker (API_FORWARD_MODULES)
+// to that worker before anything else runs.
+const app = createModuleApi<Env, Variables>({ service: 'app-api', forwardModules: true });
 
 // Token-authenticated R2 upload — must be registered BEFORE the /api/* Clerk
 // guard. The upload token (KV-backed, 10-min TTL) is the auth; there is no
@@ -520,7 +442,7 @@ app.route('/api/integrations/helpdesk', integrationsHelpdeskOAuthRoutes);
 app.route('/api/integrations', integrationsInternalRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
-app.use('/api/*', clerkMiddleware(), workspaceDbMiddleware(), featureFlagsMiddleware());
+app.use('/api/*', ...apiAuth());
 
 // Object-based routes — one mount per object, ordered alphabetically so
 // collisions surface during review.
@@ -787,15 +709,6 @@ app.route('/api/workflow-variables', workflowVariablesRoutes);
 app.route('/api/workflow-webhooks', workflowWebhooksRoutes);
 app.route('/api/workflows', workflowsRoutes);
 app.route('/api/working-hours', workingHoursRoutes);
-
-app.notFound((c) =>
-  c.json({ error: { code: 'NOT_FOUND', message: `${c.req.path} not found` } }, 404),
-);
-
-app.onError((err, c) => {
-  console.error('App API error:', err);
-  return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
-});
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The *-v2 names re-host api-worker's workflow classes (W4 legacy-worker

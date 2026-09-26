@@ -13,9 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { apiUrl } from '@/lib/api/public-env';
 
 export interface ChatMessage {
   id: string;
@@ -96,7 +94,7 @@ export function useWeldAgentChat({
 
       try {
         const token = await getToken();
-        const res = await fetch(`${APP_API_URL}/api/ai/chat/stream`, {
+        const res = await fetch(apiUrl(`/api/ai/chat/stream`), {
           method: 'POST',
           headers: {
             'content-type': 'application/json',

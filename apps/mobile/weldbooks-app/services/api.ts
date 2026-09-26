@@ -27,6 +27,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
+import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import type {
   ApiResponse,
@@ -64,6 +65,16 @@ import type {
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
+
+/**
+ * Modules served by their own worker (`<module>-api` host), from
+ * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
+ * which forwards moved modules. See docs/plans/app-api-module-split.md.
+ */
+const apiOrigins = createApiOriginResolver({
+  coreOrigin: APP_API_URL,
+  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
+});
 /** Legacy export name — some screens import { API_URL }. */
 export const API_URL = APP_API_URL;
 
@@ -190,7 +201,7 @@ async function getToken(): Promise<string | null> {
 }
 
 const client = createClientApi({
-  baseUrl: APP_API_URL,
+  baseUrl: apiOrigins.originForPath,
   getToken,
   getExtraHeaders: (): Record<string, string> => {
     // X-Weld-App: which app's permissions apply (per-app permission model).

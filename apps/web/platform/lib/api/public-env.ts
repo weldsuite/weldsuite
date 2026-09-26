@@ -6,6 +6,14 @@
  * localhost values and derive the worker host from the SPA hostname.
  */
 
+import {
+  API_MODULES,
+  createApiOriginResolver,
+  parseModuleList,
+  type ApiModuleId,
+  type ApiOriginResolver,
+} from '@weldsuite/api-modules';
+
 const LOCAL_APP_API = 'http://localhost:8789';
 const LOCAL_REALTIME = 'ws://localhost:8790/ws';
 
@@ -51,6 +59,58 @@ export function getAppApiUrl(): string {
   }
   if (envUrl && !isLocalUrl(envUrl)) return trimSlash(envUrl);
   return hostedAppApiUrl(host);
+}
+
+// ── Per-module API hosts ────────────────────────────────────────────────────
+// app-api is being split into one worker per module
+// (docs/plans/app-api-module-split.md). Paths stay the same; only the host
+// changes. `VITE_API_MODULES` (e.g. `pass,host`) lists the modules the SPA
+// calls directly on `<module>-api(-test).weldsuite.org`. Everything else keeps
+// going to app-api, which forwards moved modules, so an empty list behaves
+// exactly like the single-worker setup. `VITE_<MODULE>_API_URL` overrides one
+// module's origin (ignored on hosted origins when it points at localhost).
+
+let resolverCache: { key: string; resolver: ApiOriginResolver } | null = null;
+
+function moduleOverrides(host: string | undefined): Partial<Record<ApiModuleId, string>> {
+  const env = import.meta.env as Record<string, string | undefined>;
+  const hosted = !!host && !isLocalHostname(host);
+  const out: Partial<Record<ApiModuleId, string>> = {};
+  for (const m of API_MODULES) {
+    const value = env[`VITE_${m.id.toUpperCase()}_API_URL`];
+    if (value && !(hosted && isLocalUrl(value))) out[m.id] = trimSlash(value);
+  }
+  return out;
+}
+
+function apiOriginResolver(): ApiOriginResolver {
+  const coreOrigin = getAppApiUrl();
+  const modules = (import.meta.env.VITE_API_MODULES as string | undefined) ?? '';
+  const host = spaHostname();
+  const overrides = moduleOverrides(host);
+  const key = `${coreOrigin}|${modules}|${JSON.stringify(overrides)}`;
+  if (resolverCache?.key !== key) {
+    resolverCache = {
+      key,
+      resolver: createApiOriginResolver({ coreOrigin, enabled: parseModuleList(modules), overrides }),
+    };
+  }
+  return resolverCache.resolver;
+}
+
+/** API origin for a full request path (`/api/tickets/123`). */
+export function getApiOriginForPath(path: string): string {
+  return apiOriginResolver().originForPath(path);
+}
+
+/** Absolute URL for a full request path: `apiUrl('/api/files/1/content')`. */
+export function apiUrl(path: string): string {
+  return `${getApiOriginForPath(path)}${path}`;
+}
+
+/** Every API origin the SPA may call (app-api first). */
+export function getApiOrigins(): string[] {
+  return apiOriginResolver().allOrigins();
 }
 
 export function getRealtimeUrl(): string {

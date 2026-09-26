@@ -232,7 +232,9 @@ Response shape:
 Key files:
 - `apps/workers/app-api/src/index.ts`, entry, middleware, route mounts
 - `apps/workers/app-api/src/lib/response.ts`, `success()`, `error.*`, `list()`, `cursorPagination()`
-- `apps/workers/app-api/src/middleware/`, `clerk.ts`, `workspace-db.ts`, `request-id.ts`
+- `apps/workers/app-api/src/middleware/`, `clerk.ts`, `workspace-db.ts`, `request-id.ts` (re-exports; the code lives in `@weldsuite/worker-kit`)
+
+**Module split in progress** ([docs/plans/app-api-module-split.md](docs/plans/app-api-module-split.md)): app-api is being split into one worker per `weld*` module (`apps/workers/<module>-api`, host `<module>-api.weldsuite.org`), built on `@weldsuite/worker-kit` (`packages/core/worker-kit`). `@weldsuite/api-modules` (`packages/core/api-modules`) says which module owns each path prefix. **A new `app.route('/api/<prefix>')` mount must be added to that manifest** or its ownership test fails. API workers never import from each other's folders; share code through a package. Scaffold a module worker with `pnpm create:module-api <module>`; run app-api plus module workers locally with `pnpm dev:api`.
 
 **Entity events**, every mutation route must publish an entity event so audit logging, workflows, analytics, realtime, and AI agents stay wired:
 
