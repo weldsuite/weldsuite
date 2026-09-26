@@ -257,18 +257,22 @@ Fire-and-forget, uses `c.executionCtx.waitUntil(...)` internally, never blocks t
 ### WeldPass (secret management)
 
 Encrypted secret vaults with push sync to Cloudflare Workers, Cloudflare Pages
-and Vercel. It is a **module of the platform**, not a separate app: routes live
-in `app-api` like every other object, and the UI is a normal platform module.
+and Vercel. It is a **module of the platform**, not a separate app, and the UI
+is a normal platform module. It is the first module split out of app-api
+(docs/plans/app-api-module-split.md): its API lives in its own worker.
 
-- **Backend**: `apps/workers/app-api/src/routes/weldpass/` +
-  `src/services/weldpass/`. Workspace-scoped through the standard
-  `clerkMiddleware()` → `workspaceDbMiddleware()` chain, so a vault belongs to
-  a workspace exactly like a customer or a ticket does.
+- **Backend**: `apps/workers/pass-api` (`src/routes/weldpass/` +
+  `src/services/weldpass/`), host `pass-api(-test).weldsuite.org`, built on
+  `@weldsuite/worker-kit`. It serves the same `/api/weldpass` paths app-api
+  did; app-api forwards those paths to it over the `PASS_API` service binding
+  (`API_FORWARD_MODULES`). Workspace-scoped through the kit's Clerk → tenant DB
+  chain, so a vault belongs to a workspace exactly like a customer or a ticket
+  does. Run it locally with `pnpm dev:api`.
 - **Frontend**: `apps/web/platform/app/weldpass/` with route wrappers in
   `src/routes/weldpass/`, the `weldpass` domain client in
   `@weldsuite/app-api-client`, and hooks in
   `hooks/queries/use-weldpass-queries.ts`.
-- **Envelope encryption**: root key (`WELDPASS_ROOT_KEY`, a worker secret) wraps
+- **Envelope encryption**: root key (`WELDPASS_ROOT_KEY`, a pass-api secret) wraps
   a per-project KEK (`weldpass_projects.kek_wrapped`), which wraps a per-write
   data key, which encrypts the value. Ciphertexts are AAD-bound to their
   project/environment/key, so a row copied between environments fails to
@@ -281,10 +285,10 @@ in `app-api` like every other object, and the UI is a normal platform module.
   without reading production credentials. Also `secrets:create|update|delete|
   sync|manage`. OWNER/ADMIN get all; MEMBER/VIEWER get none until granted.
 - **No entity events.** WeldPass writes its own trail to
-  `weldpass_audit_events` (reveals included) and is EXEMPT in
-  `_event-coverage.test.ts`: the entity-event bus feeds workflows, analytics
-  and AI agents, and neither secret metadata nor production credential names
-  belong in any of them.
+  `weldpass_audit_events` (reveals included) and has no event-coverage test
+  (it left app-api's `_event-coverage.test.ts` with the move): the entity-event
+  bus feeds workflows, analytics and AI agents, and neither secret metadata nor
+  production credential names belong in any of them.
 - **Cloudflare REST** goes through `@weldsuite/cloudflare-deploy` (official SDK).
   Vercel has no such wrapper and is called directly in
   `services/weldpass/providers/vercel.ts`.

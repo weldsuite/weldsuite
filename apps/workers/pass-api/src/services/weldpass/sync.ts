@@ -14,8 +14,8 @@ import type {
   WeldPassSyncStatus,
   WeldPassSyncTargetConfig,
 } from '@weldsuite/db/schema/weldpass';
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import { readCredentialToken } from './credentials';
 import { getProvider, ProviderError } from './providers';
 import { readEnvironmentValues } from './secrets';

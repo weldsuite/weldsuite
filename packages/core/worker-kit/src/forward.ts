@@ -52,7 +52,23 @@ export function moduleForwarder(options: { from: string }): MiddlewareHandler<{ 
     if (!headers.has('X-Request-Id')) headers.set('X-Request-Id', crypto.randomUUID());
     headers.set(FORWARDED_BY_HEADER, options.from);
 
-    const upstream = await target.fetch(new Request(c.req.raw, { headers }));
+    let upstream: Response;
+    try {
+      upstream = await target.fetch(new Request(c.req.raw, { headers }));
+    } catch (err) {
+      // The module worker is unreachable (not deployed, or not running in
+      // local dev). Say so instead of surfacing a generic 500.
+      console.error(`[forward] ${module.worker} unreachable for ${c.req.method} ${c.req.path}:`, err);
+      return Response.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: `${module.worker} is unavailable`,
+          },
+        },
+        { status: 503, headers: { 'X-Request-Id': headers.get('X-Request-Id') ?? '' } },
+      );
+    }
     // Re-wrap so the headers are mutable for anything that runs after us.
     return new Response(upstream.body, upstream);
   };
