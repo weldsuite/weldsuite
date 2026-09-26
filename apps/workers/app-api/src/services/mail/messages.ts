@@ -6,7 +6,7 @@
  * `send_email` binding.
  */
 
-import { and, asc, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { Database } from '../../db';
 import { labelCondition, addLabels, removeLabels, SYSTEM_LABELS } from './labels';
@@ -39,6 +39,11 @@ export interface MessageFilters {
   fromEmails?: string[];
 }
 
+/** Escape LIKE wildcards so a search for `50%` or `a_b` matches literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 export async function listMessages(db: Database, filters: MessageFilters) {
   const limit = Math.min(filters.limit ?? 50, 100);
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!];
@@ -47,9 +52,18 @@ export async function listMessages(db: Database, filters: MessageFilters) {
   if (filters.accessibleAccountIds) {
     conditions.push(inArray(mailMessages.accountId, filters.accessibleAccountIds));
   }
-  if (filters.search) {
-    const term = `%${filters.search}%`;
-    conditions.push(or(like(mailMessages.subject, term), like(mailMessages.preview, term))!);
+  if (filters.search?.trim()) {
+    // Case-insensitive, and the sender counts too: people search by who a
+    // mail is from as often as by what it says.
+    const term = `%${escapeLike(filters.search.trim())}%`;
+    conditions.push(
+      or(
+        ilike(mailMessages.subject, term),
+        ilike(mailMessages.preview, term),
+        sql`${mailMessages.from}->>'name' ILIKE ${term}`,
+        sql`${mailMessages.from}->>'email' ILIKE ${term}`,
+      )!,
+    );
   }
   if (filters.isRead !== undefined) conditions.push(eq(mailMessages.isRead, filters.isRead));
   if (filters.isStarred !== undefined) conditions.push(eq(mailMessages.isStarred, filters.isStarred));

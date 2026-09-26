@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   FlatList,
+  ActivityIndicator,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -19,10 +20,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import { listInboxMessages } from '@/services/mail-tenant';
+import { listInboxMessagesPage, type InboxCursor } from '@/services/mail-tenant';
 import { getAvatarColor } from '@/contexts/MailContext';
 import type { EmailListItem } from '@/types/mail';
 import { setVisibleMessageIds } from '@/utils/next-email';
+import { appendPage } from '@/utils/inbox-paging';
+import { BRAND } from '@/lib/brand';
+
+const SEARCH_PAGE_SIZE = 50;
 
 const FILTERS = ['Label', 'From', 'To', 'Attachment', 'Date', 'Is unread'];
 
@@ -77,6 +82,11 @@ export default function SearchScreen() {
   const [activeFilterType, setActiveFilterType] = useState<string | null>(null);
   const [filterSearchQuery, setFilterSearchQuery] = useState('');
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  // Cursor for the next page of results for the current query; null when done.
+  const [searchCursor, setSearchCursor] = useState<InboxCursor | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped per query so a slow response for an older query is ignored.
+  const searchSeqRef = useRef(0);
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -85,20 +95,25 @@ export default function SearchScreen() {
   // Debounced search
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    const seq = ++searchSeqRef.current;
+    setSearchCursor(null);
     if (!searchQuery.trim()) { setSearchResults([]); return; }
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const items = await listInboxMessages({
+        // Server-side across every mailbox, not just the loaded inbox rows.
+        const page = await listInboxMessagesPage({
           isUnified: true,
           search: searchQuery,
-          limit: 50,
+          limit: SEARCH_PAGE_SIZE,
         });
-        setSearchResults(items);
+        if (seq !== searchSeqRef.current) return;
+        setSearchResults(page.items);
+        setSearchCursor(page.cursor);
       } catch (error) {
         console.error('Search error:', error);
       }
-    }, 150);
+    }, 250);
 
     return () => { if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current); };
   }, [searchQuery]);
@@ -106,6 +121,27 @@ export default function SearchScreen() {
   useEffect(() => {
     setVisibleMessageIds(searchResults.map((item) => item.id));
   }, [searchResults]);
+
+  const loadMoreResults = useCallback(async () => {
+    if (!searchCursor || loadingMore) return;
+    const seq = searchSeqRef.current;
+    setLoadingMore(true);
+    try {
+      const page = await listInboxMessagesPage({
+        isUnified: true,
+        search: searchQuery,
+        limit: SEARCH_PAGE_SIZE,
+        cursor: searchCursor,
+      });
+      if (seq !== searchSeqRef.current) return;
+      setSearchResults((prev) => appendPage(prev, page.items));
+      setSearchCursor(page.cursor);
+    } catch (error) {
+      console.error('Search error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [searchCursor, loadingMore, searchQuery]);
 
   const handleBack = () => { Keyboard.dismiss(); router.back(); };
   const handleClearSearch = () => { setSearchQuery(''); setSearchResults([]); inputRef.current?.focus(); };
@@ -292,6 +328,15 @@ export default function SearchScreen() {
         ListEmptyComponent={renderEmptyState}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        onEndReached={loadMoreResults}
+        onEndReachedThreshold={1}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.listFooter}>
+              <ActivityIndicator color={BRAND} />
+            </View>
+          ) : null
+        }
       />
 
       {/* Filter Modal */}
@@ -365,6 +410,7 @@ const styles = StyleSheet.create({
   sortOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 4 },
   sortText: { fontSize: 14, fontWeight: '500' },
   resultsList: { paddingBottom: 20 },
+  listFooter: { paddingVertical: 16, alignItems: 'center' },
   emptyList: { flex: 1 },
   resultItem: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 0.5, borderBottomColor: '#E5E7EB' },
   avatar: { width: 30, height: 30, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },

@@ -6,8 +6,10 @@ import {
   isPersonalMessage,
   isPersonalAccount,
   isLinkOnlySubscription,
+  mergeInboxSources,
 } from '../mail-tenant';
 import type { MailMessage } from '@weldsuite/personal-api-client';
+import type { EmailListItem } from '@/types/mail';
 
 function personalRow(overrides: Partial<MailMessage> = {}): MailMessage {
   return {
@@ -71,5 +73,57 @@ describe('isLinkOnlySubscription', () => {
     expect(isLinkOnlySubscription({ unsubscribeUrl: 'https://x.com/u', unsubscribeMailto: null, oneClick: true })).toBe(false);
     expect(isLinkOnlySubscription({ unsubscribeUrl: 'https://x.com/u', unsubscribeMailto: 'mailto:u@x.com', oneClick: false })).toBe(false);
     expect(isLinkOnlySubscription({ unsubscribeUrl: null, unsubscribeMailto: 'mailto:u@x.com', oneClick: false })).toBe(false);
+  });
+});
+
+describe('mergeInboxSources', () => {
+  const row = (id: string, sentDate: string) =>
+    ({ id, sentDate, createdAt: sentDate }) as unknown as EmailListItem;
+  const src = (rows: EmailListItem[], hasMore: boolean, cursor?: string) => ({
+    page: { rows, hasMore, cursor: hasMore ? rows[rows.length - 1]!.id : null },
+    cursor,
+    done: false,
+  });
+
+  it('shows the newest rows and resumes each source after its last shown row', () => {
+    const ws = [row('w1', '2026-09-05'), row('w2', '2026-09-03'), row('w3', '2026-09-01')];
+    const ps = [row('p1', '2026-09-04'), row('p2', '2026-09-02'), row('p3', '2026-08-30')];
+    const page = mergeInboxSources(3, src(ws, true), src(ps, true));
+    expect(page.items.map((m) => m.id)).toEqual(['w1', 'p1', 'w2']);
+    // p2 and w3 were fetched but not shown, so both are re-read next time.
+    expect(page.cursor).toEqual({
+      workspace: 'w2',
+      personal: 'p1',
+      workspaceDone: false,
+      personalDone: false,
+    });
+  });
+
+  it('keeps a source cursor unchanged when none of its rows were shown', () => {
+    const ws = [row('w1', '2026-09-05'), row('w2', '2026-09-04')];
+    const ps = [row('p1', '2026-08-01')];
+    const page = mergeInboxSources(2, src(ws, true), src(ps, false, 'p0'));
+    expect(page.items.map((m) => m.id)).toEqual(['w1', 'w2']);
+    expect(page.cursor).toMatchObject({ workspace: 'w2', personal: 'p0', personalDone: false });
+  });
+
+  it('returns a null cursor once both sources are exhausted', () => {
+    const page = mergeInboxSources(
+      10,
+      src([row('w1', '2026-09-05')], false),
+      src([row('p1', '2026-09-04')], false),
+    );
+    expect(page.items.map((m) => m.id)).toEqual(['w1', 'p1']);
+    expect(page.cursor).toBeNull();
+  });
+
+  it('skips a source that is already done', () => {
+    const page = mergeInboxSources(
+      2,
+      { page: null, cursor: 'w9', done: true },
+      src([row('p1', '2026-09-04'), row('p2', '2026-09-03')], true),
+    );
+    expect(page.items.map((m) => m.id)).toEqual(['p1', 'p2']);
+    expect(page.cursor).toMatchObject({ workspaceDone: true, personal: 'p2', personalDone: false });
   });
 });
