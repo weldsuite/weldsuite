@@ -132,66 +132,173 @@ function sentDateOf(row: MailMessageRow | EmailListItem): number {
   return Date.parse(row.sentDate || row.receivedDate || row.createdAt || '') || 0;
 }
 
-export async function listInboxMessages(opts: {
+/**
+ * Where the inbox list stopped. Unified mode reads two independent streams
+ * (workspace mail on app-api, personal mail on personal-api), so it carries a
+ * server cursor for each. `undefined` means "start from the newest"; a `*Done`
+ * flag means that stream has nothing left. Treat it as opaque outside this file.
+ */
+export interface InboxCursor {
+  workspace?: string;
+  personal?: string;
+  workspaceDone?: boolean;
+  personalDone?: boolean;
+}
+
+export interface InboxPage {
+  items: EmailListItem[];
+  /** Pass back to fetch the next page; `null` once everything is loaded. */
+  cursor: InboxCursor | null;
+}
+
+interface SourcePage {
+  rows: EmailListItem[];
+  cursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One page of the inbox, newest first. Search runs server-side on both
+ * backends, so it covers the whole mailbox rather than the loaded rows.
+ */
+export async function listInboxMessagesPage(opts: {
   isUnified: boolean;
   selected?: TenantMailAccount | null;
   label?: string;
   search?: string;
   limit?: number;
-}): Promise<EmailListItem[]> {
+  cursor?: InboxCursor | null;
+}): Promise<InboxPage> {
   const limit = opts.limit ?? 50;
   const label = opts.label;
-  const search = opts.search;
+  const search = opts.search?.trim() || undefined;
+  const cursor = opts.cursor ?? {};
 
   if (!opts.isUnified && opts.selected && isPersonalAccount(opts.selected)) {
-    const { data } = await personalApi.mailMessages.list({
-      accountId: opts.selected.id,
-      label,
-      limit,
-    });
-    let rows = data.map(normalizePersonalMessage);
-    if (search) rows = filterSearch(rows, search);
-    return rows;
-  }
-
-  if (!opts.isUnified && opts.selected) {
-    const { data } = await appApi.mailMessages.list({
+    const { data, pagination } = await personalApi.mailMessages.list({
       accountId: opts.selected.id,
       label,
       search,
       limit,
+      cursor: cursor.personal,
     });
-    return data as EmailListItem[];
+    return {
+      items: data.map(normalizePersonalMessage),
+      cursor: pagination?.hasMore && pagination.cursor ? { personal: pagination.cursor } : null,
+    };
+  }
+
+  if (!opts.isUnified && opts.selected) {
+    const { data, pagination } = await appApi.mailMessages.list({
+      accountId: opts.selected.id,
+      label,
+      search,
+      limit,
+      cursor: cursor.workspace,
+    });
+    return {
+      items: data as EmailListItem[],
+      cursor: pagination?.hasMore && pagination.cursor ? { workspace: pagination.cursor } : null,
+    };
   }
 
   // Unified: current workspace (if the JWT has an org) + personal.
+  const wantWorkspace = !cursor.workspaceDone;
+  const wantPersonal = !cursor.personalDone && personalAccountIds.size > 0;
   const [workspace, personal] = await Promise.allSettled([
-    appApi.mailMessages.list({ label, search, limit }),
-    personalAccountIds.size > 0
-      ? personalApi.mailMessages.list({ label, limit })
-      : Promise.resolve({ data: [] as PersonalMailMessage[] }),
+    wantWorkspace
+      ? appApi.mailMessages
+          .list({ label, search, limit, cursor: cursor.workspace })
+          .then((r): SourcePage => ({
+            rows: r.data as EmailListItem[],
+            cursor: r.pagination?.cursor ?? null,
+            hasMore: !!r.pagination?.hasMore,
+          }))
+      : Promise.resolve(null),
+    wantPersonal
+      ? personalApi.mailMessages
+          .list({ label, search, limit, cursor: cursor.personal })
+          .then((r): SourcePage => ({
+            rows: r.data.map(normalizePersonalMessage),
+            cursor: r.pagination?.cursor ?? null,
+            hasMore: !!r.pagination?.hasMore,
+          }))
+      : Promise.resolve(null),
   ]);
 
-  const wsRows: EmailListItem[] =
-    workspace.status === 'fulfilled' ? (workspace.value.data as EmailListItem[]) : [];
-  let personalRows: EmailListItem[] =
-    personal.status === 'fulfilled' ? personal.value.data.map(normalizePersonalMessage) : [];
-  if (search) personalRows = filterSearch(personalRows, search);
+  // Nothing came back at all: surface the error so the caller keeps what is
+  // on screen instead of treating a failed request as the end of the list.
+  const attempted = [wantWorkspace && workspace, wantPersonal && personal].filter(
+    (r): r is PromiseSettledResult<SourcePage | null> => !!r,
+  );
+  if (attempted.length > 0 && attempted.every((r) => r.status === 'rejected')) {
+    throw (attempted[0] as PromiseRejectedResult).reason;
+  }
 
-  return mergeByDate(wsRows, personalRows).slice(0, limit);
+  // A source that errors (no org on the JWT, personal-api down) is skipped
+  // for the rest of this list, as the single-page inbox always did.
+  const ws = workspace.status === 'fulfilled' ? workspace.value : null;
+  const ps = personal.status === 'fulfilled' ? personal.value : null;
+
+  return mergeInboxSources(
+    limit,
+    { page: ws, cursor: cursor.workspace, done: !wantWorkspace || !ws },
+    { page: ps, cursor: cursor.personal, done: !wantPersonal || !ps },
+  );
 }
 
-function filterSearch(rows: EmailListItem[], query: string): EmailListItem[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return rows;
-  return rows.filter((m) => {
-    const from = `${m.from?.name ?? ''} ${m.from?.email ?? ''}`.toLowerCase();
-    return (
-      (m.subject ?? '').toLowerCase().includes(q) ||
-      (m.preview ?? '').toLowerCase().includes(q) ||
-      from.includes(q)
-    );
-  });
+interface SourceState {
+  page: SourcePage | null;
+  /** Cursor this page was fetched from. */
+  cursor: string | undefined;
+  done: boolean;
+}
+
+/**
+ * Interleave one page from each unified source into a single newest-first
+ * page. Only `limit` rows are shown; whatever was fetched but not shown is
+ * fetched again next time (each source's cursor stops at its last shown
+ * row), so an older workspace row is never listed above a newer personal row
+ * that simply arrived on a later page.
+ */
+export function mergeInboxSources(
+  limit: number,
+  workspace: SourceState,
+  personal: SourceState,
+): InboxPage {
+  const merged = mergeByDate(workspace.page?.rows ?? [], personal.page?.rows ?? []);
+  const items = merged.slice(0, limit);
+  const shown = new Set(items.map((m) => m.id));
+  const allShown = merged.length <= limit;
+
+  const advance = (src: SourceState): { cursor?: string; done: boolean } => {
+    if (src.done || !src.page) return { cursor: src.cursor, done: true };
+    const { rows } = src.page;
+    let last = -1;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (shown.has(rows[i]!.id)) { last = i; break; }
+    }
+    if (allShown || last === rows.length - 1) {
+      return src.page.hasMore && src.page.cursor
+        ? { cursor: src.page.cursor, done: false }
+        : { cursor: src.page.cursor ?? undefined, done: true };
+    }
+    // Some of this page is still unshown: resume right after the last shown row.
+    return { cursor: last >= 0 ? rows[last]!.id : src.cursor, done: false };
+  };
+
+  const w = advance(workspace);
+  const p = advance(personal);
+  if (w.done && p.done) return { items, cursor: null };
+  return {
+    items,
+    cursor: {
+      workspace: w.cursor,
+      personal: p.cursor,
+      workspaceDone: w.done,
+      personalDone: p.done,
+    },
+  };
 }
 
 export async function getMessage(id: string): Promise<EmailListItem> {
