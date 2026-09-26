@@ -98,7 +98,8 @@ test.describe('Error Handling', () => {
       await widgetPage.goto('/');
       await widgetPage.waitForReady();
 
-      // Widget should eventually succeed after retry
+      // Widget should eventually succeed after retry: the app still renders instead of a blank page
+      await expect(page.locator('#root')).not.toBeEmpty();
     });
   });
 
@@ -160,10 +161,11 @@ test.describe('Error Handling', () => {
 
         // Look for error messages
         const errorMessage = widgetPage.page.locator(
-          '[class*="error"], [role="alert"], [aria-invalid="true"]'
+          '[class*="error"], [role="alert"], [aria-invalid="true"], input:invalid'
         );
 
         // Validation errors should be displayed
+        expect(await errorMessage.count()).toBeGreaterThan(0);
       }
     });
 
@@ -264,7 +266,8 @@ test.describe('Error Handling', () => {
         if (await sendButton.isVisible()) {
           await sendButton.click();
 
-          // Should show error or retry option
+          // Should show error or retry option: the unsent message stays in the thread
+          await expect(page.getByText('Test message').first()).toBeVisible();
         }
       }
     });
@@ -373,7 +376,8 @@ test.describe('Error Handling', () => {
       await widgetPage.goto('/');
       await widgetPage.waitForReady();
 
-      // After retries, widget should work
+      // After retries, widget should work: the app still renders instead of a blank page
+      await expect(page.locator('#root')).not.toBeEmpty();
     });
 
     test('should preserve user input on error recovery', async ({ widgetPage, page }) => {
