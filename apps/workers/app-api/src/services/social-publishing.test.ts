@@ -267,8 +267,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.postpeerPostId).toBeNull();
   });
 
-  it('cancelPost refuses to blank a schedule replaced by a concurrent reschedule', async () => {
-    if (!available) return;
+  it('cancelPost refuses to blank a schedule replaced by a concurrent reschedule', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_resched_race', 'scheduled', 'pp_old', new Date('2030-06-01T14:00:00Z'));
 
@@ -300,8 +300,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.scheduledAt).toEqual(newScheduledAt);
   });
 
-  it('cancelPost fails loudly and leaves the post scheduled when PostPeer errors', async () => {
-    if (!available) return;
+  it('cancelPost fails loudly and leaves the post scheduled when PostPeer errors', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     const scheduledAt = new Date('2030-06-01T14:00:00Z');
     await seedPost('spo_cancel_5xx', 'scheduled', 'pp_5xx', scheduledAt);
@@ -322,8 +322,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.scheduledAt).toEqual(scheduledAt);
   });
 
-  it('cancelPost treats a PostPeer 404 as already-unscheduled and proceeds', async () => {
-    if (!available) return;
+  it('cancelPost treats a PostPeer 404 as already-unscheduled and proceeds', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_cancel_404', 'scheduled', 'pp_404', new Date('2030-06-01T14:00:00Z'));
     stubPostPeer({ deleteStatus: 404 });
@@ -339,8 +339,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.postpeerPostId).toBeNull();
   });
 
-  it('cancelPost refuses to unschedule when PostPeer is not configured', async () => {
-    if (!available) return;
+  it('cancelPost refuses to unschedule when PostPeer is not configured', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_cancel_nocfg', 'scheduled', 'pp_nocfg', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();
