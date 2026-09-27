@@ -109,25 +109,29 @@ test.describe('Error Handling', () => {
     });
 
     test('should provide retry option on error', async ({ widgetPage, page }) => {
-      await widgetPage.goto('/');
-      await widgetPage.waitForReady();
+      const api = await setupMessengerApi(page, { failSend: true });
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Test message');
 
-      // Look for retry/refresh buttons in error states
-      const retryButton = page.locator(
-        'button:has-text("Try Again"), button:has-text("Retry"), button:has-text("Refresh")'
-      );
-
-      // Retry button should exist in error UI
+      // A failed send offers a retry, and tapping it sends the message again
+      const retryButton = page.getByRole('button', { name: 'Not sent · Tap to retry' });
+      await expect(retryButton).toBeVisible();
+      await retryButton.click();
+      await expect.poll(() => api.sendRequests).toBe(2);
+      await expect(retryButton).toBeVisible();
     });
 
     test('should provide close option on critical error', async ({ widgetPage, page }) => {
-      await widgetPage.goto('/');
-      await widgetPage.waitForReady();
+      await setupMessengerApi(page, { failSend: true });
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Test message');
+      await expect(page.getByText('Not sent · Tap to retry')).toBeVisible();
 
-      // Look for close button in error states
-      const closeButton = page.locator('button:has-text("Close"), button[aria-label*="close" i]');
-
-      // Close button should exist
+      // The visitor can still close the panel after the error
+      const closeButton = widgetPage.chatView.getByRole('button', { name: 'Close' });
+      await expect(closeButton).toBeVisible();
+      await closeButton.click();
+      await expect(page.locator('[aria-hidden="true"] [data-testid="widget-container"]')).toHaveCount(1);
     });
   });
 
