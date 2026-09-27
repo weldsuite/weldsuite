@@ -178,8 +178,8 @@ test.describe('Chat Flow', () => {
       // the full date in its tooltip
       const bubble = widgetPage.messageList.getByText('Test message');
       await expect(bubble).toBeVisible();
-      await expect(widgetPage.messageList.getByText(/\d{1,2}:\d{2}/)).toBeVisible();
-      await expect(bubble).toHaveAttribute('title', /\d/);
+      await expect(bubble.locator('..').getByText(/^\d{1,2}:\d{2}/)).toBeVisible();
+      await expect(bubble).toHaveAttribute('title', /\d{4}.*\d{1,2}:\d{2}/);
     });
 
     test('should distinguish user and agent messages', async ({ widgetPage, page }) => {
