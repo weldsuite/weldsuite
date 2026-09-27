@@ -378,8 +378,8 @@ describe('social publishing · double-post guards', () => {
 });
 
 describe('social publishing · platform content', () => {
-  it('a scheduled post is pending per platform and carries our own account id', async () => {
-    if (!available) return;
+  it('a scheduled post is pending per platform and carries our own account id', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_sched_pc', 'draft', null);
     // PostPeer does not echo `accountId` back on the schedule path — deriving
