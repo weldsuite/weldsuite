@@ -169,24 +169,29 @@ test.describe('Chat Flow', () => {
       expect(api.sendRequests).toBe(1);
     });
 
-    test('should display timestamps on messages', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should display timestamps on messages', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Test message');
 
-      // Messages should have timestamps
-      const timeElement = widgetPage.page.locator('time, [data-testid*="timestamp"]');
-      // Check if timestamps exist in message area
+      // Once delivered, the message shows its send time (HH:MM) and carries
+      // the full date in its tooltip
+      const bubble = widgetPage.messageList.getByText('Test message');
+      await expect(bubble).toBeVisible();
+      await expect(widgetPage.messageList.getByText(/\d{1,2}:\d{2}/)).toBeVisible();
+      await expect(bubble).toHaveAttribute('title', /\d/);
     });
 
-    test('should distinguish user and agent messages', async ({ widgetPage }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should distinguish user and agent messages', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
+      await widgetPage.sendMessage('Test message');
 
-      // Messages should have different styling for user vs agent
-      const userMessage = widgetPage.page.locator('[data-sender="user"], [class*="user-message"]');
-      const agentMessage = widgetPage.page.locator('[data-sender="agent"], [class*="agent-message"]');
-
-      // Both types should be distinguishable
+      // The visitor's bubble uses the widget's brand colour, the team's
+      // greeting bubble does not
+      const brand = 'rgb(0, 102, 255)';
+      await expect(widgetPage.messageList.getByText('Test message')).toHaveCSS('background-color', brand);
+      await expect(widgetPage.messageList.getByText('Welcome! How can we help?')).not.toHaveCSS('background-color', brand);
     });
   });
 
