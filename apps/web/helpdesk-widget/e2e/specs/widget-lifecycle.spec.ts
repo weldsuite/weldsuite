@@ -1,4 +1,4 @@
-import { test, expect, setupMockApi } from '../fixtures';
+import { test, expect, setupMockApi, setupMessengerApi, MESSENGER_WIDGET_ID } from '../fixtures';
 
 test.describe('Widget Lifecycle', () => {
   test.beforeEach(async ({ page }) => {
@@ -42,16 +42,26 @@ test.describe('Widget Lifecycle', () => {
   });
 
   test.describe('Navigation', () => {
-    test('should navigate between views', async ({ widgetPage }) => {
-      await widgetPage.goto('/');
-      await widgetPage.waitForReady();
+    test('should navigate between views', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.goto(`/?widgetId=${MESSENGER_WIDGET_ID}&open=true`);
+      await expect(widgetPage.homeView).toBeVisible();
 
-      // Navigate to chat view
-      const chatLink = widgetPage.page.locator('a[href*="chat"], button').filter({ hasText: /chat/i }).first();
-      if (await chatLink.isVisible()) {
-        await chatLink.click();
-        await widgetPage.page.waitForLoadState('networkidle');
-      }
+      // Home → Messages via the bottom nav
+      await widgetPage.navigateTo('messages');
+      await expect(page.locator('[data-testid="messages-view"]')).toBeVisible();
+      await expect(widgetPage.homeView).toHaveCount(0);
+
+      // Messages → Home
+      await widgetPage.navigateTo('home');
+      await expect(widgetPage.homeView).toBeVisible();
+
+      // Home → new conversation, and back again
+      await page.locator('[data-testid="new-conversation"]').click();
+      await expect(widgetPage.chatView).toBeVisible();
+      await widgetPage.backButton.click();
+      await expect(widgetPage.homeView).toBeVisible();
+      await expect(widgetPage.chatView).toHaveCount(0);
     });
 
     test('should handle back navigation', async ({ widgetPage }) => {
