@@ -171,8 +171,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     "INTERNAL_API_SECRET",
   ],
 
-  // app-api: GitHub App secrets for the install flow + callback + Projects API,
-  // plus the WeldHost domain-purchase pair.
+  // app-api: GitHub App secrets for the install flow + callback + Projects API.
   "app-api": [
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
@@ -183,25 +182,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (integration-sync-worker, integration-webhook-worker) needs the SAME value
     // in the same env.
     "INTERNAL_API_SECRET",
-    // WeldHost domains. New purchases use Realtime Register (search/check/
-    // checkout + transfers). CLOUDFLARE_* remains for DNS zones and for
-    // mutations on legacy registrar=cloudflare rows. STRIPE_SECRET_KEY is
-    // checked separately by /checkout — app-api creates the Checkout Session
-    // itself, so billing-worker holding the key is not sufficient.
+    // CLOUDFLARE_API_TOKEN: help center custom domains + RealtimeKit.
+    // CLOUDFLARE_ACCOUNT_ID: accepted by @weldsuite/ai as the CF_ACCOUNT_ID alias.
+    // STRIPE_SECRET_KEY: /api/billing + workspace settings. (The WeldHost
+    // Realtime Register secrets moved to "host-api".)
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
-    "REALTIME_REGISTER_API_KEY",
-    "REALTIME_REGISTER_CUSTOMER",
-    "REALTIME_REGISTER_OTE",
-    // ADAC availability checker — different key from the registrar REST key,
-    // minted in the ADAC management panel. Search/check use this; register
-    // still uses REALTIME_REGISTER_API_KEY.
-    "REALTIME_REGISTER_ADAC_API_KEY",
-    "REALTIME_REGISTER_ADAC_TLD_SET_TOKEN",
-    "REALTIME_REGISTER_CONTACT_ADMIN",
-    "REALTIME_REGISTER_CONTACT_TECH",
-    "REALTIME_REGISTER_CONTACT_BILLING",
-    "REALTIME_REGISTER_WEBHOOK_SECRET",
     "STRIPE_SECRET_KEY",
     // WeldSocial (PostPeer). The API key must hold the SAME value here as on
     // external-api and mcp-server below — all three publish through
@@ -262,6 +248,38 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+  ],
+
+  // host-api: the host module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "host-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldHost domains (moved here from app-api). New purchases use Realtime
+    // Register (search/check/checkout + transfers). CLOUDFLARE_* remains for
+    // DNS zones and for mutations on legacy registrar=cloudflare rows.
+    // STRIPE_SECRET_KEY is checked separately by /checkout — host-api creates
+    // the Checkout Session itself (and the auto-renew invoices), so
+    // billing-worker holding the key is not sufficient.
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "REALTIME_REGISTER_API_KEY",
+    "REALTIME_REGISTER_CUSTOMER",
+    "REALTIME_REGISTER_OTE",
+    // ADAC availability checker — different key from the registrar REST key,
+    // minted in the ADAC management panel. Search/check use this; register
+    // still uses REALTIME_REGISTER_API_KEY.
+    "REALTIME_REGISTER_ADAC_API_KEY",
+    "REALTIME_REGISTER_ADAC_TLD_SET_TOKEN",
+    "REALTIME_REGISTER_CONTACT_ADMIN",
+    "REALTIME_REGISTER_CONTACT_TECH",
+    "REALTIME_REGISTER_CONTACT_BILLING",
+    "REALTIME_REGISTER_WEBHOOK_SECRET",
+    "STRIPE_SECRET_KEY",
   ],
 };
 

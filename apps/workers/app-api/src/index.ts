@@ -98,11 +98,6 @@ import { helpdeskStatsRoutes } from './routes/helpdesk-stats';
 import { helpdeskWeldagentRoutes } from './routes/helpdesk-weldagent';
 import { helpdeskWorkflowsRoutes } from './routes/helpdesk-workflows';
 import { helpcenterSettingsRoutes } from './routes/helpcenter-settings';
-import { dnsRecordsRoutes } from './routes/dns-records';
-import { dnsZonesRoutes } from './routes/dns-zones';
-import { domainTransfersRoutes } from './routes/domain-transfers';
-import { domainsRoutes } from './routes/domains';
-import { emailForwardsRoutes } from './routes/email-forwards';
 import { externalWebhooksRoutes } from './routes/external-webhooks';
 import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
@@ -286,7 +281,6 @@ import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
 import { woocommerceAuthWebhookRoutes } from './routes/webhooks-woocommerce-auth';
 import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
 import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
-import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
 import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
 
@@ -399,11 +393,6 @@ app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
 // WooCommerce /wc-auth/v1 callback — PUBLIC. The shop POSTs API keys here.
 // WooCommerce requires HTTP 200 or it deletes the keys. HMAC `user_id`.
 app.route('/webhooks/woocommerce', woocommerceAuthWebhookRoutes);
-
-// Realtime Register process/notification webhook — PUBLIC. Auth is the shared
-// `?token=` (REALTIME_REGISTER_WEBHOOK_SECRET). Advances pending_workflow
-// domain rows / transfers via the WORKSPACE_CACHE process mapping.
-app.route('/public/webhooks/realtime-register', realtimeRegisterWebhookRoutes);
 
 // External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
 // per-webhook (HMAC signature / IP allowlist) inside the receiver service.
@@ -537,11 +526,6 @@ app.route('/api/helpdesk-stats', helpdeskStatsRoutes);
 app.route('/api/helpdesk-weldagent', helpdeskWeldagentRoutes);
 app.route('/api/helpdesk-workflows', helpdeskWorkflowsRoutes);
 app.route('/api/helpcenter-settings', helpcenterSettingsRoutes);
-app.route('/api/dns-records', dnsRecordsRoutes);
-app.route('/api/dns-zones', dnsZonesRoutes);
-app.route('/api/domain-transfers', domainTransfersRoutes);
-app.route('/api/domains', domainsRoutes);
-app.route('/api/email-forwards', emailForwardsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/connectors', connectorRoutes);
@@ -726,7 +710,6 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 // [triggers]): hourly task digests + daily calendar replan.
 import { runDigestSweep } from './cron/digest-sweep';
 import { runCalendarReplanSweep } from './cron/calendar-replan';
-import { runDomainAutoRenewSweep } from './cron/domain-auto-renew';
 import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import { handleEntityAgentBatch } from './queue/entity-agents-consumer';
@@ -765,17 +748,12 @@ export default {
       );
     }
 
-    // Daily at 04:00 UTC: re-plan stale auto-scheduled calendar events
-    // and invoice+renew WeldHost domains that are inside the auto-renew window.
+    // Daily at 04:00 UTC: re-plan stale auto-scheduled calendar events.
+    // (The WeldHost domain auto-renew on the same schedule runs in host-api.)
     if (event.cron === '0 4 * * *') {
       ctx.waitUntil(
         runCalendarReplanSweep(env).catch((err) => {
           console.error('[CalendarReplan] Failed:', err);
-        }),
-      );
-      ctx.waitUntil(
-        runDomainAutoRenewSweep(env).catch((err) => {
-          console.error('[DomainAutoRenew] Failed:', err);
         }),
       );
     }

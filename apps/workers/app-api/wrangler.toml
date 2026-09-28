@@ -42,13 +42,9 @@ head_sampling_rate = 1
 #   which only protects stored tenant DB URLs. Generate with:
 #     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # - WELDPASS_ROOT_KEY_V2 (only during a WeldPass root-key rotation)
-# - CLOUDFLARE_API_TOKEN (for /api/domains: Zones + legacy CF registrar domains)
-# - CLOUDFLARE_ACCOUNT_ID (for /api/domains: account that owns zones)
-# - REALTIME_REGISTER_API_KEY / REALTIME_REGISTER_CUSTOMER (registrar REST)
-# - REALTIME_REGISTER_ADAC_API_KEY (domain search/check — ADAC panel key, NOT the registrar key)
-# - REALTIME_REGISTER_ADAC_TLD_SET_TOKEN (optional TLD set; omit for account default)
-# - REALTIME_REGISTER_OTE / REALTIME_REGISTER_CONTACT_* / REALTIME_REGISTER_WEBHOOK_SECRET
-# - STRIPE_SECRET_KEY (for /api/domains/checkout)
+# - CLOUDFLARE_API_TOKEN (help center custom domains: DNS records in zones)
+# - CLOUDFLARE_ACCOUNT_ID (optional alias of the CF_ACCOUNT_ID [vars] value)
+#   (WeldHost /api/domains and its Realtime Register secrets moved to host-api.)
 # - LEMLIST_API_KEY (WeldData lead database — shared WeldSuite Lemlist key)
 # - TEST_FIXTURES_TOKEN (test + preview envs ONLY; gates /test-fixtures/*.
 #   Never set this in the production env — the worker's middleware also
@@ -112,9 +108,9 @@ head_sampling_rate = 1
 #   templates exist. Each is independently optional: when one is unset that
 #   mail falls back to the inline HTML template (same branch legacy had), so
 #   they are deliberately left undeclared here rather than stubbed empty.
-# - STRIPE_SECRET_KEY (already listed above for /api/domains/checkout; now ALSO
-#   required by /api/billing — must be the SAME Stripe account billing-worker's
-#   webhooks use, since /api/billing/seats relies on the invoice.paid webhook)
+# - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
+#   account billing-worker's webhooks use, since /api/billing/seats relies on
+#   the invoice.paid webhook)
 # - CAUTION: SLACK_CLIENT_ID / SLACK_CLIENT_SECRET are documented as the
 #   WeldConnect workflow-integrations Slack app, but the helpdesk Slack OAuth
 #   callback ( /api/integrations/helpdesk/slack/callback ) reuses the same Env
@@ -134,7 +130,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know"
+API_FORWARD_MODULES = "pass,know,host"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -289,6 +285,10 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "HOST_API"
+service = "weldsuite-host-api"
+
+[[services]]
 binding = "KNOW_API"
 service = "weldsuite-know-api"
 
@@ -372,8 +372,8 @@ class_name = "ImportTasksWorkflow"
 # Cron sweeps re-hosted from api-worker (there they were configured ONLY in
 # the Cloudflare dashboard — invisible in its repo config; delete those
 # dashboard crons after this deploys, see W7). Handled by scheduled() in
-# src/index.ts: hourly digest sweep + daily 04:00 calendar replan and
-# WeldHost domain auto-renew (Stripe invoice, then registrar renew).
+# src/index.ts: hourly digest sweep + daily 04:00 calendar replan. (The
+# WeldHost domain auto-renew on the same 04:00 schedule moved to host-api.)
 [triggers]
 crons = ["0 * * * *", "0 4 * * *"]
 
@@ -389,7 +389,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know"
+API_FORWARD_MODULES = "pass,know,host"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -464,6 +464,10 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "HOST_API"
+service = "weldsuite-host-api-test"
 
 [[env.test.services]]
 binding = "KNOW_API"
@@ -565,7 +569,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know"
+API_FORWARD_MODULES = "pass,know,host"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -646,6 +650,10 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "HOST_API"
+service = "weldsuite-host-api"
 
 [[env.production.services]]
 binding = "KNOW_API"

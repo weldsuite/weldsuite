@@ -120,6 +120,10 @@ cd apps/workers/app-api && pnpm exec wrangler deploy --dry-run --env test --outd
 
 ## Rules
 
+- If `pnpm install` rewrites unrelated lockfile lines (React Native peer strings),
+  restore `pnpm-lock.yaml` and run `pnpm install --lockfile-only --prefer-offline`,
+  then `pnpm install --frozen-lockfile --prefer-offline`.
+
 - No behaviour changes, no refactors beyond what the move needs.
 - No migrations, no `any`, no `@ts-ignore`, no new `console.log`; Zod v3.
 - Never edit `apps/web/platform/src/routeTree.gen.ts`.
