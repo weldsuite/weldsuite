@@ -171,16 +171,14 @@ export const manifest: Record<string, SecretEntry[]> = {
     "INTERNAL_API_SECRET",
   ],
 
-  // app-api: GitHub App secrets for the install flow + callback + Projects API.
+  // app-api. (The GitHub App secrets for the install flow + callback +
+  // Projects API moved to "connect-api" with WeldConnect.)
   "app-api": [
-    "GITHUB_APP_ID",
-    "GITHUB_APP_SLUG",
-    "GITHUB_APP_PRIVATE_KEY",
     "DATABASE_ENCRYPTION_KEY",
-    // Verifier side of the X-Internal-Secret handshake above — routes/integrations/
-    // internal.ts fails closed (401) when this is unset, so every internal caller
-    // (integration-sync-worker, integration-webhook-worker) needs the SAME value
-    // in the same env.
+    // Bearer of /api/internal (workflow-worker's send_email action) and of the
+    // WeldAgent cloud computer (agent-runtime). The internal /api/integrations
+    // router it also verified moved to "connect-api", which needs the SAME
+    // value.
     "INTERNAL_API_SECRET",
     // CLOUDFLARE_API_TOKEN: the @weldsuite/ai token fallback (WeldMail's Email
     // Routing moved to "mail-api", help center custom domains to "desk-api").
@@ -194,10 +192,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     // WeldAds FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to "ads-api".
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
     // WeldDesk Discord OAuth + outbound REST moved to "desk-api".
-    // Moneybird first-party connector (WeldConnect). Test app redirect:
-    // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
-    "MONEYBIRD_CLIENT_ID",
-    "MONEYBIRD_CLIENT_SECRET",
+    // The Moneybird first-party connector (WeldConnect) moved to "connect-api".
   ],
 
   "audit-log-worker": [
@@ -476,6 +471,36 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+  ],
+
+  // connect-api: the connect module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "connect-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // GitHub App secrets for the install flow + callback + Projects API
+    // (moved here from app-api).
+    "GITHUB_APP_ID",
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_PRIVATE_KEY",
+    // Verifier side of the X-Internal-Secret handshake (routes/integrations/
+    // internal.ts fails closed (401) when this is unset) and of the
+    // /api/internal/workflow-actions bearer; also the WooCommerce connect HMAC
+    // key. integration-sync-worker, integration-webhook-worker, workflow-worker,
+    // app-api and commerce-api need the SAME value in the same env.
+    "INTERNAL_API_SECRET",
+    // Moneybird first-party connector (moved here from app-api). Test app
+    // redirect: `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
+    "MONEYBIRD_CLIENT_ID",
+    "MONEYBIRD_CLIENT_SECRET",
+    // AI token for /api/workflows/generate: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
+    // so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
   ],
 };
 

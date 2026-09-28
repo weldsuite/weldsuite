@@ -65,9 +65,10 @@ head_sampling_rate = 1
 # Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
 # copied from api-worker (wrangler secret put / Doppler sync-secrets):
 # - INTERNAL_API_SECRET (internal service-to-service auth: /api/internal bearer
-#   from workflow-worker's send_email action + X-Internal-Secret on the internal
-#   /api/integrations router called by integration-sync-worker and
-#   integration-webhook-worker. Values MUST match across those workers.
+#   from workflow-worker's send_email action + the WeldAgent cloud computer.
+#   Values MUST match across those workers. The internal /api/integrations
+#   router and /api/internal/workflow-actions moved to connect-api, which needs
+#   the SAME value.
 #   NOTE: app-api has no preview custom domain, so workflow-worker PREVIEW
 #   targets app-api TEST — workflow-worker's preview secret must equal
 #   app-api's TEST secret.)
@@ -75,15 +76,9 @@ head_sampling_rate = 1
 #   webhook — moved to call-api with the call module.)
 # - (DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN — the WeldDesk
 #   helpdesk Discord channel — moved to desk-api with WeldDesk.)
-# - ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
-# - HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)
-# - MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
-#   connector OAuth). Register the app at
-#   https://moneybird.com/user/applications/new with redirect
-#   `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
-# - GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
-#   integration OAuth — distinct from GOOGLE_CLIENT_ID, which belongs to the
-#   WeldConnect workflow-integrations Google app)
+# - (ATTIO_*, HUBSPOT_*, MONEYBIRD_*, GOOGLE_CALENDAR_* — the integration and
+#   connector OAuth apps — and the GITHUB_APP_* secrets moved to connect-api
+#   with WeldConnect.)
 # - ASSEMBLYAI_API_KEY (W4: TranscribeRecordingWorkflow — meeting/call
 #   recording transcription; copy the value from api-worker per env). New
 #   transcriptions run in meet-api; keep it here while the draining
@@ -95,12 +90,12 @@ head_sampling_rate = 1
 # - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
 #   account billing-worker's webhooks use, since /api/billing/seats relies on
 #   the invoice.paid webhook)
-# - CAUTION: SLACK_CLIENT_ID / SLACK_CLIENT_SECRET are documented as the
-#   WeldConnect workflow-integrations Slack app, but the helpdesk Slack OAuth
-#   callback ( /api/integrations/helpdesk/slack/callback, now in desk-api )
-#   reuses the same Env fields, so desk-api needs the same values. If the
+# - (SLACK_CLIENT_* / GOOGLE_CLIENT_* — the WeldConnect workflow-integrations
+#   OAuth apps — moved to connect-api. CAUTION: the helpdesk Slack OAuth
+#   callback ( /api/integrations/helpdesk/slack/callback, in desk-api ) reuses
+#   the same SLACK_CLIENT_* fields, so desk-api needs the same values. If the
 #   WeldDesk helpdesk Slack app is a DIFFERENT OAuth app, introduce
-#   HELPDESK_SLACK_CLIENT_ID/_SECRET + a 2-line route change (W6).
+#   HELPDESK_SLACK_CLIENT_ID/_SECRET + a 2-line route change (W6).)
 # - AI (@weldsuite/ai) — the Cloudflare AI Gateway. Model ids and pricing are
 #   canonical. Set:
 #   - AI_GATEWAY_API_TOKEN — CF API token with Workers AI + AI Gateway Run scopes,
@@ -115,7 +110,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,connect"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -157,21 +152,17 @@ WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
-# D1 schedule index — shared with workflow-worker. The workflow-schedules
-# service upserts rows here on schedule CRUD so the sweep can poll D1 instead of
-# fanning out to every tenant DB. Dev uses the test database.
+# D1 schedule index — shared with workflow-worker and connect-api. app-api keeps
+# the WeldAgent routine index here (lib/weldagent-routine-index.ts) so the
+# hourly routine sweep can poll D1 instead of fanning out to every tenant DB.
+# Dev uses the test database.
 [[d1_databases]]
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 
-# D1 connector catch-up index — shared with integration-sync-worker. app-api
-# upserts a row on connect/pause/disconnect so the sweep can probe stores
-# without opening tenant Neon. Dev uses the test database.
-[[d1_databases]]
-binding = "CONNECTOR_SYNC_INDEX"
-database_name = "weldsuite-connector-sync-index-test"
-database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+# (The D1 connector catch-up index, CONNECTOR_SYNC_INDEX, moved to connect-api
+# with the connectors.)
 
 # R2 bucket for avatars / customer logos (shared with api-worker).
 [[r2_buckets]]
@@ -256,6 +247,10 @@ remote = true
 [[services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[services]]
+binding = "CONNECT_API"
+service = "weldsuite-connect-api"
 
 [[services]]
 binding = "FLOW_API"
@@ -429,7 +424,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,connect"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -453,11 +448,6 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
-
-[[env.test.d1_databases]]
-binding = "CONNECTOR_SYNC_INDEX"
-database_name = "weldsuite-connector-sync-index-test"
-database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -502,6 +492,10 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "CONNECT_API"
+service = "weldsuite-connect-api-test"
 
 [[env.test.services]]
 binding = "FLOW_API"
@@ -570,11 +564,8 @@ service = "weldsuite-know-api-test"
 [[env.test.send_email]]
 name = "SEND_EMAIL"
 
-[[env.test.workflows]]
-name = "execute-workflow"
-binding = "EXECUTE_WORKFLOW"
-class_name = "ExecuteWorkflowWorkflow"
-script_name = "weldsuite-workflow-test"
+# (EXECUTE_WORKFLOW, CRM_SYNC and GITHUB_PROJECT_SYNC moved to connect-api with
+# WeldConnect.)
 
 # Draining — new instances run in crm-api (execute-sequence-v3).
 [[env.test.workflows]]
@@ -628,19 +619,7 @@ class_name = "ImportTasksWorkflow"
 [env.test.triggers]
 crons = ["0 * * * *"]
 
-[[env.test.workflows]]
-name = "github-project-sync-int"
-binding = "GITHUB_PROJECT_SYNC"
-class_name = "GithubProjectSyncWorkflow"
-script_name = "weldsuite-integration-webhooks-test"
-
 # (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
-
-[[env.test.workflows]]
-name = "crm-sync-int"
-binding = "CRM_SYNC"
-class_name = "CrmSyncWorkflow"
-script_name = "weldsuite-integration-webhooks-test"
 
 # Draining — new instances run in data-api (welddata-enrich-v2).
 [[env.test.workflows]]
@@ -664,7 +643,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,connect"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -688,11 +667,6 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-production"
 database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
-
-[[env.production.d1_databases]]
-binding = "CONNECTOR_SYNC_INDEX"
-database_name = "weldsuite-connector-sync-index-production"
-database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
@@ -743,6 +717,10 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "CONNECT_API"
+service = "weldsuite-connect-api"
 
 [[env.production.services]]
 binding = "FLOW_API"
@@ -811,11 +789,8 @@ service = "weldsuite-know-api"
 [[env.production.send_email]]
 name = "SEND_EMAIL"
 
-[[env.production.workflows]]
-name = "execute-workflow"
-binding = "EXECUTE_WORKFLOW"
-class_name = "ExecuteWorkflowWorkflow"
-script_name = "weldsuite-workflow"
+# (EXECUTE_WORKFLOW, CRM_SYNC and GITHUB_PROJECT_SYNC moved to connect-api with
+# WeldConnect.)
 
 # CRM sequence execution — DRAINING. New instances run in crm-api as
 # execute-sequence-v3; this block (class re-exported from @weldsuite/crm-domain)
@@ -892,21 +867,7 @@ class_name = "ImportTasksWorkflow"
 [env.production.triggers]
 crons = ["0 * * * *"]
 
-# GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks).
-[[env.production.workflows]]
-name = "github-project-sync-int"
-binding = "GITHUB_PROJECT_SYNC"
-class_name = "GithubProjectSyncWorkflow"
-script_name = "weldsuite-integration-webhooks"
-
 # (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
-
-# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
-[[env.production.workflows]]
-name = "crm-sync-int"
-binding = "CRM_SYNC"
-class_name = "CrmSyncWorkflow"
-script_name = "weldsuite-integration-webhooks"
 
 # WeldData enrichment — DRAINING. New instances run in data-api as
 # welddata-enrich-v2; this block (class re-exported from @weldsuite/data-domain)

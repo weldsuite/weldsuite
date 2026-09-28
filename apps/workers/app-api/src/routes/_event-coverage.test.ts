@@ -58,16 +58,15 @@ const EXEMPT_ROUTES = new Set<string>([
   // business entity, and the events catalog has no `api_key` entity type.
   'workspace-api-keys',
   'audit-logs',
-  'integrations',
-  'github-connections',
-  'github-repo-links',
+  // (integrations, github-connections and github-repo-links moved to
+  // connect-api with their exemptions.)
   'storage',
   'user-preferences',
   'team-members',
   // (mail-ai, mail-sync, mail-snooze, mail-threads and mail-weldmail moved to
   // mail-api with their exemptions.)
-  'workflow-builder',
-  'workflow-dashboard',
+  // (workflow-builder and workflow-dashboard moved to connect-api with their
+  // exemptions.)
   '_test-fixtures',
   // Settings / workspace read-only / singleton routes — no core-CRUD mutations.
   // (digest-settings and my-tasks moved to flow-api with their exemptions.)
@@ -90,12 +89,8 @@ const EXEMPT_ROUTES = new Set<string>([
   // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
   'chat-calls',
   // (The Telnyx webhook receiver, webhooks-telnyx, moved to call-api.)
-  // external-webhooks — user-managed outbound webhook subscriptions (integration
-  // config); no `external_webhook` entity type in the events catalog.
-  'external-webhooks',
-  // github-project-links — GitHub integration links (like github-connections /
-  // github-repo-links above): infra, no entity type in the catalog.
-  'github-project-links',
+  // (external-webhooks and github-project-links moved to connect-api with their
+  // exemptions.)
   // push-tokens — device push-notification token registration; not a business entity.
   'push-tokens',
   // feature-requests — master-global product-feedback table; not a tenant entity.

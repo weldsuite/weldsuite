@@ -63,6 +63,8 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** connect-api. Target of the forwarder for the connect module's paths. */
+  CONNECT_API?: Fetcher;
   /** flow-api. Target of the forwarder for the flow module's paths. */
   FLOW_API?: Fetcher;
   /** mail-api. Target of the forwarder for the mail module's paths. */
@@ -164,19 +166,13 @@ export interface Env {
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /**
-   * D1 schedule index (shared with workflow-worker). Kept in sync by the
-   * workflow-schedules service on schedule create/update/toggle/delete so the
-   * schedule sweep can poll D1 instead of fanning out to every tenant DB.
+   * D1 schedule index (shared with workflow-worker and connect-api). app-api
+   * keeps the WeldAgent routine index (`weldagent_routine_index`) in it; the
+   * WeldConnect schedule rows are synced by connect-api.
    */
   SCHEDULE_INDEX?: D1Database;
-  /**
-   * D1 connector catch-up index (shared with integration-sync-worker). Kept in
-   * sync on connector connect/pause/resume/disconnect and after webhook ingest
-   * so the sweep can probe stores without opening tenant Neon.
-   */
-  CONNECTOR_SYNC_INDEX?: D1Database;
-  /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
-  EXECUTE_WORKFLOW?: Workflow;
+  // (CONNECTOR_SYNC_INDEX and EXECUTE_WORKFLOW moved to connect-api with
+  // WeldConnect.)
   /** CF Workflow that purges trashed drive files after 30 days. Hosted in
    *  app-api itself under the `trash-cleanup-v2*` workflow names —
    *  api-worker's old names keep draining until W7. */
@@ -223,41 +219,22 @@ export interface Env {
    *  app-api (class exported from src/index.ts). */
   WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
   /** Shared secret for internal service-to-service auth. Consumed by
-   *  /api/internal (workflow-worker send_email bearer) and the internal
-   *  /api/integrations router (X-Internal-Secret from integration-sync-worker
-   *  and integration-webhook-worker). Must be SET with the same value those
-   *  callers send. */
+   *  /api/internal (workflow-worker send_email bearer) and the WeldAgent cloud
+   *  computer (agent-runtime). Must be SET with the same value those callers
+   *  send. (The internal /api/integrations router moved to connect-api.) */
   INTERNAL_API_SECRET?: string;
-  /**
-   * Public HTTPS origin of integration-webhook-worker, used as the delivery
-   * URL when registering WooCommerce / Shopify webhooks. Defaults from ENVIRONMENT.
-   */
-  CONNECTOR_WEBHOOK_BASE_URL?: string;
+  // (CONNECTOR_WEBHOOK_BASE_URL moved to connect-api with the connectors.)
 
   // --- Cloudflare Email Sending (internal email, digests, test fixtures) ---
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
   SEND_EMAIL?: SendEmail;
   // (WeldMail's MAIL_INBOUND_WORKER_NAME moved to mail-api.)
 
-  // --- GitHub App integration (workflow-github) --------------------------
-  /** GitHub App ID (numeric). */
-  GITHUB_APP_ID?: string;
-  /** GitHub App slug — used to build the install URL. */
-  GITHUB_APP_SLUG?: string;
-  /** GitHub App private key (PEM) — signs app JWTs. */
-  GITHUB_APP_PRIVATE_KEY?: string;
-  /** Webhook secret for the GitHub App. */
-  GITHUB_APP_WEBHOOK_SECRET?: string;
-  /** CF Workflow that re-syncs a repo end-to-end (class hosted in core-api). */
-  GITHUB_FULL_SYNC?: Workflow;
-  /** CF Workflow that pushes a task mutation to its linked GitHub issue
-   *  (outbound sync). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_OUTBOUND_SYNC?: Workflow;
-  /** CF Workflow that syncs one GitHub Project (v2) link end-to-end
-   *  (Projects-v2 model). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_PROJECT_SYNC?: Workflow;
-  // (GITHUB_PROJECT_OUTBOUND, dispatched by the WeldFlow task routes, moved
-  // to flow-api.)
+  // (The GitHub App integration — GITHUB_APP_*, GITHUB_FULL_SYNC,
+  // GITHUB_PROJECT_SYNC — moved to connect-api with workflow-github;
+  // GITHUB_PROJECT_OUTBOUND, dispatched by the WeldFlow task routes, to
+  // flow-api. GITHUB_OUTBOUND_SYNC and GITHUB_APP_WEBHOOK_SECRET had no
+  // reader left.)
 
   // --- Notifications (`@weldsuite/notifications`) ------------------------
   // In-app delivery uses the REALTIME service binding declared above.
@@ -287,13 +264,8 @@ export interface Env {
    *  nuke the workspace every other spec depends on. test/preview only. */
   TEST_WORKSPACE_ID?: string;
 
-  // --- WeldConnect integration OAuth (@weldsuite/workflow-integrations) ---
-  /** Slack app OAuth client id/secret — slack.* integration. */
-  SLACK_CLIENT_ID?: string;
-  SLACK_CLIENT_SECRET?: string;
-  /** Google OAuth client id/secret — google_sheets/gmail/calendar integrations. */
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
+  // (The WeldConnect workflow-integrations OAuth apps' SLACK_CLIENT_* and
+  // GOOGLE_CLIENT_* moved to connect-api.)
 
   // --- WeldAds (Meta Marketing API) --------------------------------------
   // FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to ads-api with /api/ad-connections.
@@ -319,25 +291,10 @@ export interface Env {
   /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
   AGENT_COMPUTER_ENABLED?: string;
 
-  // --- Integrations (CRM / calendar OAuth apps + helpdesk channels) -------
-  /** Attio OAuth app credentials. */
-  ATTIO_CLIENT_ID?: string;
-  ATTIO_CLIENT_SECRET?: string;
-  /** HubSpot OAuth app credentials. */
-  HUBSPOT_CLIENT_ID?: string;
-  HUBSPOT_CLIENT_SECRET?: string;
-  /** Moneybird OAuth app credentials (first-party WeldConnect connector). */
-  MONEYBIRD_CLIENT_ID?: string;
-  MONEYBIRD_CLIENT_SECRET?: string;
-  /** Google Calendar OAuth app credentials (distinct from GOOGLE_CLIENT_ID,
-   *  which belongs to the WeldConnect workflow-integrations app). */
-  GOOGLE_CALENDAR_CLIENT_ID?: string;
-  GOOGLE_CALENDAR_CLIENT_SECRET?: string;
+  // (The integration OAuth apps — ATTIO_*, HUBSPOT_*, MONEYBIRD_*,
+  // GOOGLE_CALENDAR_* — and the CRM_SYNC workflow binding moved to connect-api
+  // with /api/integrations and /api/connectors.)
   // (WeldDesk's DISCORD_* OAuth credentials + bot token moved to desk-api.)
-  /** CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker
-   *  (workflow names crm-sync-int*); bound cross-script via `script_name`,
-   *  same pattern as the GITHUB_PROJECT_SYNC bindings. */
-  CRM_SYNC?: Workflow;
   // (APP_API_PUBLIC_URL, the helpdesk OAuth redirect_uri base override, moved
   // to desk-api and call-api.)
 }

@@ -17,7 +17,6 @@ import type { Database, } from '../db';
 import type { Env, Variables } from '../types';
 
 import { customFieldsRoutes } from './custom-fields';
-import { workflowsRoutes } from './workflows';
 import { chatDmRoutes } from './chat-dm';
 import { chatStatusRoutes } from './chat-status';
 import { chatActivityRoutes } from './chat-activity';
@@ -25,9 +24,9 @@ import { chatActivityRoutes } from './chat-activity';
 type SweepCase = ListSweepCase<Env, Variables>;
 
 const cases: SweepCase[] = [
-  // (tasks and my-tasks moved to flow-api; their cases live in its _sweeps.test.ts.)
+  // (tasks and my-tasks moved to flow-api, workflows to connect-api; their
+  // cases live in those workers' _sweeps.test.ts.)
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
-  { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
   // WeldChat — GET / returns a plain list (no cursor pagination) against an empty tenant.
   { mount: '/api/chat-dm', router: chatDmRoutes, permission: 'messages:read' },
   { mount: '/api/chat-status', router: chatStatusRoutes, permission: 'settings:read' },

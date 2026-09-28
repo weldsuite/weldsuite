@@ -9,6 +9,7 @@
     "./analytics-query": "./src/analytics-query.ts",
     "./custom-field-query": "./src/custom-field-query.ts",
     "./custom-field-values": "./src/custom-field-values.ts",
+    "./custom-objects": "./src/custom-objects.ts",
     "./files": "./src/files.ts",
     "./workspaces": "./src/workspaces.ts"
   },
