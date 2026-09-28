@@ -1,0 +1,137 @@
+/**
+ * Resolve the customer monthly + first-month setup price for a phone number:
+ * Telnyx wholesale plus admin markup (WeldHost-style), falling back to the catalog row.
+ *
+ * Telnyx bills an upfront/base cost and a monthly cost. The first invoice is
+ * both; later invoices are monthly only.
+ */
+
+import { eq } from 'drizzle-orm';
+import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
+import {
+  applyTelephonyMarkupMajor,
+  mapTelnyxAvailableNumber,
+  normalizeNumberType,
+  resolveTelephonyMarkup,
+  type TelephonyMarkup,
+} from '../lib/telnyx-available-numbers';
+import { telnyxRequest, type TelnyxEnv } from '../lib/telnyx';
+
+export interface ResolvedPhonePrice {
+  wholesaleMajor: string;
+  monthlyPrice: string;
+  setupPrice: string;
+  currency: string;
+  stripePriceId?: string;
+  stripeProductId?: string;
+  markup: TelephonyMarkup;
+}
+
+function hasMarkup(markup: TelephonyMarkup | undefined): boolean {
+  if (!markup) return false;
+  return markup.markupAmount != null || markup.markupPercent != null;
+}
+
+export function majorToCents(major: string | number | null | undefined): number {
+  const n = typeof major === 'number' ? major : Number.parseFloat(String(major ?? ''));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
+}
+
+/** Prefer a positive catalog wholesale amount; otherwise use the live Telnyx figure. */
+export function pickWholesaleMajor(
+  catalog: string | null | undefined,
+  live: string | null | undefined,
+): string | null {
+  const catalogN = Number.parseFloat(String(catalog ?? ''));
+  if (Number.isFinite(catalogN) && catalogN > 0) return String(catalog);
+  const liveN = Number.parseFloat(String(live ?? ''));
+  if (Number.isFinite(liveN) && liveN > 0) return String(live);
+  return null;
+}
+
+export async function lookupTelnyxWholesale(
+  env: TelnyxEnv,
+  phoneNumber: string,
+  countryCode: string,
+): Promise<{ monthly: string; upfront: string; currency: string } | null> {
+  const params = new URLSearchParams();
+  params.set('filter[country_code]', countryCode.toUpperCase());
+  params.set('filter[limit]', '20');
+  params.set('filter[features][]', 'voice');
+  const national = phoneNumber.replace(/^\+/, '');
+  params.set('filter[phone_number][contains]', national.slice(-8));
+
+  const resp = await telnyxRequest<{ data: unknown[] }>(
+    env,
+    `/available_phone_numbers?${params.toString()}`,
+  );
+  const mapped = (resp.data || [])
+    .map((row) => mapTelnyxAvailableNumber(row as never, countryCode))
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+  const hit = mapped.find((n) => n.phone_number === phoneNumber) ?? mapped[0];
+  if (!hit?.cost_information) return null;
+  return {
+    monthly: hit.cost_information.monthly_cost || '0',
+    upfront: hit.cost_information.upfront_cost || '0',
+    currency: hit.cost_information.currency || 'USD',
+  };
+}
+
+export async function resolveCustomerPhonePrice(
+  env: TelnyxEnv,
+  args: { countryCode: string; numberType: string; phoneNumber: string },
+): Promise<ResolvedPhonePrice | null> {
+  const masterDb = getMasterDb(env);
+  const rows = await masterDb
+    .select()
+    .from(masterSchema.telephonyNumberPricing)
+    .where(eq(masterSchema.telephonyNumberPricing.isActive, true));
+
+  const country = args.countryCode.toUpperCase();
+  const type = normalizeNumberType(args.numberType);
+  const catalog = rows.find(
+    (r) => r.countryCode.toUpperCase() === country && normalizeNumberType(r.numberType) === type,
+  );
+  const markup = resolveTelephonyMarkup(rows, country, type) ?? {
+    markupAmount: catalog?.markupAmount ?? null,
+    markupPercent: catalog?.markupPercent != null ? String(catalog.markupPercent) : null,
+  };
+
+  let wholesaleMajor = catalog?.monthlyPrice != null ? String(catalog.monthlyPrice) : null;
+  let wholesaleSetup = catalog?.setupFee != null ? String(catalog.setupFee) : null;
+  let currency = catalog?.currency || 'USD';
+
+  const needLiveMonthly = !wholesaleMajor || Number.parseFloat(wholesaleMajor) <= 0;
+  const needLiveSetup = !wholesaleSetup || Number.parseFloat(wholesaleSetup) <= 0;
+  if (needLiveMonthly || needLiveSetup) {
+    const live = await lookupTelnyxWholesale(env, args.phoneNumber, country);
+    if (live) {
+      wholesaleMajor = pickWholesaleMajor(wholesaleMajor, live.monthly);
+      wholesaleSetup = pickWholesaleMajor(wholesaleSetup, live.upfront);
+      currency = live.currency || currency;
+    }
+  }
+
+  if (!wholesaleMajor) return null;
+  const monthlyPrice = applyTelephonyMarkupMajor(wholesaleMajor, markup) ?? wholesaleMajor;
+  const cents = majorToCents(monthlyPrice);
+  if (cents < 1) return null;
+
+  const setupWholesale = pickWholesaleMajor(wholesaleSetup, null);
+  const setupPrice = setupWholesale
+    ? (applyTelephonyMarkupMajor(setupWholesale, markup) ?? setupWholesale)
+    : '0.00';
+
+  const useCatalogStripe = Boolean(catalog?.stripePriceId) && !hasMarkup(markup);
+
+  return {
+    wholesaleMajor,
+    monthlyPrice,
+    setupPrice,
+    currency,
+    stripePriceId: useCatalogStripe ? catalog?.stripePriceId ?? undefined : undefined,
+    stripeProductId: catalog?.stripeProductId ?? undefined,
+    markup: markup ?? { markupAmount: null, markupPercent: null },
+  };
+}

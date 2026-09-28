@@ -1,0 +1,178 @@
+# WeldSuite mail-api worker — the mail module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   mail-api.weldsuite.org        production
+#   mail-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "mail-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLOUDFLARE_API_TOKEN (mail domain provisioning through Cloudflare Email
+#     Routing, @weldsuite/worker-email; also the AI token /api/mail-ai runs on
+#     when AI_GATEWAY_API_TOKEN is unset — same value as app-api)
+#   (DATABASE_URL_MASTER also backs the WeldMail address registry, the
+#   catch-all registry, the mailbox directory and the mail-ai credit metering)
+#
+# Secrets (not in the manifest yet; same values as app-api):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/mail-ai
+#     (@weldsuite/ai). When unset, @weldsuite/ai uses CLOUDFLARE_API_TOKEN.
+#   MAIL_INBOUND_WORKER_NAME (optional; the worker the catch-all rule routes
+#     inbound mail to — defaults to weldsuite-mail-inbound, unset on app-api)
+#
+# CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+
+name = "weldsuite-mail-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# R2 bucket for mail attachments and generated contact avatars.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# Cloudflare Email Sending binding for WeldMail outbound delivery. The
+# `destination_address` is the envelope MAIL FROM the binding will accept;
+# Cloudflare requires this address to be verified in the dashboard once per
+# environment. Locally there's no MTA, so `wrangler dev` will fail any
+# actual send — that's expected; the route handlers gate on env.SEND_EMAIL
+# and surface a 503 with `code: 'EMAIL_BINDING_UNAVAILABLE'` when missing.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Scheduled email — Cloudflare Workflow hosted in THIS worker (class
+# re-exported from src/index.ts, @weldsuite/mail-domain). New name (-v3):
+# app-api keeps `send-scheduled-email-v2*` while its in-flight instances
+# drain. Self-hosted (no script_name), so it also works under plain
+# `wrangler dev`.
+[[workflows]]
+name = "send-scheduled-email-v3-dev"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-mail-api-test"
+routes = [
+  { pattern = "mail-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+[[env.test.workflows]]
+name = "send-scheduled-email-v3"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-mail-api"
+routes = [
+  { pattern = "mail-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+# Scheduled email — hosted in this worker, no script_name. New name (-v3):
+# app-api's `send-scheduled-email-v2` keeps draining (up to MAX_SCHEDULE_DAYS).
+[[env.production.workflows]]
+name = "send-scheduled-email-v3"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -63,6 +63,44 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** agent-api. Target of the forwarder for the agent module's paths. */
+  AGENT_API?: Fetcher;
+  /** chat-api. Target of the forwarder for the chat module's paths. */
+  CHAT_API?: Fetcher;
+  /** connect-api. Target of the forwarder for the connect module's paths. */
+  CONNECT_API?: Fetcher;
+  /** flow-api. Target of the forwarder for the flow module's paths. */
+  FLOW_API?: Fetcher;
+  /** mail-api. Target of the forwarder for the mail module's paths. */
+  MAIL_API?: Fetcher;
+  /** desk-api. Target of the forwarder for the desk module's paths. */
+  DESK_API?: Fetcher;
+  /** call-api. Target of the forwarder for the call module's paths. */
+  CALL_API?: Fetcher;
+  /** meet-api. Target of the forwarder for the meet module's paths. */
+  MEET_API?: Fetcher;
+  /** calendar-api. Target of the forwarder for the calendar module's paths. */
+  CALENDAR_API?: Fetcher;
+  /** books-api. Target of the forwarder for the books module's paths. */
+  BOOKS_API?: Fetcher;
+  /** data-api. Target of the forwarder for the data module's paths. */
+  DATA_API?: Fetcher;
+  /** crm-api. Target of the forwarder for the crm module's paths. */
+  CRM_API?: Fetcher;
+  /** commerce-api. Target of the forwarder for the commerce module's paths. */
+  COMMERCE_API?: Fetcher;
+  /** stash-api. Target of the forwarder for the stash module's paths. */
+  STASH_API?: Fetcher;
+  /** hr-api. Target of the forwarder for the hr module's paths. */
+  HR_API?: Fetcher;
+  /** ads-api. Target of the forwarder for the ads module's paths. */
+  ADS_API?: Fetcher;
+  /** social-api. Target of the forwarder for the social module's paths. */
+  SOCIAL_API?: Fetcher;
+  /** host-api. Target of the forwarder for the host module's paths. */
+  HOST_API?: Fetcher;
+  /** know-api. Target of the forwarder for the know module's paths. */
+  KNOW_API?: Fetcher;
 
   CF_ACCOUNT_ID?: string;
 
@@ -79,75 +117,26 @@ export interface Env {
   /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
   CF_AIG_TOKEN?: string;
 
-  // --- WeldBooks Digipoort (Belastingdienst SBR filing) --------------------
-  /** simulated (default) | preprod | production — gates real transmission. */
-  DIGIPOORT_MODE?: string;
-  /** mTLS certificate binding presenting the PKIoverheid SBR services server
-   *  certificate to Digipoort (wrangler.toml `mtls_certificates`). */
-  DIGIPOORT_CERT?: Fetcher;
-  /** Cloudflare RealtimeKit app id — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
-  CF_REALTIME_APP_ID?: string;
-  /** Cloudflare RealtimeKit app secret — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
-  CF_REALTIME_APP_SECRET?: string;
-  /**
-   * Shared token guarding the RealtimeKit webhook receiver. When set, inbound
-   * `/api/webhooks/cloudflare-realtime` requests must carry a matching
-   * `?token=`, and POST /setup registers the webhook URL with it. Unset =
-   * legacy no-check. (RTK's post-Dyte HMAC signature scheme is undocumented,
-   * so we gate on a URL secret we control instead.)
-   */
-  CF_REALTIME_WEBHOOK_TOKEN?: string;
-  /**
-   * Shared token guarding the MeetingBaas webhook receiver. When set, inbound
-   * `/api/webhooks/meeting-bot` requests must carry a matching `?token=`
-   * (append it to the URL registered with MeetingBaas). Unset = legacy no-check.
-   */
-  MEETINGBAAS_WEBHOOK_TOKEN?: string;
+  // (WeldBooks' DIGIPOORT_MODE / DIGIPOORT_CERT moved to books-api.)
+  // (CF_REALTIME_APP_ID / CF_REALTIME_APP_SECRET, the RealtimeKit credentials
+  // of WeldChat calls, moved to chat-api; CF_REALTIME_WEBHOOK_TOKEN /
+  // MEETINGBAAS_WEBHOOK_TOKEN to meet-api with the WeldMeet webhooks.)
 
-  // --- Project analytics (R2 SQL / Iceberg) ---------------------------------
-  /** Bearer token for the Cloudflare R2 SQL REST API. */
-  R2_SQL_API_TOKEN?: string;
-  /** Name of the R2 bucket that holds the Iceberg analytics catalog. */
-  R2_ANALYTICS_BUCKET?: string;
+  // (Project analytics' R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET moved to
+  // flow-api and crm-api.)
 
-  // --- WeldHost (Realtime Register + Cloudflare Zones + Stripe checkout) --
+  // --- Cloudflare + Stripe (the WeldHost keys moved to host-api) ----------
   /** Cloudflare API token with Zone (+ legacy Registrar) scopes. */
   CLOUDFLARE_API_TOKEN?: string;
   /** Cloudflare account that owns zones (and legacy registrar domains).
    *  Preferred over the legacy `CF_ACCOUNT_ID` name; both are accepted. */
   CLOUDFLARE_ACCOUNT_ID?: string;
-  /** Realtime Register API key (`Authorization: ApiKey …`). */
-  REALTIME_REGISTER_API_KEY?: string;
-  /** Realtime Register customer handle (single WeldSuite account). */
-  REALTIME_REGISTER_CUSTOMER?: string;
-  /** When `"true"`, use the RTR OTE (test) API base URL. */
-  REALTIME_REGISTER_OTE?: string;
-  /**
-   * ADAC (Advanced Domain Availability Checker) API key from the ADAC
-   * management panel. Different from `REALTIME_REGISTER_API_KEY`. Required
-   * for `/api/domains/search` and `/api/domains/check`.
-   */
-  REALTIME_REGISTER_ADAC_API_KEY?: string;
-  /** Optional ADAC TLD-set token. Omit to use the account default set. */
-  REALTIME_REGISTER_ADAC_TLD_SET_TOKEN?: string;
-  /** Optional platform contact handles for ADMIN/TECH/BILLING roles. */
-  REALTIME_REGISTER_CONTACT_ADMIN?: string;
-  REALTIME_REGISTER_CONTACT_TECH?: string;
-  REALTIME_REGISTER_CONTACT_BILLING?: string;
-  /** Shared secret for `/public/webhooks/realtime-register` (`?token=`). */
-  REALTIME_REGISTER_WEBHOOK_SECRET?: string;
-  /** Stripe secret key used to mint domain registration Checkout Sessions. */
+  /** Stripe secret key (billing, workspace settings). */
   STRIPE_SECRET_KEY?: string;
 
-  // --- Help center custom domains on Vercel (apps/web/helpcenter) -------------
-  /** Vercel API token with project domain scope. */
-  VERCEL_API_TOKEN?: string;
-  /** Vercel project id of the apps/web/helpcenter deployment. */
-  VERCEL_HELPCENTER_PROJECT_ID?: string;
-  /** Vercel team id, when the helpcenter project lives under a team. */
-  VERCEL_TEAM_ID?: string;
+  // (The help center's VERCEL_* custom-domain keys moved to desk-api.)
 
-  /** R2 bucket used for customer/contact avatars (logo-fetch.ts). */
+  /** R2 bucket for files, documents and generated avatars (participant-resolver.ts). */
   STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
@@ -178,30 +167,13 @@ export interface Env {
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /**
-   * D1 schedule index (shared with workflow-worker). Kept in sync by the
-   * workflow-schedules service on schedule create/update/toggle/delete so the
-   * schedule sweep can poll D1 instead of fanning out to every tenant DB.
+   * D1 schedule index (shared with workflow-worker and connect-api). app-api
+   * keeps the WeldAgent routine index (`weldagent_routine_index`) in it; the
+   * WeldConnect schedule rows are synced by connect-api.
    */
   SCHEDULE_INDEX?: D1Database;
-  /**
-   * D1 connector catch-up index (shared with integration-sync-worker). Kept in
-   * sync on connector connect/pause/resume/disconnect and after webhook ingest
-   * so the sweep can probe stores without opening tenant Neon.
-   */
-  CONNECTOR_SYNC_INDEX?: D1Database;
-  /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
-  EXECUTE_WORKFLOW?: Workflow;
-  /** CF Workflow for CRM sequence step execution. Hosted in app-api itself
-   *  (class exported from src/index.ts) under the `execute-sequence-v2*`
-   *  workflow names — api-worker's old `execute-sequence*` names keep
-   *  draining until W7. */
-  EXECUTE_SEQUENCE?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    sequenceId: string;
-    enrollmentId: string;
-    customerId: string;
-  }>;
+  // (CONNECTOR_SYNC_INDEX and EXECUTE_WORKFLOW moved to connect-api with
+  // WeldConnect.)
   /** CF Workflow that purges trashed drive files after 30 days. Hosted in
    *  app-api itself under the `trash-cleanup-v2*` workflow names —
    *  api-worker's old names keep draining until W7. */
@@ -212,16 +184,9 @@ export interface Env {
     deletedAt: string;
     purgeAt: string;
   }>;
-  /** CF Workflow that auto-unpins a chat message when its pin expiry passes.
-   *  Hosted in app-api itself under the `unpin-expired-message-v2*` names;
-   *  dispatched from the routes/chat-messages pin endpoints with the
-   *  messageId as instance id so manual unpin can abort it. */
-  UNPIN_EXPIRED_MESSAGE?: Workflow<{
-    workspaceId: string;
-    channelId: string;
-    messageId: string;
-    expiresAt: string;
-  }>;
+  // (UNPIN_EXPIRED_MESSAGE moved to chat-api with WeldChat; the
+  // unpin-expired-message-v2* [[workflows]] blocks stay only while their
+  // in-flight instances drain.)
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window, then sends only if they are still away and the
    *  notification is still unread. Hosted in app-api itself under the
@@ -237,132 +202,46 @@ export interface Env {
     sendAfter: string;
     template?: { id: string; variables: Record<string, string | number | boolean> };
   }>;
-  /** CF Workflow that sends one user's daily task digest email. Hosted in
-   *  app-api itself under the `send-digest-v2*` names; dispatched by the
-   *  hourly digest sweep cron (src/cron/digest-sweep.ts). */
-  SEND_DIGEST?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    email: string;
-    name: string;
-    timezone: string;
-  }>;
-  /** CF Workflow that bulk-imports project tasks from an R2 JSON payload.
-   *  Hosted in app-api itself under the `import-tasks-v2*` names; dispatched
-   *  by POST /api/projects/:projectId/tasks/import-jobs. */
-  IMPORT_TASKS?: Workflow<{
-    jobId: string;
-    workspaceId: string;
-    userId: string;
-    projectId: string;
-    r2Key: string;
-  }>;
-  /** CF Workflow that sleeps until `scheduledFor` then dispatches a
-   *  scheduled email via the Cloudflare send binding. Hosted in app-api itself
-   *  (class exported from src/index.ts). */
-  SEND_SCHEDULED_EMAIL?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    messageId: string;
-    accountId: string;
-    scheduledFor: string;
-  }>;
-  /** CF Workflow that runs a WeldData enrichment column across leads in the
-   *  background. Hosted in app-api itself (class exported from src/index.ts). */
-  WELDDATA_ENRICH?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    listId: string;
-    columnId: string;
-    leadIds: string[];
-  }>;
-  /** CF Workflow that runs WeldAgent background work (chat replies, routine
-   *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
-   *  app-api (class exported from src/index.ts). */
-  WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
-  /** CF Workflow that transcribes a meeting (or CRM call) recording.
-   *  Hosted in app-api itself under the `transcribe-recording-v2*` workflow
-   *  names — api-worker's old names keep draining until W7. Dispatched by
-   *  POST /api/meetings/:id/recording/transcribe. */
-  TRANSCRIBE_RECORDING?: Workflow<{
-    transcriptionId: string;
-    fileKey?: string;
-    fileUrl?: string;
-    language?: string;
-    estimatedMinutes: number;
-    creditRate: number;
-    entityId: string;
-    workspaceId: string;
-  }>;
+  // (SEND_DIGEST and IMPORT_TASKS moved to flow-api with WeldFlow; the
+  // send-digest-v2* / import-tasks-v2* [[workflows]] blocks stay only while
+  // their in-flight instances drain.)
+  // (SEND_SCHEDULED_EMAIL moved to mail-api with WeldMail; the
+  // send-scheduled-email-v2* [[workflows]] blocks stay only while their
+  // in-flight instances drain.)
+  // (WELDAGENT_JOB moved to agent-api with WeldAgent; the weldagent-job*
+  // [[workflows]] blocks stay only while their in-flight instances drain.)
   /** Shared secret for internal service-to-service auth. Consumed by
-   *  /api/internal (workflow-worker send_email bearer) and the internal
-   *  /api/integrations router (X-Internal-Secret from integration-sync-worker
-   *  and integration-webhook-worker). Must be SET with the same value those
-   *  callers send. */
+   *  /api/internal (workflow-worker send_email bearer) and the WeldAgent cloud
+   *  computer (agent-runtime). Must be SET with the same value those callers
+   *  send. (The internal /api/integrations router moved to connect-api.) */
   INTERNAL_API_SECRET?: string;
-  /**
-   * Public HTTPS origin of integration-webhook-worker, used as the delivery
-   * URL when registering WooCommerce / Shopify webhooks. Defaults from ENVIRONMENT.
-   */
-  CONNECTOR_WEBHOOK_BASE_URL?: string;
+  // (CONNECTOR_WEBHOOK_BASE_URL moved to connect-api with the connectors.)
 
-  // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
+  // --- Cloudflare Email Sending (internal email, digests, test fixtures) ---
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
   SEND_EMAIL?: SendEmail;
-  /** Worker name the customer's zone catch-all rule routes inbound mail to.
-   *  Defaults to `weldsuite-mail-inbound` when unset. */
-  MAIL_INBOUND_WORKER_NAME?: string;
+  // (WeldMail's MAIL_INBOUND_WORKER_NAME moved to mail-api.)
 
-  // --- GitHub App integration (workflow-github) --------------------------
-  /** GitHub App ID (numeric). */
-  GITHUB_APP_ID?: string;
-  /** GitHub App slug — used to build the install URL. */
-  GITHUB_APP_SLUG?: string;
-  /** GitHub App private key (PEM) — signs app JWTs. */
-  GITHUB_APP_PRIVATE_KEY?: string;
-  /** Webhook secret for the GitHub App. */
-  GITHUB_APP_WEBHOOK_SECRET?: string;
-  /** CF Workflow that re-syncs a repo end-to-end (class hosted in core-api). */
-  GITHUB_FULL_SYNC?: Workflow;
-  /** CF Workflow that pushes a task mutation to its linked GitHub issue
-   *  (outbound sync). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_OUTBOUND_SYNC?: Workflow;
-  /** CF Workflow that syncs one GitHub Project (v2) link end-to-end
-   *  (Projects-v2 model). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_PROJECT_SYNC?: Workflow;
-  /** CF Workflow that pushes a task mutation to its linked GitHub Project item
-   *  (Projects-v2 outbound). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_PROJECT_OUTBOUND?: Workflow;
+  // (The GitHub App integration — GITHUB_APP_*, GITHUB_FULL_SYNC,
+  // GITHUB_PROJECT_SYNC — moved to connect-api with workflow-github;
+  // GITHUB_PROJECT_OUTBOUND, dispatched by the WeldFlow task routes, to
+  // flow-api. GITHUB_OUTBOUND_SYNC and GITHUB_APP_WEBHOOK_SECRET had no
+  // reader left.)
 
   // --- Notifications (`@weldsuite/notifications`) ------------------------
   // In-app delivery uses the REALTIME service binding declared above.
-  /** Resend API key — used by the email channel and the task digest workflow.
+  /** Resend API key — used by the email channel and internal email.
    *  Optional locally. */
   RESEND_API_KEY?: string;
   /** AssemblyAI API key — used by TranscribeRecordingWorkflow (meeting/call
-   *  recording transcription). Copy the value from api-worker per env via
-   *  `wrangler secret put ASSEMBLYAI_API_KEY [--env …]`. Optional locally. */
+   *  recording transcription). New transcriptions run in meet-api; app-api
+   *  still needs it while its draining `transcribe-recording-v2*` instances
+   *  finish. Optional locally. */
   ASSEMBLYAI_API_KEY?: string;
-  /** Lemlist API key — WeldData lead database. Shared WeldSuite key, set via
-   *  `wrangler secret put LEMLIST_API_KEY`. Optional locally. */
-  LEMLIST_API_KEY?: string;
-  /** Findymail API key — WeldData email-finder enrichment action. Set via
-   *  `wrangler secret put FINDYMAIL_API_KEY`. Optional locally. */
-  FINDYMAIL_API_KEY?: string;
-  /** Prospeo API key — WeldData email-finder enrichment action. Set via
-   *  `wrangler secret put PROSPEO_API_KEY`. Optional locally. */
-  PROSPEO_API_KEY?: string;
   /** Resend template id for the task-assignment email. When unset, the
    *  helper falls back to a plain-text email. */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;
-  /** Resend template ids for the calendar attendee emails (invite /
-   *  reschedule / cancel), read by services/calendar-mail.ts. Each is
-   *  independently optional: when one is unset that mail falls back to the
-   *  inline HTML template, matching the legacy api-worker behaviour. Mail
-   *  no-ops entirely when RESEND_API_KEY is unset. */
-  RESEND_MEETING_INVITE_TEMPLATE_ID?: string;
-  RESEND_MEETING_UPDATE_TEMPLATE_ID?: string;
-  RESEND_MEETING_CANCEL_TEMPLATE_ID?: string;
+  // (The calendar attendee mails' RESEND_MEETING_*_TEMPLATE_ID moved to calendar-api.)
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
@@ -377,35 +256,11 @@ export interface Env {
    *  nuke the workspace every other spec depends on. test/preview only. */
   TEST_WORKSPACE_ID?: string;
 
-  // --- WeldConnect integration OAuth (@weldsuite/workflow-integrations) ---
-  /** Slack app OAuth client id/secret — slack.* integration. */
-  SLACK_CLIENT_ID?: string;
-  SLACK_CLIENT_SECRET?: string;
-  /** Google OAuth client id/secret — google_sheets/gmail/calendar integrations. */
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-
-  // --- WeldSocial (PostPeer unified social publishing) -------------------
-  /** PostPeer API key (single WeldSuite-level key, sent as `x-access-key`).
-   *  Set via `wrangler secret put POSTPEER_API_KEY`. Optional locally — when
-   *  unset, provider actions return a configuration error and CRUD still works. */
-  POSTPEER_API_KEY?: string;
-  /** Override the PostPeer REST base URL. Defaults to https://api.postpeer.dev/v1. */
-  POSTPEER_BASE_URL?: string;
-  /** Shared secret used to verify PostPeer webhook signatures. */
-  POSTPEER_WEBHOOK_SECRET?: string;
-  /**
-   * BYOK OAuth apps, as a JSON object of platform → PostPeer app id, e.g.
-   * `{"twitter":"app_123","linkedin":"app_456"}`. Apps are per-platform and are
-   * registered on PostPeer via /v1/apps. Platforms absent from the map (and an
-   * unset value) connect under PostPeer's own system app, so the consent screen
-   * shows PostPeer's branding rather than WeldSuite's.
-   */
-  POSTPEER_APP_IDS?: string;
+  // (The WeldConnect workflow-integrations OAuth apps' SLACK_CLIENT_* and
+  // GOOGLE_CLIENT_* moved to connect-api.)
 
   // --- WeldAds (Meta Marketing API) --------------------------------------
-  FACEBOOK_APP_ID?: string;
-  FACEBOOK_APP_SECRET?: string;
+  // FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to ads-api with /api/ad-connections.
   /** Meta webhook verify token + X-Hub-Signature-256 verification secret. */
   FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
   /** Public base URL for integration-webhook-worker (Meta ad webhooks). */
@@ -417,79 +272,26 @@ export interface Env {
    *  Absent in local dev, where every flag resolves to its catalog default. */
   FLAGSHIP?: FlagshipBinding;
 
-  // --- Telephony (Telnyx) — /api/telephony, /api/porting, Telnyx webhook ---
-  /** Telnyx API key (Bearer) — all Telnyx REST calls. */
-  TELNYX_API_KEY?: string;
-  /** Telnyx Programmable Voice app id (call routing, phone numbers). */
-  TELNYX_CONNECTION_ID?: string;
-  /** Telnyx WebRTC credential connection id (SIP token generation). */
-  TELNYX_SIP_CONNECTION_ID?: string;
-  /** Legacy secret slot carried over from api-worker (declared, never used there). */
-  TELNYX_WEBHOOK_SECRET?: string;
-  /** Telnyx account public key (base64 Ed25519). When set,
-   *  /public/webhooks/telnyx enforces webhook signatures (recommended);
-   *  when unset, the receiver accepts unsigned requests (api-worker parity). */
-  TELNYX_PUBLIC_KEY?: string;
+  // (Telephony's TELNYX_* moved to call-api.)
 
-  // --- Helpdesk workflow engine (apps/workers/helpdesk-workflow-worker) -----------
-  /** Base URL of helpdesk-workflow-worker — used by
-   *  POST /api/helpdesk-workflows/executions/:executionId/resume to forward
-   *  customer responses to its /respond endpoint. */
-  HELPDESK_WORKFLOW_WORKER_URL?: string;
+  // (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
+   * WeldAgent moved to agent-api; app-api still needs it (and
+   * AGENT_COMPUTER_ENABLED) while its draining `weldagent-job*` instances
+   * finish.
    */
   AGENT_RUNTIME_URL?: string;
   /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
   AGENT_COMPUTER_ENABLED?: string;
 
-  // --- Integrations (CRM / calendar OAuth apps + helpdesk channels) -------
-  /** Attio OAuth app credentials. */
-  ATTIO_CLIENT_ID?: string;
-  ATTIO_CLIENT_SECRET?: string;
-  /** HubSpot OAuth app credentials. */
-  HUBSPOT_CLIENT_ID?: string;
-  HUBSPOT_CLIENT_SECRET?: string;
-  /** Moneybird OAuth app credentials (first-party WeldConnect connector). */
-  MONEYBIRD_CLIENT_ID?: string;
-  MONEYBIRD_CLIENT_SECRET?: string;
-  /** Google Calendar OAuth app credentials (distinct from GOOGLE_CLIENT_ID,
-   *  which belongs to the WeldConnect workflow-integrations app). */
-  GOOGLE_CALENDAR_CLIENT_ID?: string;
-  GOOGLE_CALENDAR_CLIENT_SECRET?: string;
-  /** Discord OAuth app credentials + bot token — WeldDesk helpdesk Discord
-   *  channel integration ( /api/integrations/helpdesk/discord/callback ). */
-  DISCORD_CLIENT_ID?: string;
-  DISCORD_CLIENT_SECRET?: string;
-  DISCORD_BOT_TOKEN?: string;
-  /** CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker
-   *  (workflow names crm-sync-int*); bound cross-script via `script_name`,
-   *  same pattern as the GITHUB_PROJECT_SYNC bindings. */
-  CRM_SYNC?: Workflow;
-  /** Optional override for this worker's public base URL — used to build
-   *  OAuth redirect_uri values (helpdesk Discord/Slack callbacks). Defaults
-   *  to the per-environment app-api hostname when unset. */
-  APP_API_PUBLIC_URL?: string;
-  /**
-   * Public origin of the B2B commerce portal (no trailing slash), used in
-   * magic-link emails. Defaults: production `https://orders.weldsuite.org`,
-   * test `https://orders-test.weldsuite.org`, otherwise `http://localhost:3021`.
-   */
-  COMMERCE_PORTAL_URL?: string;
-  /**
-   * Public origin of the WeldHR workforce portal (no trailing slash), used in
-   * invite and sign-in emails when the workspace has no custom domain.
-   * Defaults: production `https://team.weldsuite.org`, test
-   * `https://team-test.weldsuite.org`, otherwise `http://localhost:3022`.
-   */
-  HR_PORTAL_URL?: string;
-  /**
-   * Public origin of the realtime worker (e.g. `wss://realtime.weldsuite.org`),
-   * handed to the workforce portal with its connect ticket. Defaults per
-   * ENVIRONMENT; set it for local runs on a non-default port.
-   */
-  REALTIME_PUBLIC_URL?: string;
+  // (The integration OAuth apps — ATTIO_*, HUBSPOT_*, MONEYBIRD_*,
+  // GOOGLE_CALENDAR_* — and the CRM_SYNC workflow binding moved to connect-api
+  // with /api/integrations and /api/connectors.)
+  // (WeldDesk's DISCORD_* OAuth credentials + bot token moved to desk-api.)
+  // (APP_API_PUBLIC_URL, the helpdesk OAuth redirect_uri base override, moved
+  // to desk-api and call-api.)
 }
 
 /**
@@ -510,19 +312,4 @@ export type Variables = {
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */
   customObject?: CustomObjectRow;
-  /** B2B commerce portal buyer session (public `/public/commerce-portal` only). */
-  portalPersonId?: string;
-  portalCompanyId?: string;
-  portalPartyId?: string;
-  portalAccessId?: string;
-  portalEmail?: string;
-  portalSessionToken?: string;
-  /** WeldHR workforce portal session (public `/public/hr-portal` only). */
-  hrPortalAccessId?: string;
-  hrPortalSettings?: import('@weldsuite/db/schema').HrPortalSettings;
-  hrPortalKind?: 'employee' | 'client';
-  hrPortalEmployeeId?: string | null;
-  hrPortalCompanyId?: string | null;
-  hrPortalEmail?: string;
-  hrPortalSessionToken?: string;
 };

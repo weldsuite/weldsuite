@@ -17,14 +17,15 @@
  *   - src/index.ts    createModuleApi() + the /api/* auth guard, ready for the
  *                     module's routers
  *   - src/types.ts    Env / Variables extending the kit's
- *   - a smoke test, tsconfig, vitest config and package.json
+ *   - a smoke test, route sweeps (scripts/templates/module-api/_sweeps.test.ts),
+ *     tsconfig, vitest config and package.json
  *   - an entry in scripts/secrets/manifest.ts with the kit's base secrets
  *
  * Moving the module's code in is the per-module recipe in
  * docs/plans/app-api-module-split.md; this only creates the empty worker.
  */
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -154,6 +155,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Workers-only module; any worker that (transitively) imports
+      // @weldsuite/worker-email needs this under vitest.
+      'cloudflare:email': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
+      ),
     },
   },
 });
@@ -310,6 +317,12 @@ export default {
   fetch: app.fetch,
 };
 `,
+
+  // Route sweeps (entity events, auth gates, list endpoints); see the template.
+  'src/routes/_sweeps.test.ts': readFileSync(
+    path.join(repoRoot, 'scripts/templates/module-api/_sweeps.test.ts'),
+    'utf8',
+  ),
 
   'src/index.test.ts': `import { describe, expect, it } from 'vitest';
 import worker from './index';

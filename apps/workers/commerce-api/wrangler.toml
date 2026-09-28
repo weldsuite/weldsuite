@@ -1,0 +1,147 @@
+# WeldSuite commerce-api worker — the commerce module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   commerce-api.weldsuite.org        production
+#   commerce-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "commerce-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, INTERNAL_API_SECRET
+#   (DATABASE_ENCRYPTION_KEY also decrypts the workspace Sendcloud keys and the
+#   connector credentials the product publish / WooCommerce callback read;
+#   INTERNAL_API_SECRET verifies the WooCommerce callback's HMAC `user_id` and
+#   must equal app-api's value in the same env)
+#
+# Secrets (not in the manifest yet):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#
+# COMMERCE_PORTAL_URL and CONNECTOR_WEBHOOK_BASE_URL are optional [vars]; both
+# default per ENVIRONMENT (app-api sets neither).
+
+name = "weldsuite-commerce-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# D1 connector catch-up index — shared with integration-sync-worker. The
+# WooCommerce callback upserts a row on connect so the sweep can probe stores
+# without opening tenant Neon. Dev uses the test database.
+[[d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+
+# Cloudflare Email Sending binding for the commerce portal magic-link / sign-in
+# code emails. A missing binding is a no-op (the challenge is still stored).
+[[send_email]]
+name = "SEND_EMAIL"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-commerce-api-test"
+routes = [
+  { pattern = "commerce-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-commerce-api"
+routes = [
+  { pattern = "commerce-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-production"
+database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

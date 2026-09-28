@@ -318,6 +318,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/call-intelligence',
     '/api/calls',
     '/api/desk/phone',
+    // billing-worker's paid phone-number fulfilment (INTERNAL_API_SECRET bearer);
+    // beats core's /api/internal (longest prefix wins).
+    '/api/internal/telephony',
     '/api/porting',
     '/api/telephony',
     '/public/webhooks/telnyx',
@@ -329,6 +332,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/github-project-links',
     '/api/github-repo-links',
     '/api/integrations',
+    // workflow-worker's create_customer step (INTERNAL_API_SECRET bearer);
+    // beats core's /api/internal (longest prefix wins).
+    '/api/internal/workflow-actions',
     '/api/weldconnect/github',
     '/api/workflow-builder',
     '/api/workflow-dashboard',

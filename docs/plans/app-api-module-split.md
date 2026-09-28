@@ -1,7 +1,9 @@
 # Splitting app-api into one API worker per module
 
-Status: **phase 0 implemented**; **phase 1 (WeldPass → pass-api) implemented**, first
-steps of its rollout pending (see "Phase 1: rollout"). Both 2026-09-25. Owner decisions from the planning session (2026-09-25):
+Status: **all phases implemented in code** (2026-09-25 → 2026-09-28): every module has its own
+worker and app-api holds only the core platform. What is left is rollout and clean-up
+(see "Phases 2–5: what shipped" and "Rollout and clean-up"). Owner decisions from the
+planning session (2026-09-25):
 
 - Goals: **deploy independence**, **smaller bundles / faster startup**, **code ownership** per module.
 - **One worker per `weld*` module**, each on its **own hostname**: `<module>-api.weldsuite.org`
@@ -110,6 +112,17 @@ Module-specific AI endpoints (`mail-ai`, `helpdesk-weldagent`) stay in their mod
 `@weldsuite/ai` + the credit metering in the kit. `agent-api` only owns the agent runtime.
 
 ## Rules for cross-module code
+
+> **Revised during phases 2–4:** shared module logic lives in **domain packages**
+> (`packages/domains/<module>` = `@weldsuite/<module>-domain`), imported by the workers that
+> need it, instead of `<Module>Rpc` service-binding calls. Core and several modules call the
+> same functions on the shared tenant DB (e.g. `people`/`companies` from the test fixtures,
+> WeldData and the agent tools), and a package keeps them in one transaction with no network
+> hop. A package change redeploys every worker that depends on it (deploy detection is
+> dependency-aware). Service bindings remain for what is tied to one worker's bindings:
+> Cloudflare Workflows are bound cross-script (`script_name`), and app-api forwards.
+> The original rules below are kept for context.
+
 
 Applied to every edge found when extracting a module:
 
@@ -423,6 +436,101 @@ Server callers:
 - Update CLAUDE.md ("app-api is the only backend" becomes "app-api is core; modules have
   their own `<m>-api` workers"), the `backend-app-api` and `backend-workers` agent
   definitions, and the `/fix-bug` / `/feature` routing, so agents open the right worker.
+
+## Phases 2–5: what shipped
+
+| Worker | Module | Notes |
+|---|---|---|
+| `pass-api` | WeldPass | phase 1 |
+| `know-api` | WeldKnow | |
+| `host-api` | WeldHost | domain auto-renew cron (04:00); `@weldsuite/host-domain`, `@weldsuite/stripe` |
+| `social-api` | WeldSocial | PostPeer webhook |
+| `ads-api` | WeldAds | `@weldsuite/ads-domain` (ad sync, also used by connect) |
+| `hr-api` | WeldHR | workforce portal; `@weldsuite/commerce-domain` portal tokens/slug |
+| `stash-api` | WeldStash | `@weldsuite/sendcloud` |
+| `commerce-api` | WeldCommerce | buyer portal, WooCommerce auth; the platform calls it directly (`VITE_API_MODULES=commerce`) |
+| `crm-api` | WeldCRM | execute-sequence workflow; `@weldsuite/crm-domain` |
+| `data-api` | WeldData | welddata-enrich workflow |
+| `books-api` | WeldBooks | `@weldsuite/books-domain` |
+| `calendar-api` | WeldCalendar | calendar replan cron (04:00), Google Calendar sync |
+| `meet-api` | WeldMeet | transcription workflow, RealtimeKit / meeting-bot webhooks |
+| `call-api` | telephony | Telnyx webhook, `/api/internal/telephony` (billing-worker) |
+| `desk-api` | WeldDesk | public help center, helpdesk OAuth callbacks; `@weldsuite/desk-domain` |
+| `mail-api` | WeldMail | scheduled-email workflow; `@weldsuite/mail-domain` |
+| `flow-api` | WeldFlow | digest + task-import workflows, hourly digest cron; `@weldsuite/flow-domain` |
+| `chat-api` | WeldChat | unpin workflow; dispatches agent jobs cross-script |
+| `agent-api` | WeldAgent / AI | agent-job workflow, entity-agents queue consumer, hourly routine cron; `@weldsuite/agent-domain` |
+| `connect-api` | WeldConnect | both `/api/integrations` routers, `/api/internal/workflow-actions` (workflow-worker) |
+
+- **app-api** keeps the core platform (workspaces, members, roles, settings, files/drive,
+  search + the search-index queue, billing, credits, notifications, App Store/WeldApps,
+  custom objects, `/api/internal` send-email), the forwarder for all 20 modules, and the
+  draining workflow classes below. It has no crons any more. `pnpm api:ownership` reports
+  only core files in it.
+- **Shared packages**: `@weldsuite/worker-kit` (+ billing-worker client, sweeps, pglite),
+  `@weldsuite/worker-email`, `@weldsuite/stripe`, `@weldsuite/sendcloud`, and the domain packages
+  `core`, `crm`, `books`, `commerce`, `connect`, `ads`, `host`, `data`, `meet`, `chat`, `agent`,
+  `mail`, `flow`, `desk` (`agent-domain` depends on `chat-domain`, never the reverse).
+- **Manifest sub-prefixes** route internal endpoints to their module:
+  `/api/internal/telephony` → call, `/api/internal/workflow-actions` → connect.
+- **Deploys**: module workers deploy in their own job before the others; the D1 index
+  migrations also run for connect-api / commerce-api; the Pages build waits for them.
+- **Secrets**: every worker has a manifest entry. Secrets app-api had set by hand are in
+  the manifest now. Synced from Doppler to test and production (2026-09-28);
+  `INTERNAL_API_SECRET` was rotated to new values in Doppler `test` / `prd` and on all 12
+  workers that send or verify it.
+
+## Rollout and clean-up
+
+1. **Secrets Doppler does not have yet** (`secrets:sync` warns): add them to Doppler, then
+   `pnpm secrets:sync <test|production> <worker>` (`DOPPLER_CONFIG=prd` for production;
+   `CLOUDFLARE_ACCOUNT_ID=cfcf560df8dc675d15337abcfbf6d9bd`). Until then those features
+   fail on the module worker even though app-api still holds the old values. Current gaps:
+   Realtime Register (test), PostPeer, Facebook, R2 SQL analytics, Lemlist/Findymail/
+   Prospeo, Resend template ids, Google Calendar (prd), RealtimeKit / MeetingBaaS /
+   AssemblyAI (prd), Telnyx ids and keys, Slack, Vercel, Attio, HubSpot, Google OAuth.
+2. Merge to `develop` → module workers deploy first, then app-api starts forwarding.
+   Smoke-test each module on app-test.
+3. Direct client calls: add modules to `VITE_API_MODULES` (platform Pages build) and
+   `EXPO_PUBLIC_API_MODULES` (mobile) one at a time. **Connect first needs a fix**: the
+   WooCommerce connect callback is built from the request origin, so a direct call would
+   send WooCommerce to connect-api's host at `/webhooks/woocommerce` (owned by commerce).
+   Check other OAuth/webhook URLs built from the request origin the same way.
+4. Production: same order via `main`.
+5. Clean-up, when the time in each row of the table below has passed: remove the draining
+   workflow blocks/re-exports from app-api, then secrets only those used (`ASSEMBLYAI_API_KEY`,
+   `AGENT_RUNTIME_URL`, `CF_REALTIME_*`, `R2_SQL_*`, the hand-set module secrets). Stop
+   forwarding a module in production once no client calls app-api for it.
+6. **App-scoped permissions**: every API worker applies them (the kit sets the
+   X-Weld-App context; `requirePermission` / the resolver are the same package code).
+   Enforcement (`PERMISSIONS_APP_ENFORCE="true"`) must be switched on in app-api **and
+   every module worker** together. The grant-rewrite sweep
+   (`apps/tools/migrate-databases` `migrate:app-permissions`) may only `--execute` in an
+   environment once the module workers are deployed there; until then unqualified
+   grants keep working everywhere.
+7. Later: replace the `INTERNAL_API_SECRET` bearer on service-binding paths with RPC over the
+   binding (no secret), and consider Clerk M2M for the public ones (workflow-worker,
+   billing-worker).
+
+## Workflows draining in app-api
+
+A Cloudflare Workflow name belongs to one worker, and instances already running must
+finish where they started. When a module moves, its workflow class gets a new name in
+the module worker (same binding and class name) and app-api keeps the old
+`[[workflows]]` block plus a re-export of the class until the old instances are done
+(procedure: `.claude/skills/extract-api-module`, step 4b). Remove the app-api side after
+the date in the last column.
+
+| Class | Module | Old name (app-api) | New name (module worker) | Remove from app-api after |
+|---|---|---|---|---|
+| `ExecuteSequenceWorkflow` | crm | `execute-sequence-v2` (dev `-v2-dev`) | `execute-sequence-v3` (dev `-v3-dev`) in crm-api | the longest sequence schedule after the crm-api cutover (instances sleep between steps and can run for weeks); check the dashboard for running instances |
+| `WelddataEnrichWorkflow` | data | `welddata-enrich` (dev `-dev`) | `welddata-enrich-v2` (dev `-v2-dev`) in data-api | a day after the data-api cutover (instances run for minutes) |
+| `TranscribeRecordingWorkflow` | meet | `transcribe-recording-v2` (dev `-v2-dev`) | `transcribe-recording-v3` (dev `-v3-dev`) in meet-api | a day after the meet-api cutover (instances run for minutes: one AssemblyAI transcription with retries); keep `ASSEMBLYAI_API_KEY` on app-api until then |
+| `SendScheduledEmailWorkflow` | mail | `send-scheduled-email-v2` (dev `-v2-dev`) | `send-scheduled-email-v3` (dev `-v3-dev`) in mail-api | after the latest `scheduledFor` of the v2 instances has passed (sends are scheduled at most `MAX_SCHEDULE_DAYS` = 7 days out, so 7 days after the mail-api cutover plus retries); check the dashboard for running instances. A v2 instance whose message was rescheduled or cancelled from mail-api skips itself (its `triggerRunId` / `sendStatus` guard) |
+| `SendDigestWorkflow` | flow | `send-digest-v2` (dev `-v2-dev`) | `send-digest-v3` (dev `-v3-dev`) in flow-api | a day after the flow-api cutover (instances run for minutes: one digest query + send with retries); keep `RESEND_API_KEY` on app-api (it also serves notifications) |
+| `ImportTasksWorkflow` | flow | `import-tasks-v2` (dev `-v2-dev`) | `import-tasks-v3` (dev `-v3-dev`) in flow-api | a day after the flow-api cutover (instances run for minutes: 500-row batches of one import job) |
+| `UnpinExpiredMessageWorkflow` | chat | `unpin-expired-message-v2` (dev `-v2-dev`) | `unpin-expired-message-v3` (dev `-v3-dev`) in chat-api | after the latest pin expiry set before the chat-api cutover has passed (each instance sleeps until its message's `pinExpiresAt`); check the dashboard for running instances. A v2 instance whose message was unpinned by hand skips itself (its `isPinned` guard) |
+| `WeldAgentJobWorkflow` | agent | `weldagent-job` (dev `-dev`) | `weldagent-job-v2` (dev `-v2-dev`) in agent-api (chat-api binds it cross-script) | a day after the agent-api cutover (instances run for minutes: one step with a 10-minute timeout, no retries); keep `AGENT_RUNTIME_URL` / `AGENT_COMPUTER_ENABLED` and the AI secrets on app-api until then |
 
 ## Out of scope
 

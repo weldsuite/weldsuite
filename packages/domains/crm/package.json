@@ -1,0 +1,39 @@
+{
+  "name": "@weldsuite/crm-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./companies": "./src/companies.ts",
+    "./people": "./src/people.ts",
+    "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./workflows/execute-sequence": "./src/workflows/execute-sequence.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/ai": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/worker-email": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

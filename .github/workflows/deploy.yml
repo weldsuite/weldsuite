@@ -530,7 +530,9 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
        needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-       needs.prepare.outputs.workers != '[]')
+       needs.prepare.outputs.workers != '[]' ||
+       (needs.prepare.outputs.module_workers != '[]' &&
+        needs.prepare.outputs.module_workers != ''))
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -541,7 +543,9 @@ jobs:
           needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
           contains(needs.prepare.outputs.workers, 'integration-sync-worker') ||
           contains(needs.prepare.outputs.workers, 'integration-webhook-worker') ||
-          contains(needs.prepare.outputs.workers, 'app-api')
+          contains(needs.prepare.outputs.workers, 'app-api') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api') ||
+          contains(needs.prepare.outputs.module_workers, 'commerce-api')
         working-directory: apps/workers/integration-sync-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -555,7 +559,8 @@ jobs:
       - name: Apply schedule index migrations
         if: >-
           needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-          contains(needs.prepare.outputs.workers, 'workflow-worker')
+          contains(needs.prepare.outputs.workers, 'workflow-worker') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api')
         working-directory: apps/workers/workflow-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -845,10 +850,11 @@ jobs:
 
   frontend:
     name: Deploy platform (${{ needs.prepare.outputs.cf_env }} Pages)
-    needs: [prepare, workers]
+    needs: [prepare, workers, module-workers]
     if: >-
       always() && !failure() && !cancelled() &&
-      (needs.workers.result == 'success' || needs.workers.result == 'skipped')
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      (needs['module-workers'].result == 'success' || needs['module-workers'].result == 'skipped')
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -860,6 +866,10 @@ jobs:
           VITE_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           VITE_CORE_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           VITE_REALTIME_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
+          # Modules the SPA calls directly on <module>-api(-test).weldsuite.org
+          # (docs/plans/app-api-module-split.md); everything else goes through
+          # app-api's forwarder.
+          VITE_API_MODULES: commerce
           VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           VITE_BOOKING_PORTAL_URL: ${{ secrets.VITE_BOOKING_PORTAL_URL }}

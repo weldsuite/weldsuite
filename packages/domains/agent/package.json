@@ -1,0 +1,54 @@
+{
+  "name": "@weldsuite/agent-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./actor-permissions": "./src/actor-permissions.ts",
+    "./agent-mention-dispatch": "./src/agent-mention-dispatch.ts",
+    "./agents": "./src/agents.ts",
+    "./complete-turn": "./src/complete-turn.ts",
+    "./computer-client": "./src/computer-client.ts",
+    "./env": "./src/env.ts",
+    "./executor": "./src/executor.ts",
+    "./jobs": "./src/jobs.ts",
+    "./parity": "./src/parity.ts",
+    "./routine-index": "./src/routine-index.ts",
+    "./run": "./src/run.ts",
+    "./subscriptions": "./src/subscriptions.ts",
+    "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./tools": "./src/tools.ts",
+    "./workflows/weldagent-job": "./src/workflows/weldagent-job.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/ai": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/chat-domain": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/credits": "workspace:*",
+    "@weldsuite/crm-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/flow-domain": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "@weldsuite/workflow-integrations": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}
