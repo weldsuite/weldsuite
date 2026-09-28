@@ -63,10 +63,16 @@ export default function TasksPage() {
     isFetchingNextPage,
   } = useInfiniteProjectTasks(projectId, filters, 50);
 
-  const allTasks = useMemo(
-    () => data?.pages.flatMap(p => p.data) ?? [],
-    [data],
-  );
+  // Dedupe by id: a task reordered between two page loads can shift across the
+  // page boundary and come back in the next page too.
+  const allTasks = useMemo(() => {
+    const seen = new Set<string>();
+    return (data?.pages.flatMap(p => p.data) ?? []).filter((task) => {
+      if (seen.has(task.id)) return false;
+      seen.add(task.id);
+      return true;
+    });
+  }, [data]);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 

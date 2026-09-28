@@ -28,7 +28,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
@@ -135,6 +135,32 @@ export function resolveTaskSortColumn(field: string, tasksTable: typeof schema.t
     default:
       return tasksTable.position;
   }
+}
+
+/**
+ * Keyset condition selecting the rows that come after `cursor` under the list
+ * ordering `ORDER BY <sortColumn> <direction>, id DESC`. The cursor has to walk
+ * the same order the page query sorts by — filtering on anything else (it used
+ * to filter on createdAt while sorting by position) makes the next page repeat
+ * rows from the previous one. Null placement mirrors Postgres' defaults:
+ * ASC puts NULLs last, DESC puts them first.
+ */
+export function taskCursorCondition(
+  sortColumn: Column,
+  direction: 'asc' | 'desc',
+  cursor: { id: string; sortValue: unknown },
+  tasksTable: typeof schema.tasks,
+): SQL {
+  const afterId = lt(tasksTable.id, cursor.id);
+  if (cursor.sortValue === null || cursor.sortValue === undefined) {
+    const nullTail = and(isNull(sortColumn), afterId)!;
+    return direction === 'asc' ? nullTail : or(isNotNull(sortColumn), nullTail)!;
+  }
+  const beyond =
+    direction === 'asc'
+      ? or(gt(sortColumn, cursor.sortValue), isNull(sortColumn))!
+      : lt(sortColumn, cursor.sortValue);
+  return or(beyond, and(eq(sortColumn, cursor.sortValue), afterId))!;
 }
 
 // ============================================================================
@@ -748,16 +774,21 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
     conditions.push(lt(t.dueDate, new Date(q.dueDateTo)));
   }
 
-  // Cursor support (used by My Tasks / global surfaces)
-  let cursorCondition: any = undefined;
+  // Sort
+  const sortDir = q.sortDirection === 'desc' ? desc : asc;
+  const sortColumn = resolveTaskSortColumn(q.sortField, t);
+
+  // Cursor support: the cursor is the id of the last row of the previous page;
+  // continue from its position in the list's sort order.
+  let cursorCondition: SQL | undefined = undefined;
   if (q.cursor) {
     const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
+      .select({ id: t.id, sortValue: sortColumn })
       .from(t)
       .where(eq(t.id, q.cursor))
       .limit(1);
-    if (cur?.createdAt) {
-      cursorCondition = sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+    if (cur) {
+      cursorCondition = taskCursorCondition(sortColumn, q.sortDirection, cur, t);
       conditions.push(cursorCondition);
     }
   }
@@ -770,10 +801,6 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
   const where = conditions.length ? and(...conditions) : undefined;
 
   try {
-    // Sort
-    const sortDir = q.sortDirection === 'desc' ? desc : asc;
-    const sortColumn = resolveTaskSortColumn(q.sortField, t);
-
     // When cursor pagination is active (cursor param present or no projectId),
     // use cursor. When projectId is set and page > 1, use offset (project list).
     const useCursor = q.cursor !== undefined || !q.projectId;
