@@ -368,8 +368,13 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           { id: 'email', name: 'Email Notifications', description: 'New email notifications' },
         ]);
 
-        const { status } = await Notifications.getPermissionsAsync();
-        if (EAS_PROJECT_ID && (status === 'granted' || status === 'undetermined')) {
+        // Request permission whenever the OS will still show the prompt. Gate on
+        // `canAskAgain`, not `status === 'undetermined'`: on Android 13+
+        // expo-notifications reports 'denied' until POST_NOTIFICATIONS is granted
+        // (it checks areNotificationsEnabled()), so an undetermined check never
+        // prompted there and those devices never got a push token.
+        const { status, canAskAgain } = await Notifications.getPermissionsAsync();
+        if (EAS_PROJECT_ID && (status === 'granted' || canAskAgain)) {
           const token = await registerForPushNotificationsAsync(EAS_PROJECT_ID);
           if (token) {
             setIsPermissionGranted(true);
