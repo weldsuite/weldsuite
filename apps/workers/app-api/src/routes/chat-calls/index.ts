@@ -35,7 +35,7 @@ import {
   publishChatCallIncoming,
   broadcastChatCallToMembers,
 } from '../../services/realtime/weldchat-call-publisher';
-import { endChatCall, scheduleRingTimeout } from '../../services/chat/call-lifecycle';
+import { endChatCall, scheduleRingTimeout, wasAnswered } from '../../services/chat/call-lifecycle';
 import { canAccessChannel } from '../../services/chat/channel-access';
 import {
   dedupeParticipants,
@@ -43,6 +43,7 @@ import {
   upsertParticipant,
   evictRtkSessions,
   leaveOtherActiveCalls,
+  isAbandonedCall,
 } from '../../services/chat/call-participants';
 
 // ============================================================================
@@ -95,6 +96,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
       .select({
         voiceCallsEnabled: chatChannels.voiceCallsEnabled,
         videoCallsEnabled: chatChannels.videoCallsEnabled,
+        type: chatChannels.type,
       })
       .from(chatChannels)
       .where(eq(chatChannels.id, data.channelId))
@@ -128,15 +130,15 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
         .limit(1);
 
       if (fullCall) {
-        const participants: ChatCallParticipant[] = fullCall.participants ?? [];
-        const activeParticipants = participants.filter((p) => !p.leftAt);
-        const age = Date.now() - new Date(fullCall.createdAt).getTime();
-        const isStale =
-          (activeParticipants.length === 0 && age > 60_000) ||
-          (fullCall.status === 'ringing' && age > 60_000);
+        const isStale = isAbandonedCall(fullCall, { isDm: channel?.type === 'dm', requesterId: userId });
 
         if (isStale) {
-          try { await endChatCall(c.get('tenantDb'), c.env, orgId, fullCall.id, fullCall, fullCall.initiatorId); } catch { /* best effort */ }
+          // No missed-call push: the new call is about to ring the same people.
+          try {
+            await endChatCall(c.get('tenantDb'), c.env, orgId, fullCall.id, fullCall, fullCall.initiatorId, {
+              sendMissedIfUnanswered: false,
+            });
+          } catch { /* best effort */ }
         } else {
           return error.conflict(c, 'A call is already active in this channel');
         }
@@ -322,15 +324,15 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
 
     const existingCall = activeCallResult[0];
     if (existingCall) {
-      const participants: ChatCallParticipant[] = existingCall.participants ?? [];
-      const activeParticipants = participants.filter((p) => !p.leftAt);
-      const age = Date.now() - new Date(existingCall.createdAt).getTime();
-      const isStale =
-        (activeParticipants.length === 0 && age > 60_000) ||
-        (existingCall.status === 'ringing' && age > 60_000);
+      const isStale = isAbandonedCall(existingCall, { isDm: channel?.type === 'dm', requesterId: userId });
 
       if (isStale) {
-        try { await endChatCall(db, c.env, orgId, existingCall.id, existingCall, existingCall.initiatorId); } catch { /* best effort */ }
+        // No missed-call push: the new call is about to ring the same people.
+        try {
+          await endChatCall(db, c.env, orgId, existingCall.id, existingCall, existingCall.initiatorId, {
+            sendMissedIfUnanswered: false,
+          });
+        } catch { /* best effort */ }
       } else if (existingCall.cfAppId) {
         // A call is already active in this channel — JOIN it instead of
         // erroring, so the caller "just joins" the ongoing call. The
@@ -733,7 +735,10 @@ app.post('/:callId/decline', requirePermission('channels:read'), async (c) => {
     if (!(await canAccessChannel(db, call.channelId, c.get('userId')))) {
       return error.forbidden(c, 'You do not have access to this call');
     }
-    if (call.status !== 'ringing') return error.badRequest(c, 'Call is not ringing');
+    // start-and-join (what both clients use) creates the call as 'active' with
+    // the caller already in it, so an unanswered 'active' call is still ringing.
+    const isRinging = call.status === 'ringing' || (call.status === 'active' && !wasAnswered(call));
+    if (!isRinging) return error.badRequest(c, 'Call is not ringing');
 
     const now = new Date();
     await db.update(chatCalls).set({

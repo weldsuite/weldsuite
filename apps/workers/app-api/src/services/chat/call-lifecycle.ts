@@ -21,7 +21,21 @@ import { generateId } from '../../lib/id';
 import type { Env } from '../../types';
 import { publishChatCallEnded, broadcastChatCallToMembers } from '../realtime/weldchat-call-publisher';
 
-const RING_TIMEOUT_MS = 60_000;
+/**
+ * How long a DM call rings before it counts as missed. `scheduleRingTimeout`
+ * runs inside `waitUntil`, which Workers cancel ~30s after the response, so
+ * this must stay under that budget. At 60s the timeout never fired: unanswered
+ * calls stayed "active" and silently swallowed the next call in the DM.
+ */
+export const RING_TIMEOUT_MS = 25_000;
+
+/** True once anyone other than the initiator has joined the call. */
+export function wasAnswered(call: {
+  initiatorId: string;
+  participants?: ChatCallParticipant[] | null;
+}): boolean {
+  return (call.participants ?? []).some((p) => p.userId !== call.initiatorId && !!p.joinedAt);
+}
 
 export async function endChatCall(
   db: Database,
@@ -50,10 +64,7 @@ export async function endChatCall(
 
   const priorStatus = call.status;
   const participants = call.participants ?? [];
-  const everJoinedRemote = participants.some(
-    (p) => p.userId !== call.initiatorId && !!p.joinedAt,
-  );
-  const unanswered = !everJoinedRemote;
+  const unanswered = !wasAnswered(call);
 
   await db.update(chatCalls).set({
     status: unanswered && (priorStatus === 'ringing' || priorStatus === 'active') ? 'missed' : 'ended',

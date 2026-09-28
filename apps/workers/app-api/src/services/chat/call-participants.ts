@@ -27,7 +27,42 @@ import type { Database } from '../../db';
 import { schema } from '../../db';
 import type { Env } from '../../types';
 import { publishChatCallParticipantLeft } from '../realtime/weldchat-call-publisher';
-import { endChatCall } from './call-lifecycle';
+import { endChatCall, RING_TIMEOUT_MS, wasAnswered } from './call-lifecycle';
+
+/** A ringing/active call older than this with nobody left in it is dead. */
+const STALE_CALL_MS = 60_000;
+
+/**
+ * Whether an existing ringing/active call blocks a new call in its channel, or
+ * is dead and should be ended so the new call can start (and ring).
+ *
+ * Starting a call where one is already live joins it instead, which never
+ * rings anyone. That is right for a live call, but in a DM a leftover call
+ * (a leave that never reached us, a ring timeout that never fired) would
+ * otherwise swallow every later call: the caller sits alone in the old room
+ * and the other person gets no ring and no push. So in a DM a call is
+ * abandoned when nobody but the requester is still in it, or when nobody
+ * answered it within the ring window.
+ */
+export function isAbandonedCall(
+  call: {
+    status: string;
+    createdAt: Date | string;
+    initiatorId: string;
+    participants: ChatCallParticipant[] | null | undefined;
+  },
+  opts: { isDm: boolean; requesterId: string; now?: number },
+): boolean {
+  const age = (opts.now ?? Date.now()) - new Date(call.createdAt).getTime();
+  const active = dedupeParticipants(call.participants).filter((p) => !p.leftAt);
+
+  if (active.length === 0 && age > STALE_CALL_MS) return true;
+  if (call.status === 'ringing' && age > STALE_CALL_MS) return true;
+  if (!opts.isDm) return false;
+
+  if (active.every((p) => p.userId === opts.requesterId)) return true;
+  return !wasAnswered(call) && age > RING_TIMEOUT_MS;
+}
 
 /**
  * When two entries exist for the same user, keep the better one: an active
