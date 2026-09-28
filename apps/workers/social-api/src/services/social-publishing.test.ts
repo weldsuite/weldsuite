@@ -417,8 +417,8 @@ describe('social publishing · platform content', () => {
     expect(stored[0].accountId).toBe('sac_1');
   });
 
-  it('publish-now marks the platform published and still resolves our account id', async () => {
-    if (!available) return;
+  it('publish-now marks the platform published and still resolves our account id', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_now_pc', 'draft', null);
     stubPostPeer({
@@ -435,8 +435,8 @@ describe('social publishing · platform content', () => {
     expect(pc.publishedAt).toBeDefined();
   });
 
-  it('a channel PostPeer rejected is failed on the schedule path too', async () => {
-    if (!available) return;
+  it('a channel PostPeer rejected is failed on the schedule path too', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_sched_fail', 'draft', null);
     stubPostPeer({
@@ -456,8 +456,8 @@ describe('social publishing · platform content', () => {
     expect(pc.accountId).toBe('sac_1');
   });
 
-  it('an exact accountId match is claimed by its own target, not stolen by an earlier platform fallback', async () => {
-    if (!available) return;
+  it('an exact accountId match is claimed by its own target, not stolen by an earlier platform fallback', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedSecondAccount();
     // Two twitter accounts on one post. Only ONE result comes back, naming
@@ -490,8 +490,8 @@ describe('social publishing · platform content', () => {
 });
 
 describe('social publishing · delete cancels the pending delivery', () => {
-  it('cancels the upstream scheduled post so a deleted post cannot still fire', async () => {
-    if (!available) return;
+  it('cancels the upstream scheduled post so a deleted post cannot still fire', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_del', 'scheduled', 'pp_del', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();

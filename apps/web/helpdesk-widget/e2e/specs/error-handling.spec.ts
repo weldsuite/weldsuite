@@ -206,18 +206,17 @@ test.describe('Error Handling', () => {
       await expect(mainContent).toBeVisible();
     });
 
-    test('should show reconnecting state', async ({ widgetPage, page }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+    test('should keep the composer usable while offline', async ({ widgetPage, page }) => {
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
       // Simulate connection drop
       await page.context().setOffline(true);
       await page.waitForTimeout(500);
 
-      // Look for reconnecting indicator
-      const reconnectingIndicator = page.locator(
-        '[data-testid="reconnecting"], [class*="reconnecting"], :text("reconnecting")'
-      );
+      // The conversation stays usable while the connection is down
+      await expect(widgetPage.chatView).toBeVisible();
+      await expect(widgetPage.messageInput).toBeEditable();
 
       // Restore connection
       await page.context().setOffline(false);
@@ -287,17 +286,21 @@ test.describe('Error Handling', () => {
       });
 
       // Trigger an error
-      await page.route('**/api/widget/**', async (route) => {
+      let configRequests = 0;
+      await page.route((url) => url.pathname === '/api/config', async (route) => {
+        configRequests++;
         await route.fulfill({
           status: 500,
           body: 'Server Error',
         });
       });
 
-      await widgetPage.goto('/');
+      await widgetPage.goto(`/?widgetId=${MESSENGER_WIDGET_ID}&open=true`);
       await widgetPage.waitForReady();
+      await expect.poll(() => configRequests).toBeGreaterThan(0);
 
-      // Errors should be logged (in dev mode)
+      // A failed API call is handled, it never reaches the render error boundary
+      expect(consoleErrors.filter((text) => text.includes('[Weld Widget] Render error'))).toEqual([]);
     });
 
     test('should not expose sensitive info in error messages', async ({ widgetPage, page }) => {

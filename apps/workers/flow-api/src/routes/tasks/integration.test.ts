@@ -263,3 +263,62 @@ describe('/api/tasks · numbering · pglite integration', () => {
     }
   });
 });
+
+describe('/api/tasks · project list pagination · pglite integration', () => {
+  const projectId = 'proj_paging';
+
+  beforeAll(async () => {
+    const now = new Date();
+    await db
+      .insert(schema.projects)
+      .values({ id: projectId, name: 'Paging', createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+    // createdAt runs opposite to id order and positions are mostly tied, so a
+    // cursor that follows anything other than the sort order repeats rows.
+    const base = Date.UTC(2026, 0, 1);
+    await db.insert(schema.tasks).values(
+      Array.from({ length: 9 }, (_, i) => ({
+        id: `task_page_${i}`,
+        title: `Paging task ${i}`,
+        projectId,
+        status: i % 2 === 0 ? 'todo' : 'in_progress',
+        position: i < 6 ? 0 : i,
+        dueDate: i % 3 === 0 ? null : new Date(base + i * 86_400_000),
+        createdAt: new Date(base + (9 - i) * 60_000),
+        updatedAt: new Date(base),
+      })) as (typeof schema.tasks.$inferInsert)[],
+    );
+  });
+
+  async function pageThrough(sort: string): Promise<string[]> {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read', 'projects:scope:all'), tenantDb: db },
+    });
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 20; i++) {
+      const qs = `projectId=${projectId}&limit=2&pageSize=2&includeSubtasks=true${sort}${cursor ? `&cursor=${cursor}` : ''}`;
+      const res = await request(`/api/tasks?${qs}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: Array<{ id: string }>;
+        pagination: { hasMore: boolean; cursor: string | null };
+      };
+      ids.push(...body.data.map((row) => row.id));
+      if (!body.pagination.hasMore) break;
+      cursor = body.pagination.cursor;
+    }
+    return ids;
+  }
+
+  it.each([
+    ['default (position)', ''],
+    ['title desc', '&sortField=title&sortDirection=desc'],
+    ['status asc', '&sortField=status&sortDirection=asc'],
+    ['dueDate asc (nulls)', '&sortField=dueDate&sortDirection=asc'],
+    ['dueDate desc (nulls)', '&sortField=dueDate&sortDirection=desc'],
+  ])('returns every task exactly once across pages — %s', async (_label, sort) => {
+    const ids = await pageThrough(sort);
+    expect(ids).toHaveLength(9);
+    expect(new Set(ids).size).toBe(9);
+  });
+});
