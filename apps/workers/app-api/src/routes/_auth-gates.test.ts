@@ -29,17 +29,9 @@ import { activitiesRoutes } from './activities';
 import { pipelinesRoutes } from './pipelines';
 import { categoriesRoutes } from './categories';
 import { slasRoutes } from './slas';
-import { warehouseLocationsRoutes } from './warehouse-locations';
-import { warehousesRoutes } from './warehouses';
-import { warehouseZonesRoutes } from './warehouse-zones';
 import { customFieldsRoutes } from './custom-fields';
 import { enrichFieldsRoutes } from './enrich-fields';
-import { wmsSuppliersRoutes } from './wms-suppliers';
-import { pickersRoutes } from './pickers';
-import { pickListsRoutes } from './pick-lists';
-import { stockAdjustmentsRoutes } from './stock-adjustments';
 import { milestonesRoutes } from './milestones';
-import { boxesRoutes } from './boxes';
 import { parcelsRoutes } from './parcels';
 import { pickupsRoutes } from './pickups';
 import { returnsRoutes } from './returns';
@@ -72,17 +64,10 @@ const cases: RouteCase[] = [
   { mount: '/api/pipelines', router: pipelinesRoutes, prefix: 'pipelines' },
   { mount: '/api/categories', router: categoriesRoutes, prefix: 'categories' },
   { mount: '/api/slas', router: slasRoutes, prefix: 'slas' },
-  { mount: '/api/warehouse-locations', router: warehouseLocationsRoutes, prefix: 'locations' },
-  { mount: '/api/warehouses', router: warehousesRoutes, prefix: 'warehouses' },
-  { mount: '/api/warehouse-zones', router: warehouseZonesRoutes, prefix: 'warehouses' },
   // custom-fields / enrich-fields update via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/enrich-fields', router: enrichFieldsRoutes, prefix: 'settings', skipPatch: true },
-  { mount: '/api/wms-suppliers', router: wmsSuppliersRoutes, prefix: 'suppliers' },
-  // stock-adjustments is append-only: no PATCH /:id or DELETE /:id
-  { mount: '/api/stock-adjustments', router: stockAdjustmentsRoutes, prefix: 'inventory', skipPatch: true, skipDelete: true },
   { mount: '/api/milestones', router: milestonesRoutes, prefix: 'milestones' },
-  { mount: '/api/boxes', router: boxesRoutes, prefix: 'boxes' },
   { mount: '/api/parcels', router: parcelsRoutes, prefix: 'parcels' },
   { mount: '/api/pickups', router: pickupsRoutes, prefix: 'pickups' },
   { mount: '/api/returns', router: returnsRoutes, prefix: 'returns' },
@@ -104,9 +89,6 @@ const cases: RouteCase[] = [
   // WeldChat DM: GET / + POST / under messages:*; no PATCH/DELETE /:id
   // (the only /:id route is a read-only get-or-create resolver).
   { mount: '/api/chat-dm', router: chatDmRoutes, prefix: 'messages', skipPatch: true, skipDelete: true },
-  // pickers: uses PUT /:id (full update) not PATCH /:id; PATCH /:id/status is a sub-action.
-  { mount: '/api/pickers', router: pickersRoutes, prefix: 'warehouses', skipPatch: true },
-  { mount: '/api/pick-lists', router: pickListsRoutes, prefix: 'picklists' },
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {

@@ -308,6 +308,28 @@ export const manifest: Record<string, SecretEntry[]> = {
     "FACEBOOK_APP_ID",
     "FACEBOOK_APP_SECRET",
   ],
+
+  // hr-api: the hr module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "hr-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // stash-api: the stash module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "stash-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

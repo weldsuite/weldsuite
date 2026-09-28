@@ -120,9 +120,12 @@ cd apps/workers/app-api && pnpm exec wrangler deploy --dry-run --env test --outd
 
 ## Rules
 
-- If `pnpm install` rewrites unrelated lockfile lines (React Native peer strings),
-  restore `pnpm-lock.yaml` and run `pnpm install --lockfile-only --prefer-offline`,
-  then `pnpm install --frozen-lockfile --prefer-offline`.
+- If `pnpm install` rewrites unrelated lockfile lines (React Native / expo-router peer
+  strings), restore `pnpm-lock.yaml`, run a plain `pnpm install --prefer-offline` again
+  and put back any unrelated line it still changed by hand (`--lockfile-only` makes it
+  worse). The final diff must only hold the new importers / changed deps, and
+  `pnpm install --frozen-lockfile --prefer-offline` must pass.
+- Run package tests with `--workspace-concurrency=1`: parallel pglite boots crash.
 
 - No behaviour changes, no refactors beyond what the move needs.
 - No migrations, no `any`, no `@ts-ignore`, no new `console.log`; Zod v3.

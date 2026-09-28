@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** stash-api. Target of the forwarder for the stash module's paths. */
+  STASH_API?: Fetcher;
+  /** hr-api. Target of the forwarder for the hr module's paths. */
+  HR_API?: Fetcher;
   /** ads-api. Target of the forwarder for the ads module's paths. */
   ADS_API?: Fetcher;
   /** social-api. Target of the forwarder for the social module's paths. */
@@ -446,19 +450,6 @@ export interface Env {
    * test `https://orders-test.weldsuite.org`, otherwise `http://localhost:3021`.
    */
   COMMERCE_PORTAL_URL?: string;
-  /**
-   * Public origin of the WeldHR workforce portal (no trailing slash), used in
-   * invite and sign-in emails when the workspace has no custom domain.
-   * Defaults: production `https://team.weldsuite.org`, test
-   * `https://team-test.weldsuite.org`, otherwise `http://localhost:3022`.
-   */
-  HR_PORTAL_URL?: string;
-  /**
-   * Public origin of the realtime worker (e.g. `wss://realtime.weldsuite.org`),
-   * handed to the workforce portal with its connect ticket. Defaults per
-   * ENVIRONMENT; set it for local runs on a non-default port.
-   */
-  REALTIME_PUBLIC_URL?: string;
 }
 
 /**
@@ -486,12 +477,4 @@ export type Variables = {
   portalAccessId?: string;
   portalEmail?: string;
   portalSessionToken?: string;
-  /** WeldHR workforce portal session (public `/public/hr-portal` only). */
-  hrPortalAccessId?: string;
-  hrPortalSettings?: import('@weldsuite/db/schema').HrPortalSettings;
-  hrPortalKind?: 'employee' | 'client';
-  hrPortalEmployeeId?: string | null;
-  hrPortalCompanyId?: string | null;
-  hrPortalEmail?: string;
-  hrPortalSessionToken?: string;
 };

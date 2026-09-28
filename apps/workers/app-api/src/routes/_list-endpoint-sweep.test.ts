@@ -26,15 +26,9 @@ import { invoicesRoutes } from './invoices';
 import { productsRoutes } from './products';
 import { pipelinesRoutes } from './pipelines';
 import { pipelineStagesRoutes } from './pipeline-stages';
-import { warehouseLocationsRoutes } from './warehouse-locations';
-import { warehousesRoutes } from './warehouses';
-import { warehouseZonesRoutes } from './warehouse-zones';
 import { customFieldsRoutes } from './custom-fields';
 import { enrichFieldsRoutes } from './enrich-fields';
 import { myTasksRoutes } from './my-tasks';
-import { wmsSuppliersRoutes } from './wms-suppliers';
-import { pickListsRoutes } from './pick-lists';
-import { stockAdjustmentsRoutes } from './stock-adjustments';
 import { conversationsRoutes } from './conversations';
 import { meetingsRoutes } from './meetings';
 import { workflowsRoutes } from './workflows';
@@ -67,15 +61,9 @@ const cases: SweepCase[] = [
   { mount: '/api/products', router: productsRoutes, permission: 'products:read' },
   { mount: '/api/pipelines', router: pipelinesRoutes, permission: 'pipelines:read' },
   { mount: '/api/pipeline-stages', router: pipelineStagesRoutes, permission: 'pipelines:read' },
-  { mount: '/api/warehouse-locations', router: warehouseLocationsRoutes, permission: 'locations:read' },
-  { mount: '/api/warehouses', router: warehousesRoutes, permission: 'warehouses:read' },
-  { mount: '/api/warehouse-zones', router: warehouseZonesRoutes, permission: 'warehouses:read' },
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
   { mount: '/api/enrich-fields', router: enrichFieldsRoutes, permission: 'settings:read' },
   { mount: '/api/my-tasks', router: myTasksRoutes, permission: 'tasks:read' },
-  { mount: '/api/wms-suppliers', router: wmsSuppliersRoutes, permission: 'suppliers:read' },
-  { mount: '/api/pick-lists', router: pickListsRoutes, permission: 'picklists:read' },
-  { mount: '/api/stock-adjustments', router: stockAdjustmentsRoutes, permission: 'inventory:read' },
   { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/meetings', router: meetingsRoutes, permission: 'meetings:read' },
   { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
@@ -95,7 +83,6 @@ const cases: SweepCase[] = [
   { mount: '/api/chat-activity', router: chatActivityRoutes, permission: 'messages:read' },
   { mount: '/api/desk/conversations', router: deskConversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/desk/widget', router: deskWidgetRoutes, permission: 'settings:read' },
-  // pickers: omitted from sweep until the warehouse_workers migration is generated + applied.
 ];
 
 let db: Database;

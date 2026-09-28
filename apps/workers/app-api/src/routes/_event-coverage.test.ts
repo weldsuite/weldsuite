@@ -112,8 +112,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'auth-desktop',
   // cli-auth — device-code login mints a personal API key; credentials infra.
   'cli-auth',
-  // wms-activity — read-only append-only audit log; no mutations, no entity events.
-  'wms-activity',
   // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
   'chat-calls',
   // Inbound webhook RECEIVERS — they ingest external provider events; they are
