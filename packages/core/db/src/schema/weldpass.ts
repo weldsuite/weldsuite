@@ -8,7 +8,7 @@
  * Values are never stored in the clear. Each secret carries its own AES-256-GCM
  * data key (`dek_wrapped`, wrapped by the project KEK) and the project KEK is
  * itself wrapped by the worker's root key. See
- * `apps/workers/app-api/src/services/weldpass/envelope.ts`.
+ * `apps/workers/pass-api/src/services/weldpass/envelope.ts`.
  */
 
 import {

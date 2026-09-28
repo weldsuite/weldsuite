@@ -14,8 +14,8 @@
  * deliberately loud.
  */
 
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 export type WeldPassAuditAction =
   | 'project.created'

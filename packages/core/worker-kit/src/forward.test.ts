@@ -67,6 +67,23 @@ describe('moduleForwarder', () => {
     warn.mockRestore();
   });
 
+  it('answers 503 when the module worker is unreachable', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const PASS_API = {
+      fetch: vi.fn(async () => {
+        throw new Error('not connected');
+      }),
+    };
+    const request = setup({ API_FORWARD_MODULES: 'pass', PASS_API });
+    const res = await request('/api/weldpass', { headers: { 'X-Request-Id': 'req_2' } });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('X-Request-Id')).toBe('req_2');
+    expect(await res.json()).toEqual({
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'pass-api is unavailable' },
+    });
+    error.mockRestore();
+  });
+
   it('does nothing without API_FORWARD_MODULES', async () => {
     const PASS_API = fakeWorker();
     const request = setup({ PASS_API });

@@ -1,7 +1,7 @@
 # Splitting app-api into one API worker per module
 
-Status: **phase 0 implemented** (2026-09-25, see "Phase 0: what shipped"); phase 1
-(WeldPass pilot) is next. Owner decisions from the planning session (2026-09-25):
+Status: **phase 0 implemented**; **phase 1 (WeldPass → pass-api) implemented**, first
+steps of its rollout pending (see "Phase 1: rollout"). Both 2026-09-25. Owner decisions from the planning session (2026-09-25):
 
 - Goals: **deploy independence**, **smaller bundles / faster startup**, **code ownership** per module.
 - **One worker per `weld*` module**, each on its **own hostname**: `<module>-api.weldsuite.org`
@@ -286,7 +286,7 @@ exactly as before (all 1,428 app-api tests pass on the kit).
 | Forwarder | `@weldsuite/worker-kit/forward` | First middleware in app-api. Forwards a path when its module is in `API_FORWARD_MODULES` **and** the `<MODULE>_API` service binding exists; otherwise app-api keeps serving it. |
 | Client routing | `@weldsuite/api-client`, platform `lib/api/public-env.ts`, 11 mobile apps | `baseUrl` can be a per-path function. Platform: `VITE_API_MODULES` (+ optional `VITE_<MODULE>_API_URL`), `apiUrl()` / `getApiOriginForPath()` used by every direct `fetch`; the X-Weld-App header covers every API origin. Mobile: `EXPO_PUBLIC_API_MODULES`. |
 | Scaffolder | `pnpm create:module-api <module>` | Generates the worker (wrangler config with custom domains, shared KV/queue/realtime/Flagship, smoke test) and its secrets-manifest entry. An empty worker bundles to ~1.2 MB raw / ~250 KB gzipped. |
-| CI | `deploy.yml`, `ci.yml`, `.github/scripts/module-workers.mjs` | Module workers join the deploy matrix from the manifest (their folder, the kit or the manifest changed). Kit/manifest changes also redeploy app-api and OTA the mobile apps. The existing `Type Check · app-api` and `Unit · app-api` jobs now also check the kit, the manifest and every module worker (job names unchanged). |
+| CI | `deploy.yml`, `ci.yml`, `.github/scripts/module-workers.mjs` | Module workers are picked from the manifest (their folder, the kit or the manifest changed) and, since phase 1, deploy in their own `module-workers` job **before** the other workers. Kit/manifest changes also redeploy app-api and OTA the mobile apps. The existing `Type Check · app-api` and `Unit · app-api` jobs now also check the kit, the manifest and every module worker (job names unchanged). |
 | Local dev | `pnpm dev:api` | One `wrangler dev` session with app-api on 8789 and every module worker behind it; sets `API_FORWARD_MODULES` for local runs. |
 
 Deferred from phase 0, on purpose:
@@ -299,8 +299,8 @@ Deferred from phase 0, on purpose:
   worker bundle them. Each one moves in step 3 of the recipe, when the first module that
   needs it is extracted (e.g. `cloudflare-email` with hr or mail, `ai/billing` with books,
   `tenant-work-index` with flow).
-- **The pglite test helper** stays in app-api until a module worker needs real-Postgres
-  tests.
+- **The pglite test helper** stayed in app-api until a module worker needed it. It
+  moved to `@weldsuite/worker-kit/testing/pglite` in phase 1.
 - **A runtime switch for `VITE_API_MODULES`** (feature flag instead of build-time env).
   Reverting a cutover is a Pages redeploy for now.
 - Portals (`helpcenter`, `commerce-portal`, `hr-portal`) and the developer portal keep
@@ -315,6 +315,47 @@ scaffolder, secrets, custom domain, forwarder, client flag, CI) with the least c
 Exit criteria: pass-api serves production directly from the platform. Also measure
 p50/p95 latency and cold starts against app-api, check that a pass-only change deploys
 only pass-api, and turn the recipe below into a skill for the specialist agents.
+
+### Phase 1: what shipped
+
+- `apps/workers/pass-api` (scaffolded with `pnpm create:module-api pass`). WeldPass's
+  `routes/weldpass` and `services/weldpass` moved there with `git mv`; the only
+  import changes are `../../db`, `../../lib/*` and the test helpers → the kit. Its
+  51 tests pass there, including the 19 route tests against pglite.
+- app-api: `/api/weldpass` unmounted; `PASS_API` service binding (dev / test /
+  production) and `API_FORWARD_MODULES = "pass"` in `[vars]`; `WELDPASS_ROOT_KEY*`
+  dropped from its `Env`; the WeldPass exemption left `_event-coverage.test.ts`.
+- Secrets manifest: `WELDPASS_ROOT_KEY` moved from `app-api` to `pass-api`, next to the
+  kit's base secrets.
+- Kit: the forwarder answers **503 `SERVICE_UNAVAILABLE`** when the module worker is
+  unreachable (instead of a generic 500); the pglite helper moved into the kit.
+- CI: module workers deploy in a `module-workers` job that the other workers wait for,
+  so a PR can add a module worker and switch app-api to forward to it in one go.
+- Verified locally with `pnpm dev:api`: `/api/weldpass` sent to app-api is answered by
+  pass-api; with pass-api stopped, app-api answers 503 for it and still serves
+  everything else. Both workers dry-run build for test and production (pass-api:
+  1.65 MB raw / 326 KB gzip).
+
+### Phase 1: rollout
+
+1. **Before merging:** sync pass-api's secrets in test —
+   `DOPPLER_TOKEN=… pnpm secrets:sync test pass-api`. `WELDPASS_ROOT_KEY` must be the
+   same value app-api has, or existing vaults cannot be decrypted. If the sync fails
+   because the pass-api worker does not exist yet, run it right after the first
+   deploy; in between, WeldPass on test answers with its "root key is not configured"
+   error (and requests fail auth without the Clerk/DB secrets).
+2. Merge to `develop` → pass-api deploys to `pass-api-test.weldsuite.org`, then
+   app-api-test starts forwarding `/api/weldpass`. Check the WeldPass screens on
+   app-test (list, reveal, sync) and pass-api's logs.
+3. Clients direct: set `VITE_API_MODULES=pass` for the test Pages build (and
+   `EXPO_PUBLIC_API_MODULES=pass` for mobile OTAs, although no mobile app uses
+   WeldPass today). The SPA then calls `pass-api-test` directly.
+4. Production: same order (secrets sync production, merge to `main`, then
+   `VITE_API_MODULES=pass` for the production Pages build).
+5. Remove the now-unused `WELDPASS_ROOT_KEY` secret from app-api
+   (`wrangler secret delete WELDPASS_ROOT_KEY --env <env>` in apps/workers/app-api)
+   once production has run on pass-api for a while — it is the only copy on app-api,
+   the Doppler value stays.
 
 ## Per-module extraction recipe (repeat for each module)
 
@@ -334,9 +375,8 @@ only pass-api, and turn the recipe below into a skill for the specialist agents.
      in-flight instances finish, then delete it.
 6. app-api: unmount the routers, add the `<M>_API` service binding (dev/test/production)
    and add the module id to `API_FORWARD_MODULES` in its `[vars]`, in the same deploy.
-   Ship this only after the module worker is live in that environment: the deploy
-   matrix runs workers in parallel, so land the new worker first and the app-api
-   change in a follow-up.
+   This can ship in the same PR as the new worker: deploy.yml deploys module workers
+   before app-api, and a failed module deploy stops the app-api deploy.
 7. Update server-to-server callers (bindings or URLs) that hit the module's paths.
 8. Deploy to test → run the module's e2e specs → add the module to `VITE_API_MODULES`
    (platform) and `EXPO_PUBLIC_API_MODULES` (mobile) for test → production the same way.

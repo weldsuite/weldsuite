@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Adds the per-module API workers (apps/workers/<module>-api, see
- * docs/plans/app-api-module-split.md) to the deploy matrix.
+ * Picks the per-module API workers (apps/workers/<module>-api, see
+ * docs/plans/app-api-module-split.md) to deploy.
  *
  * The module list comes from @weldsuite/api-modules, so a new module worker
  * deploys without editing deploy.yml. A module worker is selected when:
@@ -9,8 +9,10 @@
  *   - the push changed its folder, @weldsuite/worker-kit or @weldsuite/api-modules, or
  *   - BEFORE is missing / unreachable (first push, force push): deploy all, to be safe.
  *
- * Env: FORCE_ALL, BEFORE (push `before` SHA), SHA, WORKERS (JSON array from the
- * hand-maintained matrix step). Writes `workers=<merged JSON>` to GITHUB_OUTPUT.
+ * Env: FORCE_ALL, BEFORE (push `before` SHA), SHA. Writes
+ * `module_workers=<JSON array>` to GITHUB_OUTPUT; deploy.yml deploys them in
+ * their own job BEFORE the other workers, because app-api's forwarder binds
+ * to them.
  * With `--list` it only prints the module workers that exist (ci.yml loops).
  * Needs Node 22.18+ (imports the TypeScript manifest with native type stripping).
  */
@@ -70,13 +72,9 @@ if (process.env.FORCE_ALL === 'true') {
   }
 }
 
-const base = JSON.parse(process.env.WORKERS || '[]');
-const merged = [...new Set([...base, ...selected])];
-
 console.log(`Module workers present: ${existing.length ? existing.join(', ') : '(none yet)'}`);
 console.log(`Module workers selected: ${selected.length ? selected.join(', ') : '(none)'}`);
-console.log(`Deploying workers: ${JSON.stringify(merged)}`);
 
 if (process.env.GITHUB_OUTPUT) {
-  appendFileSync(process.env.GITHUB_OUTPUT, `workers=${JSON.stringify(merged)}\n`);
+  appendFileSync(process.env.GITHUB_OUTPUT, `module_workers=${JSON.stringify(selected)}\n`);
 }

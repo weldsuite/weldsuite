@@ -81,7 +81,8 @@ jobs:
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
       release_weldagent: ${{ steps.changes.outputs.weldagent }}
       release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
-      workers: ${{ steps.modules.outputs.workers }}
+      workers: ${{ steps.matrix.outputs.workers }}
+      module_workers: ${{ steps.modules.outputs.module_workers }}
     steps:
       - name: Resolve deploy context
         id: ctx
@@ -476,7 +477,8 @@ jobs:
 
       # Per-module API workers (apps/workers/<module>-api) come from the
       # @weldsuite/api-modules manifest instead of the hand-written lists above,
-      # so a new module worker deploys without editing this file.
+      # so a new module worker deploys without editing this file. They deploy in
+      # their own job BEFORE the other workers (module-workers below).
       - name: Set up Node (module worker detection)
         uses: actions/setup-node@v4
         with:
@@ -488,7 +490,6 @@ jobs:
           FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changes.outputs.all_workers }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
-          WORKERS: ${{ steps.matrix.outputs.workers }}
         run: node .github/scripts/module-workers.mjs
 
   migrations:
@@ -566,9 +567,38 @@ jobs:
           source ../../../.github/scripts/d1-migrate-retry.sh
           d1_migrate_with_retry "SCHEDULE_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
 
-  workers:
+  # Per-module API workers deploy first: app-api forwards their paths to them
+  # over service bindings (API_FORWARD_MODULES), so a PR that adds a module
+  # worker and switches app-api to forward to it must land the worker first.
+  # A failed module deploy stops the workers job below (needs + !failure()).
+  module-workers:
     name: Deploy ${{ matrix.worker }}
     needs: [prepare, migrations, d1-migrations]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      needs.prepare.outputs.module_workers != '[]' &&
+      needs.prepare.outputs.module_workers != ''
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJson(needs.prepare.outputs.module_workers) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Deploy ${{ matrix.worker }}
+        working-directory: apps/workers/${{ matrix.worker }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TARGET="${{ needs.prepare.outputs.cf_env }}"
+          echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
+          pnpm "deploy:${TARGET}"
+  workers:
+    name: Deploy ${{ matrix.worker }}
+    needs: [prepare, migrations, d1-migrations, module-workers]
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'

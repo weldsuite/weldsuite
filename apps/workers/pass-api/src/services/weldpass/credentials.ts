@@ -13,8 +13,8 @@ import type {
   WeldPassProvider,
   WeldPassSyncTargetConfig,
 } from '@weldsuite/db/schema/weldpass';
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import { credentialLocation, openSecret, sealSecret } from './envelope';
 import { getProvider } from './providers';
 import { VaultNotFoundError } from './vault';
