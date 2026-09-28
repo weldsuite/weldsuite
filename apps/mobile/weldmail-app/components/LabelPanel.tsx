@@ -14,6 +14,7 @@ import { useMail } from '@/contexts/MailContext';
 import { getLabelIcon } from '@/components/LabelDrawer';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
+import { isPersonalAccount } from '@/services/mail-tenant';
 import { BRAND, BRAND_TINT } from '@/lib/brand';
 
 const LABEL_PANEL_WIDTH = 260;
@@ -66,7 +67,10 @@ export default function LabelPanel({ visible, onLabelSelected: _onLabelSelected,
           duration: 150,
           useNativeDriver: false,
         }),
-      ]).start(() => {
+      ]).start(({ finished }) => {
+        // An interrupted close (reopened within the animation) must not
+        // unmount the panel that is now meant to be visible.
+        if (!finished) return;
         setMounted(false);
         onClosed?.();
       });
@@ -161,7 +165,8 @@ export default function LabelPanel({ visible, onLabelSelected: _onLabelSelected,
         <View style={[styles.sectionDivider, { backgroundColor: colors.divider || '#E5E7EB' }]} />
         <View style={styles.sectionHeaderRow}>
           <Text style={[styles.sectionHeader, { color: colors.muted }]}>Labels</Text>
-          {!isUnifiedInbox && selectedAccount && (
+          {/* Personal inboxes have no label-create endpoint (personal-api is read-only for labels). */}
+          {!isUnifiedInbox && selectedAccount && !isPersonalAccount(selectedAccount) && (
             <TouchableOpacity
               onPress={() => setShowCreateLabel(true)}
               style={styles.createLabelButton}

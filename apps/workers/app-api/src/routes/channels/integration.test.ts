@@ -42,6 +42,65 @@ describe('/api/channels · pglite integration', () => {
     expect(row?.slug).toBe('engineering-team');
   });
 
+  it('POST / reuses a taken name (live, private or deleted) without 500ing', async () => {
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { permissions: permissions('channels:create'), tenantDb: db },
+    });
+    const create = async (body: Record<string, unknown>) => {
+      const res = await request('/api/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(201);
+      const { data } = (await res.json()) as { data: { id: string; slug: string } };
+      return data;
+    };
+
+    const first = await create({ name: 'Slug Clash', type: 'public' });
+    expect(first.slug).toBe('slug-clash');
+    // Soft-deleted rows keep their slug — the name must still be reusable.
+    await db
+      .update(schema.chatChannels)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.chatChannels.id, first.id));
+
+    const second = await create({ name: 'Slug Clash', type: 'public' });
+    const third = await create({ name: 'slug clash!', type: 'private' });
+    expect(second.slug).toBe(`slug-clash-${second.id}`);
+    expect(third.slug).toBe(`slug-clash-${third.id}`);
+  });
+
+  it('PATCH /:id rename onto a taken slug does not 500', async () => {
+    const owner = 'user_ch_rename_owner';
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: {
+        userId: owner,
+        permissions: permissions('channels:create', 'channels:update'),
+        tenantDb: db,
+      },
+    });
+    const post = async (name: string) => {
+      const res = await request('/api/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, type: 'private' }),
+      });
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    };
+    await post('Rename Target');
+    const id = await post('Rename Source');
+
+    const res = await request(`/api/channels/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Rename Target' }),
+    });
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { slug: string } };
+    expect(data.slug).toBe(`rename-target-${id}`);
+  });
+
   it('POST / rejects empty name', async () => {
     const { request } = createTestApp('/api/channels', channelsRoutes, {
       context: { permissions: permissions('channels:create'), tenantDb: db },

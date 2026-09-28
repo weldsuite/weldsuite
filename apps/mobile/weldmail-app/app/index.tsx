@@ -2,6 +2,7 @@ import { styles } from './index.styles';
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
   SectionList,
+  ActivityIndicator,
   TouchableOpacity,
   View,
   Text,
@@ -26,7 +27,14 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { listInboxMessages, listDrafts, createDraft, deleteDraft } from '@/services/mail-tenant';
+import {
+  listInboxMessagesPage,
+  listDrafts,
+  createDraft,
+  deleteDraft,
+  type InboxCursor,
+} from '@/services/mail-tenant';
+import { draftBodyFields } from '@/utils/compose-helpers';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
@@ -52,8 +60,11 @@ import {
 } from '@/utils/notification-target';
 import { hideAppSplash } from '@/utils/splash';
 import { idsFromSections, setVisibleMessageIds, getNextVisibleMessageId } from '@/utils/next-email';
+import { appendPage, mergeRefreshedFirstPage, withThreadCounts } from '@/utils/inbox-paging';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
+/** Rows per inbox request; more load as the user nears the end of the list. */
+const INBOX_PAGE_SIZE = 50;
 
 // Matches the platform row format: `format(date, 'h:mm a')` → "3:42 PM"
 function formatRowTime(input?: string): string {
@@ -265,7 +276,7 @@ export default function MailScreen() {
   const isDark = theme === 'dark';
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
+  const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string; draftIsHtml?: string }>();
   const insets = useSafeAreaInsets();
   const { width: _windowWidth } = useWindowDimensions();
   const {
@@ -297,7 +308,9 @@ export default function MailScreen() {
   const activeScopeRef = useRef(currentScope);
   // Per-scope in-memory snapshot of the last list shown, so switching between
   // already-visited mailboxes repaints instantly with no blank flash.
-  const scopeSnapshots = useRef<Map<string, EmailListItem[]>>(new Map());
+  const scopeSnapshots = useRef<
+    Map<string, { messages: EmailListItem[]; cursor: InboxCursor | null | undefined }>
+  >(new Map());
   const isTablet = useIsTablet();
   const { openCompose } = useComposeOverlay();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
@@ -309,6 +322,17 @@ export default function MailScreen() {
   }, [customLabels]);
 
   const [messages, setMessages] = useState<EmailListItem[]>([]);
+  // Where the next page starts: `null` once the whole mailbox is loaded,
+  // `undefined` while the list is an offline-cache paint with no known position.
+  const [nextCursor, setNextCursor] = useState<InboxCursor | null | undefined>(undefined);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Mirrors for async callbacks, which must see the latest list and cursor
+  // after their awaits rather than the values from when they started.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const nextCursorRef = useRef(nextCursor);
+  nextCursorRef.current = nextCursor;
+  const loadingMoreRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -337,6 +361,8 @@ export default function MailScreen() {
   // Draft undo/discard state
   const lastDraftIdRef = useRef<string | null>(null);
   const lastDraftDataRef = useRef<any>(null);
+  // The in-flight background createDraft after the compose sheet closed.
+  const pendingDraftRef = useRef<Promise<string | null> | null>(null);
 
   const currentLabelName = labels.find((l) => l.slug === selectedLabel)?.name || selectedLabel;
 
@@ -346,28 +372,33 @@ export default function MailScreen() {
     // the wrong list.
     const requestScope = activeScopeRef.current;
     try {
-      const list = await listInboxMessages({
+      const page = await listInboxMessagesPage({
         isUnified: isUnifiedInbox,
         selected: selectedAccount,
         label: selectedLabel,
         search,
-        limit: 50,
+        limit: INBOX_PAGE_SIZE,
       });
       if (activeScopeRef.current !== requestScope) return;
-      // Enrich with thread count
-      const threadCounts: Record<string, number> = {};
-      list.forEach((m) => {
-        if (m.threadId) threadCounts[m.threadId] = (threadCounts[m.threadId] || 0) + 1;
-      });
-      const enriched = list.map((m) => ({
-        ...m,
-        threadCount: m.threadId ? (threadCounts[m.threadId] || 1) : 1,
-      }));
+      const list = page.items;
+      const enriched = withThreadCounts(list);
       // Fold any not-yet-synced mutations (offline star/delete/archive/…) onto
       // the fresh server data so the list doesn't briefly revert pending changes.
       const overlaid = await outbox.overlay(enriched, selectedLabel);
       if (activeScopeRef.current !== requestScope) return;
-      setMessages(overlaid);
+      // This only re-reads the first page; keep any older pages already
+      // scrolled into so a background re-sync doesn't snap the list back.
+      const merged = mergeRefreshedFirstPage(
+        messagesRef.current,
+        overlaid,
+        page.cursor,
+        nextCursorRef.current,
+      );
+      const next = withThreadCounts(merged.list);
+      messagesRef.current = next;
+      nextCursorRef.current = merged.cursor;
+      setMessages(next);
+      setNextCursor(merged.cursor);
       const unreadCount = list.filter((m) => !m.isRead).length;
       updateLabelCount(selectedLabel, unreadCount);
       // Persist the raw (un-overlaid) server result so the cache stays "last
@@ -389,6 +420,42 @@ export default function MailScreen() {
     }
   }, [selectedLabel, selectedAccount, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
 
+  // Infinite scroll: append the next page when the list nears its end.
+  const loadMore = useCallback(async () => {
+    const cursor = nextCursorRef.current;
+    if (!cursor || loadingMoreRef.current) return;
+    const requestScope = activeScopeRef.current;
+    // A refresh or mailbox switch replaces the cursor; a page fetched from the
+    // old one no longer lines up with the list and is dropped.
+    const stale = () =>
+      activeScopeRef.current !== requestScope || nextCursorRef.current !== cursor;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await listInboxMessagesPage({
+        isUnified: isUnifiedInbox,
+        selected: selectedAccount,
+        label: selectedLabel,
+        limit: INBOX_PAGE_SIZE,
+        cursor,
+      });
+      if (stale()) return;
+      const overlaid = await outbox.overlay(page.items, selectedLabel);
+      if (stale()) return;
+      const next = withThreadCounts(appendPage(messagesRef.current, overlaid));
+      messagesRef.current = next;
+      nextCursorRef.current = page.cursor;
+      setMessages(next);
+      setNextCursor(page.cursor);
+    } catch (error) {
+      // Keep the cursor: scrolling to the end again retries the same page.
+      if (!isNetworkError(error)) console.error('Failed to load more messages:', error);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [selectedLabel, selectedAccount, isUnifiedInbox, outbox]);
+
   // Always call the latest fetchMessages from effects/refs without re-subscribing.
   const fetchMessagesRef = useRef(fetchMessages);
   fetchMessagesRef.current = fetchMessages;
@@ -402,13 +469,13 @@ export default function MailScreen() {
     // in-memory snapshot if we have one; otherwise clear right away so the
     // previous mailbox's messages are never shown under the new one.
     const snapshot = scopeSnapshots.current.get(currentScope);
-    if (snapshot) {
-      setMessages(snapshot);
-      setLoading(false);
-    } else {
-      setMessages([]);
-      setLoading(true);
-    }
+    const nextMessages = snapshot?.messages ?? [];
+    const cursor = snapshot?.cursor;
+    messagesRef.current = nextMessages;
+    nextCursorRef.current = cursor;
+    setMessages(nextMessages);
+    setNextCursor(cursor);
+    setLoading(!snapshot);
 
     (async () => {
       // Second-chance paint from the persistent cache for scopes not yet
@@ -457,8 +524,8 @@ export default function MailScreen() {
   // screen, so optimistic changes (star/archive/delete/read) survive a
   // switch-away-and-back without a re-fetch flash.
   useEffect(() => {
-    scopeSnapshots.current.set(activeScopeRef.current, messages);
-  }, [messages]);
+    scopeSnapshots.current.set(activeScopeRef.current, { messages, cursor: nextCursor });
+  }, [messages, nextCursor]);
 
   // Cross-fade the list on every mailbox/label switch, and when an uncached
   // mailbox's first page finishes loading (loading → false). Pull-to-refresh
@@ -629,9 +696,10 @@ export default function MailScreen() {
           bcc: params.draftBcc || '',
           subject: params.draftSubject || '',
           body: params.draftBody || '',
+          isHtml: params.draftIsHtml === '1',
         };
       }
-      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
+      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined, draftIsHtml: undefined } as any);
 
       showSnackbar('Draft saved');
     }
@@ -644,6 +712,7 @@ export default function MailScreen() {
     params.draftBcc,
     params.draftSubject,
     params.draftBody,
+    params.draftIsHtml,
     router,
     showSnackbar,
   ]);
@@ -659,26 +728,32 @@ export default function MailScreen() {
       bcc: info.draftBcc || '',
       subject: info.draftSubject || '',
       body: info.draftBody || '',
+      isHtml: info.draftIsHtml === '1',
     };
     lastDraftDataRef.current = draftData;
     lastDraftIdRef.current = info.draftId || null;
+    pendingDraftRef.current = null;
     showSnackbar('Draft saved');
     // The compose sheet closed instantly without waiting on the network, so
     // persist the draft here in the background and capture its id (used by the
     // snackbar's Discard action to delete the draft).
     if (!info.draftId && draftData.emailAccountId) {
-      createDraft({
+      // Kept so Discard, tapped before this resolves, can wait for the id
+      // instead of finding none and leaving the draft behind.
+      const pending = createDraft({
         accountId: draftData.emailAccountId,
         to: draftData.to ? draftData.to.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         bcc: draftData.bcc ? draftData.bcc.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         subject: draftData.subject || undefined,
-        body: draftData.body || undefined,
+        ...draftBodyFields(draftData.body, draftData.isHtml),
       })
         .then((res) => {
-          lastDraftIdRef.current = res.data.id;
+          if (pendingDraftRef.current === pending) lastDraftIdRef.current = res.data.id;
+          return res.data.id as string;
         })
-        .catch(() => {});
+        .catch(() => null);
+      pendingDraftRef.current = pending;
     }
   }, [showSnackbar]);
 
@@ -806,11 +881,22 @@ export default function MailScreen() {
 
   // Keep the triage snapshot in lockstep with the rows on screen (pinned first,
   // then date sections) so Check on the detail pane advances in visual order.
+  // Only while this screen is focused (always, on tablet): the inbox stays
+  // mounted under search and the detail screen, and a background refetch there
+  // replaced the list the user is triaging (e.g. search results) with inbox ids.
+  const isFocusedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      publishVisibleIds();
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, [publishVisibleIds]),
+  );
   useEffect(() => {
-    publishVisibleIds();
+    if (isFocusedRef.current) publishVisibleIds();
   }, [publishVisibleIds]);
-
-  useFocusEffect(publishVisibleIds);
 
   const renderSectionHeader = ({ section }: { section: { title: string } }) => (
     <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
@@ -963,6 +1049,15 @@ export default function MailScreen() {
           initialNumToRender={12}
           maxToRenderPerBatch={10}
           windowSize={7}
+          onEndReached={loadMore}
+          onEndReachedThreshold={1}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.listFooter}>
+                <ActivityIndicator color={BRAND} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -997,7 +1092,7 @@ export default function MailScreen() {
                     cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
                     bcc: draftData.bcc ? draftData.bcc.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
                     subject: draftData.subject || undefined,
-                    body: draftData.body || undefined,
+                    ...draftBodyFields(draftData.body, !!draftData.isHtml),
                   });
                   lastDraftIdRef.current = res.data.id;
                   showSnackbar('Draft saved');
@@ -1011,9 +1106,10 @@ export default function MailScreen() {
           {snackbar === 'Draft saved' && (
             <TouchableOpacity
               onPress={async () => {
-                const draftId = lastDraftIdRef.current;
-                if (!draftId) { dismissSnackbar(); return; }
                 dismissSnackbar();
+                const draftId = lastDraftIdRef.current ?? (await pendingDraftRef.current);
+                pendingDraftRef.current = null;
+                if (!draftId) return;
                 try {
                   await deleteDraft(draftId, lastDraftDataRef.current?.emailAccountId);
                   lastDraftIdRef.current = null;

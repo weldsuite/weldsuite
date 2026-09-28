@@ -10,7 +10,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { getPersonalDb, personalSchema } from '../db';
 import { cursorPagination, error, list, success } from '../lib/response';
 import {
@@ -31,6 +31,8 @@ const listQuery = z.object({
   label: z.string().optional(),
   threadId: z.string().optional(),
   unreadOnly: z.coerce.boolean().optional(),
+  /** Case-insensitive match on subject, preview and sender name/email. */
+  search: z.string().max(200).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -44,6 +46,11 @@ const updateBody = z.object({
 });
 
 const emailOrList = z.union([z.string().email(), z.array(z.string().email()).min(1)]);
+
+/** Escape LIKE wildcards so a search for `50%` or `a_b` matches literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
 
 /** Accept a single address or a list, and always hand the service an array. */
 function asList(value: string | string[] | undefined): string[] | undefined {
@@ -125,6 +132,17 @@ app.get('/', zValidator('query', listQuery), async (c) => {
     }
     if (filters.unreadOnly) {
       conditions.push(eq(personalMailMessages.isRead, false));
+    }
+    if (filters.search?.trim()) {
+      const term = `%${escapeLike(filters.search.trim())}%`;
+      conditions.push(
+        or(
+          ilike(personalMailMessages.subject, term),
+          ilike(personalMailMessages.preview, term),
+          sql`${personalMailMessages.from}->>'name' ILIKE ${term}`,
+          sql`${personalMailMessages.from}->>'email' ILIKE ${term}`,
+        )!,
+      );
     }
 
     // A thread view reads oldest-first (conversation order); every other view

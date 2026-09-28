@@ -11,13 +11,14 @@
 import { appApi } from '@/services/app-api';
 import { personalApi } from '@/services/personal-api';
 import { isPersonalMessage, isPersonalAccountId } from '@/services/mail-tenant';
-import { isNetworkError } from '@weldsuite/api-client/client';
+import { isApiError, isNetworkError } from '@weldsuite/api-client/client';
 import { flushOutbox, type FlushResult, type OpRunner } from './outbox';
 
 const runner: OpRunner = async (op) => {
   const personal =
-    (op.kind === 'send' && isPersonalAccountId(op.accountId)) ||
-    (op.kind !== 'send' && isPersonalMessage(op.messageId, 'accountId' in op ? op.accountId : undefined));
+    op.personal ??
+    ((op.kind === 'send' && isPersonalAccountId(op.accountId)) ||
+      (op.kind !== 'send' && isPersonalMessage(op.messageId, 'accountId' in op ? op.accountId : undefined)));
 
   switch (op.kind) {
     case 'update':
@@ -75,15 +76,45 @@ const runner: OpRunner = async (op) => {
   }
 };
 
-const inFlight = new Set<string>();
+/**
+ * Server errors worth retrying: the request reached the server but failed for a
+ * reason that should clear up on its own (5xx, rate limiting, a timeout, or a
+ * Clerk token that wasn't ready yet on app resume). Anything else is a rejection.
+ */
+function isTransientError(e: unknown): boolean {
+  if (isApiError(e)) return e.status >= 500 || e.status === 429 || e.status === 408 || e.status === 401;
+  return e instanceof Error && e.message === 'Authentication required';
+}
 
-/** Flush one org's outbox. No-ops if a flush for that org is already running. */
+const inFlight = new Set<string>();
+const rerequested = new Set<string>();
+
+/**
+ * Flush one org's outbox. A call that arrives while a flush for that org is
+ * already running returns null, but marks the org so the running flush makes
+ * one more pass: the op that triggered the call (enqueued after the running
+ * pass loaded the queue) is then sent now instead of on the next trigger.
+ */
 export async function flushMailOutbox(orgId: string): Promise<FlushResult | null> {
-  if (inFlight.has(orgId)) return null;
+  if (inFlight.has(orgId)) {
+    rerequested.add(orgId);
+    return null;
+  }
   inFlight.add(orgId);
   try {
-    return await flushOutbox(orgId, runner, isNetworkError);
+    let result = await flushOutbox(orgId, runner, isNetworkError, isTransientError);
+    while (rerequested.has(orgId)) {
+      rerequested.delete(orgId);
+      const next = await flushOutbox(orgId, runner, isNetworkError, isTransientError);
+      result = {
+        remaining: next.remaining,
+        succeeded: result.succeeded + next.succeeded,
+        dropped: result.dropped + next.dropped,
+      };
+    }
+    return result;
   } finally {
     inFlight.delete(orgId);
+    rerequested.delete(orgId);
   }
 }

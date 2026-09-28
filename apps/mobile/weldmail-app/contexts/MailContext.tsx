@@ -68,7 +68,12 @@ interface MailContextValue {
   selectedAccount: MailAccount | null;
   isUnifiedInbox: boolean;
   selectAccount: (account: MailAccount) => void;
-  selectAccountById: (accountId: string) => void;
+  /**
+   * Follow a message (notification tap) or a sidebar tap into an account.
+   * `force` switches even when the unified inbox is open; a notification tap
+   * leaves the unified inbox alone since it already lists that account's mail.
+   */
+  selectAccountById: (accountId: string, options?: { force?: boolean }) => void;
   selectUnifiedInbox: () => void;
   isLoading: boolean;
   refreshLabels: () => Promise<void>;
@@ -92,6 +97,14 @@ interface MailContextValue {
 }
 
 const MailContext = createContext<MailContextValue | undefined>(undefined);
+
+type AccountRequest = { accountId: string; force: boolean };
+
+// A mailbox request that has to survive a workspace switch. RealtimeProvider
+// keys its subtree on the org id, so the switch remounts MailProvider and a
+// ref-held request would be lost with it (the sidebar asks for account X, then
+// switches to X's workspace).
+let pendingAccountRequest: AccountRequest | null = null;
 
 export function MailProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   // Gate data fetching on auth readiness. The app-api client throws when no
@@ -136,8 +149,11 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
   // it may arrive before the account list exists: the effect below applies it
   // once the mailbox has settled. Bumping `accountRequestTick` re-runs that
   // effect for requests that arrive after everything is already loaded.
-  const pendingAccountIdRef = useRef<string | null>(null);
+  const pendingAccountIdRef = useRef<AccountRequest | null>(pendingAccountRequest);
   const [accountRequestTick, setAccountRequestTick] = useState(0);
+  // Request counters: only the latest accounts / labels fetch may apply its result.
+  const accountsFetchSeqRef = useRef(0);
+  const labelsFetchSeqRef = useRef(0);
   // Email a notification tap just opened. The inbox watches this and
   // re-fetches until the row is in the list — the push can land before the
   // list API has the new message, so the first paint is often a stale cache.
@@ -173,16 +189,25 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
       setIsUnifiedInbox(true);
       setSelectedAccount(null);
     } else if (savedId) {
-      const saved = list.find((a) => a.id === savedId);
+      // Only restore a mailbox the current session can read: a personal one or
+      // one in the active workspace. The list also holds other workspaces'
+      // accounts (sidebar directory); restoring one of those after a switch
+      // sent its id with the new org's token and left the inbox blank.
+      const saved = list.find(
+        (a) =>
+          a.id === savedId &&
+          (a.tenantKind === 'personal' || !a.clerkOrgId || !organizationId || a.clerkOrgId === organizationId),
+      );
       if (saved) {
         setIsUnifiedInbox(false);
         setSelectedAccount(saved);
       }
     }
-  }, []);
+  }, [organizationId]);
 
   const fetchAccounts = useCallback(async () => {
     const orgId = orgIdRef.current;
+    const seq = ++accountsFetchSeqRef.current;
     try {
       const [personalResult, workspaceResult, directoryResult] = await Promise.allSettled([
         personalApi.me(),
@@ -191,6 +216,19 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
           : Promise.resolve({ data: [] as Awaited<ReturnType<typeof appApi.mailAccounts.list>>['data'] }),
         appApi.mailboxes.list(),
       ]);
+
+      // A newer fetch (e.g. after a workspace switch) owns the state now.
+      if (seq !== accountsFetchSeqRef.current) return;
+
+      // allSettled never rejects, so without this the catch below (cache
+      // fallback + bounded retry) was unreachable: offline, every call failed,
+      // an empty list replaced the accounts and overwrote the good cache.
+      if (
+        personalResult.status === 'rejected' &&
+        (workspaceResult.status === 'rejected' || !organizationId)
+      ) {
+        throw workspaceResult.status === 'rejected' ? workspaceResult.reason : personalResult.reason;
+      }
 
       initializedRef.current = true;
       retryCountRef.current = 0;
@@ -251,6 +289,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
       if (orgId) mailCache.setAccounts(orgId, normalized);
       await applySavedSelection(normalized);
     } catch (error) {
+      if (seq !== accountsFetchSeqRef.current) return;
       const cached = orgId ? ((await mailCache.getAccounts(orgId)) as MailAccount[] | null) : null;
       if (cached && cached.length) {
         rememberPersonalAccounts(
@@ -286,9 +325,11 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
    * The request is recorded rather than applied straight away — on a cold start
    * the tap is what launched the app, long before the account list exists.
    */
-  const selectAccountById = useCallback((accountId: string) => {
+  const selectAccountById = useCallback((accountId: string, options?: { force?: boolean }) => {
     if (!accountId) return;
-    pendingAccountIdRef.current = accountId;
+    const request = { accountId, force: !!options?.force };
+    pendingAccountIdRef.current = request;
+    pendingAccountRequest = request;
     setAccountRequestTick((t) => t + 1);
   }, []);
 
@@ -296,16 +337,23 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
   // fetched AND the saved selection applied (both complete before `isLoading`
   // flips), so we can tell an explicit mailbox choice from the initial default.
   useEffect(() => {
-    const requestedId = pendingAccountIdRef.current;
-    if (!requestedId) return;
+    const request = pendingAccountIdRef.current;
+    if (!request) return;
     if (isLoading || accounts.length === 0) return;
+    const match = accounts.find((a) => a.id === request.accountId);
+    // The account lives in a workspace we're still switching to: wait for the
+    // switch (org id change → refetch) instead of consuming the request now.
+    if (match && match.tenantKind === 'workspace' && match.clerkOrgId && organizationId && match.clerkOrgId !== organizationId) {
+      return;
+    }
     pendingAccountIdRef.current = null;
-    // Nothing to switch to: the unified inbox already lists this account's mail,
-    // and the account may well be the one already open.
-    if (isUnifiedInbox || selectedAccount?.id === requestedId) return;
-    const match = accounts.find((a) => a.id === requestedId);
+    pendingAccountRequest = null;
+    if (selectedAccount?.id === request.accountId && !isUnifiedInbox) return;
+    // A notification tap leaves the unified inbox alone: it already lists this
+    // account's mail. An explicit sidebar tap (force) always switches.
+    if (isUnifiedInbox && !request.force) return;
     if (match) selectAccount(match);
-  }, [accountRequestTick, isLoading, accounts, isUnifiedInbox, selectedAccount, selectAccount]);
+  }, [accountRequestTick, isLoading, accounts, isUnifiedInbox, selectedAccount, selectAccount, organizationId]);
 
   const selectUnifiedInbox = useCallback(() => {
     setIsUnifiedInbox(true);
@@ -365,6 +413,10 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
 
   const fetchLabels = useCallback(async () => {
     const scope = scopeKey(isUnifiedInbox, selectedAccount?.id);
+    // Drop responses for a mailbox the user has since switched away from, so a
+    // slow request for account A can't paint A's labels/counts under account B.
+    const seq = ++labelsFetchSeqRef.current;
+    const isStale = () => seq !== labelsFetchSeqRef.current;
     try {
       if (isUnifiedInbox) {
         if (accounts.length === 0) return;
@@ -373,6 +425,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
           accounts.filter((acc) => acc.tenantKind !== 'workspace' || !acc.clerkOrgId || acc.clerkOrgId === organizationId)
             .map((acc) => listLabelsForAccount(acc)),
         );
+        if (isStale()) return;
         for (const result of results) {
           if (result.status === 'fulfilled') {
             allItems.push(...result.value);
@@ -384,6 +437,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
         }
       } else if (selectedAccount) {
         const items = await listLabelsForAccount(selectedAccount);
+        if (isStale()) return;
         if (items.length > 0) {
           const { mainCounts, secondaryCounts, custom } = processLabelsResponse(items);
           applyLabels(scope, mainCounts, secondaryCounts, custom);
@@ -392,8 +446,9 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     } catch (error) {
       // Offline: fall back to the last cached label counts/custom labels for
       // this scope so the sidebar isn't bare. Only log real (server) errors.
+      if (isStale()) return;
       const cached = orgIdRef.current ? await mailCache.getLabels(orgIdRef.current, scope) : null;
-      if (cached) {
+      if (cached && !isStale()) {
         setMainLabelCounts(cached.mainCounts);
         setSecondaryLabelCounts(cached.secondaryCounts);
         setCustomLabels(cached.custom as MailLabel[]);

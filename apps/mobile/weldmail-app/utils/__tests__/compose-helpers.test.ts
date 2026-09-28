@@ -9,6 +9,9 @@ import {
   sendThenQueueOnOffline,
   type ComposePayloadInput,
   type UploadedAttachment,
+  quotedSuffixToHtml,
+  withPendingInput,
+  draftBodyFields,
 } from '../compose-helpers';
 import { NetworkError } from '@weldsuite/api-client/client';
 
@@ -192,14 +195,21 @@ describe('buildScheduledPayload', () => {
     expect(buildScheduledPayload(baseInput({ subject: '  ' }), 'acc_1', ISO).subject).toBeUndefined();
   });
 
-  it('always sets body, and htmlBody only in HTML mode', () => {
+  it('sends plain text as body, and HTML only as htmlBody', () => {
     const plain = buildScheduledPayload(baseInput({ body: 'txt', bodyHtml: '' }), 'acc_1', ISO);
     expect(plain.body).toBe('txt');
     expect(plain.htmlBody).toBeUndefined();
 
+    // HTML in `body` became the scheduled mail's text/plain part.
     const html = buildScheduledPayload(baseInput({ body: 'x', bodyHtml: '<b>h</b>' }), 'acc_1', ISO);
-    expect(html.body).toBe('<b>h</b>');
+    expect(html.body).toBeUndefined();
     expect(html.htmlBody).toBe('<b>h</b>');
+  });
+
+  it('carries reply threading headers', () => {
+    const p = buildScheduledPayload(baseInput({ inReplyTo: '<a@x>', references: ['<r@x>', '<a@x>'] }), 'acc_1', ISO);
+    expect(p.inReplyTo).toBe('<a@x>');
+    expect(p.references).toEqual(['<r@x>', '<a@x>']);
   });
 });
 
@@ -225,5 +235,54 @@ describe('sendThenQueueOnOffline', () => {
     const queue = jest.fn().mockResolvedValue(undefined);
     await expect(sendThenQueueOnOffline({ send, queue })).rejects.toThrow('400 bad request');
     expect(queue).not.toHaveBeenCalled();
+  });
+});
+
+describe('quoted text in HTML bodies', () => {
+  it('escapes and line-breaks the quote instead of appending raw text to HTML', () => {
+    const payload = buildSendPayload(
+      baseInput({ bodyHtml: '<p>Thanks</p>', quotedSuffix: '\n\nFrom: Bob <bob@x.com>\na < b' }),
+      [],
+    );
+    expect(payload.htmlBody).toBe('<p>Thanks</p><div><br><br>From: Bob &lt;bob@x.com&gt;<br>a &lt; b</div>');
+  });
+
+  it('keeps the plain-text quote unchanged for a plain body', () => {
+    const payload = buildSendPayload(baseInput({ body: 'Thanks', bodyHtml: '', quotedSuffix: '\n\n> hi' }), []);
+    expect(payload.body).toBe('Thanks\n\n> hi');
+  });
+
+  it('quotedSuffixToHtml is empty for an empty suffix', () => {
+    expect(quotedSuffixToHtml('')).toBe('');
+  });
+});
+
+describe('threading', () => {
+  it('adds inReplyTo/references to a reply send', () => {
+    const p = buildSendPayload(baseInput({ inReplyTo: '<a@x>', references: ['<a@x>'] }), []);
+    expect(p.inReplyTo).toBe('<a@x>');
+    expect(p.references).toEqual(['<a@x>']);
+  });
+
+  it('omits threading fields for a new message', () => {
+    const p = buildSendPayload(baseInput(), []);
+    expect(p).not.toHaveProperty('inReplyTo');
+    expect(p).not.toHaveProperty('references');
+  });
+});
+
+describe('withPendingInput', () => {
+  it('adds an address typed but not committed as a chip', () => {
+    expect(withPendingInput([], 'bob@x.com')).toEqual(['bob@x.com']);
+    expect(withPendingInput(['a@x.com'], ' b@x.com; c@x.com ')).toEqual(['a@x.com', 'b@x.com', 'c@x.com']);
+    expect(withPendingInput(['a@x.com'], '   ')).toEqual(['a@x.com']);
+  });
+});
+
+describe('draftBodyFields', () => {
+  it('puts an HTML body in htmlBody', () => {
+    expect(draftBodyFields('<p>x</p>', true)).toEqual({ htmlBody: '<p>x</p>' });
+    expect(draftBodyFields('x', false)).toEqual({ body: 'x' });
+    expect(draftBodyFields('', true)).toEqual({});
   });
 });

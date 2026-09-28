@@ -233,6 +233,9 @@ export function MessageInput({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  // Files still going through presign → PUT → confirm. Sending is blocked
+  // while > 0 so a pasted screenshot can't be dropped by an early Enter.
+  const [uploadingCount, setUploadingCount] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [showClipRecorder, setShowClipRecorder] = useState(false);
@@ -357,6 +360,7 @@ export function MessageInput({
   const handleSend = useCallback(() => {
     const raw = editorRef.current ? htmlToContent(editorRef.current.innerHTML) : content;
     const trimmed = raw.trim();
+    if (uploadingCount > 0) return;
     if (!trimmed && attachments.length === 0) return;
 
     // Intercept slash commands that should never be posted as a message.
@@ -398,7 +402,7 @@ export function MessageInput({
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     });
     clearInput();
-  }, [content, channelId, parentId, mentions, attachments, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
+  }, [content, channelId, parentId, mentions, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     const replyParentId = replyTo?.messageId || parentId;
@@ -777,37 +781,73 @@ export function MessageInput({
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
-    const client = await getClient();
-    for (const file of list) {
-      try {
-        const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
-          fileName: file.name,
-          fileSize: file.size,
-          contentType: file.type,
-        });
-        const { uploadUrl, uploadToken, fileKey } = urlRes;
-        await fetch(uploadUrl, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': file.type },
-        });
-        const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
-          uploadToken,
-          fileKey,
-        });
-        const fileData = confirmRes?.file;
-        setAttachments((prev) => [...prev, {
-          id: fileData?.id ?? fileKey,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-          url: fileData?.url ?? '',
-        }]);
-      } catch (err) {
-        console.error('File upload failed:', err);
+    setUploadingCount((n) => n + list.length);
+    try {
+      const client = await getClient();
+      for (const file of list) {
+        // The storage API requires a non-empty content type.
+        const contentType = file.type || 'application/octet-stream';
+        try {
+          const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
+            fileName: file.name,
+            fileSize: file.size,
+            contentType,
+          });
+          const { uploadUrl, uploadToken, fileKey } = urlRes;
+          const putRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            body: file,
+            headers: { 'Content-Type': contentType },
+          });
+          if (!putRes.ok) throw new Error(`Upload failed with status ${putRes.status}`);
+          const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
+            uploadToken,
+            fileKey,
+          });
+          const fileData = confirmRes?.file;
+          setAttachments((prev) => [...prev, {
+            id: fileData?.id ?? fileKey,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: contentType,
+            url: fileData?.url ?? '',
+          }]);
+        } catch (err) {
+          console.error('File upload failed:', err);
+          toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', file.name));
+        } finally {
+          setUploadingCount((n) => n - 1);
+        }
       }
+    } catch (err) {
+      // getClient() failed before any file started — release them all.
+      console.error('File upload failed:', err);
+      setUploadingCount((n) => n - list.length);
     }
-  }, [getClient]);
+  }, [getClient, t]);
+
+  // Pasting a screenshot (or an image copied from another app) into the
+  // contentEditable would otherwise inline an <img> that htmlToContent
+  // drops on send. Route clipboard files through the attachment upload.
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    const files = Array.from(e.clipboardData.items)
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    if (editingMessage) return; // edits can't change attachments
+    const stamp = Date.now();
+    const named = files.map((file, i) => {
+      // Clipboard images arrive as a generic "image.png" (or unnamed);
+      // give each a distinct name so previews and downloads are clear.
+      if (file.name && file.name !== 'image.png') return file;
+      const ext = file.type.split('/')[1]?.split('+')[0] || 'png';
+      const suffix = files.length > 1 ? `-${i + 1}` : '';
+      return new File([file], `pasted-image-${stamp}${suffix}.${ext}`, { type: file.type });
+    });
+    void uploadFiles(named);
+  }, [editingMessage, uploadFiles]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -859,6 +899,7 @@ export function MessageInput({
   };
 
   const hasContent = content.trim() || attachments.length > 0;
+  const isUploading = uploadingCount > 0;
 
   return (
     <div className="px-2 pb-2 md:px-4 md:pb-4 flex-shrink-0 relative">
@@ -927,7 +968,7 @@ export function MessageInput({
       <div
         className={cn(
           "relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text",
-          replyTo ? "pt-[20px]" : attachments.length > 0 ? "pt-[20px]" : "pt-[10px]"
+          replyTo ? "pt-[20px]" : attachments.length > 0 || isUploading ? "pt-[20px]" : "pt-[10px]"
         )}
         onClick={(e) => {
           // Focus editor when clicking anywhere in the container (but not on buttons/popovers)
@@ -979,7 +1020,7 @@ export function MessageInput({
             )}
 
             {/* Attachment previews */}
-            {attachments.length > 0 && (
+            {(attachments.length > 0 || isUploading) && (
               <div className="flex flex-wrap gap-2 mb-3 px-[10px]">
                 {attachments.map((att, i) => (
                   <div key={i} className="relative group">
@@ -1016,6 +1057,15 @@ export function MessageInput({
                     )}
                   </div>
                 ))}
+                {isUploading && (
+                  <div
+                    className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground"
+                    role="status"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                    {t.weldchat.messageInput.uploading}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1095,6 +1145,7 @@ export function MessageInput({
                 data-testid="chat-composer"
                 onInput={handleInput}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 data-placeholder={placeholder || t.weldchat.messageInput.placeholder}
                 className={cn(
                   "w-full bg-transparent text-[15px] text-gray-900 dark:text-foreground placeholder:text-gray-500 dark:placeholder:text-muted-foreground outline-none resize-none min-h-[40px] flex-1 pl-[10px] pt-[7px] pb-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words",
@@ -1290,17 +1341,17 @@ export function MessageInput({
                 <Button
                   variant="ghost"
                   onClick={handleSend}
-                  disabled={isPending || !hasContent}
+                  disabled={isPending || isUploading || !hasContent}
                   data-testid="chat-send"
                   className={cn(
                     'w-8 h-8 rounded-[12px] flex items-center justify-center transition-all',
-                    hasContent && !isPending
+                    hasContent && !isPending && !isUploading
                       ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                       : 'bg-gray-300 dark:bg-muted text-gray-500 dark:text-muted-foreground cursor-not-allowed'
                   )}
                   title={t.weldchat.messageInput.sendMessage}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={cn("h-[15px] w-[15px]", hasContent && !isPending ? "text-primary-foreground" : "text-gray-500 dark:text-muted-foreground")}>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={cn("h-[15px] w-[15px]", hasContent && !isPending && !isUploading ? "text-primary-foreground" : "text-gray-500 dark:text-muted-foreground")}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
                   </svg>
                 </Button>

@@ -12,8 +12,8 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
-    "@clerk/expo": "^3.2.2",
-    "@clerk/shared": "^4.15.0",
+    "@clerk/expo": "^4.7.1",
+    "@clerk/shared": "^4.36.0",
     "@cloudflare/react-native-webrtc": "~137.0.1",
     "@cloudflare/realtimekit-react-native": "^2.0.0",
     "@cloudflare/realtimekit-react-native-ui": "^2.0.0",

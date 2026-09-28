@@ -20,6 +20,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { personalApi } from '@/services/personal-api';
+import { useMail } from '@/contexts/MailContext';
 import { BRAND } from '@/lib/brand';
 import { hideAppSplash } from '@/utils/splash';
 
@@ -31,6 +32,7 @@ export default function ClaimAddressScreen() {
   const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const { signOut } = useClerkAuth();
+  const { refreshAccounts } = useMail();
 
   useEffect(() => {
     hideAppSplash();
@@ -60,32 +62,41 @@ export default function ClaimAddressScreen() {
 
   useEffect(() => {
     if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
+    let cancelled = false;
     setAvailability(null);
 
     if (address.length >= 3) {
       setChecking(true);
+      // A response for an earlier value of the field must not mark the current
+      // address available (typing `john` then `johnx` enabled Create for johnx).
+      const applyAvailability = (next: { available: boolean; message?: string } | null) => {
+        if (!cancelled) setAvailability(next);
+      };
       checkTimerRef.current = setTimeout(() => {
         void personalApi.weldmail
           .check(address)
           .then(({ data }) => {
             if (data.available) {
-              setAvailability({ available: true });
+              applyAvailability({ available: true });
             } else {
               const reason = 'reason' in data ? data.reason : 'taken';
-              setAvailability({
+              applyAvailability({
                 available: false,
                 message: reason === 'reserved' ? 'Reserved' : 'Already taken',
               });
             }
           })
-          .catch(() => setAvailability(null))
-          .finally(() => setChecking(false));
+          .catch(() => applyAvailability(null))
+          .finally(() => {
+            if (!cancelled) setChecking(false);
+          });
       }, 500);
     } else {
       setChecking(false);
     }
 
     return () => {
+      cancelled = true;
       if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
     };
   }, [address]);
@@ -111,6 +122,10 @@ export default function ClaimAddressScreen() {
         name: displayName || address,
         displayName: displayName || address,
       });
+      // The mailbox loaded its accounts at sign-in, before this address
+      // existed; without a refetch the inbox stays empty (and the personal push
+      // token is never registered) until the app restarts.
+      await refreshAccounts().catch(() => {});
       Alert.alert('Welcome', `${result.email || `${address}@${domain}`} is yours`);
       router.replace('/');
     } catch (err) {
@@ -118,7 +133,7 @@ export default function ClaimAddressScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [address, displayName, availability, domain, router]);
+  }, [address, displayName, refreshAccounts, availability, domain, router]);
 
   return (
     <View

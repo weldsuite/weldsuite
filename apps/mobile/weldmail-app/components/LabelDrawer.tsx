@@ -36,6 +36,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
+import { isPersonalAccount } from '@/services/mail-tenant';
 import WeldMailLogo from '@/components/WeldMailLogo';
 import { BRAND, BRAND_TINT } from '@/lib/brand';
 
@@ -315,7 +316,8 @@ export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerPr
               <View style={[styles.sectionDivider, { backgroundColor: isDark ? '#38383A' : '#E5E7EB' }]} />
               <View style={styles.sectionHeaderRow}>
                 <Text style={[styles.sectionHeader, { color: isDark ? '#636366' : '#9CA3AF' }]}>Labels</Text>
-                {!isUnifiedInbox && selectedAccount && (
+                {/* Personal inboxes have no label-create endpoint (personal-api is read-only for labels). */}
+                  {!isUnifiedInbox && selectedAccount && !isPersonalAccount(selectedAccount) && (
                   <TouchableOpacity
                     onPress={() => setShowCreateLabel(true)}
                     style={styles.createLabelButton}

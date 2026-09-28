@@ -441,6 +441,8 @@ export interface ListMessagesParams {
   /** Return one conversation, oldest message first. */
   threadId?: string;
   unreadOnly?: boolean;
+  /** Case-insensitive match on subject, preview and sender name/email. */
+  search?: string;
   cursor?: string;
   limit?: number;
 }

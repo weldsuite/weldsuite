@@ -31,6 +31,10 @@ export const styles = StyleSheet.create({
   listContainer: {
     paddingBottom: 32,
   },
+  listFooter: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
   sectionHeader: {
     paddingHorizontal: 16,
     paddingTop: 16,

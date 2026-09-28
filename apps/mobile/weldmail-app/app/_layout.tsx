@@ -365,7 +365,13 @@ function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <ErrorBoundary>
-          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
+          {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
+              client sync races browser SSO on Android and signs users out again. */}
+          <ClerkProvider
+            publishableKey={CLERK_PUBLISHABLE_KEY || ''}
+            tokenCache={tokenCache}
+            __experimental_disableNativeClientSync
+          >
             <ClerkLoading>
               {null}
             </ClerkLoading>

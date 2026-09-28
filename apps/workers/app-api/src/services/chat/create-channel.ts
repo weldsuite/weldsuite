@@ -17,7 +17,7 @@
  * route's job.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
 
@@ -55,6 +55,30 @@ export function slugifyChannelName(name: string): string {
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 255);
+}
+
+/**
+ * A slug for `name` that no other channel row holds. Channel names are not
+ * unique but slugs are — and the index spans soft-deleted, archived, private
+ * and DM rows too — so reusing a name ("Sales" twice, or a deleted channel's
+ * name) used to hit the index and 500 the create. On a clash the channel id
+ * is appended, which is unique by construction. Deliberately no 409: a clash
+ * with a private channel must not reveal that the channel exists.
+ */
+export async function resolveChannelSlug(
+  db: Database,
+  name: string,
+  channelId: string,
+): Promise<string> {
+  const base = slugifyChannelName(name);
+  if (!base) return channelId;
+  const [clash] = await db
+    .select({ id: chatChannels.id })
+    .from(chatChannels)
+    .where(and(eq(chatChannels.slug, base), ne(chatChannels.id, channelId)))
+    .limit(1);
+  if (!clash) return base;
+  return `${base.slice(0, 255 - channelId.length - 1)}-${channelId}`;
 }
 
 /** ACTIVE, non-deleted INTERNAL members of the workspace. */
@@ -105,7 +129,7 @@ export async function createChannel(
 ): Promise<CreateChannelResult> {
   const id = generateId('ch');
   const now = new Date();
-  const slug = slugifyChannelName(input.name) || id;
+  const slug = await resolveChannelSlug(db, input.name, id);
 
   await db.insert(chatChannels).values({
     id,

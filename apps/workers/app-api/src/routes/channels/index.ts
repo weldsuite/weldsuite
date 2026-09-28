@@ -18,7 +18,7 @@ import { postChatMessage, ChatFeatureError } from '../../services/chat/post-mess
 import { setChannelMuted } from '../../services/chat/dm-membership';
 import { canAccessChannel, isChannelModerator } from '../../services/chat/channel-access';
 import { consumeChatRateLimit } from '../../services/chat/rate-limit';
-import { createChannel, slugifyChannelName } from '../../services/chat/create-channel';
+import { createChannel, resolveChannelSlug } from '../../services/chat/create-channel';
 import {
   addChannelMembers,
   getMembership,
@@ -282,7 +282,7 @@ app.patch('/:id', requirePermission('channels:update'), zValidator('json', updat
     }
     // Renaming re-derives the slug, as the legacy handler did — the slug backs
     // the channel's URL, so leaving it on the old name silently rots links.
-    if (data.name !== undefined) update.slug = slugifyChannelName(data.name) || id;
+    if (data.name !== undefined) update.slug = await resolveChannelSlug(db, data.name, id);
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
     const [updated] = await db.select().from(t).where(eq(t.id, id)).limit(1);

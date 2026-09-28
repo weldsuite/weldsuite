@@ -70,47 +70,103 @@ export interface ComposeReplyParams {
   quotedSubject: string;
   quotedBody: string;
   emailAccountId: string;
+  /** SMTP Message-ID of the original, so the reply threads (empty on forward). */
+  inReplyTo: string;
+  /** Space-separated References chain for the reply (empty on forward). */
+  references: string;
+}
+
+const ADDRESS_PATTERN = /[^\s<>,;"']+@[^\s<>,;"']+/g;
+
+/**
+ * Bare email addresses from a recipient value: a `{ name, email }` list, a
+ * list of strings, or a raw header string such as `"Doe, Jane" <jane@x.com>`.
+ * Display names are never returned: the composer treats every entry as an
+ * address, and a name like "Doe, Jane" would split into two bogus recipients.
+ */
+export function recipientAddresses(recipients: any): string[] {
+  if (!recipients) return [];
+  const list = Array.isArray(recipients) ? recipients : [recipients];
+  const out: string[] = [];
+  for (const r of list) {
+    const raw = typeof r === 'string' ? r : r?.email;
+    if (typeof raw !== 'string') continue;
+    out.push(...(raw.match(ADDRESS_PATTERN) ?? []));
+  }
+  return out;
+}
+
+function uniqueAddresses(addresses: string[], exclude: Set<string>): string[] {
+  const seen = new Set(exclude);
+  const out: string[] = [];
+  for (const a of addresses) {
+    const key = a.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
+function prefixedSubject(subject: unknown, prefix: 'Re' | 'Fwd'): string {
+  const base = typeof subject === 'string' ? subject : '';
+  const already = prefix === 'Re' ? /^re:/i : /^(fwd?|fw):/i;
+  return already.test(base.trim()) ? base : `${prefix}: ${base}`;
 }
 
 /**
  * Build the reply/reply-all/forward prefill for the composer from a message.
- * Extracted verbatim from the identical `openComposeForMessage` in both
- * `app/[id].tsx` and `components/EmailDetailPanel.tsx`; `fallbackAccountId` is
- * the per-screen `email?.emailAccountId || email?.accountId` fallback.
+ * Shared by `app/[id].tsx` and `components/EmailDetailPanel.tsx`;
+ * `fallbackAccountId` is the per-screen `email?.emailAccountId || email?.accountId`
+ * fallback. `selfAddresses` are the user's own mailbox addresses, left out of
+ * reply-all so the user doesn't mail themselves.
  */
 export function buildComposeParams(
   msg: any,
   mode: ComposeMode,
   fallbackAccountId = '',
+  selfAddresses: string[] = [],
 ): ComposeReplyParams {
   const sName = getSenderName(msg.from) || 'Unknown';
   const sEmail = getSenderEmail(msg.from);
-  const ccVal = typeof msg.cc === 'string' ? msg.cc : formatRecipients(msg.cc);
+  const self = new Set(selfAddresses.map((a) => a.toLowerCase()));
+  const senderAddresses = recipientAddresses(msg.from);
+  const toAddresses = recipientAddresses(msg.to);
+  const ccAddresses = recipientAddresses(msg.cc);
+  // Replying to a message you sent yourself goes to its original recipients.
+  const fromSelf = senderAddresses.some((a) => self.has(a.toLowerCase()));
 
-  let replyTo = '';
-  let replyCc = '';
-  let subjectPrefix = '';
+  let replyTo: string[] = [];
+  let replyCc: string[] = [];
+  let subject = '';
 
   if (mode === 'reply') {
-    replyTo = sEmail;
-    subjectPrefix = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject}`;
+    replyTo = fromSelf ? uniqueAddresses(toAddresses, self) : senderAddresses.slice(0, 1);
+    subject = prefixedSubject(msg.subject, 'Re');
   } else if (mode === 'replyAll') {
-    replyTo = sEmail;
-    replyCc = ccVal;
-    subjectPrefix = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject}`;
+    replyTo = uniqueAddresses(fromSelf ? toAddresses : [...senderAddresses, ...toAddresses], self);
+    replyCc = uniqueAddresses(ccAddresses, new Set([...self, ...replyTo.map((a) => a.toLowerCase())]));
+    subject = prefixedSubject(msg.subject, 'Re');
   } else {
-    subjectPrefix = msg.subject?.startsWith('Fwd:') ? msg.subject : `Fwd: ${msg.subject}`;
+    subject = prefixedSubject(msg.subject, 'Fwd');
   }
+
+  const isReply = mode !== 'forward';
+  const smtpId = typeof msg.messageId === 'string' ? msg.messageId : '';
+  const priorRefs: string[] = Array.isArray(msg.references) ? msg.references.filter((r: unknown) => typeof r === 'string') : [];
+  const references = isReply && smtpId ? [...priorRefs.filter((r) => r !== smtpId), smtpId].join(' ') : '';
 
   return {
     mode,
-    replyTo,
-    replyCc,
-    subject: subjectPrefix,
+    replyTo: replyTo.join(', '),
+    replyCc: replyCc.join(', '),
+    subject,
     quotedFrom: `${sName} (${sEmail})`,
     quotedDate: msg.sentDate || msg.receivedDate || msg.receivedAt || msg.createdAt || '',
     quotedSubject: msg.subject || '',
     quotedBody: msg.textBody || msg.textContent || msg.body || msg.preview || '',
     emailAccountId: msg.emailAccountId || msg.accountId || fallbackAccountId,
+    inReplyTo: isReply ? smtpId : '',
+    references,
   };
 }
