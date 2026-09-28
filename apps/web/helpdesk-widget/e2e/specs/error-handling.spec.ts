@@ -206,7 +206,7 @@ test.describe('Error Handling', () => {
       await expect(mainContent).toBeVisible();
     });
 
-    test('should show reconnecting state', async ({ widgetPage, page }) => {
+    test('should keep the composer usable while offline', async ({ widgetPage, page }) => {
       await setupMessengerApi(page);
       await widgetPage.openComposer();
 
@@ -286,15 +286,18 @@ test.describe('Error Handling', () => {
       });
 
       // Trigger an error
-      await page.route('**/api/widget/**', async (route) => {
+      let configRequests = 0;
+      await page.route((url) => url.pathname === '/api/config', async (route) => {
+        configRequests++;
         await route.fulfill({
           status: 500,
           body: 'Server Error',
         });
       });
 
-      await widgetPage.goto('/');
+      await widgetPage.goto(`/?widgetId=${MESSENGER_WIDGET_ID}&open=true`);
       await widgetPage.waitForReady();
+      await expect.poll(() => configRequests).toBeGreaterThan(0);
 
       // A failed API call is handled, it never reaches the render error boundary
       expect(consoleErrors.filter((text) => text.includes('[Weld Widget] Render error'))).toEqual([]);
