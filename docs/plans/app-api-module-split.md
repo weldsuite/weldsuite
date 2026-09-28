@@ -501,7 +501,14 @@ Server callers:
    workflow blocks/re-exports from app-api, then secrets only those used (`ASSEMBLYAI_API_KEY`,
    `AGENT_RUNTIME_URL`, `CF_REALTIME_*`, `R2_SQL_*`, the hand-set module secrets). Stop
    forwarding a module in production once no client calls app-api for it.
-6. Later: replace the `INTERNAL_API_SECRET` bearer on service-binding paths with RPC over the
+6. **App-scoped permissions**: every API worker applies them (the kit sets the
+   X-Weld-App context; `requirePermission` / the resolver are the same package code).
+   Enforcement (`PERMISSIONS_APP_ENFORCE="true"`) must be switched on in app-api **and
+   every module worker** together. The grant-rewrite sweep
+   (`apps/tools/migrate-databases` `migrate:app-permissions`) may only `--execute` in an
+   environment once the module workers are deployed there; until then unqualified
+   grants keep working everywhere.
+7. Later: replace the `INTERNAL_API_SECRET` bearer on service-binding paths with RPC over the
    binding (no secret), and consider Clerk M2M for the public ones (workflow-worker,
    billing-worker).
 

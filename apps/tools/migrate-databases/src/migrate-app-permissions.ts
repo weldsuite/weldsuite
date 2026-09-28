@@ -11,9 +11,12 @@
  * narrow access per app in the role / member editor.
  *
  * ORDERING — do NOT --execute until every client that checks permissions
- * understands app-qualified keys IN THE TARGET ENVIRONMENT: app-api, the
- * platform SPA, mcp-server, and the mobile apps (WeldMail gates UI on
- * permissions; its OTA bundle must be live). All of them handle both formats
+ * understands app-qualified keys IN THE TARGET ENVIRONMENT: app-api, every
+ * module API worker (apps/workers/<module>-api — they check permissions with
+ * the same @weldsuite/permissions code, so they only need to be DEPLOYED, not
+ * the empty placeholders `secrets:sync` creates), the platform SPA,
+ * mcp-server, and the mobile apps (WeldMail gates UI on permissions; its OTA
+ * bundle must be live). All of them handle both formats
  * in code; a rewritten role only breaks a client still running an older
  * build. `--execute` therefore also requires `--clients-ready`.
  *

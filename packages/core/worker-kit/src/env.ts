@@ -29,6 +29,14 @@ export interface KitEnv extends DbEnv {
    * API worker: without it each cold isolate fetches Clerk's JWKS.
    */
   CLERK_JWT_KEY?: string;
+  /**
+   * "true" enforces per-app permission checks (a key refused in the request's
+   * X-Weld-App app is a 403 even when another app grants it); anything else
+   * only logs those refusals (@weldsuite/permissions app-scope). Every API
+   * worker checks permissions, so switch it on in ALL of them together —
+   * app-api alone would leave the module workers in log-only mode.
+   */
+  PERMISSIONS_APP_ENFORCE?: string;
   /** Test-only seam for `X-Test-Flags` (never set in production). */
   TEST_FIXTURES_TOKEN?: string;
   FLAGSHIP?: FlagshipBinding;
