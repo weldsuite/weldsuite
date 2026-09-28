@@ -14,6 +14,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Workers-only module; any worker that (transitively) imports
+      // @weldsuite/worker-email needs this under vitest.
+      'cloudflare:email': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
+      ),
     },
   },
 });

@@ -30,8 +30,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { findMissingEntityEvents } from '@weldsuite/worker-kit/testing/sweeps';
 
 const ROUTES_DIR = __dirname;
 
@@ -145,125 +144,14 @@ const EXEMPT_ROUTES = new Set<string>([
   'sendcloud',
 ]);
 
-interface Handler {
-  method: string;
-  path: string;
-  /** Source text from this handler declaration up to the next `app.x(`. */
-  body: string;
-}
-
-/** Split a route file into per-`app.method(...)` handler blocks. */
-function parseHandlers(source: string): Handler[] {
-  const decl = /\bapp\.(get|post|put|patch|delete|on|route)\(\s*['"]([^'"]*)['"]/g;
-  const boundary = /\bapp\.\w+\(/g;
-  const handlers: Handler[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = decl.exec(source)) !== null) {
-    const start = m.index;
-    boundary.lastIndex = start + 1;
-    const next = boundary.exec(source);
-    const end = next ? next.index : source.length;
-    handlers.push({ method: m[1], path: m[2], body: source.slice(start, end) });
-  }
-  return handlers;
-}
-
-/**
- * Names of top-level `function`/`const` handlers (or helpers) in a file
- * that publish — directly or transitively. Some routes share a single
- * update handler across put + patch (`app.put('/:id', …, updateRoute)`),
- * fan out via a helper (`publishBothSides(...)`), or chain helpers
- * (`updateRoute` → `patchHandler` → `publishEntityEvent`). A registration
- * that references such a symbol publishes through it, not inline.
- */
-function collectPublishingHelpers(source: string): Set<string> {
-  // Anchor declarations to column 0 (top-level only) so that *indented*
-  // inner declarations inside a helper body don't prematurely end its block.
-  const declRe =
-    /(?:^|\n)(?:export )?(?:async )?(?:function (\w+)|const (\w+)\s*=)/g;
-  const boundaryRe =
-    /\bapp\.\w+\(|(?:^|\n)(?:export )?(?:async )?(?:function \w+|const \w+\s*=)/g;
-
-  const blocks = new Map<string, string>();
-  let m: RegExpExecArray | null;
-  while ((m = declRe.exec(source)) !== null) {
-    const name = m[1] ?? m[2];
-    boundaryRe.lastIndex = m.index + 1;
-    const next = boundaryRe.exec(source);
-    const end = next ? next.index : source.length;
-    blocks.set(name, source.slice(m.index, end));
-  }
-
-  // Seed with symbols that publish inline, then close transitively over
-  // symbols that reference an already-publishing symbol.
-  const publishing = new Set<string>();
-  for (const [name, block] of blocks) {
-    if (block.includes('publishEntityEvent')) publishing.add(name);
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [name, block] of blocks) {
-      if (publishing.has(name)) continue;
-      for (const pub of publishing) {
-        if (new RegExp(`\\b${pub}\\b`).test(block)) {
-          publishing.add(name);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
-  return publishing;
-}
-
-/** Does this handler publish — inline, or through a publishing helper? */
-function handlerPublishes(h: Handler, helpers: Set<string>): boolean {
-  if (h.body.includes('publishEntityEvent')) return true;
-  for (const name of helpers) {
-    if (new RegExp(`\\b${name}\\b`).test(h.body)) return true;
-  }
-  return false;
-}
-
-/** Is this handler part of the core CRUD surface we require events on? */
-function isCoreCrud(h: Handler): boolean {
-  if (h.method === 'post' && h.path === '/') return true;
-  if ((h.method === 'patch' || h.method === 'put') && h.path === '/:id') return true;
-  if (h.method === 'delete' && h.path === '/:id') return true;
-  return false;
-}
-
-function routeDirs(): string[] {
-  return readdirSync(ROUTES_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .filter((name) => existsSync(join(ROUTES_DIR, name, 'index.ts')))
-    .sort();
-}
-
 describe('app-api entity-event coverage', () => {
+  const report = findMissingEntityEvents(ROUTES_DIR, EXEMPT_ROUTES);
+
   it('every core-CRUD mutation handler publishes an entity event', () => {
-    const failures: string[] = [];
-
-    for (const dir of routeDirs()) {
-      if (EXEMPT_ROUTES.has(dir)) continue;
-      const source = readFileSync(join(ROUTES_DIR, dir, 'index.ts'), 'utf8');
-      const helpers = collectPublishingHelpers(source);
-      for (const h of parseHandlers(source)) {
-        if (!isCoreCrud(h)) continue;
-        if (!handlerPublishes(h, helpers)) {
-          failures.push(`${dir}: app.${h.method}('${h.path}') has no publishEntityEvent`);
-        }
-      }
-    }
-
-    expect(failures, `\n${failures.join('\n')}\n`).toEqual([]);
+    expect(report.failures, `\n${report.failures.join('\n')}\n`).toEqual([]);
   });
 
   it('exemptions all reference real route directories', () => {
-    const dirs = new Set(routeDirs());
-    const stale = [...EXEMPT_ROUTES].filter((r) => !dirs.has(r));
-    expect(stale, `stale EXEMPT_ROUTES entries: ${stale.join(', ')}`).toEqual([]);
+    expect(report.staleExemptions, `stale EXEMPT_ROUTES entries: ${report.staleExemptions.join(', ')}`).toEqual([]);
   });
 });

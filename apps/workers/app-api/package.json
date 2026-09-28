@@ -39,6 +39,7 @@
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
+    "@weldsuite/worker-email": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "cloudflare": "^7.0.0",

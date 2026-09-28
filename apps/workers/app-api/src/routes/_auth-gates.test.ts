@@ -14,8 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Hono } from 'hono';
-import { createTestApp, permissions } from '../test/harness';
+import { authGateStatuses, type AuthGateCase } from '@weldsuite/worker-kit/testing/sweeps';
 
 import { ordersRoutes } from './orders';
 import { projectsRoutes } from './projects';
@@ -53,31 +52,7 @@ import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
 import { chatDmRoutes } from './chat-dm';
 import type { Env, Variables } from '../types';
 
-interface RouteCase {
-  /** Mount path, e.g. `/api/orders`. */
-  mount: string;
-  /** Router under test. */
-  router: Hono<{ Bindings: Env; Variables: Variables }>;
-  /**
-   * Permission prefix. Most entities follow `<plural>:<action>` —
-   * `orders:read`, `orders:create`, etc. Some use a different prefix
-   * (mail-messages uses `messages:*`, bills uses `bills:*`).
-   */
-  prefix: string;
-  /**
-   * Some routes don't actually have a top-level GET / (e.g. they're
-   * nested under another resource). Skip the GET assertion when set.
-   */
-  skipGet?: boolean;
-  /**
-   * A few routes lack a standard top-level POST / create (e.g. the resource is
-   * created elsewhere, or the route uses only sub-action POSTs). Opt out per case.
-   */
-  skipPost?: boolean;
-  /** A few routes lack PATCH or DELETE — opt out per case. */
-  skipPatch?: boolean;
-  skipDelete?: boolean;
-}
+type RouteCase = AuthGateCase<Env, Variables>;
 
 const cases: RouteCase[] = [
   { mount: '/api/orders', router: ordersRoutes, prefix: 'orders' },
@@ -135,51 +110,7 @@ const cases: RouteCase[] = [
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {
-  if (!c.skipGet) {
-    it(`GET ${c.mount} returns 403 without ${c.prefix}:read`, async () => {
-      const { request } = createTestApp(c.mount, c.router, {
-        context: { permissions: permissions() },
-      });
-      const res = await request(c.mount);
-      expect(res.status).toBe(403);
-    });
-  }
-
-  if (!c.skipPost) {
-    it(`POST ${c.mount} returns 403 without ${c.prefix}:create`, async () => {
-      const { request } = createTestApp(c.mount, c.router, {
-        context: { permissions: permissions(`${c.prefix}:read`) },
-      });
-      const res = await request(c.mount, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(403);
-    });
-  }
-
-  if (!c.skipPatch) {
-    it(`PATCH ${c.mount}/:id returns 403 without ${c.prefix}:update`, async () => {
-      const { request } = createTestApp(c.mount, c.router, {
-        context: { permissions: permissions(`${c.prefix}:read`) },
-      });
-      const res = await request(`${c.mount}/some_id`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(403);
-    });
-  }
-
-  if (!c.skipDelete) {
-    it(`DELETE ${c.mount}/:id returns 403 without ${c.prefix}:delete`, async () => {
-      const { request } = createTestApp(c.mount, c.router, {
-        context: { permissions: permissions(`${c.prefix}:read`) },
-      });
-      const res = await request(`${c.mount}/some_id`, { method: 'DELETE' });
-      expect(res.status).toBe(403);
-    });
-  }
+  it('refuses every standard CRUD call without its permission', async () => {
+    for (const r of await authGateStatuses(c)) expect(r.status, r.label).toBe(403);
+  });
 });

@@ -6,7 +6,8 @@
  * The module list comes from @weldsuite/api-modules, so a new module worker
  * deploys without editing deploy.yml. A module worker is selected when:
  *   - FORCE_ALL is "true" (manual dispatch, lockfile / workspace / db change), or
- *   - the push changed its folder, @weldsuite/worker-kit or @weldsuite/api-modules, or
+ *   - the push changed its folder or any workspace package it depends on
+ *     (transitively, e.g. @weldsuite/worker-kit), or the api-modules manifest, or
  *   - BEFORE is missing / unreachable (first push, force push): deploy all, to be safe.
  *
  * Env: FORCE_ALL, BEFORE (push `before` SHA), SHA. Writes
@@ -18,7 +19,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -27,7 +28,42 @@ const { MODULE_WORKERS } = await import(
   pathToFileURL(path.join(repoRoot, 'packages/core/api-modules/src/index.ts')).href
 );
 
-const SHARED_PATHS = ['packages/core/worker-kit/', 'packages/core/api-modules/'];
+// Workspace package name → folder (apps/*/* and packages/*/*), so a worker's
+// transitive workspace dependencies can be watched too: a change in, say,
+// @weldsuite/crm-domain redeploys every worker that depends on it.
+const workspaceDirs = new Map();
+for (const group of ['apps', 'packages']) {
+  const groupDir = path.join(repoRoot, group);
+  for (const category of readdirSync(groupDir, { withFileTypes: true })) {
+    if (!category.isDirectory()) continue;
+    for (const pkg of readdirSync(path.join(groupDir, category.name), { withFileTypes: true })) {
+      const manifest = path.join(groupDir, category.name, pkg.name, 'package.json');
+      if (!pkg.isDirectory() || !existsSync(manifest)) continue;
+      const { name } = JSON.parse(readFileSync(manifest, 'utf8'));
+      if (name) workspaceDirs.set(name, `${group}/${category.name}/${pkg.name}/`);
+    }
+  }
+}
+
+/** Folders a worker's deploy depends on: its own + every transitive workspace dependency. */
+function watchedPaths(worker) {
+  const out = new Set([`apps/workers/${worker}/`]);
+  const queue = [path.join(repoRoot, 'apps/workers', worker, 'package.json')];
+  const seen = new Set();
+  while (queue.length) {
+    const manifest = queue.pop();
+    if (seen.has(manifest) || !existsSync(manifest)) continue;
+    seen.add(manifest);
+    const { dependencies = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
+    for (const [dep, range] of Object.entries(dependencies)) {
+      const dir = workspaceDirs.get(dep);
+      if (!dir || !String(range).startsWith('workspace:')) continue;
+      out.add(dir);
+      queue.push(path.join(repoRoot, dir, 'package.json'));
+    }
+  }
+  return [...out];
+}
 
 const existing = MODULE_WORKERS.map((m) => m.worker).filter((w) =>
   existsSync(path.join(repoRoot, 'apps/workers', w, 'wrangler.toml')),
@@ -65,10 +101,13 @@ if (process.env.FORCE_ALL === 'true') {
     console.log('No usable base commit; deploying every module worker.');
     selected = existing;
   } else {
-    const shared = files.some((f) => SHARED_PATHS.some((p) => f.startsWith(p)));
-    selected = existing.filter(
-      (w) => shared || files.some((f) => f.startsWith(`apps/workers/${w}/`)),
-    );
+    // The manifest decides routing for every worker, so it redeploys them all.
+    const manifestChanged = files.some((f) => f.startsWith('packages/core/api-modules/'));
+    selected = existing.filter((w) => {
+      if (manifestChanged) return true;
+      const watched = watchedPaths(w);
+      return files.some((f) => watched.some((p) => f.startsWith(p)));
+    });
   }
 }
 

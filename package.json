@@ -17,6 +17,7 @@
     "secrets:dev": "npx tsx scripts/secrets/dev-vars.ts",
     "create:mobile-app": "node scripts/create-mobile-app.mjs",
     "create:module-api": "node scripts/create-module-api.mjs",
+    "api:ownership": "node scripts/api-module-ownership.mjs",
     "storybook": "turbo run dev --filter=storybook",
     "storybook:build": "turbo run storybook:build --filter=storybook"
   },

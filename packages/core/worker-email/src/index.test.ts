@@ -28,12 +28,11 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
-import { sendEmail } from './cloudflare-email';
-import type { Env } from '../types';
+import { sendEmail, type WorkerEmailEnv } from './index';
 
-/** Build an Env whose SEND_EMAIL binding is a spy. */
+/** Build a WorkerEmailEnv whose SEND_EMAIL binding is a spy. */
 function envWithSpy(send = vi.fn().mockResolvedValue(undefined)) {
-  return { env: { SEND_EMAIL: { send } } as unknown as Env, send };
+  return { env: { SEND_EMAIL: { send } } as unknown as WorkerEmailEnv, send };
 }
 
 const FROM = 'Sales Team <sales@acme.test>';
@@ -161,7 +160,7 @@ describe('cfEmail.sendEmail — real transmit wiring', () => {
   });
 
   it('throws when the SEND_EMAIL binding is missing', async () => {
-    const env = {} as unknown as Env;
+    const env = {} as unknown as WorkerEmailEnv;
     await expect(
       sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 's' }),
     ).rejects.toThrow(/SEND_EMAIL binding missing/i);
@@ -169,7 +168,7 @@ describe('cfEmail.sendEmail — real transmit wiring', () => {
 
   it('surfaces a transport failure from the binding', async () => {
     const send = vi.fn().mockRejectedValue(new Error('550 relay error'));
-    const env = { SEND_EMAIL: { send } } as unknown as Env;
+    const env = { SEND_EMAIL: { send } } as unknown as WorkerEmailEnv;
     await expect(
       sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 's', text: 'x' }),
     ).rejects.toThrow(/send_email failed for a@x\.test: Error 550 relay error/i);

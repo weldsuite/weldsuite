@@ -11,8 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import type { Hono } from 'hono';
-import { createTestApp, permissions } from '../test/harness';
+import { listEndpointResult, type ListSweepCase } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '../test/pglite';
 import type { Database, } from '../db';
 import type { Env, Variables } from '../types';
@@ -55,12 +54,7 @@ import { chatActivityRoutes } from './chat-activity';
 import { deskConversationsRoutes } from './desk-conversations';
 import { deskWidgetRoutes } from './desk-widget';
 
-interface SweepCase {
-  mount: string;
-  router: Hono<{ Bindings: Env; Variables: Variables }>;
-  /** Permission to grant for the GET. Defaults to `<plural>:read`. */
-  permission?: string;
-}
+type SweepCase = ListSweepCase<Env, Variables>;
 
 const cases: SweepCase[] = [
   { mount: '/api/companies', router: companiesRoutes, permission: 'companies:read' },
@@ -112,24 +106,9 @@ beforeAll(async () => {
 }, 60_000);
 
 describe.each(cases)('$mount · GET / (list endpoint sweep)', (c) => {
-  it('returns 200 against an empty tenant', async () => {
-    const { request } = createTestApp(c.mount, c.router, {
-      context: {
-        permissions: permissions(c.permission!),
-        tenantDb: db,
-      },
-    });
-    const res = await request(c.mount);
-    expect(res.status).toBe(200);
-
-    const body = (await res.json()) as {
-      data: unknown[];
-      pagination?: { totalCount: number; hasMore: boolean; cursor: string | null };
-    };
-    expect(Array.isArray(body.data)).toBe(true);
-    if (body.pagination) {
-      expect(typeof body.pagination.totalCount).toBe('number');
-      expect(typeof body.pagination.hasMore).toBe('boolean');
-    }
+  it('returns 200 with the list envelope against an empty tenant', async () => {
+    const r = await listEndpointResult(c, db);
+    expect(r.status).toBe(200);
+    expect(r.envelopeOk).toBe(true);
   });
 });
