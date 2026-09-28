@@ -19,16 +19,9 @@ import { auditLogsRoutes } from './routes/audit-logs';
 import { objectTemplatesRoutes } from './routes/object-templates';
 import { driveRoutes } from './routes/drive';
 import { featureFlagsRoutes } from './routes/feature-flags';
-import { githubConnectionsRoutes } from './routes/github-connections';
-import { githubRepoLinksRoutes } from './routes/github-repo-links';
-import { githubProjectLinksRoutes } from './routes/github-project-links';
-import { githubCallbackRoutes } from './routes/public-github-callback';
-import { externalWebhooksRoutes } from './routes/external-webhooks';
 import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
-import { integrationsRoutes } from './routes/integrations';
-import { connectorRoutes } from './routes/connectors';
 import { meRoutes } from './routes/me';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
@@ -57,17 +50,6 @@ import { userAppsRoutes } from './routes/user-apps';
 import { userPreferencesRoutes } from './routes/user-preferences';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
-import { workflowBuilderRoutes } from './routes/workflow-builder';
-import { workflowDashboardRoutes } from './routes/workflow-dashboard';
-import { workflowExecutionsRoutes } from './routes/workflow-executions';
-import { workflowGithubRoutes } from './routes/workflow-github';
-import { workflowIntegrationsRoutes } from './routes/workflow-integrations';
-import { workflowSchedulesRoutes } from './routes/workflow-schedules';
-import { workflowTemplatesRoutes } from './routes/workflow-templates';
-import { workflowTriggersRoutes } from './routes/workflow-triggers';
-import { workflowVariablesRoutes } from './routes/workflow-variables';
-import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
-import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
@@ -76,13 +58,11 @@ import { authSessionsRoutes } from './routes/auth-sessions';
 import { billingRoutes } from './routes/billing';
 import { featureRequestsRoutes } from './routes/feature-requests';
 import { gridViewsRoutes } from './routes/grid-views';
-import { integrationsInternalRoutes } from './routes/integrations/internal';
 import { internalRoutes } from './routes/internal';
 import { invitationsRoutes } from './routes/invitations';
 import { memberLimitsRoutes } from './routes/member-limits';
 import { myRoleRoutes } from './routes/my-role';
 import { prepaidSeatsRoutes } from './routes/prepaid-seats';
-import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
 import { supportRoutes } from './routes/support';
 import type { Env, Variables } from './types';
 
@@ -136,10 +116,9 @@ app.route('/api/account', accountRoutes);
 // to mail-api with WeldMail; the kit's forwarder (first middleware) hands it
 // over MAIL_API.
 
-// GitHub App install callback — PUBLIC (no Clerk). GitHub's server-to-server
-// redirect carries no session; auth is the state JWT signed at /install-url.
-// Must stay ABOVE the app.use('/api/*', ...) guard below.
-app.route('/api/weldconnect/github', githubCallbackRoutes);
+// The GitHub App install callback (/api/weldconnect/github) moved to
+// connect-api with WeldConnect; the kit's forwarder (first middleware) hands
+// it over CONNECT_API.
 
 // Onboarding — Clerk-authenticated but org-LESS: creating a NEW workspace must
 // work without an active org (and would resolve the wrong tenant DB if it ran
@@ -163,27 +142,24 @@ app.route('/api/internal', internalRoutes);
 // /api/internal/telephony/fulfill-number moved to call-api with the call
 // module; the kit's forwarder (first middleware) hands them over CALL_API.
 
-// External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
-// per-webhook (HMAC signature / IP allowlist) inside the receiver service.
-// Mounted more specifically than the authed /api/workflows router below, so
-// only /api/workflows/webhook/* bypasses Clerk. Must stay ABOVE the guard.
-app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
+// The public WeldConnect trigger webhooks (/api/workflows/webhook) and
+// workflow-worker's /api/internal/workflow-actions moved to connect-api with
+// WeldConnect; the kit's forwarder (first middleware) hands them over
+// CONNECT_API.
 
 // The MeetingBaas (/api/webhooks/meeting-bot) and Cloudflare Realtime
 // (/api/webhooks/cloudflare-realtime) webhooks moved to meet-api with WeldMeet;
 // the kit's forwarder (first middleware) hands them over MEET_API.
 
 // The helpdesk Discord/Slack OAuth callbacks (/api/integrations/helpdesk) moved
-// to desk-api with WeldDesk. The kit's forwarder runs first, so
-// /api/integrations/helpdesk/* never reaches the internal integrations router
-// below; the redirect URIs registered with Discord/Slack keep pointing here.
+// to desk-api with WeldDesk; the redirect URIs registered with Discord/Slack
+// keep pointing here and the kit's forwarder hands them over DESK_API.
 
-// Internal (service-binding) integration endpoints — X-Internal-Secret auth
-// for integration-sync-worker / integration-webhook-worker. Handlers call
-// next() when no internal headers are present, so normal platform traffic
-// falls through to the Clerk-authed /api/integrations router mounted after
-// the guard. Must stay ABOVE the /api/* guard.
-app.route('/api/integrations', integrationsInternalRoutes);
+// The internal (service-binding, X-Internal-Secret) and Clerk-authed
+// /api/integrations routers moved to connect-api with WeldConnect.
+// integration-sync-worker and integration-webhook-worker still call this
+// worker over their APP_API binding; the kit's forwarder hands those paths
+// over CONNECT_API.
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());
@@ -216,17 +192,15 @@ app.route('/api/feature-requests', featureRequestsRoutes);
 app.route('/api/files', filesRoutes);
 app.route('/api/folders', foldersRoutes);
 app.route('/api/storage', storageRoutes);
-app.route('/api/github-connections', githubConnectionsRoutes);
-app.route('/api/github-repo-links', githubRepoLinksRoutes);
-app.route('/api/github-project-links', githubProjectLinksRoutes);
 app.route('/api/grid-views', gridViewsRoutes);
 // WeldDesk (tickets, ticket-*, conversations, desk/conversations, desk/widget,
 // helpdesk-*, helpcenter-settings, articles, article-folders, canned-responses,
 // slas, satisfaction-surveys) moved to desk-api; the kit's forwarder hands those
 // paths to it over the DESK_API binding (API_FORWARD_MODULES in wrangler.toml).
-app.route('/api/external-webhooks', externalWebhooksRoutes);
-app.route('/api/integrations', integrationsRoutes);
-app.route('/api/connectors', connectorRoutes);
+// WeldConnect (workflow*, workflows, integrations, connectors,
+// external-webhooks, github-*) moved to connect-api; the kit's forwarder hands
+// those paths to it over the CONNECT_API binding (API_FORWARD_MODULES in
+// wrangler.toml).
 // WeldFlow (projects, project-*, tasks, task-*, my-tasks, sprints, milestones,
 // goals, whiteboards, documents, time-entries, digest-settings) moved to
 // flow-api; the kit's forwarder hands those paths to it over the FLOW_API
@@ -281,17 +255,6 @@ app.route('/api/workspaces', workspacesRoutes);
 // binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldPass (/api/weldpass) moved to pass-api; the kit's forwarder hands those
 // paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
-app.route('/api/workflow-builder', workflowBuilderRoutes);
-app.route('/api/workflow-dashboard', workflowDashboardRoutes);
-app.route('/api/workflow-executions', workflowExecutionsRoutes);
-app.route('/api/workflow-github', workflowGithubRoutes);
-app.route('/api/workflow-integrations', workflowIntegrationsRoutes);
-app.route('/api/workflow-schedules', workflowSchedulesRoutes);
-app.route('/api/workflow-templates', workflowTemplatesRoutes);
-app.route('/api/workflow-triggers', workflowTriggersRoutes);
-app.route('/api/workflow-variables', workflowVariablesRoutes);
-app.route('/api/workflow-webhooks', workflowWebhooksRoutes);
-app.route('/api/workflows', workflowsRoutes);
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The *-v2 names re-host api-worker's workflow classes (W4 legacy-worker

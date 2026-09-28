@@ -530,7 +530,9 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
        needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-       needs.prepare.outputs.workers != '[]')
+       needs.prepare.outputs.workers != '[]' ||
+       (needs.prepare.outputs.module_workers != '[]' &&
+        needs.prepare.outputs.module_workers != ''))
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -541,7 +543,9 @@ jobs:
           needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
           contains(needs.prepare.outputs.workers, 'integration-sync-worker') ||
           contains(needs.prepare.outputs.workers, 'integration-webhook-worker') ||
-          contains(needs.prepare.outputs.workers, 'app-api')
+          contains(needs.prepare.outputs.workers, 'app-api') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api') ||
+          contains(needs.prepare.outputs.module_workers, 'commerce-api')
         working-directory: apps/workers/integration-sync-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -555,7 +559,8 @@ jobs:
       - name: Apply schedule index migrations
         if: >-
           needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-          contains(needs.prepare.outputs.workers, 'workflow-worker')
+          contains(needs.prepare.outputs.workers, 'workflow-worker') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api')
         working-directory: apps/workers/workflow-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -1,0 +1,234 @@
+# WeldSuite connect-api worker — the connect module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   connect-api.weldsuite.org        production
+#   connect-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "connect-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   (DATABASE_ENCRYPTION_KEY also encrypts/decrypts the stored integration,
+#   connector and workflow-integration credentials)
+#   GITHUB_APP_ID + GITHUB_APP_SLUG + GITHUB_APP_PRIVATE_KEY (GitHub App install
+#     flow, /api/weldconnect/github callback, repos / Projects v2 API)
+#   INTERNAL_API_SECRET (verifier side of the internal /api/integrations router
+#     (X-Internal-Secret from integration-sync-worker / integration-webhook-worker)
+#     and of /api/internal/workflow-actions (workflow-worker's create_customer
+#     bearer); also the WooCommerce connect HMAC key. The SAME value as app-api,
+#     commerce-api and those callers in the same env)
+#   MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
+#     connector OAuth)
+#   CLOUDFLARE_API_TOKEN (the @weldsuite/ai token fallback for
+#     /api/workflows/generate — same value as app-api)
+#
+# Secrets (not in the manifest yet; same values as app-api):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
+#   HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)
+#   GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
+#     integration OAuth)
+#   SLACK_CLIENT_ID + SLACK_CLIENT_SECRET, GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+#     (WeldConnect workflow-integrations OAuth apps, /api/workflow-integrations)
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN):
+#     /api/workflows/generate (@weldsuite/ai). When unset, @weldsuite/ai uses
+#     CLOUDFLARE_API_TOKEN.
+#
+# CF_ACCOUNT_ID is a [vars] value (copied from app-api). PUBLIC_APP_URL,
+# CONNECTOR_WEBHOOK_BASE_URL and AI_DEFAULT_MODEL are optional [vars] that
+# default in code (app-api sets none of them).
+
+name = "weldsuite-connect-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+# D1 schedule index — shared with workflow-worker. The workflow-schedules
+# service upserts rows here on schedule CRUD so the sweep can poll D1 instead of
+# fanning out to every tenant DB. Dev uses the test database.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# D1 connector catch-up index — shared with integration-sync-worker. Upserted on
+# connect/pause/disconnect and after webhook ingest so the sweep can probe
+# stores without opening tenant Neon. Dev uses the test database.
+[[d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+
+# R2 bucket for files and documents (Moneybird attachment sync).
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# (EXECUTE_WORKFLOW, CRM_SYNC and GITHUB_PROJECT_SYNC are cross-script workflow
+# bindings, declared for test and production only — as in app-api.)
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-connect-api-test"
+routes = [
+  { pattern = "connect-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+# WeldConnect run engine — ExecuteWorkflowWorkflow hosted by workflow-worker.
+[[env.test.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-test"
+
+# GitHub Projects v2 sync — class hosted in integration-webhook-worker.
+[[env.test.workflows]]
+name = "github-project-sync-int"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
+[[env.test.workflows]]
+name = "crm-sync-int"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-connect-api"
+routes = [
+  { pattern = "connect-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-production"
+database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# WeldConnect run engine — ExecuteWorkflowWorkflow hosted by workflow-worker.
+[[env.production.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
+# GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks).
+[[env.production.workflows]]
+name = "github-project-sync-int"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
+[[env.production.workflows]]
+name = "crm-sync-int"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -119,6 +119,7 @@ describe('findModuleForPath', () => {
     expect(findModuleForPath('/api/tickets/tkt_1/messages').id).toBe('desk');
     expect(findModuleForPath('/api/desk/phone/calls').id).toBe('call');
     expect(findModuleForPath('/api/internal/telephony/fulfill-number').id).toBe('call');
+    expect(findModuleForPath('/api/internal/workflow-actions/create-customer').id).toBe('connect');
     expect(findModuleForPath('/api/internal/send-email').id).toBe('core');
     expect(findModuleForPath('/api/desk/conversations').id).toBe('desk');
     expect(findModuleForPath('/api/integrations/helpdesk/discord').id).toBe('desk');
