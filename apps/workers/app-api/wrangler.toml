@@ -42,7 +42,8 @@ head_sampling_rate = 1
 #   which only protects stored tenant DB URLs. Generate with:
 #     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # - WELDPASS_ROOT_KEY_V2 (only during a WeldPass root-key rotation)
-# - CLOUDFLARE_API_TOKEN (help center custom domains: DNS records in zones)
+# - CLOUDFLARE_API_TOKEN (Cloudflare zones / Email Routing; the help center
+#   custom domains that also used it moved to desk-api)
 # - CLOUDFLARE_ACCOUNT_ID (optional alias of the CF_ACCOUNT_ID [vars] value)
 #   (WeldHost /api/domains and its Realtime Register secrets moved to host-api.)
 #   (WeldData's LEMLIST_API_KEY / FINDYMAIL_API_KEY / PROSPEO_API_KEY moved to data-api.)
@@ -70,14 +71,10 @@ head_sampling_rate = 1
 #   NOTE: app-api has no preview custom domain, so workflow-worker PREVIEW
 #   targets app-api TEST — workflow-worker's preview secret must equal
 #   app-api's TEST secret.)
-# - TELNYX_API_KEY + TELNYX_CONNECTION_ID + TELNYX_SIP_CONNECTION_ID
-#   (telephony: /api/telephony, /api/porting, /public/webhooks/telnyx)
-# - TELNYX_PUBLIC_KEY (optional, recommended: base64 Ed25519 account public key;
-#   when set the Telnyx webhook receiver enforces signatures)
-# - TELNYX_WEBHOOK_SECRET (optional, legacy parity only — declared-but-unused
-#   slot carried over from api-worker)
-# - DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN
-#   (WeldDesk helpdesk Discord channel OAuth callback)
+# - (TELNYX_* — telephony, porting, the desk phone channel and the Telnyx
+#   webhook — moved to call-api with the call module.)
+# - (DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN — the WeldDesk
+#   helpdesk Discord channel — moved to desk-api with WeldDesk.)
 # - ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
 # - HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)
 # - MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
@@ -100,9 +97,10 @@ head_sampling_rate = 1
 #   the invoice.paid webhook)
 # - CAUTION: SLACK_CLIENT_ID / SLACK_CLIENT_SECRET are documented as the
 #   WeldConnect workflow-integrations Slack app, but the helpdesk Slack OAuth
-#   callback ( /api/integrations/helpdesk/slack/callback ) reuses the same Env
-#   fields. If the WeldDesk helpdesk Slack app is a DIFFERENT OAuth app,
-#   introduce HELPDESK_SLACK_CLIENT_ID/_SECRET + a 2-line route change (W6).
+#   callback ( /api/integrations/helpdesk/slack/callback, now in desk-api )
+#   reuses the same Env fields, so desk-api needs the same values. If the
+#   WeldDesk helpdesk Slack app is a DIFFERENT OAuth app, introduce
+#   HELPDESK_SLACK_CLIENT_ID/_SECRET + a 2-line route change (W6).
 # - AI (@weldsuite/ai) — the Cloudflare AI Gateway. Model ids and pricing are
 #   canonical. Set:
 #   - AI_GATEWAY_API_TOKEN — CF API token with Workers AI + AI Gateway Run scopes,
@@ -117,12 +115,11 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-# helpdesk-workflow-worker /respond target for /api/helpdesk-workflows resume.
-HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
+# (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
 # WeldAgent cloud computer (agent-runtime worker). Requires matching
 # INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
 AGENT_RUNTIME_URL = "http://localhost:8795"
@@ -259,6 +256,14 @@ remote = true
 [[services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[services]]
+binding = "DESK_API"
+service = "weldsuite-desk-api"
+
+[[services]]
+binding = "CALL_API"
+service = "weldsuite-call-api"
 
 [[services]]
 binding = "MEET_API"
@@ -412,12 +417,11 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
-HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-test.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
@@ -486,6 +490,14 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "DESK_API"
+service = "weldsuite-desk-api-test"
+
+[[env.test.services]]
+binding = "CALL_API"
+service = "weldsuite-call-api-test"
 
 [[env.test.services]]
 binding = "MEET_API"
@@ -634,12 +646,11 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
-HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
@@ -714,6 +725,14 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "DESK_API"
+service = "weldsuite-desk-api"
+
+[[env.production.services]]
+binding = "CALL_API"
+service = "weldsuite-call-api"
 
 [[env.production.services]]
 binding = "MEET_API"

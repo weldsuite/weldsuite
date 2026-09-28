@@ -19,12 +19,7 @@ import { clerkMiddleware } from './middleware/clerk';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
-import { articleFoldersRoutes } from './routes/article-folders';
-import { articlesRoutes } from './routes/articles';
-import { cannedResponsesRoutes } from './routes/canned-responses';
 import { objectTemplatesRoutes } from './routes/object-templates';
-import { callsRoutes } from './routes/calls';
-import { callIntelligenceRoutes } from './routes/call-intelligence';
 import { channelMembersRoutes } from './routes/channel-members';
 import { channelsRoutes } from './routes/channels';
 import { chatActivityRoutes } from './routes/chat-activity';
@@ -39,10 +34,6 @@ import { chatMessagesRoutes } from './routes/chat-messages';
 import { chatSearchRoutes } from './routes/chat-search';
 import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
-import { conversationsRoutes } from './routes/conversations';
-import { deskConversationsRoutes } from './routes/desk-conversations';
-import { deskWidgetRoutes } from './routes/desk-widget';
-import { deskPhoneRoutes } from './routes/desk-phone';
 import { documentsRoutes } from './routes/documents';
 import { driveRoutes } from './routes/drive';
 import { featureFlagsRoutes } from './routes/feature-flags';
@@ -50,23 +41,6 @@ import { githubConnectionsRoutes } from './routes/github-connections';
 import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
-import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
-import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
-import { helpdeskAnnouncementsRoutes } from './routes/helpdesk-announcements';
-import { helpdeskChangelogRoutes } from './routes/helpdesk-changelog';
-import { helpdeskContactsRoutes } from './routes/helpdesk-contacts';
-import { helpdeskDepartmentsRoutes } from './routes/helpdesk-departments';
-import { helpdeskEmailRoutes } from './routes/helpdesk-email';
-import { helpdeskFaqsRoutes } from './routes/helpdesk-faqs';
-import { helpdeskFeedbackRoutes } from './routes/helpdesk-feedback';
-import { helpdeskIntegrationsRoutes } from './routes/helpdesk-integrations';
-import { helpdeskNewsRoutes } from './routes/helpdesk-news';
-import { helpdeskReviewsRoutes } from './routes/helpdesk-reviews';
-import { helpdeskSettingsRoutes } from './routes/helpdesk-settings';
-import { helpdeskStatsRoutes } from './routes/helpdesk-stats';
-import { helpdeskWeldagentRoutes } from './routes/helpdesk-weldagent';
-import { helpdeskWorkflowsRoutes } from './routes/helpdesk-workflows';
-import { helpcenterSettingsRoutes } from './routes/helpcenter-settings';
 import { externalWebhooksRoutes } from './routes/external-webhooks';
 import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
@@ -106,9 +80,7 @@ import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
 import { projectSheetsRoutes } from './routes/project-sheets';
 import { projectsRoutes } from './routes/projects';
 import { rolesRoutes } from './routes/roles';
-import { satisfactionSurveysRoutes } from './routes/satisfaction-surveys';
 import { settingsProfileRoutes } from './routes/settings-profile';
-import { slasRoutes } from './routes/slas';
 import { sprintsRoutes } from './routes/sprints';
 import { taskCommentsRoutes } from './routes/task-comments';
 import { taskProjectsRoutes } from './routes/task-projects';
@@ -138,10 +110,6 @@ import { accountRoutes } from './routes/account';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
 import { teamMembersRoutes } from './routes/team-members';
-import { ticketMessagesRoutes } from './routes/ticket-messages';
-import { ticketNotesRoutes } from './routes/ticket-notes';
-import { ticketTypesRoutes } from './routes/ticket-types';
-import { ticketsRoutes } from './routes/tickets';
 import { timeEntriesRoutes } from './routes/time-entries';
 import { userAppsRoutes } from './routes/user-apps';
 import { userPreferencesRoutes } from './routes/user-preferences';
@@ -161,7 +129,6 @@ import { workflowVariablesRoutes } from './routes/workflow-variables';
 import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
 import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
-import { publicHelpcenterRoutes } from './routes/public-helpcenter';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
 import { appstoreRoutes } from './routes/appstore';
@@ -170,18 +137,14 @@ import { billingRoutes } from './routes/billing';
 import { chatClipsRoutes } from './routes/chat-clips';
 import { featureRequestsRoutes } from './routes/feature-requests';
 import { gridViewsRoutes } from './routes/grid-views';
-import { integrationsHelpdeskOAuthRoutes } from './routes/integrations/helpdesk-oauth';
 import { integrationsInternalRoutes } from './routes/integrations/internal';
 import { internalRoutes } from './routes/internal';
 import { invitationsRoutes } from './routes/invitations';
 import { memberLimitsRoutes } from './routes/member-limits';
 import { myRoleRoutes } from './routes/my-role';
-import { portingRoutes } from './routes/porting';
 import { prepaidSeatsRoutes } from './routes/prepaid-seats';
 import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
 import { supportRoutes } from './routes/support';
-import { telephonyRoutes } from './routes/telephony';
-import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
 import type { Env, Variables } from './types';
 
 // Register entity-event → workspace agent dispatch (Phase 5: hub → entity-agents*).
@@ -214,10 +177,9 @@ app.route('/', storageUploadTokenRoute);
 // header (token check). Mounted outside /api/* so no Clerk JWT is needed.
 app.route('/test-fixtures', testFixturesRoutes);
 
-// Public help-center feed consumed by the apps/web/helpcenter renderer. No Clerk
-// JWT — the tenant DB is resolved from the `?domain=` param by the router's
-// own middleware. Must stay ABOVE the app.use('/api/*', ...) guard below.
-app.route('/public/helpcenter', publicHelpcenterRoutes);
+// The public help-center feed (/public/helpcenter, consumed by the
+// apps/web/helpcenter renderer) moved to desk-api with WeldDesk; the kit's
+// forwarder (first middleware) hands it over DESK_API.
 
 // Public WeldApps bundle host — PUBLIC (no Clerk). Serves the live R2 bundle
 // of a user-created app so the platform can iframe it at /apps/{code}. Must
@@ -271,10 +233,9 @@ app.route('/api/invitations', invitationsRoutes);
 // workflow-worker's send_email action. Must stay ABOVE the /api/* guard.
 app.route('/api/internal', internalRoutes);
 
-// Telnyx Call Control webhook — PUBLIC (no Clerk). Server-to-server events
-// from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
-// is set. Must stay ABOVE the /api/* guard.
-app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
+// The Telnyx Call Control webhook (/public/webhooks/telnyx) and billing-worker's
+// /api/internal/telephony/fulfill-number moved to call-api with the call
+// module; the kit's forwarder (first middleware) hands them over CALL_API.
 
 // External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
 // per-webhook (HMAC signature / IP allowlist) inside the receiver service.
@@ -286,11 +247,10 @@ app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
 // (/api/webhooks/cloudflare-realtime) webhooks moved to meet-api with WeldMeet;
 // the kit's forwarder (first middleware) hands them over MEET_API.
 
-// Helpdesk Discord/Slack OAuth callbacks — PUBLIC (browser redirects carry no
-// Clerk JWT; auth is the one-time KV state nonce minted by the authorize
-// endpoints). MUST be mounted before the internal integrations router below
-// so /api/integrations/helpdesk/* never enters it, and above the /api/* guard.
-app.route('/api/integrations/helpdesk', integrationsHelpdeskOAuthRoutes);
+// The helpdesk Discord/Slack OAuth callbacks (/api/integrations/helpdesk) moved
+// to desk-api with WeldDesk. The kit's forwarder runs first, so
+// /api/integrations/helpdesk/* never reaches the internal integrations router
+// below; the redirect URIs registered with Discord/Slack keep pointing here.
 
 // Internal (service-binding) integration endpoints — X-Internal-Secret auth
 // for integration-sync-worker / integration-webhook-worker. Handlers call
@@ -313,16 +273,14 @@ app.route('/api/workspace-api-keys', workspaceApiKeysRoutes);
 app.route('/api/appstore', appstoreRoutes);
 app.route('/api/audit-logs', auditLogsRoutes);
 app.route('/api/auth-sessions', authSessionsRoutes);
-app.route('/api/article-folders', articleFoldersRoutes);
-app.route('/api/articles', articlesRoutes);
 app.route('/api/billing', billingRoutes);
 // WeldCalendar (booking-pages, bookings, calendar-events, calendars,
 // working-hours) moved to calendar-api; the kit's forwarder hands those paths
 // to it over the CALENDAR_API binding (API_FORWARD_MODULES in wrangler.toml).
-app.route('/api/canned-responses', cannedResponsesRoutes);
 app.route('/api/object-templates', objectTemplatesRoutes);
-app.route('/api/calls', callsRoutes);
-app.route('/api/call-intelligence', callIntelligenceRoutes);
+// Calls, call intelligence, the WeldDesk phone channel (/api/desk/phone),
+// porting and telephony moved to call-api; the kit's forwarder hands those
+// paths to it over the CALL_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/channel-members', channelMembersRoutes);
 app.route('/api/channels', channelsRoutes);
 app.route('/api/chat-activity', chatActivityRoutes);
@@ -338,10 +296,6 @@ app.route('/api/chat-messages', chatMessagesRoutes);
 app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
-app.route('/api/conversations', conversationsRoutes);
-app.route('/api/desk/conversations', deskConversationsRoutes);
-app.route('/api/desk/widget', deskWidgetRoutes);
-app.route('/api/desk/phone', deskPhoneRoutes);
 app.route('/api/documents', documentsRoutes);
 app.route('/api/drive', driveRoutes);
 app.route('/api/feature-flags', featureFlagsRoutes);
@@ -353,26 +307,10 @@ app.route('/api/github-connections', githubConnectionsRoutes);
 app.route('/api/github-repo-links', githubRepoLinksRoutes);
 app.route('/api/github-project-links', githubProjectLinksRoutes);
 app.route('/api/grid-views', gridViewsRoutes);
-app.route('/api/helpdesk-agents', helpdeskAgentsRoutes);
-app.route('/api/helpdesk-analytics', helpdeskAnalyticsRoutes);
-app.route('/api/helpdesk-announcements', helpdeskAnnouncementsRoutes);
-app.route('/api/helpdesk-changelog', helpdeskChangelogRoutes);
-app.route('/api/helpdesk-contacts', helpdeskContactsRoutes);
-app.route('/api/helpdesk-departments', helpdeskDepartmentsRoutes);
-app.route('/api/helpdesk-email', helpdeskEmailRoutes);
-app.route('/api/helpdesk-faqs', helpdeskFaqsRoutes);
-app.route('/api/helpdesk-feedback', helpdeskFeedbackRoutes);
-// Helpdesk Discord/Slack channel integrations (integrationConnections table) —
-// AUTHED. Distinct from the PUBLIC OAuth callback receiver mounted at
-// /api/integrations/helpdesk above the guard; these two must not be merged.
-app.route('/api/helpdesk-integrations', helpdeskIntegrationsRoutes);
-app.route('/api/helpdesk-news', helpdeskNewsRoutes);
-app.route('/api/helpdesk-reviews', helpdeskReviewsRoutes);
-app.route('/api/helpdesk-settings', helpdeskSettingsRoutes);
-app.route('/api/helpdesk-stats', helpdeskStatsRoutes);
-app.route('/api/helpdesk-weldagent', helpdeskWeldagentRoutes);
-app.route('/api/helpdesk-workflows', helpdeskWorkflowsRoutes);
-app.route('/api/helpcenter-settings', helpcenterSettingsRoutes);
+// WeldDesk (tickets, ticket-*, conversations, desk/conversations, desk/widget,
+// helpdesk-*, helpcenter-settings, articles, article-folders, canned-responses,
+// slas, satisfaction-surveys) moved to desk-api; the kit's forwarder hands those
+// paths to it over the DESK_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/connectors', connectorRoutes);
@@ -402,7 +340,6 @@ app.route('/api/mail-weldmail', mailWeldMailRoutes);
 app.route('/api/member-limits', memberLimitsRoutes);
 app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
-app.route('/api/porting', portingRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
 app.route('/api/project-files', projectFilesRoutes);
@@ -414,19 +351,16 @@ app.route('/api/project-pipeline-stages', projectPipelineStagesRoutes);
 app.route('/api/project-sheets', projectSheetsRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/roles', rolesRoutes);
-app.route('/api/satisfaction-surveys', satisfactionSurveysRoutes);
 // WeldCRM (companies, people, leads, opportunities, pipelines, activities,
 // lists, sequences, …) moved to crm-api; the kit's forwarder hands those paths
 // to it over the CRM_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/settings/profile', settingsProfileRoutes);
-app.route('/api/slas', slasRoutes);
 app.route('/api/sprints', sprintsRoutes);
 app.route('/api/support', supportRoutes);
 app.route('/api/task-comments', taskCommentsRoutes);
 app.route('/api/task-projects', taskProjectsRoutes);
 app.route('/api/task-tags', taskTagsRoutes);
 app.route('/api/tasks', tasksRoutes);
-app.route('/api/telephony', telephonyRoutes);
 app.route('/api/custom-fields', customFieldsRoutes);
 // WeldObjects — definition surface (weldobjects:manage) and record data
 // surface (weldobjects:<slug>:<action>) are separate mounts on purpose.
@@ -454,10 +388,6 @@ app.route('/api/search', searchRoutes);
 app.route('/api/workspace-settings', workspaceSettingsRoutes);
 app.route('/api/team-members', teamMembersRoutes);
 app.route('/api/me', meRoutes);
-app.route('/api/ticket-messages', ticketMessagesRoutes);
-app.route('/api/ticket-notes', ticketNotesRoutes);
-app.route('/api/ticket-types', ticketTypesRoutes);
-app.route('/api/tickets', ticketsRoutes);
 app.route('/api/time-entries', timeEntriesRoutes);
 app.route('/api/user-apps', userAppsRoutes);
 app.route('/api/user-preferences', userPreferencesRoutes);

@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./app": "./src/app.ts",
     "./atomically": "./src/atomically.ts",
+    "./billing-worker": "./src/billing-worker.ts",
     "./cors": "./src/cors.ts",
     "./db": "./src/db.ts",
     "./dns-lookup": "./src/dns-lookup.ts",

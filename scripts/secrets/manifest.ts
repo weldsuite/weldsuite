@@ -182,7 +182,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (integration-sync-worker, integration-webhook-worker) needs the SAME value
     // in the same env.
     "INTERNAL_API_SECRET",
-    // CLOUDFLARE_API_TOKEN: help center custom domains + RealtimeKit.
+    // CLOUDFLARE_API_TOKEN: Cloudflare zones / Email Routing + RealtimeKit (help
+    // center custom domains moved to "desk-api").
     // CLOUDFLARE_ACCOUNT_ID: accepted by @weldsuite/ai as the CF_ACCOUNT_ID alias.
     // STRIPE_SECRET_KEY: /api/billing + workspace settings. (The WeldHost
     // Realtime Register secrets moved to "host-api".)
@@ -192,10 +193,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     // WeldSocial (PostPeer) secrets moved to "social-api".
     // WeldAds FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to "ads-api".
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
-    // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies).
-    "DISCORD_CLIENT_ID",
-    "DISCORD_CLIENT_SECRET",
-    "DISCORD_BOT_TOKEN",
+    // WeldDesk Discord OAuth + outbound REST moved to "desk-api".
     // Moneybird first-party connector (WeldConnect). Test app redirect:
     // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
     "MONEYBIRD_CLIENT_ID",
@@ -410,6 +408,42 @@ export const manifest: Record<string, SecretEntry[]> = {
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
   "meet-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // call-api: the call module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "call-api": [
+    // Verifier side of /api/internal/telephony/fulfill-number (billing-worker's
+    // bearer; moved here from app-api's internal router). Must be the SAME value
+    // as billing-worker (and app-api) in the same env.
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // desk-api: the desk module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "desk-api": [
+    // Help center custom domains (DNS records in zones), moved here from app-api.
+    "CLOUDFLARE_API_TOKEN",
+    // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies),
+    // moved here from app-api.
+    "DISCORD_CLIENT_ID",
+    "DISCORD_CLIENT_SECRET",
+    "DISCORD_BOT_TOKEN",
+    // Bearer on the helpdesk-workflows resume forward to helpdesk-workflow-worker.
+    // Must be the SAME value as app-api / helpdesk-workflow-worker in the same env.
+    "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",

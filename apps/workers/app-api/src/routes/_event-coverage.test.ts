@@ -59,11 +59,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'workspace-api-keys',
   'audit-logs',
   'integrations',
-  // helpdesk-integrations — Discord/Slack channel connections on the same
-  // integrationConnections table as `integrations` above: infra, not a
-  // business entity, and the events catalog has no integration-connection
-  // entity type (only `workflow_integration`, an unrelated object).
-  'helpdesk-integrations',
   'github-connections',
   'github-repo-links',
   'storage',
@@ -100,9 +95,7 @@ const EXEMPT_ROUTES = new Set<string>([
   'cli-auth',
   // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
   'chat-calls',
-  // Inbound webhook RECEIVERS — they ingest external provider events; they are
-  // not entity CRUD and have nothing to fan out over the entity-event bus.
-  'webhooks-telnyx',
+  // (The Telnyx webhook receiver, webhooks-telnyx, moved to call-api.)
   // external-webhooks — user-managed outbound webhook subscriptions (integration
   // config); no `external_webhook` entity type in the events catalog.
   'external-webhooks',

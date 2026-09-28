@@ -17,36 +17,24 @@ import type { Database, } from '../db';
 import type { Env, Variables } from '../types';
 
 import { tasksRoutes } from './tasks';
-import { ticketsRoutes } from './tickets';
 import { customFieldsRoutes } from './custom-fields';
 import { myTasksRoutes } from './my-tasks';
-import { conversationsRoutes } from './conversations';
 import { workflowsRoutes } from './workflows';
-import { helpdeskContactsRoutes } from './helpdesk-contacts';
-import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
 import { chatDmRoutes } from './chat-dm';
 import { chatStatusRoutes } from './chat-status';
 import { chatActivityRoutes } from './chat-activity';
-import { deskConversationsRoutes } from './desk-conversations';
-import { deskWidgetRoutes } from './desk-widget';
 
 type SweepCase = ListSweepCase<Env, Variables>;
 
 const cases: SweepCase[] = [
   { mount: '/api/tasks', router: tasksRoutes, permission: 'tasks:read' },
-  { mount: '/api/tickets', router: ticketsRoutes, permission: 'tickets:read' },
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
   { mount: '/api/my-tasks', router: myTasksRoutes, permission: 'tasks:read' },
-  { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
-  { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, permission: 'conversations:read' },
-  { mount: '/api/helpdesk-analytics', router: helpdeskAnalyticsRoutes, permission: 'settings:read' },
   // WeldChat — GET / returns a plain list (no cursor pagination) against an empty tenant.
   { mount: '/api/chat-dm', router: chatDmRoutes, permission: 'messages:read' },
   { mount: '/api/chat-status', router: chatStatusRoutes, permission: 'settings:read' },
   { mount: '/api/chat-activity', router: chatActivityRoutes, permission: 'messages:read' },
-  { mount: '/api/desk/conversations', router: deskConversationsRoutes, permission: 'conversations:read' },
-  { mount: '/api/desk/widget', router: deskWidgetRoutes, permission: 'settings:read' },
 ];
 
 let db: Database;

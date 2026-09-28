@@ -318,6 +318,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/call-intelligence',
     '/api/calls',
     '/api/desk/phone',
+    // billing-worker's paid phone-number fulfilment (INTERNAL_API_SECRET bearer);
+    // beats core's /api/internal (longest prefix wins).
+    '/api/internal/telephony',
     '/api/porting',
     '/api/telephony',
     '/public/webhooks/telnyx',

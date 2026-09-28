@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** desk-api. Target of the forwarder for the desk module's paths. */
+  DESK_API?: Fetcher;
+  /** call-api. Target of the forwarder for the call module's paths. */
+  CALL_API?: Fetcher;
   /** meet-api. Target of the forwarder for the meet module's paths. */
   MEET_API?: Fetcher;
   /** calendar-api. Target of the forwarder for the calendar module's paths. */
@@ -126,13 +130,7 @@ export interface Env {
   /** Stripe secret key (billing, workspace settings). */
   STRIPE_SECRET_KEY?: string;
 
-  // --- Help center custom domains on Vercel (apps/web/helpcenter) -------------
-  /** Vercel API token with project domain scope. */
-  VERCEL_API_TOKEN?: string;
-  /** Vercel project id of the apps/web/helpcenter deployment. */
-  VERCEL_HELPCENTER_PROJECT_ID?: string;
-  /** Vercel team id, when the helpcenter project lives under a team. */
-  VERCEL_TEAM_ID?: string;
+  // (The help center's VERCEL_* custom-domain keys moved to desk-api.)
 
   /** R2 bucket for files, documents and generated avatars (participant-resolver.ts). */
   STORAGE?: R2Bucket;
@@ -336,25 +334,9 @@ export interface Env {
    *  Absent in local dev, where every flag resolves to its catalog default. */
   FLAGSHIP?: FlagshipBinding;
 
-  // --- Telephony (Telnyx) — /api/telephony, /api/porting, Telnyx webhook ---
-  /** Telnyx API key (Bearer) — all Telnyx REST calls. */
-  TELNYX_API_KEY?: string;
-  /** Telnyx Programmable Voice app id (call routing, phone numbers). */
-  TELNYX_CONNECTION_ID?: string;
-  /** Telnyx WebRTC credential connection id (SIP token generation). */
-  TELNYX_SIP_CONNECTION_ID?: string;
-  /** Legacy secret slot carried over from api-worker (declared, never used there). */
-  TELNYX_WEBHOOK_SECRET?: string;
-  /** Telnyx account public key (base64 Ed25519). When set,
-   *  /public/webhooks/telnyx enforces webhook signatures (recommended);
-   *  when unset, the receiver accepts unsigned requests (api-worker parity). */
-  TELNYX_PUBLIC_KEY?: string;
+  // (Telephony's TELNYX_* moved to call-api.)
 
-  // --- Helpdesk workflow engine (apps/workers/helpdesk-workflow-worker) -----------
-  /** Base URL of helpdesk-workflow-worker — used by
-   *  POST /api/helpdesk-workflows/executions/:executionId/resume to forward
-   *  customer responses to its /respond endpoint. */
-  HELPDESK_WORKFLOW_WORKER_URL?: string;
+  // (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
@@ -377,19 +359,13 @@ export interface Env {
    *  which belongs to the WeldConnect workflow-integrations app). */
   GOOGLE_CALENDAR_CLIENT_ID?: string;
   GOOGLE_CALENDAR_CLIENT_SECRET?: string;
-  /** Discord OAuth app credentials + bot token — WeldDesk helpdesk Discord
-   *  channel integration ( /api/integrations/helpdesk/discord/callback ). */
-  DISCORD_CLIENT_ID?: string;
-  DISCORD_CLIENT_SECRET?: string;
-  DISCORD_BOT_TOKEN?: string;
+  // (WeldDesk's DISCORD_* OAuth credentials + bot token moved to desk-api.)
   /** CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker
    *  (workflow names crm-sync-int*); bound cross-script via `script_name`,
    *  same pattern as the GITHUB_PROJECT_SYNC bindings. */
   CRM_SYNC?: Workflow;
-  /** Optional override for this worker's public base URL — used to build
-   *  OAuth redirect_uri values (helpdesk Discord/Slack callbacks). Defaults
-   *  to the per-environment app-api hostname when unset. */
-  APP_API_PUBLIC_URL?: string;
+  // (APP_API_PUBLIC_URL, the helpdesk OAuth redirect_uri base override, moved
+  // to desk-api and call-api.)
 }
 
 /**
