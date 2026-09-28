@@ -352,6 +352,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
   ],
 
   // data-api: the data module's API worker (split from app-api). Base
@@ -397,6 +401,14 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "RESEND_API_KEY",
+    "RESEND_MEETING_INVITE_TEMPLATE_ID",
+    "RESEND_MEETING_UPDATE_TEMPLATE_ID",
+    "RESEND_MEETING_CANCEL_TEMPLATE_ID",
   ],
 
   // meet-api: the meet module's API worker (split from app-api). Base
@@ -408,6 +420,15 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "ASSEMBLYAI_API_KEY",
+    "CF_REALTIME_APP_ID",
+    "CF_REALTIME_APP_SECRET",
+    "CF_REALTIME_WEBHOOK_TOKEN",
+    "MEETINGBAAS_WEBHOOK_TOKEN",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // call-api: the call module's API worker (split from app-api). Base
@@ -423,6 +444,13 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "TELNYX_API_KEY",
+    "TELNYX_CONNECTION_ID",
+    "TELNYX_SIP_CONNECTION_ID",
+    "TELNYX_PUBLIC_KEY",
+    "TELNYX_WEBHOOK_SECRET",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base
@@ -444,6 +472,15 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
+    "VERCEL_API_TOKEN",
+    "VERCEL_HELPCENTER_PROJECT_ID",
+    "VERCEL_TEAM_ID",
   ],
 
   // mail-api: the mail module's API worker (split from app-api). Base
@@ -471,6 +508,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // chat-api: the chat module's API worker (split from app-api). Base
@@ -489,6 +532,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "CF_REALTIME_APP_ID",
+    "CF_REALTIME_APP_SECRET",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // agent-api: the agent module's API worker (split from app-api). Base
@@ -506,6 +555,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // connect-api: the connect module's API worker (split from app-api). Base
@@ -536,6 +589,18 @@ export const manifest: Record<string, SecretEntry[]> = {
     // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
     // so carry the same token app-api runs on.
     "CLOUDFLARE_API_TOKEN",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "ATTIO_CLIENT_ID",
+    "ATTIO_CLIENT_SECRET",
+    "HUBSPOT_CLIENT_ID",
+    "HUBSPOT_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
   ],
 };
 

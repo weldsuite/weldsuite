@@ -11,7 +11,9 @@
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
 #   (DATABASE_URL_MASTER also backs the TranscribeRecording credit deduction)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (Cloudflare RealtimeKit:
 #     meeting sessions, recordings, ending chat calls from the RTK webhook)

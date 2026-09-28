@@ -12,8 +12,9 @@
 #   (DATABASE_URL_MASTER also backs the daily calendar replan cron, which
 #   walks every workspace)
 #
-# Secrets (not in the manifest yet; same values as app-api, which still
-# uses them too):
+# Secrets beyond the base set (same values as app-api, which still uses them
+# too). The hand-set ones are in scripts/secrets/manifest.ts now; add them to
+# Doppler if `secrets:sync` warns they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   RESEND_API_KEY (calendar attendee mails; they no-op when it is unset)
 #   GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar

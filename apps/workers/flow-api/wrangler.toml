@@ -12,7 +12,9 @@
 #   (DATABASE_URL_MASTER also backs the digest settings/sweep and the
 #   task-assignment notification's workspace lookup)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   R2_SQL_API_TOKEN, R2_ANALYTICS_BUCKET (project analytics via the R2 SQL
 #     REST API; without them /api/project-analytics charts return empty data)

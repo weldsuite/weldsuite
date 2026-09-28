@@ -80,10 +80,11 @@ describe.skipIf(AUTH_CASES.length === 0).each(AUTH_CASES)('$mount · auth gates'
 });
 
 describe.skipIf(LIST_CASES.length === 0).each(LIST_CASES)('$mount · GET / (list endpoint sweep)', (c) => {
+  // 60 s: the first case boots pglite (WASM Postgres) for this test process.
   it('returns 200 with the list envelope against an empty tenant', async () => {
     const { db } = await createPgliteDb();
     const r = await listEndpointResult(c, db);
     expect(r.status).toBe(200);
     expect(r.envelopeOk).toBe(true);
-  });
+  }, 60_000);
 });

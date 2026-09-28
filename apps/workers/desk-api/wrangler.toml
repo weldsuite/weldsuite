@@ -15,7 +15,9 @@
 #   INTERNAL_API_SECRET (bearer on the helpdesk-workflows resume forward to
 #     helpdesk-workflow-worker; the SAME value as app-api)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   SLACK_CLIENT_ID + SLACK_CLIENT_SECRET (helpdesk Slack OAuth callback; the
 #     same Slack app app-api's WeldConnect slack.* integration uses)

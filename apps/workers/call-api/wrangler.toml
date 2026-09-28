@@ -12,7 +12,9 @@
 #   INTERNAL_API_SECRET (verifier side of /api/internal/telephony, billing-worker's
 #     phone-number fulfilment bearer; the SAME value as app-api and billing-worker)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   TELNYX_API_KEY + TELNYX_CONNECTION_ID + TELNYX_SIP_CONNECTION_ID
 #     (telephony: /api/telephony, /api/porting, /api/desk/phone,

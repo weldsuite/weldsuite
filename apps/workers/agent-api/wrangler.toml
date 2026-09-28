@@ -16,7 +16,9 @@
 #   (DATABASE_URL_MASTER also backs the AI credit metering and the one-time
 #   routine-index backfill)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/ai and
 #     the WeldAgent runtime (@weldsuite/ai). When unset, @weldsuite/ai uses

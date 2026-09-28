@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCorsOrigin } from './cors-origins';
+import { resolveCorsOrigin } from './cors';
 
 describe('resolveCorsOrigin', () => {
   it('allows the platform SPA hosts', () => {

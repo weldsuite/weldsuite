@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { featureFlagsMiddleware } from './feature-flags';
-import type { Env, Variables } from '../types';
+import type { KitEnv as Env, KitVariables as Variables } from '../env';
 
 function buildApp() {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();

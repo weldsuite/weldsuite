@@ -23,7 +23,9 @@
 #   CLOUDFLARE_API_TOKEN (the @weldsuite/ai token fallback for
 #     /api/workflows/generate — same value as app-api)
 #
-# Secrets (not in the manifest yet; same values as app-api):
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
 #   HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)

@@ -37,7 +37,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
-- `app-api`, **The unified first-party backend. All endpoints live here.** Serves the platform SPA + all mobile apps. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
+- `app-api`, **The core first-party API** (`app-api.weldsuite.org`): workspaces, members, roles, settings, files/drive, search, billing, credits, notifications, App Store / WeldApps, custom objects, `/api/internal`. It also **forwards** every module's paths to that module's worker (below), so clients that call it for anything keep working. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
+- **Module API workers** (`<module>-api`, host `<module>-api(-test).weldsuite.org`), one per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `chat-api`, `call-api` (telephony), `connect-api`, `agent-api` (AI / WeldAgent), `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`. Which paths each owns: `packages/core/api-modules`. See "Where new endpoints go" below.
 - `external-api`, Third-party public API (`api.weldsuite.org`, `wsk_` keys)
 - `mcp-server`, WeldSuite MCP server
 - `billing-worker`, Stripe billing + subscriptions
@@ -52,7 +53,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `discord-bot-worker`, Discord integration worker (`discord-bot` bot process is under `tools/`)
 - `test-email-worker`, Email testing harness
 
-> **AI note:** the former `agent-worker`, `agent-service`, and `ai-worker` are gone (AI teardown 2026-07-08). AI now runs through the `@weldsuite/ai` package (Vercel AI SDK via Cloudflare AI Gateway); credit metering happens at the `app-api` layer. There is no `AGENT_WORKER` service binding anymore.
+> **AI note:** the former `agent-worker`, `agent-service`, and `ai-worker` are gone (AI teardown 2026-07-08). AI now runs through the `@weldsuite/ai` package (Vercel AI SDK via Cloudflare AI Gateway); credit metering is `@weldsuite/core-domain/ai-billing`, called by whichever API worker runs the AI call. There is no `AGENT_WORKER` service binding anymore.
 
 **`apps/tools/`**, dev/ops tooling (not deployed as product):
 - `migrate-databases`, Tenant migration runner (`tsx src/index.ts`, supports dry-run)
@@ -203,21 +204,21 @@ const { user } = useUser();
 
 ### API Client Patterns
 
-**All new client code targets `app-api`.** `useCoreApi()` and `useApiClient()` are legacy hooks for the obsolete `core-api` and `api-worker` workers, existing call sites should be migrated to the `app-api` client.
+**All new client code uses the app-api client** (`useAppApi()` / `appApi` in the platform, `services/app-api.ts` in the mobile apps). It picks the host per path: modules listed in `VITE_API_MODULES` / `EXPO_PUBLIC_API_MODULES` go straight to their `<module>-api` worker, everything else to app-api, which forwards. `useCoreApi()` and `useApiClient()` are legacy hooks for the obsolete `core-api` and `api-worker` workers, existing call sites should be migrated to the app-api client.
 
-### App API, where new endpoints go (`apps/workers/app-api`)
+### Where new endpoints go: the module's worker
 
-**`app-api` is the unified first-party API.** It is the successor to `core-api`, `api-worker`, and `mobile-api-worker`, and serves both the platform SPA and all WeldSuite mobile apps from a single hostname (`app-api.weldsuite.org`). Third-party integrations stay on `external-api` (`api.weldsuite.org`).
+The first-party API is split into **one worker per `weld*` module** (`apps/workers/<module>-api`) plus **`app-api`** for the core platform (plan and history: [docs/plans/app-api-module-split.md](docs/plans/app-api-module-split.md)). They serve the platform SPA and every mobile app; third-party integrations stay on `external-api` (`api.weldsuite.org`). Paths never changed in the split: a module worker serves the same `/api/<object>` paths app-api used to, and app-api forwards them there (`API_FORWARD_MODULES` + a `<MODULE>_API` service binding) for clients that still call it.
 
-**Stack:** Hono + Workers + Neon (Drizzle) + Clerk + cursor pagination.
+**Stack:** Hono + Workers + Neon (Drizzle) + Clerk + cursor pagination, on **`@weldsuite/worker-kit`** (`createModuleApi`, `apiAuth()` = Clerk → tenant DB → flags, response helpers, ids, test harness + pglite, sweeps).
 
 Routes are organised **by object** (customers, contacts, tickets, …) to mirror the object-based permission model, one canonical endpoint backs every surface across the platform and mobile apps.
 
 End-to-end for a new endpoint:
 
 1. **Schema** → shared Zod schemas package (Zod v3, shared client+server)
-2. **Service** → `apps/workers/app-api/src/services/<entity>.ts` (pure functions, no Hono context)
-3. **Route** → `apps/workers/app-api/src/routes/<entity>/index.ts`, mount in `apps/workers/app-api/src/index.ts`
+2. **Service** → `apps/workers/<module>-api/src/services/<entity>.ts` (pure functions, no Hono context). If another worker needs it too, it goes in `packages/domains/<module>` (`@weldsuite/<module>-domain`) instead; generic helpers in `@weldsuite/worker-kit`. **Workers never import from each other's folders.**
+3. **Route** → `apps/workers/<module>-api/src/routes/<entity>/index.ts`, mounted in that worker's `src/index.ts`. A **new path prefix** must also be added to the module in `packages/core/api-modules/src/index.ts`, or its ownership test fails. Core platform objects go in `apps/workers/app-api` the same way.
 4. **Domain API / client** → typed wrapper consumed by both platform and mobile
 5. **Hook** → `apps/web/platform/hooks/queries/use-<entity>-queries.ts`
 
@@ -230,11 +231,13 @@ Response shape:
 ```
 
 Key files:
-- `apps/workers/app-api/src/index.ts`, entry, middleware, route mounts
-- `apps/workers/app-api/src/lib/response.ts`, `success()`, `error.*`, `list()`, `cursorPagination()`
-- `apps/workers/app-api/src/middleware/`, `clerk.ts`, `workspace-db.ts`, `request-id.ts` (re-exports; the code lives in `@weldsuite/worker-kit`)
+- `apps/workers/<module>-api/src/index.ts`, a module worker's entry and route mounts; `wrangler.toml` its bindings, crons and workflows
+- `apps/workers/app-api/src/index.ts`, core routes + the forwarder
+- `packages/core/api-modules/src/index.ts`, which module owns which path prefix
+- `packages/core/worker-kit/src/`, `app.ts` (`createModuleApi`, `apiAuth`), `response.ts` (`success()`, `error.*`, `list()`, `cursorPagination()`), `forward.ts`, `middleware/`
+- `packages/domains/<module>/`, module code other workers share (e.g. `@weldsuite/crm-domain/people`)
 
-**Module split in progress** ([docs/plans/app-api-module-split.md](docs/plans/app-api-module-split.md)): app-api is being split into one worker per `weld*` module (`apps/workers/<module>-api`, host `<module>-api.weldsuite.org`), built on `@weldsuite/worker-kit` (`packages/core/worker-kit`). `@weldsuite/api-modules` (`packages/core/api-modules`) says which module owns each path prefix. **A new `app.route('/api/<prefix>')` mount must be added to that manifest** or its ownership test fails. API workers never import from each other's folders; share code through a package. Scaffold a module worker with `pnpm create:module-api <module>`; run app-api plus module workers locally with `pnpm dev:api`.
+Tooling: `pnpm create:module-api <module>` scaffolds a worker, `pnpm dev:api` runs app-api + every module worker in one `wrangler dev`, `pnpm api:ownership` shows what (if anything) still sits in app-api, and `.claude/skills/extract-api-module` is the procedure for moving code between workers.
 
 **Entity events**, every mutation route must publish an entity event so audit logging, workflows, analytics, realtime, and AI agents stay wired:
 
@@ -296,7 +299,7 @@ is a normal platform module. It is the first module split out of app-api
 
 ### Deleted: `apps/core-api`, `apps/api-worker`, `apps/mobile-api-worker`
 
-All three legacy backends were **deleted from the repo on 2026-07-17**; `app-api` is the only first-party backend. There is nothing to migrate or bugfix in them, every route lives under `apps/workers/app-api/src/routes/` (Hono + Drizzle, `clerkMiddleware()` → `workspaceDbMiddleware()` setting `c.get('tenantDb')`, organised by object). ⚠️ The Cloudflare workers may still be *deployed* and serving during the cutover window, that retirement is tracked in `.claude/open-source-plan.md`, not here.
+All three legacy backends were **deleted from the repo on 2026-07-17**. There is nothing to migrate or bugfix in them: every route lives in `app-api` (core) or a module worker `apps/workers/<module>-api` (Hono + Drizzle, the kit's `apiAuth()` = `clerkMiddleware()` → `workspaceDbMiddleware()` setting `c.get('tenantDb')`, organised by object). ⚠️ The Cloudflare workers may still be *deployed* and serving during the cutover window, that retirement is tracked in `.claude/open-source-plan.md`, not here.
 
 ### Database (Drizzle + Neon, multi-tenant)
 
@@ -315,7 +318,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**; `app-api
 
 ### AI / Agents
 
-AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflare AI Gateway REST API, one CF token reaches both Workers AI `@cf/*` models and third-party providers). Credit metering happens at the **`app-api`** layer (`services/ai/billing.ts`), against the prepaid workspace wallet.
+AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflare AI Gateway REST API, one CF token reaches both Workers AI `@cf/*` models and third-party providers). Credit metering is **`@weldsuite/core-domain/ai-billing`**, against the prepaid workspace wallet, called by the worker that runs the AI call (mostly `agent-api`; also crm, mail, books, connect, chat). A worker that reaches `@weldsuite/ai` needs `CF_ACCOUNT_ID` and the AI token (`AI_GATEWAY_API_TOKEN`, else `CLOUDFLARE_API_TOKEN`).
 
 > The old dedicated AI runtime, `apps/agent-worker`, `apps/agent-service` (Mastra.ai on Hetzner), `apps/ai-worker`, and the `@weldsuite/agent-runtime` / `@weldsuite/agent-tools` packages, was removed in the AI teardown (2026-07-08) and is being rebuilt on top of `@weldsuite/ai`. There is no `AGENT_WORKER` service binding.
 
@@ -394,7 +397,7 @@ Environments: local wrangler → **test** (`develop`) → **production** (`main`
 3. `apps/web/platform/src/routes/__root.tsx`, All providers
 4. `apps/web/platform/src/routeTree.gen.ts`, Auto-generated (DO NOT EDIT)
 5. `apps/web/platform/lib/api/`, API client wiring (targets `app-api`)
-6. `apps/workers/app-api/src/index.ts`, Unified backend entry (the only first-party backend)
+6. `apps/workers/app-api/src/index.ts` (core API + forwarder) and `apps/workers/<module>-api/src/index.ts` (module workers); `packages/core/api-modules/src/index.ts` maps paths to workers
 7. `apps/workers/app-api/wrangler.toml`, Bindings + env
 8. `packages/core/db/src/schema/`, All Drizzle schema
    `packages/core/db/drizzle/`, All Drizzle migrations (master + tenant SQL + meta journal)
@@ -441,7 +444,7 @@ This repo runs an agent-driven workflow. Specialist sub-agents live in `.claude/
 - `frontend-platform`, apps/web/platform (Vite SPA)
 - `frontend-nextjs`, sites / helpcenter / portals
 - `mobile-expo`, apps/mobile/*
-- `backend-app-api`, all backend endpoints (`apps/workers/app-api`, the only first-party backend)
+- `backend-app-api`, first-party API endpoints: `apps/workers/app-api` (core) and the module workers `apps/workers/<module>-api`
 - `backend-workers`, cron / queue / other Cloudflare workers
 - `database`, packages/core/db schema + Drizzle + Neon
 
@@ -489,7 +492,7 @@ Before marking a task done:
 - Skim today's `.claude/autopilot/digest-<date>.md` if you ran batch pre-work.
 - Prefer `/autopilot` for top-of-queue work.
 - Read the triage plan before coding. If missing, run `bug-triage` yourself.
-- Put all backend routes in `app-api`, it's the only first-party backend (`core-api`/`api-worker`/`mobile-api-worker` are deleted).
+- Put a module's routes in its worker (`apps/workers/<module>-api`), core platform routes in `app-api`; register new path prefixes in `packages/core/api-modules`.
 - Scope every Drizzle query by `workspaceId`.
 - Ask before writing a migration.
 
@@ -500,7 +503,8 @@ Before marking a task done:
 - Don't re-enrich an already-enriched task (the enricher self-skips).
 - Don't edit `apps/web/platform/src/routeTree.gen.ts`.
 - Don't upgrade Zod to v4 in app imports.
-- Don't reach for `apps/api-worker`, `apps/core-api`, or `apps/mobile-api-worker`, they're deleted. `apps/workers/app-api` is the home for all backend routes.
+- Don't reach for `apps/api-worker`, `apps/core-api`, or `apps/mobile-api-worker`, they're deleted.
+- Don't import across API workers' folders; share through `@weldsuite/worker-kit` or a `packages/domains/<module>` package.
 - Don't add direct Anthropic SDK calls, route AI through the `@weldsuite/ai` package.
 - Don't "fix" a bug you couldn't reproduce, request info instead.
 

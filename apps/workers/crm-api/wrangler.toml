@@ -12,7 +12,9 @@
 #   (DATABASE_URL_MASTER also backs the ExecuteSequence plan-limit check and
 #   the AI credit metering of its ai_generate / ai_classify steps)
 #
-# Secrets (not in the manifest yet):
+# Secrets and settings beyond the base set. The hand-set secrets below are in
+# scripts/secrets/manifest.ts now (add them to Doppler if `secrets:sync` warns);
+# the rest are [vars] or optional:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   R2_SQL_API_TOKEN, R2_ANALYTICS_BUCKET (CRM analytics charts via the R2 SQL
 #     REST API; without them /api/crm-analytics charts return empty data)

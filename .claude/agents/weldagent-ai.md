@@ -11,16 +11,16 @@ You are the WeldAgent (AI Agents) specialist for WeldSuite.
 - **Workspace agent** — named agent with instructions, model, and **platform permission grants** (`people:read`, `tickets:create`, …). Tables: `weldagent_agents`, `weldagent_agent_runs`.
 - **Personal WeldAgent** — default chat assistant (drawer / `/new-chat`) without an `agentId`; text-only unless a workspace agent is selected.
 - **Multi-agent rooms** — WeldChat channels with `memberType: 'agent'` members; @mentions and room policy (`metadata.agentReplyPolicy`) drive replies via `dispatchAgentMentions` → `runAgentOnce` → `postAgentChatMessage`.
-- **Tool** — in-process platform action in `apps/workers/app-api/src/services/weldagent/tools.ts`. Registered only if the agent's grants cover `requiredPermissions`.
+- **Tool** — in-process platform action in `packages/domains/agent/src/tools.ts` (`@weldsuite/agent-domain/tools`, run by `apps/workers/agent-api`). Registered only if the agent's grants cover `requiredPermissions`.
 - **Run** — manual, event, chat, or room-backed execution logged in `weldagent_agent_runs`.
-- **Credits** — prepaid wallet; metered at app-api via `services/ai/billing.ts` + `@weldsuite/ai`.
+- **Credits** — prepaid wallet; metered via `@weldsuite/core-domain/ai-billing` + `@weldsuite/ai`.
 
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/agents/`, chat picker in `components/weldagent/weldagent-panel.tsx`, room create/settings in `app/weldchat/`
-- API: `apps/workers/app-api/src/routes/weldagent/agents.ts`, chat at `routes/ai/index.ts` (`agentId`), rooms at `routes/channels/`
-- Executor / tools / dispatch: `apps/workers/app-api/src/services/weldagent/`
-- Room dispatch: `apps/workers/app-api/src/services/chat/agent-mention-dispatch.ts`, policy in `agent-room-policy.ts`
+- API: `apps/workers/agent-api/src/routes/weldagent/agents.ts`, chat at `apps/workers/agent-api/src/routes/ai/index.ts` (`agentId`), rooms at `apps/workers/chat-api/src/routes/channels/`
+- Executor / tools / jobs: `packages/domains/agent/src/` (`@weldsuite/agent-domain`, shared by agent-api and chat-api); dispatch + approvals: `apps/workers/agent-api/src/services/weldagent/`
+- Room dispatch: `packages/domains/agent/src/agent-mention-dispatch.ts`, policy in `packages/domains/chat/src/agent-room-policy.ts`
 - Entity-event hook: `registerWeldAgentEventRunner` in `@weldsuite/entity-events`
 - Client: `@weldsuite/app-api-client` `schemas/workspace-agents` + `domains/workspace-agents`
 - Permissions: `weldagent:*` in `@weldsuite/permissions` catalog (not helpdesk `agents:*`)
