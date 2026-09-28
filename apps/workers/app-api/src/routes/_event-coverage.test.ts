@@ -64,25 +64,19 @@ const EXEMPT_ROUTES = new Set<string>([
   'storage',
   'user-preferences',
   'team-members',
-  'mail-ai',
-  'mail-sync',
-  'mail-snooze',
-  'mail-threads',
-  'mail-weldmail',
+  // (mail-ai, mail-sync, mail-snooze, mail-threads and mail-weldmail moved to
+  // mail-api with their exemptions.)
   'workflow-builder',
   'workflow-dashboard',
   '_test-fixtures',
   // Settings / workspace read-only / singleton routes — no core-CRUD mutations.
-  // digest-settings: singleton GET / + PUT / (PUT / still publishes digest_settings).
-  'digest-settings',
+  // (digest-settings and my-tasks moved to flow-api with their exemptions.)
   // dashboard: read-only home aggregates (only mutation is a JSONB flag flip, not an entity).
   'dashboard',
   // credits: master-DB billing ledger; not fanned out over the entity-event bus.
   'credits',
   // ai-models: read-only model catalog; no mutations.
   'ai-models',
-  // my-tasks: read-only assigned-task list; no mutations.
-  'my-tasks',
   // access-requests — personal-topic notify()/publish() path, not a generic entity event.
   'access-requests',
   // search — read-only federated search; POST / fans out reads, performs no mutations.

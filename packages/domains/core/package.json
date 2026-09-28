@@ -8,7 +8,9 @@
     "./ai-billing": "./src/ai-billing.ts",
     "./analytics-query": "./src/analytics-query.ts",
     "./custom-field-query": "./src/custom-field-query.ts",
-    "./custom-field-values": "./src/custom-field-values.ts"
+    "./custom-field-values": "./src/custom-field-values.ts",
+    "./files": "./src/files.ts",
+    "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

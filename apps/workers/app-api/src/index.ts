@@ -15,7 +15,6 @@
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
-import { clerkMiddleware } from './middleware/clerk';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
@@ -34,7 +33,6 @@ import { chatMessagesRoutes } from './routes/chat-messages';
 import { chatSearchRoutes } from './routes/chat-search';
 import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
-import { documentsRoutes } from './routes/documents';
 import { driveRoutes } from './routes/drive';
 import { featureFlagsRoutes } from './routes/feature-flags';
 import { githubConnectionsRoutes } from './routes/github-connections';
@@ -47,45 +45,11 @@ import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { integrationsRoutes } from './routes/integrations';
 import { connectorRoutes } from './routes/connectors';
-import { milestonesRoutes } from './routes/milestones';
-import { goalsRoutes } from './routes/goals';
-import { mailAccountsRoutes } from './routes/mail-accounts';
-import { mailAiRoutes } from './routes/mail-ai';
-import { mailAttachmentsRoutes } from './routes/mail-attachments';
-import { mailCampaignsRoutes } from './routes/mail-campaigns';
-import { mailDomainsRoutes } from './routes/mail-domains';
-import { mailDraftsRoutes } from './routes/mail-drafts';
-import { mailFoldersRoutes } from './routes/mail-folders';
-import { mailLabelsRoutes } from './routes/mail-labels';
-import { mailMessagesRoutes } from './routes/mail-messages';
-import { mailRulesRoutes } from './routes/mail-rules';
-import { mailScheduledRoutes } from './routes/mail-scheduled';
-import { mailSignaturesRoutes } from './routes/mail-signatures';
-import { mailSnoozeRoutes } from './routes/mail-snooze';
-import { mailSubscriptionsRoutes } from './routes/mail-subscriptions';
-import { mailSyncRoutes } from './routes/mail-sync';
-import { mailTemplatesRoutes } from './routes/mail-templates';
-import { mailThreadsRoutes } from './routes/mail-threads';
-import { mailWeldMailRoutes } from './routes/mail-weldmail';
 import { meRoutes } from './routes/me';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
-import { projectAnalyticsRoutes } from './routes/project-analytics';
-import { projectFilesRoutes } from './routes/project-files';
-import { projectLabelsRoutes } from './routes/project-labels';
-import { projectDocumentsRoutes } from './routes/project-documents';
-import { projectMembersRoutes } from './routes/project-members';
-import { projectMessagesRoutes } from './routes/project-messages';
-import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
-import { projectSheetsRoutes } from './routes/project-sheets';
-import { projectsRoutes } from './routes/projects';
 import { rolesRoutes } from './routes/roles';
 import { settingsProfileRoutes } from './routes/settings-profile';
-import { sprintsRoutes } from './routes/sprints';
-import { taskCommentsRoutes } from './routes/task-comments';
-import { taskProjectsRoutes } from './routes/task-projects';
-import { taskTagsRoutes } from './routes/task-tags';
-import { tasksRoutes } from './routes/tasks';
 import { customFieldsRoutes } from './routes/custom-fields';
 import { customObjectsRoutes } from './routes/custom-objects';
 import { customObjectRecordsRoutes } from './routes/custom-object-records';
@@ -94,29 +58,24 @@ import {
   customObjectLinkTraversalRoutes,
   customObjectReverseRoutes,
 } from './routes/custom-object-links';
-import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
 import { creditsRoutes } from './routes/credits';
 import { aiModelsRoutes } from './routes/ai-models';
 import { aiRoutes } from './routes/ai';
-import { myTasksRoutes } from './routes/my-tasks';
 import { accessRequestsRoutes } from './routes/access-requests';
 import { searchRoutes } from './routes/search';
 import { workspaceSettingsRoutes } from './routes/workspace-settings';
 import { authDesktopRoutes } from './routes/auth-desktop';
 import { cliAuthRoutes } from './routes/cli-auth';
 import { accountRoutes } from './routes/account';
-import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
 import { teamMembersRoutes } from './routes/team-members';
-import { timeEntriesRoutes } from './routes/time-entries';
 import { userAppsRoutes } from './routes/user-apps';
 import { userPreferencesRoutes } from './routes/user-preferences';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
 import { weldagentRoutes } from './routes/weldagent';
-import { whiteboardsRoutes } from './routes/whiteboards';
 import { workflowBuilderRoutes } from './routes/workflow-builder';
 import { workflowDashboardRoutes } from './routes/workflow-dashboard';
 import { workflowExecutionsRoutes } from './routes/workflow-executions';
@@ -203,12 +162,9 @@ app.route('/api/cli-auth', cliAuthRoutes);
 // the app.use('/api/*', ...) line below.
 app.route('/api/account', accountRoutes);
 
-// Mailbox directory — Clerk-authenticated but org-LESS: WeldMail lists every
-// workspace mailbox the user can see without flipping the active org (personal
-// inboxes stay on personal-api). clerkMiddleware only; must stay ABOVE the
-// global /api/* workspaceDb guard.
-app.use('/api/mailboxes', clerkMiddleware());
-app.route('/api/mailboxes', mailboxesRoutes);
+// The org-less mailbox directory (/api/mailboxes, clerkMiddleware only) moved
+// to mail-api with WeldMail; the kit's forwarder (first middleware) hands it
+// over MAIL_API.
 
 // GitHub App install callback — PUBLIC (no Clerk). GitHub's server-to-server
 // redirect carries no session; auth is the state JWT signed at /install-url.
@@ -296,7 +252,6 @@ app.route('/api/chat-messages', chatMessagesRoutes);
 app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
-app.route('/api/documents', documentsRoutes);
 app.route('/api/drive', driveRoutes);
 app.route('/api/feature-flags', featureFlagsRoutes);
 app.route('/api/feature-requests', featureRequestsRoutes);
@@ -314,26 +269,12 @@ app.route('/api/grid-views', gridViewsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/connectors', connectorRoutes);
-app.route('/api/goals', goalsRoutes);
-app.route('/api/milestones', milestonesRoutes);
-app.route('/api/mail-accounts', mailAccountsRoutes);
-app.route('/api/mail-ai', mailAiRoutes);
-app.route('/api/mail-attachments', mailAttachmentsRoutes);
-app.route('/api/mail-campaigns', mailCampaignsRoutes);
-app.route('/api/mail-domains', mailDomainsRoutes);
-app.route('/api/mail-drafts', mailDraftsRoutes);
-app.route('/api/mail-folders', mailFoldersRoutes);
-app.route('/api/mail-labels', mailLabelsRoutes);
-app.route('/api/mail-messages', mailMessagesRoutes);
-app.route('/api/mail-rules', mailRulesRoutes);
-app.route('/api/mail-scheduled', mailScheduledRoutes);
-app.route('/api/mail-signatures', mailSignaturesRoutes);
-app.route('/api/mail-snooze', mailSnoozeRoutes);
-app.route('/api/mail-subscriptions', mailSubscriptionsRoutes);
-app.route('/api/mail-sync', mailSyncRoutes);
-app.route('/api/mail-templates', mailTemplatesRoutes);
-app.route('/api/mail-threads', mailThreadsRoutes);
-app.route('/api/mail-weldmail', mailWeldMailRoutes);
+// WeldFlow (projects, project-*, tasks, task-*, my-tasks, sprints, milestones,
+// goals, whiteboards, documents, time-entries, digest-settings) moved to
+// flow-api; the kit's forwarder hands those paths to it over the FLOW_API
+// binding (API_FORWARD_MODULES in wrangler.toml).
+// WeldMail (mail-*) moved to mail-api; the kit's forwarder hands those paths
+// to it over the MAIL_API binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldMeet (meetings, meeting-*, transcriptions) moved to meet-api; the kit's
 // forwarder hands those paths to it over the MEET_API binding
 // (API_FORWARD_MODULES in wrangler.toml).
@@ -341,26 +282,12 @@ app.route('/api/member-limits', memberLimitsRoutes);
 app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
-app.route('/api/project-analytics', projectAnalyticsRoutes);
-app.route('/api/project-files', projectFilesRoutes);
-app.route('/api/project-labels', projectLabelsRoutes);
-app.route('/api/project-documents', projectDocumentsRoutes);
-app.route('/api/project-members', projectMembersRoutes);
-app.route('/api/project-messages', projectMessagesRoutes);
-app.route('/api/project-pipeline-stages', projectPipelineStagesRoutes);
-app.route('/api/project-sheets', projectSheetsRoutes);
-app.route('/api/projects', projectsRoutes);
 app.route('/api/roles', rolesRoutes);
 // WeldCRM (companies, people, leads, opportunities, pipelines, activities,
 // lists, sequences, …) moved to crm-api; the kit's forwarder hands those paths
 // to it over the CRM_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/settings/profile', settingsProfileRoutes);
-app.route('/api/sprints', sprintsRoutes);
 app.route('/api/support', supportRoutes);
-app.route('/api/task-comments', taskCommentsRoutes);
-app.route('/api/task-projects', taskProjectsRoutes);
-app.route('/api/task-tags', taskTagsRoutes);
-app.route('/api/tasks', tasksRoutes);
 app.route('/api/custom-fields', customFieldsRoutes);
 // WeldObjects — definition surface (weldobjects:manage) and record data
 // surface (weldobjects:<slug>:<action>) are separate mounts on purpose.
@@ -372,7 +299,6 @@ app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
 app.route('/api/objects', customObjectRecordsRoutes);
 app.route('/api/objects', customObjectLinkTraversalRoutes);
 app.route('/api/related', customObjectReverseRoutes);
-app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/app-catalog', appCatalogRoutes);
 // WeldCommerce (products, orders, parcels, …, /public/commerce-portal and
@@ -382,13 +308,11 @@ app.route('/api/credits', creditsRoutes);
 app.route('/api/ai-models', aiModelsRoutes);
 app.route('/api/ai', aiRoutes);
 app.route('/api/my-role', myRoleRoutes);
-app.route('/api/my-tasks', myTasksRoutes);
 app.route('/api/access-requests', accessRequestsRoutes);
 app.route('/api/search', searchRoutes);
 app.route('/api/workspace-settings', workspaceSettingsRoutes);
 app.route('/api/team-members', teamMembersRoutes);
 app.route('/api/me', meRoutes);
-app.route('/api/time-entries', timeEntriesRoutes);
 app.route('/api/user-apps', userAppsRoutes);
 app.route('/api/user-preferences', userPreferencesRoutes);
 app.route('/api/push-tokens', pushTokensRoutes);
@@ -399,7 +323,6 @@ app.route('/api/weldagent', weldagentRoutes);
 // binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldPass (/api/weldpass) moved to pass-api; the kit's forwarder hands those
 // paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
-app.route('/api/whiteboards', whiteboardsRoutes);
 app.route('/api/workflow-builder', workflowBuilderRoutes);
 app.route('/api/workflow-dashboard', workflowDashboardRoutes);
 app.route('/api/workflow-executions', workflowExecutionsRoutes);
@@ -419,7 +342,10 @@ app.route('/api/workflows', workflowsRoutes);
 // is running (they finish within minutes). data-api runs new ones as
 // welddata-enrich-v2*.
 export { WelddataEnrichWorkflow } from '@weldsuite/data-domain/workflows/welddata-enrich';
-export { SendScheduledEmailWorkflow } from './workflows/send-scheduled-email';
+// Draining: in-flight instances only; remove once no send-scheduled-email-v2*
+// instance is left (scheduled sends are at most MAX_SCHEDULE_DAYS = 7 days
+// out). mail-api runs new ones as send-scheduled-email-v3*.
+export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/send-scheduled-email';
 // Draining: in-flight instances only; remove after the longest sequence
 // schedule has passed (check the dashboard for running execute-sequence-v2*
 // instances). crm-api runs new ones as execute-sequence-v3*.
@@ -432,14 +358,16 @@ export { TranscribeRecordingWorkflow } from '@weldsuite/meet-domain/workflows/tr
 export { UnpinExpiredMessageWorkflow } from './workflows/unpin-expired-message';
 export { DeferredNotificationEmailWorkflow } from './workflows/deferred-notification-email';
 export { WeldAgentJobWorkflow } from './workflows/weldagent-job';
-export { SendDigestWorkflow } from './workflows/send-digest';
-export { ImportTasksWorkflow } from './workflows/import-tasks';
+// Draining: in-flight instances only; remove once no send-digest-v2* or
+// import-tasks-v2* instance is running (they finish within minutes). flow-api
+// runs new ones as send-digest-v3* / import-tasks-v3*.
+export { SendDigestWorkflow } from '@weldsuite/flow-domain/workflows/send-digest';
+export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tasks';
 
 // Cron sweeps re-hosted from api-worker (which had them configured only in
 // the Cloudflare dashboard — here they are declared in wrangler.toml
-// [triggers]): hourly task digests. (The daily calendar replan moved to
-// calendar-api.)
-import { runDigestSweep } from './cron/digest-sweep';
+// [triggers]): hourly WeldAgent routines. (The hourly task digest moved to
+// flow-api, the daily calendar replan to calendar-api.)
 import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import { handleEntityAgentBatch } from './queue/entity-agents-consumer';
@@ -464,13 +392,9 @@ export default {
     console.warn(`[app-api] no consumer registered for queue "${batch.queue}"`);
   },
   scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-    // Hourly: send task digests
+    // Hourly: WeldAgent routines. (The hourly task digest sweep runs in
+    // flow-api.)
     if (event.cron === '0 * * * *') {
-      ctx.waitUntil(
-        runDigestSweep(env).catch((err) => {
-          console.error('[DigestSweep] Failed:', err);
-        }),
-      );
       ctx.waitUntil(
         runWeldAgentRoutineSweep(env).catch((err) => {
           console.error('[WeldAgentRoutineSweep] Failed:', err);

@@ -42,8 +42,8 @@ head_sampling_rate = 1
 #   which only protects stored tenant DB URLs. Generate with:
 #     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # - WELDPASS_ROOT_KEY_V2 (only during a WeldPass root-key rotation)
-# - CLOUDFLARE_API_TOKEN (Cloudflare zones / Email Routing; the help center
-#   custom domains that also used it moved to desk-api)
+# - CLOUDFLARE_API_TOKEN (the @weldsuite/ai token fallback; WeldMail's Email
+#   Routing moved to mail-api, the help center custom domains to desk-api)
 # - CLOUDFLARE_ACCOUNT_ID (optional alias of the CF_ACCOUNT_ID [vars] value)
 #   (WeldHost /api/domains and its Realtime Register secrets moved to host-api.)
 #   (WeldData's LEMLIST_API_KEY / FINDYMAIL_API_KEY / PROSPEO_API_KEY moved to data-api.)
@@ -54,8 +54,8 @@ head_sampling_rate = 1
 #   E2E workspace. /test-fixtures/teardown-workspace refuses to destroy this
 #   org. Set via `wrangler secret put TEST_WORKSPACE_ID --env test|preview`.
 #   Never set in production.)
-# - R2_SQL_API_TOKEN (project analytics: Cloudflare R2 SQL REST API bearer token)
-# - R2_ANALYTICS_BUCKET (project analytics: R2 bucket name for the Iceberg catalog)
+# - (R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET — project and CRM analytics — moved
+#   to flow-api and crm-api.)
 # - CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (WeldChat voice/video calls:
 #   Cloudflare RealtimeKit credentials used by @weldsuite/cloudflare-realtime.
 #   Set via `wrangler secret put CF_REALTIME_APP_ID|CF_REALTIME_APP_SECRET`.
@@ -88,10 +88,10 @@ head_sampling_rate = 1
 #   recording transcription; copy the value from api-worker per env). New
 #   transcriptions run in meet-api; keep it here while the draining
 #   transcribe-recording-v2* instances finish.
-# - RESEND_API_KEY (W4: SendDigestWorkflow prefers Resend when set, else it
-#   falls back to the SEND_EMAIL binding; already used by notifications.
-#   The calendar attendee mails it also gated moved to calendar-api, together
-#   with their RESEND_MEETING_*_TEMPLATE_ID vars.)
+# - RESEND_API_KEY (notifications + internal email. The task digest it also
+#   fed moved to flow-api, keep it here while the draining send-digest-v2*
+#   instances finish; the calendar attendee mails moved to calendar-api,
+#   together with their RESEND_MEETING_*_TEMPLATE_ID vars.)
 # - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
 #   account billing-worker's webhooks use, since /api/billing/seats relies on
 #   the invoice.paid webhook)
@@ -115,7 +115,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -258,6 +258,14 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "FLOW_API"
+service = "weldsuite-flow-api"
+
+[[services]]
+binding = "MAIL_API"
+service = "weldsuite-mail-api"
+
+[[services]]
 binding = "DESK_API"
 service = "weldsuite-desk-api"
 
@@ -330,10 +338,10 @@ name = "welddata-enrich-dev"
 binding = "WELDDATA_ENRICH"
 class_name = "WelddataEnrichWorkflow"
 
-# Scheduled email — hosted here too, so unlike the cross-script bindings below
-# it works under plain `wrangler dev`. (Previously this class lived in
-# api-worker, which made scheduling always 503 with WORKFLOW_BINDING_MISSING
-# locally.)
+# Scheduled email — DRAINING. New sends are scheduled in mail-api
+# (send-scheduled-email-v3*); this block (class re-exported from
+# @weldsuite/mail-domain) only lets in-flight instances finish
+# (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "send-scheduled-email-v2-dev"
 binding = "SEND_SCHEDULED_EMAIL"
@@ -386,6 +394,10 @@ name = "deferred-notification-email-dev"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 
+# Task digest + bulk task import — DRAINING. New instances run in flow-api
+# (send-digest-v3*, import-tasks-v3*); these blocks (classes re-exported from
+# @weldsuite/flow-domain) only let in-flight instances finish
+# (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "send-digest-v2-dev"
 binding = "SEND_DIGEST"
@@ -399,9 +411,9 @@ class_name = "ImportTasksWorkflow"
 # Cron sweeps re-hosted from api-worker (there they were configured ONLY in
 # the Cloudflare dashboard — invisible in its repo config; delete those
 # dashboard crons after this deploys, see W7). Handled by scheduled() in
-# src/index.ts: hourly digest sweep. (The daily 04:00 calendar replan moved
-# to calendar-api, the WeldHost domain auto-renew on the same schedule to
-# host-api.)
+# src/index.ts: hourly WeldAgent routine sweep. (The hourly task digest sweep
+# moved to flow-api, the daily 04:00 calendar replan to calendar-api, the
+# WeldHost domain auto-renew on the same schedule to host-api.)
 [triggers]
 crons = ["0 * * * *"]
 
@@ -417,7 +429,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -490,6 +502,14 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "FLOW_API"
+service = "weldsuite-flow-api-test"
+
+[[env.test.services]]
+binding = "MAIL_API"
+service = "weldsuite-mail-api-test"
 
 [[env.test.services]]
 binding = "DESK_API"
@@ -567,6 +587,7 @@ name = "trash-cleanup-v2"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
 
+# Draining — new instances run in mail-api (send-scheduled-email-v3).
 [[env.test.workflows]]
 name = "send-scheduled-email-v2"
 binding = "SEND_SCHEDULED_EMAIL"
@@ -593,6 +614,7 @@ name = "deferred-notification-email"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 
+# Draining — new instances run in flow-api (send-digest-v3, import-tasks-v3).
 [[env.test.workflows]]
 name = "send-digest-v2"
 binding = "SEND_DIGEST"
@@ -612,11 +634,7 @@ binding = "GITHUB_PROJECT_SYNC"
 class_name = "GithubProjectSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"
 
-[[env.test.workflows]]
-name = "github-project-outbound-int"
-binding = "GITHUB_PROJECT_OUTBOUND"
-class_name = "GithubProjectOutboundSyncWorkflow"
-script_name = "weldsuite-integration-webhooks-test"
+# (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
 
 [[env.test.workflows]]
 name = "crm-sync-int"
@@ -646,7 +664,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -725,6 +743,14 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "FLOW_API"
+service = "weldsuite-flow-api"
+
+[[env.production.services]]
+binding = "MAIL_API"
+service = "weldsuite-mail-api"
 
 [[env.production.services]]
 binding = "DESK_API"
@@ -806,9 +832,10 @@ name = "trash-cleanup-v2"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
 
-# Scheduled email — hosted in this worker (app-api), no script_name.
-# New name: the old `send-scheduled-email` is still owned by api-worker while
-# its in-flight instances drain (max 7 days, MAX_SCHEDULE_DAYS).
+# Scheduled email — DRAINING. New instances run in mail-api as
+# send-scheduled-email-v3; this block (class re-exported from
+# @weldsuite/mail-domain) only lets in-flight v2 instances finish (max 7 days,
+# MAX_SCHEDULE_DAYS; docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "send-scheduled-email-v2"
 binding = "SEND_SCHEDULED_EMAIL"
@@ -842,13 +869,17 @@ name = "deferred-notification-email"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 
-# Daily task digest — hosted in this worker (W4).
+# Daily task digest — DRAINING. New instances run in flow-api as
+# send-digest-v3; this block (class re-exported from @weldsuite/flow-domain)
+# only lets in-flight v2 instances finish (docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "send-digest-v2"
 binding = "SEND_DIGEST"
 class_name = "SendDigestWorkflow"
 
-# Bulk task import — hosted in this worker (W4).
+# Bulk task import — DRAINING. New instances run in flow-api as
+# import-tasks-v3; this block (class re-exported from @weldsuite/flow-domain)
+# only lets in-flight v2 instances finish.
 [[env.production.workflows]]
 name = "import-tasks-v2"
 binding = "IMPORT_TASKS"
@@ -868,11 +899,7 @@ binding = "GITHUB_PROJECT_SYNC"
 class_name = "GithubProjectSyncWorkflow"
 script_name = "weldsuite-integration-webhooks"
 
-[[env.production.workflows]]
-name = "github-project-outbound-int"
-binding = "GITHUB_PROJECT_OUTBOUND"
-class_name = "GithubProjectOutboundSyncWorkflow"
-script_name = "weldsuite-integration-webhooks"
+# (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
 
 # CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
 [[env.production.workflows]]

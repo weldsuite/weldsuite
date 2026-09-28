@@ -182,8 +182,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (integration-sync-worker, integration-webhook-worker) needs the SAME value
     // in the same env.
     "INTERNAL_API_SECRET",
-    // CLOUDFLARE_API_TOKEN: Cloudflare zones / Email Routing + RealtimeKit (help
-    // center custom domains moved to "desk-api").
+    // CLOUDFLARE_API_TOKEN: the @weldsuite/ai token fallback (WeldMail's Email
+    // Routing moved to "mail-api", help center custom domains to "desk-api").
     // CLOUDFLARE_ACCOUNT_ID: accepted by @weldsuite/ai as the CF_ACCOUNT_ID alias.
     // STRIPE_SECRET_KEY: /api/billing + workspace settings. (The WeldHost
     // Realtime Register secrets moved to "host-api".)
@@ -444,6 +444,33 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Bearer on the helpdesk-workflows resume forward to helpdesk-workflow-worker.
     // Must be the SAME value as app-api / helpdesk-workflow-worker in the same env.
     "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // mail-api: the mail module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "mail-api": [
+    // Mail domain provisioning through Cloudflare Email Routing
+    // (@weldsuite/worker-email; moved here from app-api), and the AI token
+    // /api/mail-ai runs on: @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else
+    // CLOUDFLARE_API_TOKEN (the one app-api has), so carry the same token.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // flow-api: the flow module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "flow-api": [
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",

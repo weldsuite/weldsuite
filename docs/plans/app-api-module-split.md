@@ -438,6 +438,9 @@ the date in the last column.
 | `ExecuteSequenceWorkflow` | crm | `execute-sequence-v2` (dev `-v2-dev`) | `execute-sequence-v3` (dev `-v3-dev`) in crm-api | the longest sequence schedule after the crm-api cutover (instances sleep between steps and can run for weeks); check the dashboard for running instances |
 | `WelddataEnrichWorkflow` | data | `welddata-enrich` (dev `-dev`) | `welddata-enrich-v2` (dev `-v2-dev`) in data-api | a day after the data-api cutover (instances run for minutes) |
 | `TranscribeRecordingWorkflow` | meet | `transcribe-recording-v2` (dev `-v2-dev`) | `transcribe-recording-v3` (dev `-v3-dev`) in meet-api | a day after the meet-api cutover (instances run for minutes: one AssemblyAI transcription with retries); keep `ASSEMBLYAI_API_KEY` on app-api until then |
+| `SendScheduledEmailWorkflow` | mail | `send-scheduled-email-v2` (dev `-v2-dev`) | `send-scheduled-email-v3` (dev `-v3-dev`) in mail-api | after the latest `scheduledFor` of the v2 instances has passed (sends are scheduled at most `MAX_SCHEDULE_DAYS` = 7 days out, so 7 days after the mail-api cutover plus retries); check the dashboard for running instances. A v2 instance whose message was rescheduled or cancelled from mail-api skips itself (its `triggerRunId` / `sendStatus` guard) |
+| `SendDigestWorkflow` | flow | `send-digest-v2` (dev `-v2-dev`) | `send-digest-v3` (dev `-v3-dev`) in flow-api | a day after the flow-api cutover (instances run for minutes: one digest query + send with retries); keep `RESEND_API_KEY` on app-api (it also serves notifications) |
+| `ImportTasksWorkflow` | flow | `import-tasks-v2` (dev `-v2-dev`) | `import-tasks-v3` (dev `-v3-dev`) in flow-api | a day after the flow-api cutover (instances run for minutes: 500-row batches of one import job) |
 
 ## Out of scope
 

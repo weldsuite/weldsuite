@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** flow-api. Target of the forwarder for the flow module's paths. */
+  FLOW_API?: Fetcher;
+  /** mail-api. Target of the forwarder for the mail module's paths. */
+  MAIL_API?: Fetcher;
   /** desk-api. Target of the forwarder for the desk module's paths. */
   DESK_API?: Fetcher;
   /** call-api. Target of the forwarder for the call module's paths. */
@@ -115,11 +119,8 @@ export interface Env {
   // (CF_REALTIME_WEBHOOK_TOKEN / MEETINGBAAS_WEBHOOK_TOKEN moved to meet-api
   // with the WeldMeet webhooks.)
 
-  // --- Project analytics (R2 SQL / Iceberg) ---------------------------------
-  /** Bearer token for the Cloudflare R2 SQL REST API. */
-  R2_SQL_API_TOKEN?: string;
-  /** Name of the R2 bucket that holds the Iceberg analytics catalog. */
-  R2_ANALYTICS_BUCKET?: string;
+  // (Project analytics' R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET moved to
+  // flow-api and crm-api.)
 
   // --- Cloudflare + Stripe (the WeldHost keys moved to host-api) ----------
   /** Cloudflare API token with Zone (+ legacy Registrar) scopes. */
@@ -211,36 +212,12 @@ export interface Env {
     sendAfter: string;
     template?: { id: string; variables: Record<string, string | number | boolean> };
   }>;
-  /** CF Workflow that sends one user's daily task digest email. Hosted in
-   *  app-api itself under the `send-digest-v2*` names; dispatched by the
-   *  hourly digest sweep cron (src/cron/digest-sweep.ts). */
-  SEND_DIGEST?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    email: string;
-    name: string;
-    timezone: string;
-  }>;
-  /** CF Workflow that bulk-imports project tasks from an R2 JSON payload.
-   *  Hosted in app-api itself under the `import-tasks-v2*` names; dispatched
-   *  by POST /api/projects/:projectId/tasks/import-jobs. */
-  IMPORT_TASKS?: Workflow<{
-    jobId: string;
-    workspaceId: string;
-    userId: string;
-    projectId: string;
-    r2Key: string;
-  }>;
-  /** CF Workflow that sleeps until `scheduledFor` then dispatches a
-   *  scheduled email via the Cloudflare send binding. Hosted in app-api itself
-   *  (class exported from src/index.ts). */
-  SEND_SCHEDULED_EMAIL?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    messageId: string;
-    accountId: string;
-    scheduledFor: string;
-  }>;
+  // (SEND_DIGEST and IMPORT_TASKS moved to flow-api with WeldFlow; the
+  // send-digest-v2* / import-tasks-v2* [[workflows]] blocks stay only while
+  // their in-flight instances drain.)
+  // (SEND_SCHEDULED_EMAIL moved to mail-api with WeldMail; the
+  // send-scheduled-email-v2* [[workflows]] blocks stay only while their
+  // in-flight instances drain.)
   /** CF Workflow that runs WeldAgent background work (chat replies, routine
    *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
    *  app-api (class exported from src/index.ts). */
@@ -257,12 +234,10 @@ export interface Env {
    */
   CONNECTOR_WEBHOOK_BASE_URL?: string;
 
-  // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
+  // --- Cloudflare Email Sending (internal email, digests, test fixtures) ---
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
   SEND_EMAIL?: SendEmail;
-  /** Worker name the customer's zone catch-all rule routes inbound mail to.
-   *  Defaults to `weldsuite-mail-inbound` when unset. */
-  MAIL_INBOUND_WORKER_NAME?: string;
+  // (WeldMail's MAIL_INBOUND_WORKER_NAME moved to mail-api.)
 
   // --- GitHub App integration (workflow-github) --------------------------
   /** GitHub App ID (numeric). */
@@ -281,13 +256,12 @@ export interface Env {
   /** CF Workflow that syncs one GitHub Project (v2) link end-to-end
    *  (Projects-v2 model). Class hosted in core-api; bound here via `script_name`. */
   GITHUB_PROJECT_SYNC?: Workflow;
-  /** CF Workflow that pushes a task mutation to its linked GitHub Project item
-   *  (Projects-v2 outbound). Class hosted in core-api; bound here via `script_name`. */
-  GITHUB_PROJECT_OUTBOUND?: Workflow;
+  // (GITHUB_PROJECT_OUTBOUND, dispatched by the WeldFlow task routes, moved
+  // to flow-api.)
 
   // --- Notifications (`@weldsuite/notifications`) ------------------------
   // In-app delivery uses the REALTIME service binding declared above.
-  /** Resend API key — used by the email channel and the task digest workflow.
+  /** Resend API key — used by the email channel and internal email.
    *  Optional locally. */
   RESEND_API_KEY?: string;
   /** AssemblyAI API key — used by TranscribeRecordingWorkflow (meeting/call

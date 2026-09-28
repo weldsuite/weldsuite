@@ -1,0 +1,239 @@
+# WeldSuite flow-api worker — the flow module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   flow-api.weldsuite.org        production
+#   flow-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "flow-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   (DATABASE_URL_MASTER also backs the digest settings/sweep and the
+#   task-assignment notification's workspace lookup)
+#
+# Secrets (not in the manifest yet; same values as app-api):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   R2_SQL_API_TOKEN, R2_ANALYTICS_BUCKET (project analytics via the R2 SQL
+#     REST API; without them /api/project-analytics charts return empty data)
+#   RESEND_API_KEY (SendDigestWorkflow prefers Resend when set, else it falls
+#     back to the SEND_EMAIL binding; also the task-assignment notification
+#     email) + optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL
+#     (@weldsuite/notifications)
+#
+# CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+
+name = "weldsuite-flow-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# R2 bucket for project files, documents, sheets, task attachments and
+# task-import payloads.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# Cloudflare Email Sending binding — the SendDigest fallback when
+# RESEND_API_KEY is unset.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Daily task digest + bulk task import — Cloudflare Workflows hosted in THIS
+# worker (classes re-exported from src/index.ts, @weldsuite/flow-domain). New
+# names (-v3): app-api keeps `send-digest-v2*` / `import-tasks-v2*` while their
+# in-flight instances drain. Self-hosted (no script_name), so they also work
+# under plain `wrangler dev`.
+[[workflows]]
+name = "send-digest-v3-dev"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+[[workflows]]
+name = "import-tasks-v3-dev"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# DEFERRED_NOTIFICATION_EMAIL (app-api's workflow, used by the task-assignment
+# notification) and GITHUB_PROJECT_OUTBOUND (integration-webhook-worker's) are
+# bound cross-script in test/production only, like app-api's other
+# cross-script workflow bindings. Locally both are absent: the notification
+# email is sent without the defer window and no GitHub outbound sync runs.
+
+# Hourly task digest sweep (src/cron/digest-sweep.ts, scheduled() in
+# src/index.ts). Moved here from app-api, which keeps the same expression for
+# its WeldAgent routine sweep.
+[triggers]
+crons = ["0 * * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-flow-api-test"
+routes = [
+  { pattern = "flow-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+[[env.test.workflows]]
+name = "send-digest-v3"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+[[env.test.workflows]]
+name = "import-tasks-v3"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.test.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api-test"
+
+# GitHub Projects-v2 outbound sync — class hosted in integration-webhook-worker.
+[[env.test.workflows]]
+name = "github-project-outbound-int"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+[env.test.triggers]
+crons = ["0 * * * *"]
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-flow-api"
+routes = [
+  { pattern = "flow-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+# Daily task digest — hosted in this worker, no script_name. New name (-v3):
+# app-api's `send-digest-v2` keeps draining.
+[[env.production.workflows]]
+name = "send-digest-v3"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+# Bulk task import — hosted in this worker, no script_name. New name (-v3):
+# app-api's `import-tasks-v2` keeps draining.
+[[env.production.workflows]]
+name = "import-tasks-v3"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.production.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api"
+
+# GitHub Projects-v2 outbound sync — class hosted in integration-webhook-worker
+# (weldsuite-integration-webhooks).
+[[env.production.workflows]]
+name = "github-project-outbound-int"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+# Hourly task digest sweep (moved here from app-api).
+[env.production.triggers]
+crons = ["0 * * * *"]
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
