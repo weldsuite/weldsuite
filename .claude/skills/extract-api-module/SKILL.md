@@ -72,7 +72,7 @@ In every case:
 - Move the file's tests with it.
 
 Side effects that need a binding only the owning worker has (a Durable Object, a
-Workflow, a queue it consumes) are not package material: stop and report them.
+queue it consumes) are not package material: stop and report them. Workflows: see 4b.
 
 ## 4. The worker
 
@@ -95,6 +95,31 @@ Workflow, a queue it consumes) are not package material: stop and report them.
   `_event-coverage.test.ts` `EXEMPT_ROUTES` — all via `@weldsuite/worker-kit/testing/sweeps`
   (it already has the entity-event coverage check).
 - Reference: `apps/workers/know-api` (smallest) and `apps/workers/pass-api`.
+
+## 4b. Cloudflare Workflows, crons and queues the module owns
+
+- **Workflow classes** (`src/workflows/*`, exported from app-api's `src/index.ts`): a
+  workflow *name* belongs to one worker script, and instances already running must
+  finish on the old one. So:
+  1. Move the class file (and helpers only it uses) into the module's domain package
+     as `@weldsuite/<module>-domain/workflows/<file>`; its `env` type becomes structural.
+  2. The module worker re-exports the class from its `src/index.ts` and declares it in
+     `wrangler.toml` with a **new name**: bump the version suffix (`execute-sequence-v2`
+     → `execute-sequence-v3`, dev `-v3-dev`; unversioned `welddata-enrich` →
+     `welddata-enrich-v2`), **same binding name and class_name**, in dev/test/production.
+     Code that dispatches instances moves with the module and now uses this binding.
+  3. app-api keeps its `[[workflows]]` blocks and re-exports the class from the domain
+     package, with a comment `// Draining: in-flight instances only; remove after …`
+     so old instances complete. Add a row to the "Workflows draining in app-api" table
+     in docs/plans/app-api-module-split.md (class, old name, new name, longest instance
+     lifetime).
+  4. Other workers that bind the workflow cross-script (`script_name = "weldsuite-app-api…"`):
+     point them at the module worker's script and the new name.
+- **Crons**: the module worker's `[triggers]` + `scheduled()` run its sweeps; remove the
+  call from app-api's `scheduled()`, and the expression from app-api's `[triggers]` only
+  when nothing there uses it any more.
+- **Queue consumers**: a queue has exactly one consumer. Move the `[[queues.consumers]]`
+  block (all envs) and the `queue()` branch to the module worker in the same change.
 
 ## 5. app-api
 

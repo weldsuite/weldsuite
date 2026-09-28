@@ -330,6 +330,21 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
   ],
+
+  // commerce-api: the commerce module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "commerce-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WooCommerce /wc-auth/v1 callback (/webhooks/woocommerce): verifies the
+    // HMAC `user_id` that app-api's POST /api/connectors/authorize signs with
+    // this secret, so it must be the SAME value as app-api's in the same env.
+    "INTERNAL_API_SECRET",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

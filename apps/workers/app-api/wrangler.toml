@@ -121,7 +121,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -276,6 +276,10 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "COMMERCE_API"
+service = "weldsuite-commerce-api"
+
+[[services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api"
 
@@ -396,7 +400,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -471,6 +475,10 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "COMMERCE_API"
+service = "weldsuite-commerce-api-test"
 
 [[env.test.services]]
 binding = "STASH_API"
@@ -592,7 +600,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -673,6 +681,10 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "COMMERCE_API"
+service = "weldsuite-commerce-api"
 
 [[env.production.services]]
 binding = "STASH_API"

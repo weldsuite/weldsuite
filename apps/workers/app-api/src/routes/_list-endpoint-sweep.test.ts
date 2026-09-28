@@ -23,7 +23,6 @@ import { leadsRoutes } from './leads';
 import { tasksRoutes } from './tasks';
 import { ticketsRoutes } from './tickets';
 import { invoicesRoutes } from './invoices';
-import { productsRoutes } from './products';
 import { pipelinesRoutes } from './pipelines';
 import { pipelineStagesRoutes } from './pipeline-stages';
 import { customFieldsRoutes } from './custom-fields';
@@ -32,8 +31,6 @@ import { myTasksRoutes } from './my-tasks';
 import { conversationsRoutes } from './conversations';
 import { meetingsRoutes } from './meetings';
 import { workflowsRoutes } from './workflows';
-import { ordersRoutes } from './orders';
-import { categoriesRoutes } from './categories';
 import { billsRoutes } from './bills';
 import { listsRoutes } from './lists';
 import { opportunitiesRoutes } from './opportunities';
@@ -58,7 +55,6 @@ const cases: SweepCase[] = [
   { mount: '/api/tasks', router: tasksRoutes, permission: 'tasks:read' },
   { mount: '/api/tickets', router: ticketsRoutes, permission: 'tickets:read' },
   { mount: '/api/invoices', router: invoicesRoutes, permission: 'invoices:read' },
-  { mount: '/api/products', router: productsRoutes, permission: 'products:read' },
   { mount: '/api/pipelines', router: pipelinesRoutes, permission: 'pipelines:read' },
   { mount: '/api/pipeline-stages', router: pipelineStagesRoutes, permission: 'pipelines:read' },
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
@@ -67,8 +63,6 @@ const cases: SweepCase[] = [
   { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/meetings', router: meetingsRoutes, permission: 'meetings:read' },
   { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
-  { mount: '/api/orders', router: ordersRoutes, permission: 'orders:read' },
-  { mount: '/api/categories', router: categoriesRoutes, permission: 'categories:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
   { mount: '/api/lists', router: listsRoutes, permission: 'companies:read' },
   { mount: '/api/opportunities', router: opportunitiesRoutes, permission: 'opportunities:read' },

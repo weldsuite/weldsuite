@@ -35,7 +35,6 @@ import { bankTransactionsRoutes } from './routes/bank-transactions';
 import { billsRoutes } from './routes/bills';
 import { bookingPagesRoutes } from './routes/booking-pages';
 import { bookingsRoutes } from './routes/bookings';
-import { carriersRoutes } from './routes/carriers';
 import { calendarEventsRoutes } from './routes/calendar-events';
 import { calendarsRoutes } from './routes/calendars';
 import { cannedResponsesRoutes } from './routes/canned-responses';
@@ -56,9 +55,7 @@ import { chatMessagesRoutes } from './routes/chat-messages';
 import { chatSearchRoutes } from './routes/chat-search';
 import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
-import { categoriesRoutes } from './routes/categories';
 import { companiesRoutes } from './routes/companies';
-import { commercePortalStaffRoutes } from './routes/commerce-portal';
 import { crmAnalyticsRoutes } from './routes/crm-analytics';
 import { customerStatusesRoutes } from './routes/customer-statuses';
 import { conversationsRoutes } from './routes/conversations';
@@ -132,21 +129,12 @@ import { meetingsRoutes } from './routes/meetings';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
 import { opportunitiesRoutes } from './routes/opportunities';
-import { ordersRoutes } from './routes/orders';
 import { peopleRoutes } from './routes/people';
 import { personCompaniesRoutes } from './routes/person-companies';
-import { parcelsRoutes } from './routes/parcels';
-import { parcelAnalyticsRoutes } from './routes/parcel-analytics';
-import { parcelNotificationsRoutes } from './routes/parcel-notifications';
-import { parcelRatesRoutes } from './routes/parcel-rates';
-import { parcelSettingsRoutes } from './routes/parcel-settings';
-import { parcelWalletRoutes } from './routes/parcel-wallet';
 import { paymentsRoutes } from './routes/payments';
-import { pickupsRoutes } from './routes/pickups';
 import { pipelineFieldVisibilityRoutes } from './routes/pipeline-field-visibility';
 import { pipelineStagesRoutes } from './routes/pipeline-stages';
 import { pipelinesRoutes } from './routes/pipelines';
-import { productsRoutes } from './routes/products';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
 import { projectFilesRoutes } from './routes/project-files';
 import { projectLabelsRoutes } from './routes/project-labels';
@@ -158,16 +146,10 @@ import { projectSheetsRoutes } from './routes/project-sheets';
 import { projectsRoutes } from './routes/projects';
 import { reconciliationRulesRoutes } from './routes/reconciliation-rules';
 import { recurringInvoicesRoutes } from './routes/recurring-invoices';
-import { returnReasonsRoutes } from './routes/return-reasons';
-import { returnRulesRoutes } from './routes/return-rules';
-import { returnsRoutes } from './routes/returns';
 import { rolesRoutes } from './routes/roles';
 import { satisfactionSurveysRoutes } from './routes/satisfaction-surveys';
 import { customerSequencesRoutes, sequencesRoutes } from './routes/sequences';
 import { settingsProfileRoutes } from './routes/settings-profile';
-import { shipmentsRoutes } from './routes/shipments';
-import { shippingPricesRoutes } from './routes/shipping-prices';
-import { shippingRulesRoutes } from './routes/shipping-rules';
 import { slasRoutes } from './routes/slas';
 import { sprintsRoutes } from './routes/sprints';
 import { taskCommentsRoutes } from './routes/task-comments';
@@ -188,8 +170,6 @@ import { enrichFieldsRoutes } from './routes/enrich-fields';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
-import { printNodeRoutes } from './routes/printnode';
-import { sendcloudRoutes } from './routes/sendcloud';
 import { creditsRoutes } from './routes/credits';
 import { aiModelsRoutes } from './routes/ai-models';
 import { aiRoutes } from './routes/ai';
@@ -229,7 +209,6 @@ import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
 import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicHelpcenterRoutes } from './routes/public-helpcenter';
-import { publicCommercePortalRoutes } from './routes/public-commerce-portal';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
 import { appstoreRoutes } from './routes/appstore';
@@ -250,7 +229,6 @@ import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
 import { supportRoutes } from './routes/support';
 import { telephonyRoutes } from './routes/telephony';
 import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
-import { woocommerceAuthWebhookRoutes } from './routes/webhooks-woocommerce-auth';
 import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
 import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
 import { workingHoursRoutes } from './routes/working-hours';
@@ -290,11 +268,6 @@ app.route('/test-fixtures', testFixturesRoutes);
 // JWT — the tenant DB is resolved from the `?domain=` param by the router's
 // own middleware. Must stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/public/helpcenter', publicHelpcenterRoutes);
-
-// Public B2B commerce portal consumed by apps/web/commerce-portal. No Clerk
-// JWT — tenant DB is resolved from `?slug=` / X-Workspace-Slug, buyer auth is
-// a hashed KV session. Must stay ABOVE the app.use('/api/*', ...) guard below.
-app.route('/public/commerce-portal', publicCommercePortalRoutes);
 
 // Public WeldApps bundle host — PUBLIC (no Clerk). Serves the live R2 bundle
 // of a user-created app so the platform can iframe it at /apps/{code}. Must
@@ -352,10 +325,6 @@ app.route('/api/internal', internalRoutes);
 // from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
 // is set. Must stay ABOVE the /api/* guard.
 app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
-
-// WooCommerce /wc-auth/v1 callback — PUBLIC. The shop POSTs API keys here.
-// WooCommerce requires HTTP 200 or it deletes the keys. HMAC `user_id`.
-app.route('/webhooks/woocommerce', woocommerceAuthWebhookRoutes);
 
 // External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
 // per-webhook (HMAC signature / IP allowlist) inside the receiver service.
@@ -422,10 +391,8 @@ app.route('/api/calendar-events', calendarEventsRoutes);
 app.route('/api/calendars', calendarsRoutes);
 app.route('/api/canned-responses', cannedResponsesRoutes);
 app.route('/api/object-templates', objectTemplatesRoutes);
-app.route('/api/carriers', carriersRoutes);
 app.route('/api/calls', callsRoutes);
 app.route('/api/call-intelligence', callIntelligenceRoutes);
-app.route('/api/categories', categoriesRoutes);
 app.route('/api/channel-members', channelMembersRoutes);
 app.route('/api/channels', channelsRoutes);
 app.route('/api/chat-activity', chatActivityRoutes);
@@ -442,7 +409,6 @@ app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
 app.route('/api/companies', companiesRoutes);
-app.route('/api/commerce-portal', commercePortalStaffRoutes);
 app.route('/api/crm-analytics', crmAnalyticsRoutes);
 app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/conversations', conversationsRoutes);
@@ -520,23 +486,14 @@ app.route('/api/member-limits', memberLimitsRoutes);
 app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/opportunities', opportunitiesRoutes);
-app.route('/api/orders', ordersRoutes);
 app.route('/api/people', peopleRoutes);
 app.route('/api/person-companies', personCompaniesRoutes);
-app.route('/api/parcels', parcelsRoutes);
-app.route('/api/parcel-analytics', parcelAnalyticsRoutes);
-app.route('/api/parcel-notifications', parcelNotificationsRoutes);
-app.route('/api/parcel-rates', parcelRatesRoutes);
-app.route('/api/parcel-settings', parcelSettingsRoutes);
-app.route('/api/parcel-wallet', parcelWalletRoutes);
 app.route('/api/payments', paymentsRoutes);
-app.route('/api/pickups', pickupsRoutes);
 app.route('/api/pipeline-field-visibility', pipelineFieldVisibilityRoutes);
 app.route('/api/pipeline-stages', pipelineStagesRoutes);
 app.route('/api/pipelines', pipelinesRoutes);
 app.route('/api/porting', portingRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
-app.route('/api/products', productsRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
 app.route('/api/project-files', projectFilesRoutes);
 app.route('/api/project-labels', projectLabelsRoutes);
@@ -548,17 +505,11 @@ app.route('/api/project-sheets', projectSheetsRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/reconciliation-rules', reconciliationRulesRoutes);
 app.route('/api/recurring-invoices', recurringInvoicesRoutes);
-app.route('/api/return-reasons', returnReasonsRoutes);
-app.route('/api/return-rules', returnRulesRoutes);
-app.route('/api/returns', returnsRoutes);
 app.route('/api/roles', rolesRoutes);
 app.route('/api/satisfaction-surveys', satisfactionSurveysRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/api/customer-sequences', customerSequencesRoutes);
 app.route('/api/settings/profile', settingsProfileRoutes);
-app.route('/api/shipments', shipmentsRoutes);
-app.route('/api/shipping-prices', shippingPricesRoutes);
-app.route('/api/shipping-rules', shippingRulesRoutes);
 app.route('/api/slas', slasRoutes);
 app.route('/api/sprints', sprintsRoutes);
 app.route('/api/support', supportRoutes);
@@ -584,11 +535,9 @@ app.route('/api/enrich-fields', enrichFieldsRoutes);
 app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/app-catalog', appCatalogRoutes);
-// PrintNode settings (workspace_settings.customSettings.printnode) — AUTHED.
-// Needs clerkMiddleware() + workspaceDbMiddleware() (reads c.get('tenantDb')),
-// so this must stay BELOW the app.use('/api/*', ...) guard.
-app.route('/api/printnode', printNodeRoutes);
-app.route('/api/sendcloud', sendcloudRoutes);
+// WeldCommerce (products, orders, parcels, …, /public/commerce-portal and
+// /webhooks/woocommerce) moved to commerce-api; the kit's forwarder hands those
+// paths to it over the COMMERCE_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/credits', creditsRoutes);
 app.route('/api/ai-models', aiModelsRoutes);
 app.route('/api/ai', aiRoutes);

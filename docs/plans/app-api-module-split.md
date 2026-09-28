@@ -424,6 +424,18 @@ Server callers:
   their own `<m>-api` workers"), the `backend-app-api` and `backend-workers` agent
   definitions, and the `/fix-bug` / `/feature` routing, so agents open the right worker.
 
+## Workflows draining in app-api
+
+A Cloudflare Workflow name belongs to one worker, and instances already running must
+finish where they started. When a module moves, its workflow class gets a new name in
+the module worker (same binding and class name) and app-api keeps the old
+`[[workflows]]` block plus a re-export of the class until the old instances are done
+(procedure: `.claude/skills/extract-api-module`, step 4b). Remove the app-api side after
+the date in the last column.
+
+| Class | Module | Old name (app-api) | New name (module worker) | Remove from app-api after |
+|---|---|---|---|---|
+
 ## Out of scope
 
 - `external-api` and `mcp-server` keep their own routes. Later they could call module RPCs

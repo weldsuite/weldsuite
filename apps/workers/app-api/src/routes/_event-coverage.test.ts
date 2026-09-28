@@ -84,13 +84,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'accounting-settings',
   'accounting-reports',
   'accounting-dashboard',
-  // Parcel helper / singleton / read-only routes — no standard /:id CRUD surface.
-  // parcel-settings: singleton GET / + PUT / (no resource /:id lifecycle).
-  // parcel-rates: action-only (POST /calculate, POST /select); no resource lifecycle.
-  // parcel-analytics: read-only aggregates only; no mutations.
-  'parcel-settings',
-  'parcel-rates',
-  'parcel-analytics',
   // Settings / workspace read-only / singleton routes — no core-CRUD mutations.
   // digest-settings: singleton GET / + PUT / (PUT / still publishes digest_settings).
   'digest-settings',
@@ -131,9 +124,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'feature-requests',
   // roles — RBAC role definitions: permissions infra, no `role` entity type in the catalog.
   'roles',
-  // printnode / sendcloud — singleton integration config, not entity CRUD.
-  'printnode',
-  'sendcloud',
 ]);
 
 describe('app-api entity-event coverage', () => {

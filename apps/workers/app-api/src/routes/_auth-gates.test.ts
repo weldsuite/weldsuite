@@ -16,7 +16,6 @@
 import { describe, it, expect } from 'vitest';
 import { authGateStatuses, type AuthGateCase } from '@weldsuite/worker-kit/testing/sweeps';
 
-import { ordersRoutes } from './orders';
 import { projectsRoutes } from './projects';
 import { tasksRoutes } from './tasks';
 import { opportunitiesRoutes } from './opportunities';
@@ -27,15 +26,10 @@ import { billsRoutes } from './bills';
 import { meetingsRoutes } from './meetings';
 import { activitiesRoutes } from './activities';
 import { pipelinesRoutes } from './pipelines';
-import { categoriesRoutes } from './categories';
 import { slasRoutes } from './slas';
 import { customFieldsRoutes } from './custom-fields';
 import { enrichFieldsRoutes } from './enrich-fields';
 import { milestonesRoutes } from './milestones';
-import { parcelsRoutes } from './parcels';
-import { pickupsRoutes } from './pickups';
-import { returnsRoutes } from './returns';
-import { carriersRoutes } from './carriers';
 import { meetingBotSessionsRoutes } from './meeting-bot-sessions';
 import { customerStatusesRoutes } from './customer-statuses';
 import { crmAnalyticsRoutes } from './crm-analytics';
@@ -47,7 +41,6 @@ import type { Env, Variables } from '../types';
 type RouteCase = AuthGateCase<Env, Variables>;
 
 const cases: RouteCase[] = [
-  { mount: '/api/orders', router: ordersRoutes, prefix: 'orders' },
   // projects GET / is deliberately membership-filtered (scope-based), not
   // hard-blocked by requirePermission — see the note at the top of projects/index.ts.
   { mount: '/api/projects', router: projectsRoutes, prefix: 'projects', skipGet: true },
@@ -62,16 +55,11 @@ const cases: RouteCase[] = [
   { mount: '/api/meetings', router: meetingsRoutes, prefix: 'meetings' },
   { mount: '/api/activities', router: activitiesRoutes, prefix: 'activities' },
   { mount: '/api/pipelines', router: pipelinesRoutes, prefix: 'pipelines' },
-  { mount: '/api/categories', router: categoriesRoutes, prefix: 'categories' },
   { mount: '/api/slas', router: slasRoutes, prefix: 'slas' },
   // custom-fields / enrich-fields update via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/enrich-fields', router: enrichFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/milestones', router: milestonesRoutes, prefix: 'milestones' },
-  { mount: '/api/parcels', router: parcelsRoutes, prefix: 'parcels' },
-  { mount: '/api/pickups', router: pickupsRoutes, prefix: 'pickups' },
-  { mount: '/api/returns', router: returnsRoutes, prefix: 'returns' },
-  { mount: '/api/carriers', router: carriersRoutes, prefix: 'carriers' },
   { mount: '/api/meeting-bot-sessions', router: meetingBotSessionsRoutes, prefix: 'activities' },
   // customer-statuses uses customers:read for read, settings:manage for create/update/delete
   { mount: '/api/customer-statuses', router: customerStatusesRoutes, prefix: 'settings' },
