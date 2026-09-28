@@ -207,17 +207,16 @@ test.describe('Error Handling', () => {
     });
 
     test('should show reconnecting state', async ({ widgetPage, page }) => {
-      await widgetPage.goto('/chat');
-      await widgetPage.waitForReady();
+      await setupMessengerApi(page);
+      await widgetPage.openComposer();
 
       // Simulate connection drop
       await page.context().setOffline(true);
       await page.waitForTimeout(500);
 
-      // Look for reconnecting indicator
-      const reconnectingIndicator = page.locator(
-        '[data-testid="reconnecting"], [class*="reconnecting"], :text("reconnecting")'
-      );
+      // The conversation stays usable while the connection is down
+      await expect(widgetPage.chatView).toBeVisible();
+      await expect(widgetPage.messageInput).toBeEditable();
 
       // Restore connection
       await page.context().setOffline(false);
@@ -297,7 +296,8 @@ test.describe('Error Handling', () => {
       await widgetPage.goto('/');
       await widgetPage.waitForReady();
 
-      // Errors should be logged (in dev mode)
+      // A failed API call is handled, it never reaches the render error boundary
+      expect(consoleErrors.filter((text) => text.includes('[Weld Widget] Render error'))).toEqual([]);
     });
 
     test('should not expose sensitive info in error messages', async ({ widgetPage, page }) => {
