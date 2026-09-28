@@ -91,11 +91,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'parcel-settings',
   'parcel-rates',
   'parcel-analytics',
-  // Social helper / singleton / read-only routes — no standard /:id CRUD surface.
-  // social-analytics: read-only aggregates (overview, stats, search); no mutations.
-  // social-settings: singleton GET / + PUT / (no resource /:id lifecycle).
-  'social-analytics',
-  'social-settings',
   // Settings / workspace read-only / singleton routes — no core-CRUD mutations.
   // digest-settings: singleton GET / + PUT / (PUT / still publishes digest_settings).
   'digest-settings',

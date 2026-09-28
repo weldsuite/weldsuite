@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** ads-api. Target of the forwarder for the ads module's paths. */
+  ADS_API?: Fetcher;
+  /** social-api. Target of the forwarder for the social module's paths. */
+  SOCIAL_API?: Fetcher;
   /** host-api. Target of the forwarder for the host module's paths. */
   HOST_API?: Fetcher;
   /** know-api. Target of the forwarder for the know module's paths. */
@@ -369,27 +373,8 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
 
-  // --- WeldSocial (PostPeer unified social publishing) -------------------
-  /** PostPeer API key (single WeldSuite-level key, sent as `x-access-key`).
-   *  Set via `wrangler secret put POSTPEER_API_KEY`. Optional locally — when
-   *  unset, provider actions return a configuration error and CRUD still works. */
-  POSTPEER_API_KEY?: string;
-  /** Override the PostPeer REST base URL. Defaults to https://api.postpeer.dev/v1. */
-  POSTPEER_BASE_URL?: string;
-  /** Shared secret used to verify PostPeer webhook signatures. */
-  POSTPEER_WEBHOOK_SECRET?: string;
-  /**
-   * BYOK OAuth apps, as a JSON object of platform → PostPeer app id, e.g.
-   * `{"twitter":"app_123","linkedin":"app_456"}`. Apps are per-platform and are
-   * registered on PostPeer via /v1/apps. Platforms absent from the map (and an
-   * unset value) connect under PostPeer's own system app, so the consent screen
-   * shows PostPeer's branding rather than WeldSuite's.
-   */
-  POSTPEER_APP_IDS?: string;
-
   // --- WeldAds (Meta Marketing API) --------------------------------------
-  FACEBOOK_APP_ID?: string;
-  FACEBOOK_APP_SECRET?: string;
+  // FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to ads-api with /api/ad-connections.
   /** Meta webhook verify token + X-Hub-Signature-256 verification secret. */
   FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
   /** Public base URL for integration-webhook-worker (Meta ad webhooks). */

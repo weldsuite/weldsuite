@@ -79,7 +79,6 @@ import { githubConnectionsRoutes } from './routes/github-connections';
 import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
-import { postpeerWebhookRoutes } from './routes/public-postpeer-webhook';
 import { glAccountsRoutes } from './routes/gl-accounts';
 import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
 import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
@@ -179,14 +178,6 @@ import { shipmentsRoutes } from './routes/shipments';
 import { shippingPricesRoutes } from './routes/shipping-prices';
 import { shippingRulesRoutes } from './routes/shipping-rules';
 import { slasRoutes } from './routes/slas';
-import { socialAccountsRoutes } from './routes/social-accounts';
-import { socialAnalyticsRoutes } from './routes/social-analytics';
-import { socialApprovalsRoutes } from './routes/social-approvals';
-import { socialCampaignsRoutes } from './routes/social-campaigns';
-import { socialMediaRoutes } from './routes/social-media';
-import { socialPostsRoutes } from './routes/social-posts';
-import { socialSettingsRoutes } from './routes/social-settings';
-import { socialTeamMembersRoutes } from './routes/social-team-members';
 import { sprintsRoutes } from './routes/sprints';
 import { taskCommentsRoutes } from './routes/task-comments';
 import { taskProjectsRoutes } from './routes/task-projects';
@@ -264,9 +255,6 @@ import { featureRequestsRoutes } from './routes/feature-requests';
 import { gridViewsRoutes } from './routes/grid-views';
 import { integrationsHelpdeskOAuthRoutes } from './routes/integrations/helpdesk-oauth';
 import { integrationsInternalRoutes } from './routes/integrations/internal';
-import { adConnectionsRoutes } from './routes/ad-connections';
-import { adAccountsRoutes } from './routes/ad-accounts';
-import { adCampaignsRoutes } from './routes/ad-campaigns';
 import { internalRoutes } from './routes/internal';
 import { invitationsRoutes } from './routes/invitations';
 import { memberLimitsRoutes } from './routes/member-limits';
@@ -363,10 +351,6 @@ app.route('/api/mailboxes', mailboxesRoutes);
 // Must stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/api/weldconnect/github', githubCallbackRoutes);
 
-// PostPeer social delivery webhook — PUBLIC (no Clerk). Resolves the workspace
-// from a KV mapping recorded at publish time. Must stay ABOVE the /api/* guard.
-app.route('/public/social/postpeer', postpeerWebhookRoutes);
-
 // Onboarding — Clerk-authenticated but org-LESS: creating a NEW workspace must
 // work without an active org (and would resolve the wrong tenant DB if it ran
 // through workspaceDbMiddleware). The router applies clerkMiddleware() itself;
@@ -442,9 +426,6 @@ app.route('/api/icp-declarations', icpDeclarationsRoutes);
 app.route('/api/accounting-reports', accountingReportsRoutes);
 app.route('/api/accounting-settings', accountingSettingsRoutes);
 app.route('/api/activities', activitiesRoutes);
-app.route('/api/ad-accounts', adAccountsRoutes);
-app.route('/api/ad-campaigns', adCampaignsRoutes);
-app.route('/api/ad-connections', adConnectionsRoutes);
 app.route('/api/api-keys', apiKeysRoutes);
 app.route('/api/workspace-api-keys', workspaceApiKeysRoutes);
 app.route('/api/appstore', appstoreRoutes);
@@ -608,14 +589,6 @@ app.route('/api/shipments', shipmentsRoutes);
 app.route('/api/shipping-prices', shippingPricesRoutes);
 app.route('/api/shipping-rules', shippingRulesRoutes);
 app.route('/api/slas', slasRoutes);
-app.route('/api/social-accounts', socialAccountsRoutes);
-app.route('/api/social-analytics', socialAnalyticsRoutes);
-app.route('/api/social-approvals', socialApprovalsRoutes);
-app.route('/api/social-campaigns', socialCampaignsRoutes);
-app.route('/api/social-media', socialMediaRoutes);
-app.route('/api/social-posts', socialPostsRoutes);
-app.route('/api/social-settings', socialSettingsRoutes);
-app.route('/api/social-team-members', socialTeamMembersRoutes);
 app.route('/api/sprints', sprintsRoutes);
 app.route('/api/support', supportRoutes);
 app.route('/api/task-comments', taskCommentsRoutes);

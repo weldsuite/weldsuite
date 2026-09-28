@@ -189,17 +189,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
     "STRIPE_SECRET_KEY",
-    // WeldSocial (PostPeer). The API key must hold the SAME value here as on
-    // external-api and mcp-server below — all three publish through
-    // @weldsuite/social-publishing against one WeldSuite-level PostPeer
-    // account. The webhook secret verifies delivery callbacks, which only land
-    // on this worker. POSTPEER_APP_IDS maps platform → BYOK OAuth app id and is
-    // read on the connect flow, which only this worker exposes.
-    "POSTPEER_API_KEY",
-    "POSTPEER_WEBHOOK_SECRET",
-    "POSTPEER_APP_IDS",
-    "FACEBOOK_APP_ID",
-    "FACEBOOK_APP_SECRET",
+    // WeldSocial (PostPeer) secrets moved to "social-api".
+    // WeldAds FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to "ads-api".
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
     // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies).
     "DISCORD_CLIENT_ID",
@@ -280,6 +271,42 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_CONTACT_BILLING",
     "REALTIME_REGISTER_WEBHOOK_SECRET",
     "STRIPE_SECRET_KEY",
+  ],
+
+  // social-api: the social module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "social-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldSocial (PostPeer, moved here from app-api). The API key must hold the
+    // SAME value here as on external-api and mcp-server above — all three
+    // publish through @weldsuite/social-publishing against one WeldSuite-level
+    // PostPeer account. The webhook secret verifies delivery callbacks, which
+    // only land on this worker. POSTPEER_APP_IDS maps platform → BYOK OAuth app
+    // id and is read on the connect flow, which only this worker exposes.
+    "POSTPEER_API_KEY",
+    "POSTPEER_WEBHOOK_SECRET",
+    "POSTPEER_APP_IDS",
+  ],
+
+  // ads-api: the ads module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "ads-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldAds Meta OAuth (moved here from app-api): /api/ad-connections
+    // authorize + callback. app-api's integration routes still run the ad
+    // sync (@weldsuite/ads-domain) but never read these.
+    "FACEBOOK_APP_ID",
+    "FACEBOOK_APP_SECRET",
   ],
 };
 

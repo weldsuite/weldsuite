@@ -59,16 +59,7 @@ head_sampling_rate = 1
 #   Cloudflare RealtimeKit credentials used by @weldsuite/cloudflare-realtime.
 #   Set via `wrangler secret put CF_REALTIME_APP_ID|CF_REALTIME_APP_SECRET`.
 #   Do NOT hardcode these. CF_ACCOUNT_ID is already a [vars] value below.)
-# - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
-#   the `x-access-key` header. Set via `wrangler secret put POSTPEER_API_KEY`.)
-# - POSTPEER_WEBHOOK_SECRET (WeldSocial: HMAC secret to verify PostPeer delivery
-#   webhooks at /public/social/postpeer/webhook. `wrangler secret put`.)
-# - POSTPEER_APP_IDS (WeldSocial BYOK: JSON object of platform → PostPeer app id,
-#   e.g. {"twitter":"app_123","linkedin":"app_456"}. Apps are per-platform and are
-#   registered on PostPeer via /v1/apps. Platforms left out — and an unset value —
-#   connect under PostPeer's own system app, which puts PostPeer's branding on the
-#   OAuth consent screen instead of WeldSuite's.)
-#   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
+# - POSTPEER_* (WeldSocial) moved to social-api.
 #
 # Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
 # copied from api-worker (wrangler secret put / Doppler sync-secrets):
@@ -130,7 +121,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host"
+API_FORWARD_MODULES = "pass,know,host,social,ads"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -285,6 +276,14 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "ADS_API"
+service = "weldsuite-ads-api"
+
+[[services]]
+binding = "SOCIAL_API"
+service = "weldsuite-social-api"
+
+[[services]]
 binding = "HOST_API"
 service = "weldsuite-host-api"
 
@@ -389,7 +388,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host"
+API_FORWARD_MODULES = "pass,know,host,social,ads"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -464,6 +463,14 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "ADS_API"
+service = "weldsuite-ads-api-test"
+
+[[env.test.services]]
+binding = "SOCIAL_API"
+service = "weldsuite-social-api-test"
 
 [[env.test.services]]
 binding = "HOST_API"
@@ -569,7 +576,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host"
+API_FORWARD_MODULES = "pass,know,host,social,ads"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -650,6 +657,14 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "ADS_API"
+service = "weldsuite-ads-api"
+
+[[env.production.services]]
+binding = "SOCIAL_API"
+service = "weldsuite-social-api"
 
 [[env.production.services]]
 binding = "HOST_API"
