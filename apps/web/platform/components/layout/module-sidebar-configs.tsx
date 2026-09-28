@@ -56,6 +56,8 @@ import {
   Link2,
   CircleCheck,
   Package,
+  FolderTree,
+  ShoppingCart,
   Warehouse,
   Boxes,
   ClipboardList,
@@ -109,8 +111,24 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
-  // WeldCommerce lives as a hosted WeldApp (`/apps/weldcommerce`) — sidebar
-  // items come from weldapp.json `navigation`, not MODULE_CONFIGS.
+  weldcommerce: {
+    appName: 'WeldCommerce',
+    appIcon: ShoppingCart,
+    appLogo: getAppLogoConfig('weldcommerce'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
+        ],
+      },
+    ],
+  },
   weldads: {
     appName: 'WeldAds',
     appIcon: Megaphone,

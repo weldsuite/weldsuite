@@ -15,6 +15,12 @@ import type { Env } from '../types';
 
 export type AdoptSystemInstallResult = 'adopted' | 'already' | 'none';
 
+/**
+ * First-party modules that are platform modules again after a stint as hosted
+ * WeldApps: never adopted. Keep in sync with app-api's services/user-apps.ts.
+ */
+const NATIVE_ONLY_APP_CODES: readonly string[] = ['weldcommerce'];
+
 export async function adoptSystemInstallInTenant(params: {
   master: MasterDatabase;
   tenantDb: Database;
@@ -25,6 +31,7 @@ export async function adoptSystemInstallInTenant(params: {
   const { master, tenantDb, app, workspaceId, installedBy } = params;
   if (app.deletedAt || !app.isActive) return 'none';
   if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return 'none';
+  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return 'none';
   const reserved = new Set([
     'weldcrm',
     'weldcommerce',
