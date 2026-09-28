@@ -121,6 +121,11 @@ queue it consumes) are not package material: stop and report them. Workflows: se
 - **Queue consumers**: a queue has exactly one consumer. Move the `[[queues.consumers]]`
   block (all envs) and the `queue()` branch to the module worker in the same change.
 
+- **AI**: a worker whose code reaches `@weldsuite/ai` (or `@weldsuite/core-domain/ai-billing`)
+  needs the `CF_ACCOUNT_ID` var and the AI token app-api runs on: `AI_GATEWAY_API_TOKEN`
+  if set, else `CLOUDFLARE_API_TOKEN` (the fallback `@weldsuite/ai` uses). Put
+  `CLOUDFLARE_API_TOKEN` in its manifest entry and `Env`.
+
 ## 5. app-api
 
 - `node scripts/api-module-cutover.mjs <module>`: adds the `<MODULE>_API` service binding

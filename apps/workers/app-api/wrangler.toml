@@ -45,7 +45,7 @@ head_sampling_rate = 1
 # - CLOUDFLARE_API_TOKEN (help center custom domains: DNS records in zones)
 # - CLOUDFLARE_ACCOUNT_ID (optional alias of the CF_ACCOUNT_ID [vars] value)
 #   (WeldHost /api/domains and its Realtime Register secrets moved to host-api.)
-# - LEMLIST_API_KEY (WeldData lead database — shared WeldSuite Lemlist key)
+#   (WeldData's LEMLIST_API_KEY / FINDYMAIL_API_KEY / PROSPEO_API_KEY moved to data-api.)
 # - TEST_FIXTURES_TOKEN (test + preview envs ONLY; gates /test-fixtures/*.
 #   Never set this in the production env — the worker's middleware also
 #   blocks the route when ENVIRONMENT === 'production' as a second layer.)
@@ -121,7 +121,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -276,6 +276,14 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "DATA_API"
+service = "weldsuite-data-api"
+
+[[services]]
+binding = "CRM_API"
+service = "weldsuite-crm-api"
+
+[[services]]
 binding = "COMMERCE_API"
 service = "weldsuite-commerce-api"
 
@@ -312,9 +320,9 @@ service = "weldsuite-know-api"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# WeldData enrichment — Cloudflare Workflow hosted in THIS worker (app-api).
-# Class exported from src/index.ts. Self-hosted (no script_name) so it is safe
-# to include in the local dev block — no cross-script reference.
+# WeldData enrichment — DRAINING. New runs go to data-api (welddata-enrich-v2*);
+# this block (class re-exported from @weldsuite/data-domain) only lets
+# in-flight instances finish (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "welddata-enrich-dev"
 binding = "WELDDATA_ENRICH"
@@ -338,6 +346,9 @@ class_name = "SendScheduledEmailWorkflow"
 # in-flight instances drain (W7 deletes them). Self-hosted (no script_name),
 # so they also work under plain `wrangler dev`.
 
+# Draining: CRM sequences run in crm-api as execute-sequence-v3*; this block
+# (class re-exported from @weldsuite/crm-domain) only lets in-flight v2
+# instances finish (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "execute-sequence-v2-dev"
 binding = "EXECUTE_SEQUENCE"
@@ -400,7 +411,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -477,6 +488,14 @@ binding = "PASS_API"
 service = "weldsuite-pass-api-test"
 
 [[env.test.services]]
+binding = "DATA_API"
+service = "weldsuite-data-api-test"
+
+[[env.test.services]]
+binding = "CRM_API"
+service = "weldsuite-crm-api-test"
+
+[[env.test.services]]
 binding = "COMMERCE_API"
 service = "weldsuite-commerce-api-test"
 
@@ -513,6 +532,7 @@ binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 script_name = "weldsuite-workflow-test"
 
+# Draining — new instances run in crm-api (execute-sequence-v3).
 [[env.test.workflows]]
 name = "execute-sequence-v2"
 binding = "EXECUTE_SEQUENCE"
@@ -579,6 +599,7 @@ binding = "CRM_SYNC"
 class_name = "CrmSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"
 
+# Draining — new instances run in data-api (welddata-enrich-v2).
 [[env.test.workflows]]
 name = "welddata-enrich"
 binding = "WELDDATA_ENRICH"
@@ -600,7 +621,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -683,6 +704,14 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[env.production.services]]
+binding = "DATA_API"
+service = "weldsuite-data-api"
+
+[[env.production.services]]
+binding = "CRM_API"
+service = "weldsuite-crm-api"
+
+[[env.production.services]]
 binding = "COMMERCE_API"
 service = "weldsuite-commerce-api"
 
@@ -719,9 +748,9 @@ binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 script_name = "weldsuite-workflow"
 
-# CRM sequence execution — hosted in this worker (app-api), no script_name.
-# New name (W4): the old `execute-sequence` stays owned by api-worker while
-# its in-flight instances drain.
+# CRM sequence execution — DRAINING. New instances run in crm-api as
+# execute-sequence-v3; this block (class re-exported from @weldsuite/crm-domain)
+# only lets in-flight v2 instances finish (docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "execute-sequence-v2"
 binding = "EXECUTE_SEQUENCE"
@@ -805,7 +834,9 @@ binding = "CRM_SYNC"
 class_name = "CrmSyncWorkflow"
 script_name = "weldsuite-integration-webhooks"
 
-# WeldData enrichment — hosted in this worker (app-api), no script_name.
+# WeldData enrichment — DRAINING. New instances run in data-api as
+# welddata-enrich-v2; this block (class re-exported from @weldsuite/data-domain)
+# only lets in-flight instances finish (docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "welddata-enrich"
 binding = "WELDDATA_ENRICH"

@@ -24,7 +24,6 @@ import { accountingExportsRoutes } from './routes/accounting-exports';
 import { icpDeclarationsRoutes } from './routes/icp-declarations';
 import { accountingReportsRoutes } from './routes/accounting-reports';
 import { accountingSettingsRoutes } from './routes/accounting-settings';
-import { activitiesRoutes } from './routes/activities';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
@@ -55,16 +54,12 @@ import { chatMessagesRoutes } from './routes/chat-messages';
 import { chatSearchRoutes } from './routes/chat-search';
 import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
-import { companiesRoutes } from './routes/companies';
-import { crmAnalyticsRoutes } from './routes/crm-analytics';
-import { customerStatusesRoutes } from './routes/customer-statuses';
 import { conversationsRoutes } from './routes/conversations';
 import { deskConversationsRoutes } from './routes/desk-conversations';
 import { deskWidgetRoutes } from './routes/desk-widget';
 import { deskPhoneRoutes } from './routes/desk-phone';
 import { documentsRoutes } from './routes/documents';
 import { driveRoutes } from './routes/drive';
-import { enrichmentsRoutes } from './routes/enrichments';
 import { featureFlagsRoutes } from './routes/feature-flags';
 import { fiscalPeriodsRoutes } from './routes/fiscal-periods';
 import { fxRatesRoutes } from './routes/fx-rates';
@@ -98,10 +93,8 @@ import { integrationsRoutes } from './routes/integrations';
 import { connectorRoutes } from './routes/connectors';
 import { invoicesRoutes } from './routes/invoices';
 import { journalEntriesRoutes } from './routes/journal-entries';
-import { leadsRoutes } from './routes/leads';
 import { milestonesRoutes } from './routes/milestones';
 import { goalsRoutes } from './routes/goals';
-import { listsRoutes } from './routes/lists';
 import { mailAccountsRoutes } from './routes/mail-accounts';
 import { mailAiRoutes } from './routes/mail-ai';
 import { mailAttachmentsRoutes } from './routes/mail-attachments';
@@ -128,13 +121,7 @@ import { meetingWaitlistRoutes } from './routes/meeting-waitlist';
 import { meetingsRoutes } from './routes/meetings';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
-import { opportunitiesRoutes } from './routes/opportunities';
-import { peopleRoutes } from './routes/people';
-import { personCompaniesRoutes } from './routes/person-companies';
 import { paymentsRoutes } from './routes/payments';
-import { pipelineFieldVisibilityRoutes } from './routes/pipeline-field-visibility';
-import { pipelineStagesRoutes } from './routes/pipeline-stages';
-import { pipelinesRoutes } from './routes/pipelines';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
 import { projectFilesRoutes } from './routes/project-files';
 import { projectLabelsRoutes } from './routes/project-labels';
@@ -148,7 +135,6 @@ import { reconciliationRulesRoutes } from './routes/reconciliation-rules';
 import { recurringInvoicesRoutes } from './routes/recurring-invoices';
 import { rolesRoutes } from './routes/roles';
 import { satisfactionSurveysRoutes } from './routes/satisfaction-surveys';
-import { customerSequencesRoutes, sequencesRoutes } from './routes/sequences';
 import { settingsProfileRoutes } from './routes/settings-profile';
 import { slasRoutes } from './routes/slas';
 import { sprintsRoutes } from './routes/sprints';
@@ -166,7 +152,6 @@ import {
   customObjectLinkTraversalRoutes,
   customObjectReverseRoutes,
 } from './routes/custom-object-links';
-import { enrichFieldsRoutes } from './routes/enrich-fields';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
@@ -194,7 +179,6 @@ import { userPreferencesRoutes } from './routes/user-preferences';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
 import { weldagentRoutes } from './routes/weldagent';
-import { welddataRoutes } from './routes/welddata';
 import { whiteboardsRoutes } from './routes/whiteboards';
 import { workflowBuilderRoutes } from './routes/workflow-builder';
 import { workflowDashboardRoutes } from './routes/workflow-dashboard';
@@ -373,7 +357,6 @@ app.route('/api/accounting-exports', accountingExportsRoutes);
 app.route('/api/icp-declarations', icpDeclarationsRoutes);
 app.route('/api/accounting-reports', accountingReportsRoutes);
 app.route('/api/accounting-settings', accountingSettingsRoutes);
-app.route('/api/activities', activitiesRoutes);
 app.route('/api/api-keys', apiKeysRoutes);
 app.route('/api/workspace-api-keys', workspaceApiKeysRoutes);
 app.route('/api/appstore', appstoreRoutes);
@@ -408,16 +391,12 @@ app.route('/api/chat-messages', chatMessagesRoutes);
 app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
-app.route('/api/companies', companiesRoutes);
-app.route('/api/crm-analytics', crmAnalyticsRoutes);
-app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/conversations', conversationsRoutes);
 app.route('/api/desk/conversations', deskConversationsRoutes);
 app.route('/api/desk/widget', deskWidgetRoutes);
 app.route('/api/desk/phone', deskPhoneRoutes);
 app.route('/api/documents', documentsRoutes);
 app.route('/api/drive', driveRoutes);
-app.route('/api/enrichments', enrichmentsRoutes);
 app.route('/api/feature-flags', featureFlagsRoutes);
 app.route('/api/feature-requests', featureRequestsRoutes);
 app.route('/api/files', filesRoutes);
@@ -455,10 +434,8 @@ app.route('/api/integrations', integrationsRoutes);
 app.route('/api/connectors', connectorRoutes);
 app.route('/api/invoices', invoicesRoutes);
 app.route('/api/journal-entries', journalEntriesRoutes);
-app.route('/api/leads', leadsRoutes);
 app.route('/api/goals', goalsRoutes);
 app.route('/api/milestones', milestonesRoutes);
-app.route('/api/lists', listsRoutes);
 app.route('/api/mail-accounts', mailAccountsRoutes);
 app.route('/api/mail-ai', mailAiRoutes);
 app.route('/api/mail-attachments', mailAttachmentsRoutes);
@@ -485,13 +462,7 @@ app.route('/api/meetings', meetingsRoutes);
 app.route('/api/member-limits', memberLimitsRoutes);
 app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
-app.route('/api/opportunities', opportunitiesRoutes);
-app.route('/api/people', peopleRoutes);
-app.route('/api/person-companies', personCompaniesRoutes);
 app.route('/api/payments', paymentsRoutes);
-app.route('/api/pipeline-field-visibility', pipelineFieldVisibilityRoutes);
-app.route('/api/pipeline-stages', pipelineStagesRoutes);
-app.route('/api/pipelines', pipelinesRoutes);
 app.route('/api/porting', portingRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
@@ -507,8 +478,9 @@ app.route('/api/reconciliation-rules', reconciliationRulesRoutes);
 app.route('/api/recurring-invoices', recurringInvoicesRoutes);
 app.route('/api/roles', rolesRoutes);
 app.route('/api/satisfaction-surveys', satisfactionSurveysRoutes);
-app.route('/api/sequences', sequencesRoutes);
-app.route('/api/customer-sequences', customerSequencesRoutes);
+// WeldCRM (companies, people, leads, opportunities, pipelines, activities,
+// lists, sequences, …) moved to crm-api; the kit's forwarder hands those paths
+// to it over the CRM_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/settings/profile', settingsProfileRoutes);
 app.route('/api/slas', slasRoutes);
 app.route('/api/sprints', sprintsRoutes);
@@ -531,7 +503,6 @@ app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
 app.route('/api/objects', customObjectRecordsRoutes);
 app.route('/api/objects', customObjectLinkTraversalRoutes);
 app.route('/api/related', customObjectReverseRoutes);
-app.route('/api/enrich-fields', enrichFieldsRoutes);
 app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/app-catalog', appCatalogRoutes);
@@ -559,7 +530,9 @@ app.route('/api/user-preferences', userPreferencesRoutes);
 app.route('/api/push-tokens', pushTokensRoutes);
 app.route('/api/workspaces', workspacesRoutes);
 app.route('/api/weldagent', weldagentRoutes);
-app.route('/api/welddata', welddataRoutes);
+// WeldData (/api/welddata, /api/enrichments, /api/enrich-fields) moved to
+// data-api; the kit's forwarder hands those paths to it over the DATA_API
+// binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldPass (/api/weldpass) moved to pass-api; the kit's forwarder hands those
 // paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/whiteboards', whiteboardsRoutes);
@@ -579,9 +552,15 @@ app.route('/api/working-hours', workingHoursRoutes);
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The *-v2 names re-host api-worker's workflow classes (W4 legacy-worker
 // phase-out); api-worker keeps the old names while in-flight instances drain.
-export { WelddataEnrichWorkflow } from './workflows/welddata-enrich';
+// Draining: in-flight instances only; remove once no welddata-enrich* instance
+// is running (they finish within minutes). data-api runs new ones as
+// welddata-enrich-v2*.
+export { WelddataEnrichWorkflow } from '@weldsuite/data-domain/workflows/welddata-enrich';
 export { SendScheduledEmailWorkflow } from './workflows/send-scheduled-email';
-export { ExecuteSequenceWorkflow } from './workflows/execute-sequence';
+// Draining: in-flight instances only; remove after the longest sequence
+// schedule has passed (check the dashboard for running execute-sequence-v2*
+// instances). crm-api runs new ones as execute-sequence-v3*.
+export { ExecuteSequenceWorkflow } from '@weldsuite/crm-domain/workflows/execute-sequence';
 export { TrashCleanupWorkflow } from './workflows/trash-cleanup';
 export { TranscribeRecordingWorkflow } from './workflows/transcribe-recording';
 export { UnpinExpiredMessageWorkflow } from './workflows/unpin-expired-message';

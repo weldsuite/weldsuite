@@ -435,6 +435,8 @@ the date in the last column.
 
 | Class | Module | Old name (app-api) | New name (module worker) | Remove from app-api after |
 |---|---|---|---|---|
+| `ExecuteSequenceWorkflow` | crm | `execute-sequence-v2` (dev `-v2-dev`) | `execute-sequence-v3` (dev `-v3-dev`) in crm-api | the longest sequence schedule after the crm-api cutover (instances sleep between steps and can run for weeks); check the dashboard for running instances |
+| `WelddataEnrichWorkflow` | data | `welddata-enrich` (dev `-dev`) | `welddata-enrich-v2` (dev `-v2-dev`) in data-api | a day after the data-api cutover (instances run for minutes) |
 
 ## Out of scope
 

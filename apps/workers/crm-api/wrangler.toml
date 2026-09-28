@@ -1,0 +1,171 @@
+# WeldSuite crm-api worker — the crm module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   crm-api.weldsuite.org        production
+#   crm-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "crm-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   (DATABASE_URL_MASTER also backs the ExecuteSequence plan-limit check and
+#   the AI credit metering of its ai_generate / ai_classify steps)
+#
+# Secrets (not in the manifest yet):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   R2_SQL_API_TOKEN, R2_ANALYTICS_BUCKET (CRM analytics charts via the R2 SQL
+#     REST API; without them /api/crm-analytics charts return empty data)
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): the
+#     ExecuteSequence ai_generate / ai_classify steps (@weldsuite/ai). Same
+#     values as app-api. When unset, @weldsuite/ai uses CLOUDFLARE_API_TOKEN,
+#     which IS in the manifest for this worker (as for app-api).
+#
+# CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+
+name = "weldsuite-crm-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# R2 bucket for avatars / customer logos (lib/logo-fetch.ts).
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# Cloudflare Email Sending binding for the ExecuteSequence send_email step.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# CRM sequence execution — Cloudflare Workflow hosted in THIS worker (class
+# re-exported from src/index.ts, @weldsuite/crm-domain). New name (-v3):
+# app-api keeps `execute-sequence-v2*` while its in-flight instances drain.
+# Self-hosted (no script_name), so it also works under plain `wrangler dev`.
+[[workflows]]
+name = "execute-sequence-v3-dev"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-crm-api-test"
+routes = [
+  { pattern = "crm-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+[[env.test.workflows]]
+name = "execute-sequence-v3"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-crm-api"
+routes = [
+  { pattern = "crm-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+# CRM sequence execution — hosted in this worker, no script_name. New name
+# (-v3): app-api's `execute-sequence-v2` keeps draining.
+[[env.production.workflows]]
+name = "execute-sequence-v3"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

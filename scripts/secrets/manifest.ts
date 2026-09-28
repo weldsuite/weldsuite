@@ -345,6 +345,40 @@ export const manifest: Record<string, SecretEntry[]> = {
     // this secret, so it must be the SAME value as app-api's in the same env.
     "INTERNAL_API_SECRET",
   ],
+
+  // crm-api: the crm module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "crm-api": [
+    // AI token for the ExecuteSequence ai_generate / ai_classify steps:
+    // @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the
+    // one app-api has), so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // data-api: the data module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "data-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldData (moved here from app-api, where they were set by hand).
+    // LEMLIST_API_KEY is the shared WeldSuite Lemlist key behind the lead
+    // database; FINDYMAIL_API_KEY / PROSPEO_API_KEY back the email-finder
+    // enrichment action of WelddataEnrichWorkflow. Each is optional: unset
+    // leaves that search / provider unavailable.
+    "LEMLIST_API_KEY",
+    "FINDYMAIL_API_KEY",
+    "PROSPEO_API_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

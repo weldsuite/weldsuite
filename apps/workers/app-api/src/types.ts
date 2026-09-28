@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** data-api. Target of the forwarder for the data module's paths. */
+  DATA_API?: Fetcher;
+  /** crm-api. Target of the forwarder for the crm module's paths. */
+  CRM_API?: Fetcher;
   /** commerce-api. Target of the forwarder for the commerce module's paths. */
   COMMERCE_API?: Fetcher;
   /** stash-api. Target of the forwarder for the stash module's paths. */
@@ -141,7 +145,7 @@ export interface Env {
   /** Vercel team id, when the helpcenter project lives under a team. */
   VERCEL_TEAM_ID?: string;
 
-  /** R2 bucket used for customer/contact avatars (logo-fetch.ts). */
+  /** R2 bucket for files, documents and generated avatars (participant-resolver.ts). */
   STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
@@ -185,17 +189,6 @@ export interface Env {
   CONNECTOR_SYNC_INDEX?: D1Database;
   /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
   EXECUTE_WORKFLOW?: Workflow;
-  /** CF Workflow for CRM sequence step execution. Hosted in app-api itself
-   *  (class exported from src/index.ts) under the `execute-sequence-v2*`
-   *  workflow names — api-worker's old `execute-sequence*` names keep
-   *  draining until W7. */
-  EXECUTE_SEQUENCE?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    sequenceId: string;
-    enrollmentId: string;
-    customerId: string;
-  }>;
   /** CF Workflow that purges trashed drive files after 30 days. Hosted in
    *  app-api itself under the `trash-cleanup-v2*` workflow names —
    *  api-worker's old names keep draining until W7. */
@@ -260,15 +253,6 @@ export interface Env {
     messageId: string;
     accountId: string;
     scheduledFor: string;
-  }>;
-  /** CF Workflow that runs a WeldData enrichment column across leads in the
-   *  background. Hosted in app-api itself (class exported from src/index.ts). */
-  WELDDATA_ENRICH?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    listId: string;
-    columnId: string;
-    leadIds: string[];
   }>;
   /** CF Workflow that runs WeldAgent background work (chat replies, routine
    *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
@@ -337,15 +321,6 @@ export interface Env {
    *  recording transcription). Copy the value from api-worker per env via
    *  `wrangler secret put ASSEMBLYAI_API_KEY [--env …]`. Optional locally. */
   ASSEMBLYAI_API_KEY?: string;
-  /** Lemlist API key — WeldData lead database. Shared WeldSuite key, set via
-   *  `wrangler secret put LEMLIST_API_KEY`. Optional locally. */
-  LEMLIST_API_KEY?: string;
-  /** Findymail API key — WeldData email-finder enrichment action. Set via
-   *  `wrangler secret put FINDYMAIL_API_KEY`. Optional locally. */
-  FINDYMAIL_API_KEY?: string;
-  /** Prospeo API key — WeldData email-finder enrichment action. Set via
-   *  `wrangler secret put PROSPEO_API_KEY`. Optional locally. */
-  PROSPEO_API_KEY?: string;
   /** Resend template id for the task-assignment email. When unset, the
    *  helper falls back to a plain-text email. */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;

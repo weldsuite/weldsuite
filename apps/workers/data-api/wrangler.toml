@@ -1,0 +1,134 @@
+# WeldSuite data-api worker — the data module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   data-api.weldsuite.org        production
+#   data-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "data-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY,
+#   LEMLIST_API_KEY (lead database search / filters),
+#   FINDYMAIL_API_KEY, PROSPEO_API_KEY (email-finder enrichment action)
+#
+# Secrets (not in the manifest yet):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+
+name = "weldsuite-data-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# WeldData enrichment — Cloudflare Workflow hosted in THIS worker (class
+# re-exported from src/index.ts, @weldsuite/data-domain). New name (-v2):
+# app-api keeps `welddata-enrich*` while its in-flight instances drain.
+# Self-hosted (no script_name), so it also works under plain `wrangler dev`.
+[[workflows]]
+name = "welddata-enrich-v2-dev"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-data-api-test"
+routes = [
+  { pattern = "data-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.workflows]]
+name = "welddata-enrich-v2"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-data-api"
+routes = [
+  { pattern = "data-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# WeldData enrichment — hosted in this worker, no script_name. New name
+# (-v2): app-api's `welddata-enrich` keeps draining.
+[[env.production.workflows]]
+name = "welddata-enrich-v2"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

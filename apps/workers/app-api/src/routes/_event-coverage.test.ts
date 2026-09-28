@@ -76,7 +76,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'mail-weldmail',
   'workflow-builder',
   'workflow-dashboard',
-  'enrichments',
   '_test-fixtures',
   // Accounting read-only / singleton routes — no core-CRUD mutations.
   // accounting-settings: singleton PUT / (not PUT /:id); no post('/') create.
