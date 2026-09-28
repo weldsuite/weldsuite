@@ -1,0 +1,183 @@
+# WeldSuite meet-api worker — the meet module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   meet-api.weldsuite.org        production
+#   meet-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "meet-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   (DATABASE_URL_MASTER also backs the TranscribeRecording credit deduction)
+#
+# Secrets (not in the manifest yet; same values as app-api):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (Cloudflare RealtimeKit:
+#     meeting sessions, recordings, ending chat calls from the RTK webhook)
+#   CF_REALTIME_WEBHOOK_TOKEN (optional ?token= gate on
+#     /api/webhooks/cloudflare-realtime; unset = legacy no-check)
+#   MEETINGBAAS_WEBHOOK_TOKEN (optional ?token= gate on
+#     /api/webhooks/meeting-bot; unset = legacy no-check)
+#   ASSEMBLYAI_API_KEY (TranscribeRecordingWorkflow)
+#   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
+#     the missed-call notification endChatCall sends (@weldsuite/notifications)
+#
+# CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+
+name = "weldsuite-meet-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# R2 bucket for files, documents and generated avatars (participant-resolver.ts).
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# Meeting recording transcription — Cloudflare Workflow hosted in THIS worker
+# (class re-exported from src/index.ts, @weldsuite/meet-domain). New name
+# (-v3): app-api keeps `transcribe-recording-v2*` while its in-flight
+# instances drain. Self-hosted (no script_name), so it also works under plain
+# `wrangler dev`. Needs ASSEMBLYAI_API_KEY.
+[[workflows]]
+name = "transcribe-recording-v3-dev"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# DEFERRED_NOTIFICATION_EMAIL (app-api's workflow, used by the missed-call
+# notification of endChatCall) is bound cross-script in test/production only,
+# like app-api's other cross-script workflow bindings. Locally it is absent and
+# @weldsuite/notifications sends the email without the defer window.
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-meet-api-test"
+routes = [
+  { pattern = "meet-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.workflows]]
+name = "transcribe-recording-v3"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.test.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-meet-api"
+routes = [
+  { pattern = "meet-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# Meeting recording transcription — hosted in this worker, no script_name.
+# New name (-v3): app-api's `transcribe-recording-v2` keeps draining.
+[[env.production.workflows]]
+name = "transcribe-recording-v3"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.production.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

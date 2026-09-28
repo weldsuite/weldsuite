@@ -20,12 +20,9 @@ import { projectsRoutes } from './projects';
 import { tasksRoutes } from './tasks';
 import { conversationsRoutes } from './conversations';
 import { mailMessagesRoutes } from './mail-messages';
-import { billsRoutes } from './bills';
-import { meetingsRoutes } from './meetings';
 import { slasRoutes } from './slas';
 import { customFieldsRoutes } from './custom-fields';
 import { milestonesRoutes } from './milestones';
-import { meetingBotSessionsRoutes } from './meeting-bot-sessions';
 import { helpdeskContactsRoutes } from './helpdesk-contacts';
 import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
 import { chatDmRoutes } from './chat-dm';
@@ -42,13 +39,10 @@ const cases: RouteCase[] = [
   // mail-messages has no POST / create — messages arrive via the inbound worker,
   // not a create endpoint. PATCH/DELETE /:id are gated normally.
   { mount: '/api/mail-messages', router: mailMessagesRoutes, prefix: 'messages', skipPost: true },
-  { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
-  { mount: '/api/meetings', router: meetingsRoutes, prefix: 'meetings' },
   { mount: '/api/slas', router: slasRoutes, prefix: 'slas' },
   // custom-fields updates via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/milestones', router: milestonesRoutes, prefix: 'milestones' },
-  { mount: '/api/meeting-bot-sessions', router: meetingBotSessionsRoutes, prefix: 'activities' },
   // helpdesk-contacts uses conversations:* permissions; no DELETE (contacts owned by CRM)
   { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, prefix: 'conversations', skipDelete: true },
   // helpdesk-analytics uses settings:* permissions; full CRUD at top level

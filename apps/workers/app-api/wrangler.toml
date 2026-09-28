@@ -88,17 +88,13 @@ head_sampling_rate = 1
 #   integration OAuth — distinct from GOOGLE_CLIENT_ID, which belongs to the
 #   WeldConnect workflow-integrations Google app)
 # - ASSEMBLYAI_API_KEY (W4: TranscribeRecordingWorkflow — meeting/call
-#   recording transcription; copy the value from api-worker per env)
+#   recording transcription; copy the value from api-worker per env). New
+#   transcriptions run in meet-api; keep it here while the draining
+#   transcribe-recording-v2* instances finish.
 # - RESEND_API_KEY (W4: SendDigestWorkflow prefers Resend when set, else it
 #   falls back to the SEND_EMAIL binding; already used by notifications.
-#   W5b: also gates the calendar attendee mails — services/calendar-mail.ts
-#   no-ops entirely when it is unset, matching the legacy api-worker route.)
-# - RESEND_MEETING_INVITE_TEMPLATE_ID / RESEND_MEETING_UPDATE_TEMPLATE_ID /
-#   RESEND_MEETING_CANCEL_TEMPLATE_ID (W5b calendar attendee mails). NOT
-#   secrets — plain Resend template ids, add as [vars] per env once the
-#   templates exist. Each is independently optional: when one is unset that
-#   mail falls back to the inline HTML template (same branch legacy had), so
-#   they are deliberately left undeclared here rather than stubbed empty.
+#   The calendar attendee mails it also gated moved to calendar-api, together
+#   with their RESEND_MEETING_*_TEMPLATE_ID vars.)
 # - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
 #   account billing-worker's webhooks use, since /api/billing/seats relies on
 #   the invoice.paid webhook)
@@ -121,7 +117,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -134,19 +130,8 @@ AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
-
-# WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
-# but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
-# PKIoverheid SBR services server certificate is uploaded and the
-# DIGIPOORT_CERT mtls_certificates binding below is enabled.
-DIGIPOORT_MODE = "simulated"
-
-# PKIoverheid client certificate for Digipoort mTLS. Upload with:
-#   wrangler mtls-certificate upload --cert pkioverheid.pem --key pkioverheid.key --name digipoort-sbr
-# then paste the returned certificate_id here and uncomment:
-# [[mtls_certificates]]
-# binding = "DIGIPOORT_CERT"
-# certificate_id = "<uuid from wrangler mtls-certificate upload>"
+# (WeldBooks' DIGIPOORT_MODE and the commented-out DIGIPOORT_CERT mTLS binding
+# moved to books-api.)
 
 # Cloudflare Flagship (feature flags). Flag config lives on Cloudflare's
 # network — there is no local simulation — so for local `wrangler dev` this has
@@ -276,6 +261,18 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[services]]
+binding = "MEET_API"
+service = "weldsuite-meet-api"
+
+[[services]]
+binding = "CALENDAR_API"
+service = "weldsuite-calendar-api"
+
+[[services]]
+binding = "BOOKS_API"
+service = "weldsuite-books-api"
+
+[[services]]
 binding = "DATA_API"
 service = "weldsuite-data-api"
 
@@ -359,6 +356,9 @@ name = "trash-cleanup-v2-dev"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
 
+# Draining: meeting transcriptions run in meet-api as transcribe-recording-v3*;
+# this block (class re-exported from @weldsuite/meet-domain) only lets in-flight
+# v2 instances finish (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "transcribe-recording-v2-dev"
 binding = "TRANSCRIBE_RECORDING"
@@ -394,10 +394,11 @@ class_name = "ImportTasksWorkflow"
 # Cron sweeps re-hosted from api-worker (there they were configured ONLY in
 # the Cloudflare dashboard — invisible in its repo config; delete those
 # dashboard crons after this deploys, see W7). Handled by scheduled() in
-# src/index.ts: hourly digest sweep + daily 04:00 calendar replan. (The
-# WeldHost domain auto-renew on the same 04:00 schedule moved to host-api.)
+# src/index.ts: hourly digest sweep. (The daily 04:00 calendar replan moved
+# to calendar-api, the WeldHost domain auto-renew on the same schedule to
+# host-api.)
 [triggers]
-crons = ["0 * * * *", "0 4 * * *"]
+crons = ["0 * * * *"]
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -411,8 +412,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
-DIGIPOORT_MODE = "simulated"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -488,6 +488,18 @@ binding = "PASS_API"
 service = "weldsuite-pass-api-test"
 
 [[env.test.services]]
+binding = "MEET_API"
+service = "weldsuite-meet-api-test"
+
+[[env.test.services]]
+binding = "CALENDAR_API"
+service = "weldsuite-calendar-api-test"
+
+[[env.test.services]]
+binding = "BOOKS_API"
+service = "weldsuite-books-api-test"
+
+[[env.test.services]]
 binding = "DATA_API"
 service = "weldsuite-data-api-test"
 
@@ -548,6 +560,7 @@ name = "send-scheduled-email-v2"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 
+# Draining — new instances run in meet-api (transcribe-recording-v3).
 [[env.test.workflows]]
 name = "transcribe-recording-v2"
 binding = "TRANSCRIBE_RECORDING"
@@ -579,7 +592,7 @@ binding = "IMPORT_TASKS"
 class_name = "ImportTasksWorkflow"
 
 [env.test.triggers]
-crons = ["0 * * * *", "0 4 * * *"]
+crons = ["0 * * * *"]
 
 [[env.test.workflows]]
 name = "github-project-sync-int"
@@ -621,8 +634,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data"
-DIGIPOORT_MODE = "simulated"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -704,6 +716,18 @@ binding = "PASS_API"
 service = "weldsuite-pass-api"
 
 [[env.production.services]]
+binding = "MEET_API"
+service = "weldsuite-meet-api"
+
+[[env.production.services]]
+binding = "CALENDAR_API"
+service = "weldsuite-calendar-api"
+
+[[env.production.services]]
+binding = "BOOKS_API"
+service = "weldsuite-books-api"
+
+[[env.production.services]]
 binding = "DATA_API"
 service = "weldsuite-data-api"
 
@@ -771,7 +795,10 @@ name = "send-scheduled-email-v2"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 
-# Transcription workflow — hosted in this worker (W4); needs ASSEMBLYAI_API_KEY.
+# Transcription workflow — DRAINING. New instances run in meet-api as
+# transcribe-recording-v3; this block (class re-exported from
+# @weldsuite/meet-domain) only lets in-flight v2 instances finish
+# (docs/plans/app-api-module-split.md). Needs ASSEMBLYAI_API_KEY until then.
 [[env.production.workflows]]
 name = "transcribe-recording-v2"
 binding = "TRANSCRIBE_RECORDING"
@@ -810,9 +837,10 @@ class_name = "ImportTasksWorkflow"
 
 # Cron sweeps re-hosted from api-worker (dashboard-configured there; delete
 # api-worker's dashboard crons "0 * * * *" and "0 4 * * *" after this deploys
-# so digests aren't sent twice — W7 ops).
+# so digests aren't sent twice — W7 ops). The 04:00 calendar replan moved
+# to calendar-api.
 [env.production.triggers]
-crons = ["0 * * * *", "0 4 * * *"]
+crons = ["0 * * * *"]
 
 # GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks).
 [[env.production.workflows]]

@@ -63,6 +63,12 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** meet-api. Target of the forwarder for the meet module's paths. */
+  MEET_API?: Fetcher;
+  /** calendar-api. Target of the forwarder for the calendar module's paths. */
+  CALENDAR_API?: Fetcher;
+  /** books-api. Target of the forwarder for the books module's paths. */
+  BOOKS_API?: Fetcher;
   /** data-api. Target of the forwarder for the data module's paths. */
   DATA_API?: Fetcher;
   /** crm-api. Target of the forwarder for the crm module's paths. */
@@ -97,30 +103,13 @@ export interface Env {
   /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
   CF_AIG_TOKEN?: string;
 
-  // --- WeldBooks Digipoort (Belastingdienst SBR filing) --------------------
-  /** simulated (default) | preprod | production — gates real transmission. */
-  DIGIPOORT_MODE?: string;
-  /** mTLS certificate binding presenting the PKIoverheid SBR services server
-   *  certificate to Digipoort (wrangler.toml `mtls_certificates`). */
-  DIGIPOORT_CERT?: Fetcher;
+  // (WeldBooks' DIGIPOORT_MODE / DIGIPOORT_CERT moved to books-api.)
   /** Cloudflare RealtimeKit app id — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
   CF_REALTIME_APP_ID?: string;
   /** Cloudflare RealtimeKit app secret — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
   CF_REALTIME_APP_SECRET?: string;
-  /**
-   * Shared token guarding the RealtimeKit webhook receiver. When set, inbound
-   * `/api/webhooks/cloudflare-realtime` requests must carry a matching
-   * `?token=`, and POST /setup registers the webhook URL with it. Unset =
-   * legacy no-check. (RTK's post-Dyte HMAC signature scheme is undocumented,
-   * so we gate on a URL secret we control instead.)
-   */
-  CF_REALTIME_WEBHOOK_TOKEN?: string;
-  /**
-   * Shared token guarding the MeetingBaas webhook receiver. When set, inbound
-   * `/api/webhooks/meeting-bot` requests must carry a matching `?token=`
-   * (append it to the URL registered with MeetingBaas). Unset = legacy no-check.
-   */
-  MEETINGBAAS_WEBHOOK_TOKEN?: string;
+  // (CF_REALTIME_WEBHOOK_TOKEN / MEETINGBAAS_WEBHOOK_TOKEN moved to meet-api
+  // with the WeldMeet webhooks.)
 
   // --- Project analytics (R2 SQL / Iceberg) ---------------------------------
   /** Bearer token for the Cloudflare R2 SQL REST API. */
@@ -258,20 +247,6 @@ export interface Env {
    *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
    *  app-api (class exported from src/index.ts). */
   WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
-  /** CF Workflow that transcribes a meeting (or CRM call) recording.
-   *  Hosted in app-api itself under the `transcribe-recording-v2*` workflow
-   *  names — api-worker's old names keep draining until W7. Dispatched by
-   *  POST /api/meetings/:id/recording/transcribe. */
-  TRANSCRIBE_RECORDING?: Workflow<{
-    transcriptionId: string;
-    fileKey?: string;
-    fileUrl?: string;
-    language?: string;
-    estimatedMinutes: number;
-    creditRate: number;
-    entityId: string;
-    workspaceId: string;
-  }>;
   /** Shared secret for internal service-to-service auth. Consumed by
    *  /api/internal (workflow-worker send_email bearer) and the internal
    *  /api/integrations router (X-Internal-Secret from integration-sync-worker
@@ -318,20 +293,14 @@ export interface Env {
    *  Optional locally. */
   RESEND_API_KEY?: string;
   /** AssemblyAI API key — used by TranscribeRecordingWorkflow (meeting/call
-   *  recording transcription). Copy the value from api-worker per env via
-   *  `wrangler secret put ASSEMBLYAI_API_KEY [--env …]`. Optional locally. */
+   *  recording transcription). New transcriptions run in meet-api; app-api
+   *  still needs it while its draining `transcribe-recording-v2*` instances
+   *  finish. Optional locally. */
   ASSEMBLYAI_API_KEY?: string;
   /** Resend template id for the task-assignment email. When unset, the
    *  helper falls back to a plain-text email. */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;
-  /** Resend template ids for the calendar attendee emails (invite /
-   *  reschedule / cancel), read by services/calendar-mail.ts. Each is
-   *  independently optional: when one is unset that mail falls back to the
-   *  inline HTML template, matching the legacy api-worker behaviour. Mail
-   *  no-ops entirely when RESEND_API_KEY is unset. */
-  RESEND_MEETING_INVITE_TEMPLATE_ID?: string;
-  RESEND_MEETING_UPDATE_TEMPLATE_ID?: string;
-  RESEND_MEETING_CANCEL_TEMPLATE_ID?: string;
+  // (The calendar attendee mails' RESEND_MEETING_*_TEMPLATE_ID moved to calendar-api.)
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;

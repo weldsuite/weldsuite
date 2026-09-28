@@ -379,6 +379,43 @@ export const manifest: Record<string, SecretEntry[]> = {
     "FINDYMAIL_API_KEY",
     "PROSPEO_API_KEY",
   ],
+
+  // books-api: the books module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "books-api": [
+    // AI token for accounting document OCR: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
+    // so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // calendar-api: the calendar module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "calendar-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // meet-api: the meet module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "meet-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

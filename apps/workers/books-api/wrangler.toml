@@ -1,0 +1,150 @@
+# WeldSuite books-api worker — the books module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   books-api.weldsuite.org        production
+#   books-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "books-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, CLOUDFLARE_API_TOKEN
+#   (DATABASE_URL_MASTER also backs the AI credit metering of accounting OCR,
+#   @weldsuite/core-domain/ai-billing; CLOUDFLARE_API_TOKEN is the AI token
+#   fallback @weldsuite/ai uses, as on app-api)
+#
+# Secrets (not in the manifest yet):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): accounting
+#     document OCR (@weldsuite/ai). Same values as app-api. When unset,
+#     @weldsuite/ai uses CLOUDFLARE_API_TOKEN.
+#
+# CF_ACCOUNT_ID and DIGIPOORT_MODE are [vars] (values copied from app-api).
+
+name = "weldsuite-books-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+# WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
+# but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
+# PKIoverheid SBR services server certificate is uploaded and the
+# DIGIPOORT_CERT mtls_certificates binding below is enabled.
+DIGIPOORT_MODE = "simulated"
+
+# PKIoverheid client certificate for Digipoort mTLS. Upload with:
+#   wrangler mtls-certificate upload --cert pkioverheid.pem --key pkioverheid.key --name digipoort-sbr
+# then paste the returned certificate_id here and uncomment:
+# [[mtls_certificates]]
+# binding = "DIGIPOORT_CERT"
+# certificate_id = "<uuid from wrangler mtls-certificate upload>"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# R2 bucket for invoice/bill attachments and scanned accounting documents.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-books-api-test"
+routes = [
+  { pattern = "books-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+DIGIPOORT_MODE = "simulated"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-books-api"
+routes = [
+  { pattern = "books-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+DIGIPOORT_MODE = "simulated"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -16,26 +16,11 @@ import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
 import { clerkMiddleware } from './middleware/clerk';
-import { accountingContactsRoutes } from './routes/accounting-contacts';
-import { accountingDashboardRoutes } from './routes/accounting-dashboard';
-import { accountingDocumentsRoutes } from './routes/accounting-documents';
-import { accountingEntitiesRoutes } from './routes/accounting-entities';
-import { accountingExportsRoutes } from './routes/accounting-exports';
-import { icpDeclarationsRoutes } from './routes/icp-declarations';
-import { accountingReportsRoutes } from './routes/accounting-reports';
-import { accountingSettingsRoutes } from './routes/accounting-settings';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
 import { articleFoldersRoutes } from './routes/article-folders';
 import { articlesRoutes } from './routes/articles';
-import { bankAccountsRoutes } from './routes/bank-accounts';
-import { bankTransactionsRoutes } from './routes/bank-transactions';
-import { billsRoutes } from './routes/bills';
-import { bookingPagesRoutes } from './routes/booking-pages';
-import { bookingsRoutes } from './routes/bookings';
-import { calendarEventsRoutes } from './routes/calendar-events';
-import { calendarsRoutes } from './routes/calendars';
 import { cannedResponsesRoutes } from './routes/canned-responses';
 import { objectTemplatesRoutes } from './routes/object-templates';
 import { callsRoutes } from './routes/calls';
@@ -61,13 +46,10 @@ import { deskPhoneRoutes } from './routes/desk-phone';
 import { documentsRoutes } from './routes/documents';
 import { driveRoutes } from './routes/drive';
 import { featureFlagsRoutes } from './routes/feature-flags';
-import { fiscalPeriodsRoutes } from './routes/fiscal-periods';
-import { fxRatesRoutes } from './routes/fx-rates';
 import { githubConnectionsRoutes } from './routes/github-connections';
 import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
-import { glAccountsRoutes } from './routes/gl-accounts';
 import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
 import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
 import { helpdeskAnnouncementsRoutes } from './routes/helpdesk-announcements';
@@ -91,8 +73,6 @@ import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { integrationsRoutes } from './routes/integrations';
 import { connectorRoutes } from './routes/connectors';
-import { invoicesRoutes } from './routes/invoices';
-import { journalEntriesRoutes } from './routes/journal-entries';
 import { milestonesRoutes } from './routes/milestones';
 import { goalsRoutes } from './routes/goals';
 import { mailAccountsRoutes } from './routes/mail-accounts';
@@ -114,14 +94,8 @@ import { mailTemplatesRoutes } from './routes/mail-templates';
 import { mailThreadsRoutes } from './routes/mail-threads';
 import { mailWeldMailRoutes } from './routes/mail-weldmail';
 import { meRoutes } from './routes/me';
-import { meetingBotSessionsRoutes } from './routes/meeting-bot-sessions';
-import { meetingMessagesRoutes } from './routes/meeting-messages';
-import { meetingSessionsRoutes } from './routes/meeting-sessions';
-import { meetingWaitlistRoutes } from './routes/meeting-waitlist';
-import { meetingsRoutes } from './routes/meetings';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
-import { paymentsRoutes } from './routes/payments';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
 import { projectFilesRoutes } from './routes/project-files';
 import { projectLabelsRoutes } from './routes/project-labels';
@@ -131,8 +105,6 @@ import { projectMessagesRoutes } from './routes/project-messages';
 import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
 import { projectSheetsRoutes } from './routes/project-sheets';
 import { projectsRoutes } from './routes/projects';
-import { reconciliationRulesRoutes } from './routes/reconciliation-rules';
-import { recurringInvoicesRoutes } from './routes/recurring-invoices';
 import { rolesRoutes } from './routes/roles';
 import { satisfactionSurveysRoutes } from './routes/satisfaction-surveys';
 import { settingsProfileRoutes } from './routes/settings-profile';
@@ -142,8 +114,6 @@ import { taskCommentsRoutes } from './routes/task-comments';
 import { taskProjectsRoutes } from './routes/task-projects';
 import { taskTagsRoutes } from './routes/task-tags';
 import { tasksRoutes } from './routes/tasks';
-import { taxRatesRoutes } from './routes/tax-rates';
-import { vatReturnsRoutes } from './routes/vat-returns';
 import { customFieldsRoutes } from './routes/custom-fields';
 import { customObjectsRoutes } from './routes/custom-objects';
 import { customObjectRecordsRoutes } from './routes/custom-object-records';
@@ -168,7 +138,6 @@ import { accountRoutes } from './routes/account';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
 import { teamMembersRoutes } from './routes/team-members';
-import { transcriptionsRoutes } from './routes/transcriptions';
 import { ticketMessagesRoutes } from './routes/ticket-messages';
 import { ticketNotesRoutes } from './routes/ticket-notes';
 import { ticketTypesRoutes } from './routes/ticket-types';
@@ -213,9 +182,6 @@ import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
 import { supportRoutes } from './routes/support';
 import { telephonyRoutes } from './routes/telephony';
 import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
-import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
-import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
-import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
 
 // Register entity-event → workspace agent dispatch (Phase 5: hub → entity-agents*).
@@ -316,20 +282,9 @@ app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
 // only /api/workflows/webhook/* bypasses Clerk. Must stay ABOVE the guard.
 app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
 
-// MeetingBaas meeting-bot webhook — PUBLIC (server-to-server, no Clerk).
-app.route('/api/webhooks/meeting-bot', webhooksMeetingBotRoutes);
-
-// Cloudflare Realtime (RTK) webhook — PUBLIC. POST /setup (re-)registers the
-// webhook with Cloudflare per env.
-//
-// ⚠ POST / does NOT verify any RTK signature — there is no authenticity or
-// replay control on the receiver. Its only gate is the `rtk-meeting:{id}` KV
-// lookup, so anyone who learns a live cfMeetingId can forge a meeting.ended /
-// meeting.participantLeft for that tenant. This is faithful parity with the
-// api-worker original (the gap is inherited, not introduced by the port) and
-// is an OPEN item for the W6 hardening pass — do not read this mount as
-// evidence that the endpoint is authenticated.
-app.route('/api/webhooks/cloudflare-realtime', webhooksCloudflareRealtimeRoutes);
+// The MeetingBaas (/api/webhooks/meeting-bot) and Cloudflare Realtime
+// (/api/webhooks/cloudflare-realtime) webhooks moved to meet-api with WeldMeet;
+// the kit's forwarder (first middleware) hands them over MEET_API.
 
 // Helpdesk Discord/Slack OAuth callbacks — PUBLIC (browser redirects carry no
 // Clerk JWT; auth is the one-time KV state nonce minted by the authorize
@@ -349,14 +304,10 @@ app.use('/api/*', ...apiAuth());
 
 // Object-based routes — one mount per object, ordered alphabetically so
 // collisions surface during review.
-app.route('/api/accounting-contacts', accountingContactsRoutes);
-app.route('/api/accounting-dashboard', accountingDashboardRoutes);
-app.route('/api/accounting-documents', accountingDocumentsRoutes);
-app.route('/api/accounting-entities', accountingEntitiesRoutes);
-app.route('/api/accounting-exports', accountingExportsRoutes);
-app.route('/api/icp-declarations', icpDeclarationsRoutes);
-app.route('/api/accounting-reports', accountingReportsRoutes);
-app.route('/api/accounting-settings', accountingSettingsRoutes);
+// WeldBooks (accounting-*, invoices, bills, payments, bank-*, gl-accounts,
+// journal-entries, tax-rates, vat-returns, …) moved to books-api; the kit's
+// forwarder hands those paths to it over the BOOKS_API binding
+// (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/api-keys', apiKeysRoutes);
 app.route('/api/workspace-api-keys', workspaceApiKeysRoutes);
 app.route('/api/appstore', appstoreRoutes);
@@ -364,14 +315,10 @@ app.route('/api/audit-logs', auditLogsRoutes);
 app.route('/api/auth-sessions', authSessionsRoutes);
 app.route('/api/article-folders', articleFoldersRoutes);
 app.route('/api/articles', articlesRoutes);
-app.route('/api/bank-accounts', bankAccountsRoutes);
-app.route('/api/bank-transactions', bankTransactionsRoutes);
-app.route('/api/bills', billsRoutes);
 app.route('/api/billing', billingRoutes);
-app.route('/api/booking-pages', bookingPagesRoutes);
-app.route('/api/bookings', bookingsRoutes);
-app.route('/api/calendar-events', calendarEventsRoutes);
-app.route('/api/calendars', calendarsRoutes);
+// WeldCalendar (booking-pages, bookings, calendar-events, calendars,
+// working-hours) moved to calendar-api; the kit's forwarder hands those paths
+// to it over the CALENDAR_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/canned-responses', cannedResponsesRoutes);
 app.route('/api/object-templates', objectTemplatesRoutes);
 app.route('/api/calls', callsRoutes);
@@ -402,12 +349,9 @@ app.route('/api/feature-requests', featureRequestsRoutes);
 app.route('/api/files', filesRoutes);
 app.route('/api/folders', foldersRoutes);
 app.route('/api/storage', storageRoutes);
-app.route('/api/fiscal-periods', fiscalPeriodsRoutes);
-app.route('/api/fx-rates', fxRatesRoutes);
 app.route('/api/github-connections', githubConnectionsRoutes);
 app.route('/api/github-repo-links', githubRepoLinksRoutes);
 app.route('/api/github-project-links', githubProjectLinksRoutes);
-app.route('/api/gl-accounts', glAccountsRoutes);
 app.route('/api/grid-views', gridViewsRoutes);
 app.route('/api/helpdesk-agents', helpdeskAgentsRoutes);
 app.route('/api/helpdesk-analytics', helpdeskAnalyticsRoutes);
@@ -432,8 +376,6 @@ app.route('/api/helpcenter-settings', helpcenterSettingsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/connectors', connectorRoutes);
-app.route('/api/invoices', invoicesRoutes);
-app.route('/api/journal-entries', journalEntriesRoutes);
 app.route('/api/goals', goalsRoutes);
 app.route('/api/milestones', milestonesRoutes);
 app.route('/api/mail-accounts', mailAccountsRoutes);
@@ -454,15 +396,12 @@ app.route('/api/mail-sync', mailSyncRoutes);
 app.route('/api/mail-templates', mailTemplatesRoutes);
 app.route('/api/mail-threads', mailThreadsRoutes);
 app.route('/api/mail-weldmail', mailWeldMailRoutes);
-app.route('/api/meeting-bot-sessions', meetingBotSessionsRoutes);
-app.route('/api/meeting-messages', meetingMessagesRoutes);
-app.route('/api/meeting-sessions', meetingSessionsRoutes);
-app.route('/api/meeting-waitlist', meetingWaitlistRoutes);
-app.route('/api/meetings', meetingsRoutes);
+// WeldMeet (meetings, meeting-*, transcriptions) moved to meet-api; the kit's
+// forwarder hands those paths to it over the MEET_API binding
+// (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/member-limits', memberLimitsRoutes);
 app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
-app.route('/api/payments', paymentsRoutes);
 app.route('/api/porting', portingRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
@@ -474,8 +413,6 @@ app.route('/api/project-messages', projectMessagesRoutes);
 app.route('/api/project-pipeline-stages', projectPipelineStagesRoutes);
 app.route('/api/project-sheets', projectSheetsRoutes);
 app.route('/api/projects', projectsRoutes);
-app.route('/api/reconciliation-rules', reconciliationRulesRoutes);
-app.route('/api/recurring-invoices', recurringInvoicesRoutes);
 app.route('/api/roles', rolesRoutes);
 app.route('/api/satisfaction-surveys', satisfactionSurveysRoutes);
 // WeldCRM (companies, people, leads, opportunities, pipelines, activities,
@@ -489,9 +426,7 @@ app.route('/api/task-comments', taskCommentsRoutes);
 app.route('/api/task-projects', taskProjectsRoutes);
 app.route('/api/task-tags', taskTagsRoutes);
 app.route('/api/tasks', tasksRoutes);
-app.route('/api/tax-rates', taxRatesRoutes);
 app.route('/api/telephony', telephonyRoutes);
-app.route('/api/vat-returns', vatReturnsRoutes);
 app.route('/api/custom-fields', customFieldsRoutes);
 // WeldObjects — definition surface (weldobjects:manage) and record data
 // surface (weldobjects:<slug>:<action>) are separate mounts on purpose.
@@ -519,7 +454,6 @@ app.route('/api/search', searchRoutes);
 app.route('/api/workspace-settings', workspaceSettingsRoutes);
 app.route('/api/team-members', teamMembersRoutes);
 app.route('/api/me', meRoutes);
-app.route('/api/transcriptions', transcriptionsRoutes);
 app.route('/api/ticket-messages', ticketMessagesRoutes);
 app.route('/api/ticket-notes', ticketNotesRoutes);
 app.route('/api/ticket-types', ticketTypesRoutes);
@@ -547,7 +481,6 @@ app.route('/api/workflow-triggers', workflowTriggersRoutes);
 app.route('/api/workflow-variables', workflowVariablesRoutes);
 app.route('/api/workflow-webhooks', workflowWebhooksRoutes);
 app.route('/api/workflows', workflowsRoutes);
-app.route('/api/working-hours', workingHoursRoutes);
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The *-v2 names re-host api-worker's workflow classes (W4 legacy-worker
@@ -562,7 +495,10 @@ export { SendScheduledEmailWorkflow } from './workflows/send-scheduled-email';
 // instances). crm-api runs new ones as execute-sequence-v3*.
 export { ExecuteSequenceWorkflow } from '@weldsuite/crm-domain/workflows/execute-sequence';
 export { TrashCleanupWorkflow } from './workflows/trash-cleanup';
-export { TranscribeRecordingWorkflow } from './workflows/transcribe-recording';
+// Draining: in-flight instances only; remove once no transcribe-recording-v2*
+// instance is running (they finish within minutes). meet-api runs new ones as
+// transcribe-recording-v3*.
+export { TranscribeRecordingWorkflow } from '@weldsuite/meet-domain/workflows/transcribe-recording';
 export { UnpinExpiredMessageWorkflow } from './workflows/unpin-expired-message';
 export { DeferredNotificationEmailWorkflow } from './workflows/deferred-notification-email';
 export { WeldAgentJobWorkflow } from './workflows/weldagent-job';
@@ -571,9 +507,9 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 
 // Cron sweeps re-hosted from api-worker (which had them configured only in
 // the Cloudflare dashboard — here they are declared in wrangler.toml
-// [triggers]): hourly task digests + daily calendar replan.
+// [triggers]): hourly task digests. (The daily calendar replan moved to
+// calendar-api.)
 import { runDigestSweep } from './cron/digest-sweep';
-import { runCalendarReplanSweep } from './cron/calendar-replan';
 import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import { handleEntityAgentBatch } from './queue/entity-agents-consumer';
@@ -612,14 +548,7 @@ export default {
       );
     }
 
-    // Daily at 04:00 UTC: re-plan stale auto-scheduled calendar events.
-    // (The WeldHost domain auto-renew on the same schedule runs in host-api.)
-    if (event.cron === '0 4 * * *') {
-      ctx.waitUntil(
-        runCalendarReplanSweep(env).catch((err) => {
-          console.error('[CalendarReplan] Failed:', err);
-        }),
-      );
-    }
+    // (The daily 04:00 UTC calendar replan runs in calendar-api, the WeldHost
+    // domain auto-renew on the same schedule in host-api.)
   },
 };

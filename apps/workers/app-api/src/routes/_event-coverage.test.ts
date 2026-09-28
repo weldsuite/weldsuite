@@ -77,12 +77,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'workflow-builder',
   'workflow-dashboard',
   '_test-fixtures',
-  // Accounting read-only / singleton routes — no core-CRUD mutations.
-  // accounting-settings: singleton PUT / (not PUT /:id); no post('/') create.
-  // accounting-reports, accounting-dashboard: read-only aggregates only.
-  'accounting-settings',
-  'accounting-reports',
-  'accounting-dashboard',
   // Settings / workspace read-only / singleton routes — no core-CRUD mutations.
   // digest-settings: singleton GET / + PUT / (PUT / still publishes digest_settings).
   'digest-settings',
@@ -108,8 +102,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'chat-calls',
   // Inbound webhook RECEIVERS — they ingest external provider events; they are
   // not entity CRUD and have nothing to fan out over the entity-event bus.
-  'webhooks-cloudflare-realtime',
-  'webhooks-meeting-bot',
   'webhooks-telnyx',
   // external-webhooks — user-managed outbound webhook subscriptions (integration
   // config); no `external_webhook` entity type in the events catalog.

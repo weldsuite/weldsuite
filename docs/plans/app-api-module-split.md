@@ -437,6 +437,7 @@ the date in the last column.
 |---|---|---|---|---|
 | `ExecuteSequenceWorkflow` | crm | `execute-sequence-v2` (dev `-v2-dev`) | `execute-sequence-v3` (dev `-v3-dev`) in crm-api | the longest sequence schedule after the crm-api cutover (instances sleep between steps and can run for weeks); check the dashboard for running instances |
 | `WelddataEnrichWorkflow` | data | `welddata-enrich` (dev `-dev`) | `welddata-enrich-v2` (dev `-v2-dev`) in data-api | a day after the data-api cutover (instances run for minutes) |
+| `TranscribeRecordingWorkflow` | meet | `transcribe-recording-v2` (dev `-v2-dev`) | `transcribe-recording-v3` (dev `-v3-dev`) in meet-api | a day after the meet-api cutover (instances run for minutes: one AssemblyAI transcription with retries); keep `ASSEMBLYAI_API_KEY` on app-api until then |
 
 ## Out of scope
 

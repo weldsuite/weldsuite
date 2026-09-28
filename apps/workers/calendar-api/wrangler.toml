@@ -1,0 +1,138 @@
+# WeldSuite calendar-api worker — the calendar module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   calendar-api.weldsuite.org        production
+#   calendar-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "calendar-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   (DATABASE_URL_MASTER also backs the daily calendar replan cron, which
+#   walks every workspace)
+#
+# Secrets (not in the manifest yet; same values as app-api, which still
+# uses them too):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   RESEND_API_KEY (calendar attendee mails; they no-op when it is unset)
+#   GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
+#     outbound sync: token refresh before pushing an event to Google)
+#
+# RESEND_MEETING_INVITE_TEMPLATE_ID / RESEND_MEETING_UPDATE_TEMPLATE_ID /
+# RESEND_MEETING_CANCEL_TEMPLATE_ID (calendar attendee mails) are plain Resend
+# template ids, not secrets: add them as [vars] per env once the templates
+# exist. Each is independently optional (unset = the inline HTML template),
+# so they are deliberately left undeclared, as on app-api.
+
+name = "weldsuite-calendar-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# Daily 04:00 UTC calendar replan sweep (scheduled() in src/index.ts), moved
+# here from app-api.
+[triggers]
+crons = ["0 4 * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-calendar-api-test"
+routes = [
+  { pattern = "calendar-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+# Daily 04:00 UTC calendar replan sweep (scheduled() in src/index.ts), moved
+# here from app-api.
+[env.test.triggers]
+crons = ["0 4 * * *"]
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-calendar-api"
+routes = [
+  { pattern = "calendar-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# Daily 04:00 UTC calendar replan sweep (scheduled() in src/index.ts), moved
+# here from app-api.
+[env.production.triggers]
+crons = ["0 4 * * *"]
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
