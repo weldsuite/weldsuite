@@ -17,19 +17,16 @@ import { describe, it, expect } from 'vitest';
 import { authGateStatuses, type AuthGateCase } from '@weldsuite/worker-kit/testing/sweeps';
 
 import { customFieldsRoutes } from './custom-fields';
-import { chatDmRoutes } from './chat-dm';
 import type { Env, Variables } from '../types';
 
 type RouteCase = AuthGateCase<Env, Variables>;
 
 const cases: RouteCase[] = [
   // (projects, tasks and milestones moved to flow-api, mail-messages to
-  // mail-api; their cases live in those workers' _sweeps.test.ts.)
+  // mail-api, chat-dm to chat-api; their cases live in those workers'
+  // _sweeps.test.ts.)
   // custom-fields updates via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
-  // WeldChat DM: GET / + POST / under messages:*; no PATCH/DELETE /:id
-  // (the only /:id route is a read-only get-or-create resolver).
-  { mount: '/api/chat-dm', router: chatDmRoutes, prefix: 'messages', skipPatch: true, skipDelete: true },
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {

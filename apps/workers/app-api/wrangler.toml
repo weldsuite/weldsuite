@@ -56,10 +56,8 @@ head_sampling_rate = 1
 #   Never set in production.)
 # - (R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET — project and CRM analytics — moved
 #   to flow-api and crm-api.)
-# - CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (WeldChat voice/video calls:
-#   Cloudflare RealtimeKit credentials used by @weldsuite/cloudflare-realtime.
-#   Set via `wrangler secret put CF_REALTIME_APP_ID|CF_REALTIME_APP_SECRET`.
-#   Do NOT hardcode these. CF_ACCOUNT_ID is already a [vars] value below.)
+# - (CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET — WeldChat voice/video calls —
+#   moved to chat-api with WeldChat.)
 # - POSTPEER_* (WeldSocial) moved to social-api.
 #
 # Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
@@ -115,13 +113,15 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
 # WeldAgent cloud computer (agent-runtime worker). Requires matching
 # INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
+# WeldAgent moved to agent-api; keep these here while the draining
+# weldagent-job* instances finish.
 AGENT_RUNTIME_URL = "http://localhost:8795"
 AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
@@ -204,20 +204,13 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "search-index-dlq-dev"
 
-# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
-#   wrangler queues create entity-agents-dev
-#   wrangler queues create entity-agents-dlq-dev
-[[queues.consumers]]
-queue = "entity-agents-dev"
-max_batch_size = 10
-max_batch_timeout = 5
-max_retries = 3
-max_concurrency = 2
-dead_letter_queue = "entity-agents-dlq-dev"
+# (The entity-agents-dev consumer — WeldAgent eventSubscriptions, hub
+# SUB_WELDAGENT — moved to agent-api with WeldAgent.)
 
 # Service binding to realtime-worker (Durable Objects event system) — used by
-# publishEntityEvent for live WorkspaceHub fan-out AND WeldChat message fan-out
-# to the ChatRoom DO (services/chat/post-message.ts).
+# publishEntityEvent for live WorkspaceHub fan-out AND WeldChat fan-out to the
+# ChatRoom DO (chat membership events from invitations/roles; chat messages are
+# published by chat-api now).
 #
 # Must target the SAME realtime deployment the browser's WebSocket connects to
 # (platform .env: VITE_REALTIME_URL = wss://realtime-test.weldsuite.org). The
@@ -256,6 +249,14 @@ remote = true
 [[services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[services]]
+binding = "AGENT_API"
+service = "weldsuite-agent-api"
+
+[[services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api"
 
 [[services]]
 binding = "FLOW_API"
@@ -377,13 +378,19 @@ name = "transcribe-recording-v2-dev"
 binding = "TRANSCRIBE_RECORDING"
 class_name = "TranscribeRecordingWorkflow"
 
+# Chat pin auto-expiry — DRAINING. New instances run in chat-api
+# (unpin-expired-message-v3*); this block (class re-exported from
+# @weldsuite/chat-domain) only lets in-flight instances finish
+# (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "unpin-expired-message-v2-dev"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
-# WeldAgent background runs (chat replies, routines, WeldChat room replies)
-# beyond the ~30s waitUntil budget. Self-hosted; class in src/workflows/.
+# WeldAgent background runs — DRAINING. New instances run in agent-api
+# (weldagent-job-v2*); this block (class re-exported from
+# @weldsuite/agent-domain) only lets in-flight instances finish
+# (docs/plans/app-api-module-split.md).
 [[workflows]]
 name = "weldagent-job-dev"
 binding = "WELDAGENT_JOB"
@@ -408,14 +415,10 @@ name = "import-tasks-v2-dev"
 binding = "IMPORT_TASKS"
 class_name = "ImportTasksWorkflow"
 
-# Cron sweeps re-hosted from api-worker (there they were configured ONLY in
-# the Cloudflare dashboard — invisible in its repo config; delete those
-# dashboard crons after this deploys, see W7). Handled by scheduled() in
-# src/index.ts: hourly WeldAgent routine sweep. (The hourly task digest sweep
-# moved to flow-api, the daily 04:00 calendar replan to calendar-api, the
-# WeldHost domain auto-renew on the same schedule to host-api.)
-[triggers]
-crons = ["0 * * * *"]
+# No cron triggers: the hourly WeldAgent routine sweep moved to agent-api, the
+# hourly task digest sweep to flow-api, the daily 04:00 calendar replan to
+# calendar-api and the WeldHost domain auto-renew on the same schedule to
+# host-api.
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -429,7 +432,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -475,16 +478,7 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "search-index-dlq-test"
 
-# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
-#   wrangler queues create entity-agents-test
-#   wrangler queues create entity-agents-dlq-test
-[[env.test.queues.consumers]]
-queue = "entity-agents-test"
-max_batch_size = 10
-max_batch_timeout = 5
-max_retries = 3
-max_concurrency = 2
-dead_letter_queue = "entity-agents-dlq-test"
+# (The entity-agents-test consumer moved to agent-api.)
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -502,6 +496,14 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "AGENT_API"
+service = "weldsuite-agent-api-test"
+
+[[env.test.services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api-test"
 
 [[env.test.services]]
 binding = "FLOW_API"
@@ -599,11 +601,13 @@ name = "transcribe-recording-v2"
 binding = "TRANSCRIBE_RECORDING"
 class_name = "TranscribeRecordingWorkflow"
 
+# Draining — new instances run in chat-api (unpin-expired-message-v3).
 [[env.test.workflows]]
 name = "unpin-expired-message-v2"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
+# Draining — new instances run in agent-api (weldagent-job-v2).
 [[env.test.workflows]]
 name = "weldagent-job"
 binding = "WELDAGENT_JOB"
@@ -625,8 +629,6 @@ name = "import-tasks-v2"
 binding = "IMPORT_TASKS"
 class_name = "ImportTasksWorkflow"
 
-[env.test.triggers]
-crons = ["0 * * * *"]
 
 [[env.test.workflows]]
 name = "github-project-sync-int"
@@ -664,7 +666,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -714,16 +716,7 @@ max_retries = 3
 max_concurrency = 4
 dead_letter_queue = "search-index-dlq"
 
-# Phase 5: WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
-#   wrangler queues create entity-agents
-#   wrangler queues create entity-agents-dlq
-[[env.production.queues.consumers]]
-queue = "entity-agents"
-max_batch_size = 10
-max_batch_timeout = 5
-max_retries = 3
-max_concurrency = 2
-dead_letter_queue = "entity-agents-dlq"
+# (The entity-agents consumer moved to agent-api.)
 
 [[env.production.services]]
 binding = "REALTIME"
@@ -743,6 +736,14 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "AGENT_API"
+service = "weldsuite-agent-api"
+
+[[env.production.services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api"
 
 [[env.production.services]]
 binding = "FLOW_API"
@@ -850,20 +851,26 @@ name = "transcribe-recording-v2"
 binding = "TRANSCRIBE_RECORDING"
 class_name = "TranscribeRecordingWorkflow"
 
-# Chat pin auto-expiry — hosted in this worker (W4).
+# Chat pin auto-expiry — DRAINING. New instances run in chat-api as
+# unpin-expired-message-v3; this block (class re-exported from
+# @weldsuite/chat-domain) only lets in-flight instances finish (they sleep
+# until the pin expiry; docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "unpin-expired-message-v2"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
-# Notification email defer window — hosted in this worker. Holds mail back
-# until the recipient has been away for the defer window, so an online user
-# never gets emailed about something already on their screen.
+# WeldAgent background runs — DRAINING. New instances run in agent-api as
+# weldagent-job-v2; this block (class re-exported from @weldsuite/agent-domain)
+# only lets in-flight instances finish (docs/plans/app-api-module-split.md).
 [[env.production.workflows]]
 name = "weldagent-job"
 binding = "WELDAGENT_JOB"
 class_name = "WeldAgentJobWorkflow"
 
+# Notification email defer window — hosted in this worker. Holds mail back
+# until the recipient has been away for the defer window, so an online user
+# never gets emailed about something already on their screen.
 [[env.production.workflows]]
 name = "deferred-notification-email"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
@@ -885,12 +892,8 @@ name = "import-tasks-v2"
 binding = "IMPORT_TASKS"
 class_name = "ImportTasksWorkflow"
 
-# Cron sweeps re-hosted from api-worker (dashboard-configured there; delete
-# api-worker's dashboard crons "0 * * * *" and "0 4 * * *" after this deploys
-# so digests aren't sent twice — W7 ops). The 04:00 calendar replan moved
-# to calendar-api.
-[env.production.triggers]
-crons = ["0 * * * *"]
+# (No cron triggers left: the hourly WeldAgent routine sweep moved to
+# agent-api, the digest to flow-api, the 04:00 calendar replan to calendar-api.)
 
 # GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks).
 [[env.production.workflows]]

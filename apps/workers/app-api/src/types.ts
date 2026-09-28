@@ -63,6 +63,10 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** agent-api. Target of the forwarder for the agent module's paths. */
+  AGENT_API?: Fetcher;
+  /** chat-api. Target of the forwarder for the chat module's paths. */
+  CHAT_API?: Fetcher;
   /** flow-api. Target of the forwarder for the flow module's paths. */
   FLOW_API?: Fetcher;
   /** mail-api. Target of the forwarder for the mail module's paths. */
@@ -112,12 +116,9 @@ export interface Env {
   CF_AIG_TOKEN?: string;
 
   // (WeldBooks' DIGIPOORT_MODE / DIGIPOORT_CERT moved to books-api.)
-  /** Cloudflare RealtimeKit app id — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
-  CF_REALTIME_APP_ID?: string;
-  /** Cloudflare RealtimeKit app secret — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
-  CF_REALTIME_APP_SECRET?: string;
-  // (CF_REALTIME_WEBHOOK_TOKEN / MEETINGBAAS_WEBHOOK_TOKEN moved to meet-api
-  // with the WeldMeet webhooks.)
+  // (CF_REALTIME_APP_ID / CF_REALTIME_APP_SECRET, the RealtimeKit credentials
+  // of WeldChat calls, moved to chat-api; CF_REALTIME_WEBHOOK_TOKEN /
+  // MEETINGBAAS_WEBHOOK_TOKEN to meet-api with the WeldMeet webhooks.)
 
   // (Project analytics' R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET moved to
   // flow-api and crm-api.)
@@ -187,16 +188,9 @@ export interface Env {
     deletedAt: string;
     purgeAt: string;
   }>;
-  /** CF Workflow that auto-unpins a chat message when its pin expiry passes.
-   *  Hosted in app-api itself under the `unpin-expired-message-v2*` names;
-   *  dispatched from the routes/chat-messages pin endpoints with the
-   *  messageId as instance id so manual unpin can abort it. */
-  UNPIN_EXPIRED_MESSAGE?: Workflow<{
-    workspaceId: string;
-    channelId: string;
-    messageId: string;
-    expiresAt: string;
-  }>;
+  // (UNPIN_EXPIRED_MESSAGE moved to chat-api with WeldChat; the
+  // unpin-expired-message-v2* [[workflows]] blocks stay only while their
+  // in-flight instances drain.)
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window, then sends only if they are still away and the
    *  notification is still unread. Hosted in app-api itself under the
@@ -218,10 +212,8 @@ export interface Env {
   // (SEND_SCHEDULED_EMAIL moved to mail-api with WeldMail; the
   // send-scheduled-email-v2* [[workflows]] blocks stay only while their
   // in-flight instances drain.)
-  /** CF Workflow that runs WeldAgent background work (chat replies, routine
-   *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
-   *  app-api (class exported from src/index.ts). */
-  WELDAGENT_JOB?: Workflow<import('./services/weldagent/jobs').WeldAgentJob>;
+  // (WELDAGENT_JOB moved to agent-api with WeldAgent; the weldagent-job*
+  // [[workflows]] blocks stay only while their in-flight instances drain.)
   /** Shared secret for internal service-to-service auth. Consumed by
    *  /api/internal (workflow-worker send_email bearer) and the internal
    *  /api/integrations router (X-Internal-Secret from integration-sync-worker
@@ -314,6 +306,9 @@ export interface Env {
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
+   * WeldAgent moved to agent-api; app-api still needs it (and
+   * AGENT_COMPUTER_ENABLED) while its draining `weldagent-job*` instances
+   * finish.
    */
   AGENT_RUNTIME_URL?: string;
   /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */

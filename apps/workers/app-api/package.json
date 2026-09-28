@@ -20,6 +20,7 @@
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/ads-domain": "workspace:*",
+    "@weldsuite/agent-domain": "workspace:*",
     "@weldsuite/ai": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",

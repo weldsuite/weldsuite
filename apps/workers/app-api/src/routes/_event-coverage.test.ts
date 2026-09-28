@@ -18,8 +18,6 @@
  * forcing every one of them to emit would be noise.
  *
  * EXEMPT_ROUTES lists route directories intentionally excluded:
- *   - WeldChat routes stream over their own ChatRoom Durable Object, not
- *     the entity-event bus.
  *   - Notification routes use the personal-topic `notify()` path, which
  *     is not a generic entity event.
  *   - Infra / non-entity-object routes (api keys, audit logs, OAuth
@@ -36,19 +34,8 @@ const ROUTES_DIR = __dirname;
 
 /** Route dirs intentionally excluded from entity-event coverage. */
 const EXEMPT_ROUTES = new Set<string>([
-  // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'channels',
-  'channel-members',
-  'chat-messages',
-  'chat-bookmarks',
-  'chat-drafts',
-  'chat-sections',
-  'chat-activity', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-directories', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-dm', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-entity-channels', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-search', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-status', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
+  // (The WeldChat routes — channels, channel-members, chat-* — moved to
+  // chat-api with their exemptions.)
   // Notifications — personal-topic notify() path, not a generic entity event.
   'notifications',
   'notification-preferences',
@@ -75,8 +62,7 @@ const EXEMPT_ROUTES = new Set<string>([
   'dashboard',
   // credits: master-DB billing ledger; not fanned out over the entity-event bus.
   'credits',
-  // ai-models: read-only model catalog; no mutations.
-  'ai-models',
+  // (ai-models moved to agent-api with its exemption.)
   // access-requests — personal-topic notify()/publish() path, not a generic entity event.
   'access-requests',
   // search — read-only federated search; POST / fans out reads, performs no mutations.
@@ -87,8 +73,6 @@ const EXEMPT_ROUTES = new Set<string>([
   'auth-desktop',
   // cli-auth — device-code login mints a personal API key; credentials infra.
   'cli-auth',
-  // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
-  'chat-calls',
   // (The Telnyx webhook receiver, webhooks-telnyx, moved to call-api.)
   // external-webhooks — user-managed outbound webhook subscriptions (integration
   // config); no `external_webhook` entity type in the events catalog.

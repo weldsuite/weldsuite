@@ -477,6 +477,41 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
   ],
+
+  // chat-api: the chat module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "chat-api": [
+    // An @-mention of a WeldAgent in a channel runs the agent runtime inline
+    // when the WELDAGENT_JOB binding is absent (local dev): the AI token
+    // (@weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN — the
+    // one app-api has) and the agent-runtime bearer (computer/browser tools).
+    // Same values as app-api / agent-api.
+    "CLOUDFLARE_API_TOKEN",
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // agent-api: the agent module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "agent-api": [
+    // The AI token /api/ai and the WeldAgent runtime run on: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has), so
+    // carry the same token. INTERNAL_API_SECRET is the bearer the
+    // computer/browser tools send to the agent-runtime worker (must match it).
+    "CLOUDFLARE_API_TOKEN",
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

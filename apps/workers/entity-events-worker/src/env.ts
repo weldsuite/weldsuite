@@ -14,7 +14,7 @@ export interface Env {
   SUB_WEBHOOKS: Queue<EntityEventMessage>;
   /** WeldConnect entity_event triggers (Phase 4) → entity-workflows* → workflow-worker. */
   SUB_WELDCONNECT: Queue<EntityEventMessage>;
-  /** WeldAgent eventSubscriptions (Phase 5) → entity-agents* → app-api. */
+  /** WeldAgent eventSubscriptions (Phase 5) → entity-agents* → agent-api. */
   SUB_WELDAGENT: Queue<EntityEventMessage>;
   /** Realtime WorkspaceHub bridge (Phase 6) → entity-realtime* → realtime-worker. */
   SUB_REALTIME: Queue<EntityEventMessage>;

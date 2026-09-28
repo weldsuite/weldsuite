@@ -13,26 +13,10 @@
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
-import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
-import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
 import { objectTemplatesRoutes } from './routes/object-templates';
-import { channelMembersRoutes } from './routes/channel-members';
-import { channelsRoutes } from './routes/channels';
-import { chatActivityRoutes } from './routes/chat-activity';
-import { chatAgentRoutes } from './routes/chat-agent';
-import { chatBookmarksRoutes } from './routes/chat-bookmarks';
-import { chatCallsRoutes } from './routes/chat-calls';
-import { chatDirectoriesRoutes } from './routes/chat-directories';
-import { chatDmRoutes } from './routes/chat-dm';
-import { chatDraftsRoutes } from './routes/chat-drafts';
-import { chatEntityChannelsRoutes } from './routes/chat-entity-channels';
-import { chatMessagesRoutes } from './routes/chat-messages';
-import { chatSearchRoutes } from './routes/chat-search';
-import { chatSectionsRoutes } from './routes/chat-sections';
-import { chatStatusRoutes } from './routes/chat-status';
 import { driveRoutes } from './routes/drive';
 import { featureFlagsRoutes } from './routes/feature-flags';
 import { githubConnectionsRoutes } from './routes/github-connections';
@@ -61,8 +45,6 @@ import {
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
 import { creditsRoutes } from './routes/credits';
-import { aiModelsRoutes } from './routes/ai-models';
-import { aiRoutes } from './routes/ai';
 import { accessRequestsRoutes } from './routes/access-requests';
 import { searchRoutes } from './routes/search';
 import { workspaceSettingsRoutes } from './routes/workspace-settings';
@@ -75,7 +57,6 @@ import { userAppsRoutes } from './routes/user-apps';
 import { userPreferencesRoutes } from './routes/user-preferences';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
-import { weldagentRoutes } from './routes/weldagent';
 import { workflowBuilderRoutes } from './routes/workflow-builder';
 import { workflowDashboardRoutes } from './routes/workflow-dashboard';
 import { workflowExecutionsRoutes } from './routes/workflow-executions';
@@ -93,7 +74,6 @@ import { publicUserAppsRoutes } from './routes/public-user-apps';
 import { appstoreRoutes } from './routes/appstore';
 import { authSessionsRoutes } from './routes/auth-sessions';
 import { billingRoutes } from './routes/billing';
-import { chatClipsRoutes } from './routes/chat-clips';
 import { featureRequestsRoutes } from './routes/feature-requests';
 import { gridViewsRoutes } from './routes/grid-views';
 import { integrationsInternalRoutes } from './routes/integrations/internal';
@@ -106,18 +86,8 @@ import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
 import { supportRoutes } from './routes/support';
 import type { Env, Variables } from './types';
 
-// Register entity-event → workspace agent dispatch (Phase 5: hub → entity-agents*).
-registerWeldAgentEventRunner(async (payload) => {
-  await dispatchWeldAgentsForEvent(payload.env as Env, payload.db as never, {
-    workspaceId: payload.workspaceId,
-    userId: payload.userId,
-    entityType: payload.entityType,
-    action: payload.action,
-    entityId: payload.entityId,
-    data: payload.data,
-    eventId: payload.eventId,
-  });
-});
+// (The entity-event → workspace agent dispatch runner, registered for the
+// entity-agents* queue consumer, moved to agent-api with WeldAgent.)
 
 // Global middleware (request id, logger, CORS, X-Weld-App), /robots.txt,
 // /health, the JSON notFound/onError envelope and the permission queries all
@@ -237,21 +207,9 @@ app.route('/api/object-templates', objectTemplatesRoutes);
 // Calls, call intelligence, the WeldDesk phone channel (/api/desk/phone),
 // porting and telephony moved to call-api; the kit's forwarder hands those
 // paths to it over the CALL_API binding (API_FORWARD_MODULES in wrangler.toml).
-app.route('/api/channel-members', channelMembersRoutes);
-app.route('/api/channels', channelsRoutes);
-app.route('/api/chat-activity', chatActivityRoutes);
-app.route('/api/chat-agent', chatAgentRoutes);
-app.route('/api/chat-bookmarks', chatBookmarksRoutes);
-app.route('/api/chat-calls', chatCallsRoutes);
-app.route('/api/chat-clips', chatClipsRoutes);
-app.route('/api/chat-directories', chatDirectoriesRoutes);
-app.route('/api/chat-dm', chatDmRoutes);
-app.route('/api/chat-drafts', chatDraftsRoutes);
-app.route('/api/chat-entity-channels', chatEntityChannelsRoutes);
-app.route('/api/chat-messages', chatMessagesRoutes);
-app.route('/api/chat-search', chatSearchRoutes);
-app.route('/api/chat-sections', chatSectionsRoutes);
-app.route('/api/chat-status', chatStatusRoutes);
+// WeldChat (channels, channel-members, chat-*) moved to chat-api; the kit's
+// forwarder hands those paths to it over the CHAT_API binding
+// (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/drive', driveRoutes);
 app.route('/api/feature-flags', featureFlagsRoutes);
 app.route('/api/feature-requests', featureRequestsRoutes);
@@ -305,8 +263,9 @@ app.route('/api/app-catalog', appCatalogRoutes);
 // /webhooks/woocommerce) moved to commerce-api; the kit's forwarder hands those
 // paths to it over the COMMERCE_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/credits', creditsRoutes);
-app.route('/api/ai-models', aiModelsRoutes);
-app.route('/api/ai', aiRoutes);
+// WeldAgent (/api/ai, /api/ai-models, /api/chat-agent, /api/weldagent) moved
+// to agent-api; the kit's forwarder hands those paths to it over the
+// AGENT_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/my-role', myRoleRoutes);
 app.route('/api/access-requests', accessRequestsRoutes);
 app.route('/api/search', searchRoutes);
@@ -317,7 +276,6 @@ app.route('/api/user-apps', userAppsRoutes);
 app.route('/api/user-preferences', userPreferencesRoutes);
 app.route('/api/push-tokens', pushTokensRoutes);
 app.route('/api/workspaces', workspacesRoutes);
-app.route('/api/weldagent', weldagentRoutes);
 // WeldData (/api/welddata, /api/enrichments, /api/enrich-fields) moved to
 // data-api; the kit's forwarder hands those paths to it over the DATA_API
 // binding (API_FORWARD_MODULES in wrangler.toml).
@@ -355,22 +313,26 @@ export { TrashCleanupWorkflow } from './workflows/trash-cleanup';
 // instance is running (they finish within minutes). meet-api runs new ones as
 // transcribe-recording-v3*.
 export { TranscribeRecordingWorkflow } from '@weldsuite/meet-domain/workflows/transcribe-recording';
-export { UnpinExpiredMessageWorkflow } from './workflows/unpin-expired-message';
+// Draining: in-flight instances only; remove after the latest pin expiry set
+// before the chat-api cutover has passed (check the dashboard for running
+// unpin-expired-message-v2* instances). chat-api runs new ones as
+// unpin-expired-message-v3*.
+export { UnpinExpiredMessageWorkflow } from '@weldsuite/chat-domain/workflows/unpin-expired-message';
 export { DeferredNotificationEmailWorkflow } from './workflows/deferred-notification-email';
-export { WeldAgentJobWorkflow } from './workflows/weldagent-job';
+// Draining: in-flight instances only; remove once no weldagent-job* instance
+// is running (they finish within minutes: one step, 10-minute timeout).
+// agent-api runs new ones as weldagent-job-v2*.
+export { WeldAgentJobWorkflow } from '@weldsuite/agent-domain/workflows/weldagent-job';
 // Draining: in-flight instances only; remove once no send-digest-v2* or
 // import-tasks-v2* instance is running (they finish within minutes). flow-api
 // runs new ones as send-digest-v3* / import-tasks-v3*.
 export { SendDigestWorkflow } from '@weldsuite/flow-domain/workflows/send-digest';
 export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tasks';
 
-// Cron sweeps re-hosted from api-worker (which had them configured only in
-// the Cloudflare dashboard — here they are declared in wrangler.toml
-// [triggers]): hourly WeldAgent routines. (The hourly task digest moved to
-// flow-api, the daily calendar replan to calendar-api.)
-import { runWeldAgentRoutineSweep } from './cron/weldagent-routines';
+// No cron sweeps left here: the hourly WeldAgent routine sweep moved to
+// agent-api, the hourly task digest to flow-api, the daily calendar replan to
+// calendar-api and the WeldHost domain auto-renew to host-api.
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
-import { handleEntityAgentBatch } from './queue/entity-agents-consumer';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
 export default {
@@ -378,31 +340,13 @@ export default {
   /**
    * Queue consumers:
    * - search-index* — semantic index (Phase 2 hub SUB_SEARCH)
-   * - entity-agents* — WeldAgent eventSubscriptions (Phase 5 hub SUB_WELDAGENT)
+   * (entity-agents* — WeldAgent eventSubscriptions — is consumed by agent-api.)
    */
   queue: async (batch: MessageBatch<EntityEventMessage>, env: Env) => {
     if (batch.queue.startsWith('search-index')) {
       await handleSearchIndexBatch(batch, env);
       return;
     }
-    if (batch.queue.startsWith('entity-agents')) {
-      await handleEntityAgentBatch(batch, env);
-      return;
-    }
     console.warn(`[app-api] no consumer registered for queue "${batch.queue}"`);
-  },
-  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-    // Hourly: WeldAgent routines. (The hourly task digest sweep runs in
-    // flow-api.)
-    if (event.cron === '0 * * * *') {
-      ctx.waitUntil(
-        runWeldAgentRoutineSweep(env).catch((err) => {
-          console.error('[WeldAgentRoutineSweep] Failed:', err);
-        }),
-      );
-    }
-
-    // (The daily 04:00 UTC calendar replan runs in calendar-api, the WeldHost
-    // domain auto-renew on the same schedule in host-api.)
   },
 };

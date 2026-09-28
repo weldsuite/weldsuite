@@ -5,8 +5,17 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./agent-room-policy": "./src/agent-room-policy.ts",
     "./call-lifecycle": "./src/call-lifecycle.ts",
-    "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts"
+    "./channel-members": "./src/channel-members.ts",
+    "./create-channel": "./src/create-channel.ts",
+    "./post-agent-message": "./src/post-agent-message.ts",
+    "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",
+    "./realtime/weldchat-publisher": "./src/realtime/weldchat-publisher.ts",
+    "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./weldchat-auto-join": "./src/weldchat-auto-join.ts",
+    "./weldchat-role-links": "./src/weldchat-role-links.ts",
+    "./workflows/unpin-expired-message": "./src/workflows/unpin-expired-message.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
