@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
+import PageComponent from '@/app/weldcommerce/orders/page';
 
 export const Route = createFileRoute('/weldcommerce/orders/')({
-  beforeLoad: ({ location }) => {
-    throw redirect({ href: `/apps/weldcommerce/orders${location.searchStr}${location.hash}` });
-  },
+  component: PageComponent,
 });

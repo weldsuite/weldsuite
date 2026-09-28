@@ -50,7 +50,7 @@ const app = new Hono<HonoEnv>();
 
 /** Codes that collide with first-party modules / platform routes.
  * Community apps cannot claim these; official publisher workspaces can
- * (so first-party hosted WeldApps like `weldcommerce` can register). */
+ * (so first-party hosted WeldApps can register). */
 const RESERVED_CODES = new Set([
   'weldcrm',
   'weldcommerce',
