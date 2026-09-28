@@ -134,7 +134,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass"
+API_FORWARD_MODULES = "pass,know"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -288,6 +288,10 @@ remote = true
 binding = "PASS_API"
 service = "weldsuite-pass-api"
 
+[[services]]
+binding = "KNOW_API"
+service = "weldsuite-know-api"
+
 # Cloudflare Email Sending binding for WeldMail outbound delivery. The
 # `destination_address` is the envelope MAIL FROM the binding will accept;
 # Cloudflare requires this address to be verified in the dashboard once per
@@ -385,7 +389,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass"
+API_FORWARD_MODULES = "pass,know"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -460,6 +464,10 @@ service = "weldsuite-external-api-test"
 [[env.test.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api-test"
+
+[[env.test.services]]
+binding = "KNOW_API"
+service = "weldsuite-know-api-test"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
@@ -557,7 +565,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass"
+API_FORWARD_MODULES = "pass,know"
 DIGIPOORT_MODE = "simulated"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -638,6 +646,10 @@ service = "weldsuite-external-api"
 [[env.production.services]]
 binding = "PASS_API"
 service = "weldsuite-pass-api"
+
+[[env.production.services]]
+binding = "KNOW_API"
+service = "weldsuite-know-api"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"

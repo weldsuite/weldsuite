@@ -63,6 +63,8 @@ export interface Env {
   // --- Module workers (docs/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
+  /** know-api. Target of the forwarder for the know module's paths. */
+  KNOW_API?: Fetcher;
 
   CF_ACCOUNT_ID?: string;
 

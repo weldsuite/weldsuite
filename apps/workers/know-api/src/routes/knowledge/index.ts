@@ -25,9 +25,9 @@ import {
   addKnowledgeFavoriteSchema,
 } from '@weldsuite/core-api-client/schemas/knowledge';
 import type { Env, Variables } from '../../types';
-import { error, list, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema, type Database } from '../../db';
+import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   createPageVersion,
   getPageVersion,
