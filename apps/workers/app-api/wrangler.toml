@@ -62,11 +62,14 @@ head_sampling_rate = 1
 #
 # Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
 # copied from api-worker (wrangler secret put / Doppler sync-secrets):
-# - INTERNAL_API_SECRET (internal service-to-service auth: /api/internal bearer
-#   from workflow-worker's send_email action + the WeldAgent cloud computer.
-#   Values MUST match across those workers. The internal /api/integrations
-#   router and /api/internal/workflow-actions moved to connect-api, which needs
-#   the SAME value.
+# - INTERNAL_API_SECRET (internal service-to-service auth: the PUBLIC /api/internal
+#   bearer from workflow-worker's send_email action. workflow-worker now calls the
+#   `AppApiInternal` entrypoint (src/index.ts, bound as APP_API_INTERNAL; reachable
+#   only over a service binding, so no secret) and keeps the bearer as a fallback
+#   until every env has the binding. Values MUST match across those workers while
+#   the fallback exists. The internal /api/integrations router and
+#   /api/internal/workflow-actions moved to connect-api, which needs the SAME
+#   value for its public mounts.
 #   NOTE: app-api has no preview custom domain, so workflow-worker PREVIEW
 #   targets app-api TEST — workflow-worker's preview secret must equal
 #   app-api's TEST secret.)

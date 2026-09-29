@@ -5,28 +5,65 @@
 import type { ActionContext, WorkflowEnv } from '../types';
 
 /**
- * POST to an app-api `/api/internal/*` route with the shared
- * INTERNAL_API_SECRET bearer (apps/workers/app-api/src/routes/internal/index.ts).
- * This worker's secret must match app-api's for the auth to pass. Throws with
- * the response body on a non-2xx so the step fails with a useful message.
+ * Service bindings to a worker's internal entrypoint, trusted by topology (a
+ * named entrypoint is reachable only over a binding, so no secret is sent):
+ *  - `APP_API_INTERNAL` → app-api `AppApiInternal` (send-email)
+ *  - `CONNECT_INTERNAL` → connect-api `ConnectInternal` (workflow-actions)
+ */
+export type InternalBinding = 'APP_API_INTERNAL' | 'CONNECT_INTERNAL';
+
+/** A named entrypoint that is not exported (yet) fails the call before any handler runs. */
+function isMissingEntrypoint(err: unknown): boolean {
+  return err instanceof Error && /entrypoint/i.test(err.message);
+}
+
+/**
+ * POST to an `/api/internal/*` route. Preferred path: the named-entrypoint
+ * binding `via` (no secret). Fallback while the binding is absent or the
+ * entrypoint is not deployed yet: public HTTP to app-api (`APP_API_URL`, which
+ * forwards module paths to their worker) with the shared INTERNAL_API_SECRET
+ * bearer; this worker's secret must match the target's for that path
+ * (apps/workers/app-api/src/routes/internal/index.ts). Only a missing entrypoint
+ * falls back, so a step is never sent twice. Throws with the response body on a
+ * non-2xx so the step fails with a useful message.
  */
 export async function postInternalApi<T>(
   env: WorkflowEnv,
   path: string,
   body: unknown,
   label: string,
+  via: InternalBinding,
 ): Promise<T> {
-  const appApiUrl = env.APP_API_URL
-    ? String(env.APP_API_URL).replace(/\/+$/, '')
-    : 'https://app-api.weldsuite.org';
-  const internalSecret = env.INTERNAL_API_SECRET;
-  if (!internalSecret) throw new Error(`INTERNAL_API_SECRET not configured for ${label}`);
+  const serialized = JSON.stringify(body);
+  let response: Response | undefined;
 
-  const response = await fetch(`${appApiUrl}/api/internal${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${internalSecret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const binding = env[via] as Fetcher | undefined;
+  if (binding) {
+    try {
+      response = await binding.fetch(`https://internal/api/internal${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: serialized,
+      });
+    } catch (err) {
+      if (!isMissingEntrypoint(err)) throw err;
+      console.warn(`[InternalApi] ${via} entrypoint unavailable for ${label}, falling back to HTTP:`, err);
+    }
+  }
+
+  if (!response) {
+    const appApiUrl = env.APP_API_URL
+      ? String(env.APP_API_URL).replace(/\/+$/, '')
+      : 'https://app-api.weldsuite.org';
+    const internalSecret = env.INTERNAL_API_SECRET;
+    if (!internalSecret) throw new Error(`INTERNAL_API_SECRET not configured for ${label}`);
+
+    response = await fetch(`${appApiUrl}/api/internal${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${internalSecret}`, 'Content-Type': 'application/json' },
+      body: serialized,
+    });
+  }
 
   if (!response.ok) {
     const errorBody = await response.text();

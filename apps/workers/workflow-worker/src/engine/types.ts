@@ -88,10 +88,19 @@ export interface WorkflowEnv {
   // (see cron/schedule-sweep.ts + schedule-index.ts).
   SCHEDULE_INDEX?: D1Database;
   // Email / integrations
+  /** app-api `AppApiInternal` entrypoint (weldsuite-app-api[-test]):
+   *  POST /api/internal/send-email (send_email action), trusted by topology. */
+  APP_API_INTERNAL?: Fetcher;
+  /** connect-api `ConnectInternal` entrypoint (weldsuite-connect-api[-test]):
+   *  POST /api/internal/workflow-actions/create-customer, trusted by topology. */
+  CONNECT_INTERNAL?: Fetcher;
+  /** Fallback path only (binding unbound / entrypoint not deployed yet): bearer
+   *  for the public /api/internal HTTP routes. Must match the target's secret. */
   INTERNAL_API_SECRET?: string;
-  /** Origin of app-api hosting POST /api/internal/send-email (send_email
-   *  action). Repointed from the legacy api-worker in phase W3 of the
-   *  legacy-worker phase-out plan (.claude/open-source-plan.md). */
+  /** Origin of app-api for the fallback HTTP path to /api/internal/* (its
+   *  forwarder hands module paths to their worker). Repointed from the legacy
+   *  api-worker in phase W3 of the legacy-worker phase-out plan
+   *  (.claude/open-source-plan.md). */
   APP_API_URL?: string;
   TELNYX_API_KEY?: string;
   // AI (@weldsuite/ai) — Cloudflare AI Gateway. See packages/core/ai/src/config.ts

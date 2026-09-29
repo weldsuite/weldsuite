@@ -20,8 +20,12 @@
 #                              ai_classify credit-wallet metering)
 #   NEON_API_KEY             — resolves per-tenant Neon connection URLs
 #   DATABASE_ENCRYPTION_KEY  — (optional) decrypts stored tenant URLs
-#   INTERNAL_API_SECRET      — bearer for app-api's /api/internal/send-email endpoint
-#                              (must MATCH app-api's INTERNAL_API_SECRET per env)
+#   INTERNAL_API_SECRET      — bearer for the FALLBACK HTTP path to /api/internal/send-email
+#                              and /api/internal/workflow-actions/*, used only while the
+#                              APP_API_INTERNAL / CONNECT_INTERNAL entrypoint bindings are
+#                              unbound or not deployed yet (must MATCH the target's
+#                              INTERNAL_API_SECRET per env). Also guards the operator
+#                              /internal/schedule-index/rebuild endpoint.
 #   TELNYX_API_KEY           — (optional) send_sms
 #   AI (ai_generate / ai_classify, via @weldsuite/ai) — the Cloudflare AI Gateway.
 #                              Model ids and pricing are canonical. Set:
@@ -48,10 +52,11 @@ enabled = true
 
 [vars]
 ENVIRONMENT = "development"
-# Origin of app-api (POST /api/internal/send-email, used by the send_email
-# action with bearer INTERNAL_API_SECRET). Repointed from the legacy
-# api-worker in phase W3 of the legacy-worker phase-out plan
-# (.claude/open-source-plan.md). Local `wrangler dev` serves app-api on 8789.
+# Origin of app-api for the FALLBACK HTTP path to /api/internal/* (bearer
+# INTERNAL_API_SECRET), used only while the entrypoint bindings below are unbound
+# or not deployed yet. Repointed from the legacy api-worker in phase W3 of the
+# legacy-worker phase-out plan (.claude/open-source-plan.md). Local `wrangler dev`
+# serves app-api on 8789.
 APP_API_URL = "http://localhost:8789"
 # @weldsuite/ai → Cloudflare AI Gateway (ai_generate / ai_classify actions).
 # Mirrors apps/workers/app-api/wrangler.toml's CF_ACCOUNT_ID value.
@@ -73,6 +78,26 @@ migrations_dir = "migrations/d1"
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime"
+
+# Named-entrypoint bindings for internal worker-to-worker calls: reachable only over
+# a service binding, so they need no INTERNAL_API_SECRET. `remote = true` lets plain
+# `wrangler dev` reach the deployed test workers (mirrors WORKSPACE_WORKER in app-api).
+# Deploy order: the callee must have the entrypoint first (connect-api is a module
+# worker and deploys before this one; app-api deploys in the same job, so its
+# AppApiInternal may land after this worker for one deploy: the fallback covers it).
+# app-api AppApiInternal: POST /api/internal/send-email (send_email action).
+[[services]]
+binding = "APP_API_INTERNAL"
+service = "weldsuite-app-api-test"
+entrypoint = "AppApiInternal"
+remote = true
+
+# connect-api ConnectInternal: POST /api/internal/workflow-actions/create-customer.
+[[services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
+remote = true
 
 [[workflows]]
 name = "execute-workflow-dev"
@@ -119,6 +144,16 @@ migrations_dir = "migrations/d1"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
+[[env.test.services]]
+binding = "APP_API_INTERNAL"
+service = "weldsuite-app-api-test"
+entrypoint = "AppApiInternal"
+
+[[env.test.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
+
 [[env.test.workflows]]
 name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
@@ -161,6 +196,18 @@ migrations_dir = "migrations/d1"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+# app-api and connect-api deploy as "weldsuite-app-api" / "weldsuite-connect-api"
+# (no "-production" suffix).
+[[env.production.services]]
+binding = "APP_API_INTERNAL"
+service = "weldsuite-app-api"
+entrypoint = "AppApiInternal"
+
+[[env.production.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api"
+entrypoint = "ConnectInternal"
 
 [[env.production.workflows]]
 name = "execute-workflow"

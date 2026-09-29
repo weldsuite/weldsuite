@@ -91,6 +91,40 @@ describe('send_email', () => {
     expect(String(calls[0].init?.body)).toContain('a@b.com');
   });
 
+  it('sends through the AppApiInternal entrypoint without a secret when it is bound', async () => {
+    const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+    const entrypoint = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ success: true, messageId: 'm5' }), { status: 200 }),
+    );
+    const ctx = makeActionContext({
+      db: dbReturningAccounts([{ id: 'mac_1', email: 'sender@test.com', isDefault: true }]),
+      env: { APP_API_INTERNAL: { fetch: entrypoint } as never },
+    });
+
+    const res = (await handleSendEmail({ to: 'a@b.com', subject: 'Hi', body: 'x' }, ctx)) as { messageId: string };
+
+    expect(res.messageId).toBe('m5');
+    expect(calls).toHaveLength(0);
+    const [url, init] = entrypoint.mock.calls[0];
+    expect(url).toBe('https://internal/api/internal/send-email');
+    expect(new Headers(init?.headers).get('authorization')).toBeNull();
+    expect(String(init?.body)).toContain('a@b.com');
+  });
+
+  it('does not resend over HTTP when the entrypoint call fails for another reason', async () => {
+    const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+    const entrypoint = vi.fn(async () => {
+      throw new Error('network lost');
+    });
+    const ctx = makeActionContext({
+      db: dbReturningAccounts([{ id: 'mac_1', email: 'sender@test.com', isDefault: true }]),
+      env: { APP_API_INTERNAL: { fetch: entrypoint } as never, INTERNAL_API_SECRET: 'secret' },
+    });
+
+    await expect(handleSendEmail({ to: 'a@b.com', subject: 'Hi', body: 'x' }, ctx)).rejects.toThrow('network lost');
+    expect(calls).toHaveLength(0);
+  });
+
   it('trims a trailing slash off APP_API_URL', async () => {
     const { calls } = stubFetch(() => new Response(JSON.stringify({ success: true, messageId: 'm2' }), { status: 200 }));
     const ctx = makeActionContext({

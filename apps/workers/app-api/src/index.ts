@@ -12,6 +12,7 @@
  *   api.weldsuite.org       — external-api worker (third-party integrations)
  */
 
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
@@ -135,7 +136,8 @@ app.route('/api/invitations', invitationsRoutes);
 
 // Internal service-to-service email dispatch — PUBLIC mount (no Clerk). Auth
 // is the in-route `Authorization: Bearer <INTERNAL_API_SECRET>` check. Caller:
-// workflow-worker's send_email action. Must stay ABOVE the /api/* guard.
+// workflow-worker's send_email action, now over AppApiInternal (below); this
+// mount stays for the transition. Must stay ABOVE the /api/* guard.
 app.route('/api/internal', internalRoutes);
 
 // The Telnyx Call Control webhook (/public/webhooks/telnyx) and billing-worker's
@@ -286,3 +288,23 @@ export default {
     console.warn(`[app-api] no consumer registered for queue "${batch.queue}"`);
   },
 };
+
+// Internal entrypoint — bound as `APP_API_INTERNAL` (entrypoint = "AppApiInternal")
+// by workflow-worker. A named entrypoint is only reachable over a service
+// binding, so it is trusted by topology: /api/internal accepts `internalTrusted`
+// instead of the INTERNAL_API_SECRET bearer. Only the core internal router is
+// mounted (send-email, send-transactional-email); no forwarding, no Clerk. The
+// public secret-guarded mount above stays until every caller uses the
+// entrypoint (docs/plans/app-api-module-split.md, rollout item 7).
+const internalApp = createModuleApi<Env, Variables>({ service: 'app-api' });
+internalApp.use('*', async (c, next) => {
+  c.set('internalTrusted', true);
+  await next();
+});
+internalApp.route('/api/internal', internalRoutes);
+
+export class AppApiInternal extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    return internalApp.fetch(request, this.env, this.ctx);
+  }
+}

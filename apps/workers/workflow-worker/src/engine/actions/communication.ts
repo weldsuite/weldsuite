@@ -63,6 +63,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
       bcc: inputs.bcc as string[] | undefined,
     },
     'Email send',
+    'APP_API_INTERNAL',
   );
   return { success: true, messageId: result.messageId, from: acct.email };
 };
