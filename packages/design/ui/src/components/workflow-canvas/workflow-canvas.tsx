@@ -31,6 +31,22 @@ import { Plus, Minus, Maximize } from 'lucide-react';
 // Alignment threshold in pixels
 const ALIGNMENT_THRESHOLD = 8;
 
+/**
+ * Keeps the previous reference while `value` is structurally unchanged.
+ * Hosts often rebuild `trigger`, `steps` or `labels` inline on every render;
+ * the node-sync effect calls setNodes, so an unstable prop would re-run it
+ * after every render and loop (React #185, "Maximum update depth exceeded").
+ * Only use it for plain data props, never for callbacks.
+ */
+function useStructurallyStable<T>(value: T): T {
+  const ref = useRef<{ key: string; value: T } | null>(null);
+  const key = JSON.stringify(value) ?? '';
+  if (!ref.current || ref.current.key !== key) {
+    ref.current = { key, value };
+  }
+  return ref.current.value;
+}
+
 const getNodeWidth = (_node: Node) => {
   // All nodes share one uniform width.
   return 340;
@@ -166,8 +182,8 @@ export interface WorkflowCanvasProps {
 }
 
 function WorkflowCanvasInner({
-  trigger,
-  steps,
+  trigger: triggerProp,
+  steps: stepsProp,
   onSelectTrigger,
   onSelectStep,
   onSelectBranch,
@@ -182,17 +198,22 @@ function WorkflowCanvasInner({
   showAddPlaceholder,
   addStepSourceNodeId,
   triggerLocked,
-  variableItems,
-  labels: labelsProp,
+  variableItems: variableItemsProp,
+  labels: rawLabelsProp,
   className,
 }: WorkflowCanvasProps) {
+  const trigger = useStructurallyStable(triggerProp);
+  const steps = useStructurallyStable(stepsProp);
+  const variableItems = useStructurallyStable(variableItemsProp);
+  const labelsProp = useStructurallyStable(rawLabelsProp);
+
   // Merge caller-provided labels with English defaults
-  const labels: Required<WorkflowCanvasLabels> = {
+  const labels: Required<WorkflowCanvasLabels> = useMemo(() => ({
     ...DEFAULT_CANVAS_LABELS,
     ...labelsProp,
     triggerLabels: { ...DEFAULT_CANVAS_LABELS.triggerLabels, ...(labelsProp?.triggerLabels || {}) },
     actionLabels: { ...DEFAULT_CANVAS_LABELS.actionLabels, ...(labelsProp?.actionLabels || {}) },
-  };
+  }), [labelsProp]);
 
   const flowLabels = useMemo(() => ({
     selectTrigger: labels.selectTrigger,
