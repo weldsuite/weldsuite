@@ -22,12 +22,14 @@ Click a row to open the record in a side panel without losing your place in the 
 
 ## Add a person
 
-1. Click **New** (or **Add contact**) on the People list.
-2. Enter name, email, phone, and company as needed.
-3. Assign an **owner** if your workspace uses ownership.
-4. Save.
+1. Click **New person** on the People list.
+2. Enter first name, last name, email, job title, and phone as needed.
+3. Click **Create person**.
+4. Click the new row to open the record in a side panel. Link the person to a company from the **Companies** tab and add more details there.
 
-You can also create a person from inside a company record or import contacts through settings integrations.
+{% video src="/videos/help/weldcrm-manage-contacts.mp4" poster="/videos/help/weldcrm-manage-contacts.jpg" title="Add a contact in WeldCRM" caption="Create a person from the People list and open the new record." /%}
+
+You can also create a person from inside a company record or import contacts with **Import/Export** on the list.
 
 ---
 

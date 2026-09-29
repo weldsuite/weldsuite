@@ -1,5 +1,6 @@
 import { useNavigate, useRouter as useTanStackRouter } from '@tanstack/react-router';
 import { useCallback, useMemo } from 'react';
+import { toPreviewHref, usePreviewMode } from '@/contexts/preview-mode-context';
 
 /**
  * Compat layer: drop-in replacement for `useRouter()` from `next/navigation`.
@@ -8,23 +9,24 @@ import { useCallback, useMemo } from 'react';
 export function useRouter() {
   const navigate = useNavigate();
   const router = useTanStackRouter();
+  const previewMode = usePreviewMode();
 
   const push = useCallback(
     // `options` kept for next/navigation signature compat — TanStack Router
     // has no scroll-restoration option to forward it to.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     (href: string, options?: { scroll?: boolean }) => {
-      navigate({ to: href });
+      navigate({ to: toPreviewHref(previewMode, href) });
     },
-    [navigate],
+    [navigate, previewMode],
   );
 
   const replace = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     (href: string, options?: { scroll?: boolean }) => {
-      navigate({ to: href, replace: true });
+      navigate({ to: toPreviewHref(previewMode, href), replace: true });
     },
-    [navigate],
+    [navigate, previewMode],
   );
 
   const back = useCallback(() => {
@@ -46,11 +48,11 @@ export function useRouter() {
       // subsequent navigation commits without a cold chunk fetch. TanStack
       // Links already do this on hover via `defaultPreload: 'intent'`; this
       // covers programmatic navigations and non-Link anchors.
-      router.preloadRoute({ to: href }).catch(() => {
+      router.preloadRoute({ to: toPreviewHref(previewMode, href) }).catch(() => {
         // Preload is best-effort — a failure just means the navigation loads cold.
       });
     },
-    [router],
+    [router, previewMode],
   );
 
   return useMemo(

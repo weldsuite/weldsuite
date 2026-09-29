@@ -23,11 +23,13 @@ Your domain must be connected with nameservers pointing at WeldHost before recor
 
 {% figure src="/images/help/dns-navigation.png" alt="Navigate to the DNS tab for a domain" caption="Open Domains, pick your domain, then switch to the DNS tab." /%}
 
-You see a table of records (type, name, content, TTL) plus search and type filters.
+You see a table of records (type, name, content, TTL) plus search and type filters. Use **Expand** in the panel header for more room.
 
 ---
 
 ## Add a record
+
+{% video src="/videos/help/weldhost-manage-dns-records.mp4" poster="/videos/help/weldhost-manage-dns-records.jpg" title="How to add a DNS record" caption="Select your domain, open the DNS tab, click Add Record, fill in type, name and value, then save." /%}
 
 1. Click **Add Record** (or **New record**).
 2. Choose a **Type**.

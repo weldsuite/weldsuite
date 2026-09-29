@@ -24,8 +24,10 @@ Each card shows what the app does and whether it is already installed in your wo
 
 1. Click the app you want.
 2. Read the description and requirements.
-3. Click **Install** (or **Enable**).
+3. Click **Install**.
 4. The app icon appears in the left rail when installation finishes.
+
+{% video src="/videos/help/getting-started-install-apps.mp4" poster="/videos/help/getting-started-install-apps.jpg" title="How to install an app" caption="Open the App Store, pick an app, click Install and watch it appear in the left rail." /%}
 
 Installed apps are shared for the whole workspace. Teammates still need the right [permissions](/settings/team-and-permissions) to use them.
 

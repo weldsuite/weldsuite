@@ -22,19 +22,23 @@ Use **search** and **filters** to find threads by sender, label, or date.
 
 ## Reply or forward
 
+{% video src="/videos/help/weldmail-reply-to-email.mp4" poster="/videos/help/weldmail-reply-to-email.jpg" title="How to reply to an email in WeldMail" caption="Open a message, click Reply, write your response, and send it." /%}
+
 1. Open the message.
 2. Click **Reply**, **Reply all**, or **Forward**.
-3. Write your response in the compose area.
+3. Write your response in the reply box that opens above the message.
 4. Click **Send**.
 
-Quoted text from the original message is included automatically.
+The original message is quoted in your reply automatically.
 
 ---
 
 ## Compose a new message
 
+{% video src="/videos/help/weldmail-send-email.mp4" poster="/videos/help/weldmail-send-email.jpg" title="How to send an email in WeldMail" caption="Compose a message, pick a recipient from your contacts, and send it." /%}
+
 1. Click **Compose** (or press the shortcut shown in the UI).
-2. Enter **To**, **Cc**, and **Bcc** as needed.
+2. Enter **To**, **Cc**, and **Bcc** as needed. Start typing a name to pick a saved contact.
 3. Add a **subject** and body.
 4. Attach files with the paperclip if needed.
 5. Click **Send**.

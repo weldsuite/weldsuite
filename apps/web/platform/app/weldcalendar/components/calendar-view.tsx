@@ -725,6 +725,11 @@ export function CalendarView() {
     const handleMouseDown = (ev: MouseEvent) => {
       const target = ev.target as Node | null;
       if (target && quickCreateRef.current?.contains(target)) return;
+      // A control inside the card can unmount itself on mousedown (e.g. the
+      // guest dropdown after picking a result), detaching `target` before this
+      // document listener runs. composedPath() is captured at dispatch, so it
+      // still knows the event started inside the card.
+      if (quickCreateRef.current && ev.composedPath().includes(quickCreateRef.current)) return;
       dismissedByCurrentGestureRef.current = true;
       setQuickCreateOpen(false);
     };

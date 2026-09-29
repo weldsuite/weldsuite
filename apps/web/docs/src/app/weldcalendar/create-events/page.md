@@ -13,12 +13,14 @@ Add events to your calendar and invite teammates or external guests. {% .lead %}
 ## Create an event
 
 1. Open **WeldCalendar** from the app rail.
-2. Click a time slot on the grid, or press **New event**.
-3. Enter **title**, **start** and **end** time.
-4. Choose which **calendar** to save under (personal or shared).
-5. Add **location**, **video link**, or **description** if needed.
-6. Invite **guests** by email or by picking workspace members.
-7. Save.
+2. Click a day on the calendar (or a time slot in Week or Day view), or press **New Event**. A quick-create card opens.
+3. Enter a **title**, then click the date row to set the **start** and **end** time.
+4. Choose which **calendar** to save under (the last row of the card).
+5. Add a **location**, a **description**, or **WeldMeet video conferencing** for a video link if needed.
+6. Under **Add participants**, search team members or contacts to invite them.
+7. Click **Save**.
+
+{% video src="/videos/help/weldcalendar-create-events.mp4" poster="/videos/help/weldcalendar-create-events.jpg" title="How to create an event" caption="Click a day, enter a title and time, pick a calendar, add a location, description and guest, then click Save." /%}
 
 Drag events on the grid to reschedule; drag edges to change duration.
 

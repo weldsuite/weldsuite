@@ -14,21 +14,22 @@ Search for prospects and build lists for sales or marketing. {% .lead %}
 
 1. Open **WeldData** from the app rail.
 2. Choose **People** or **Companies**.
-3. Set **filters** — job title, industry, country, company size, etc.
-4. Click **Search**.
+3. Set **filters** — job title, seniority, industry, country, company size, etc.
+4. Click **Search** (top right of the results).
 
 Results show matching records with key firmographic fields.
+
+{% video src="/videos/help/welddata-find-leads.mp4" poster="/videos/help/welddata-find-leads.jpg" title="How to find and save leads" caption="Search for people, select the ones you want and add them to a list." /%}
 
 ---
 
 ## Save to a list
 
 1. Select rows with the checkboxes.
-2. Click **Save to list**.
-3. Pick an existing list or create a new one (name and color).
-4. Confirm.
+2. Click **Add to list** in the bar at the bottom of the results.
+3. Pick one of your lists. To make a new list first, click **+** next to **Lists** in the module sidebar and choose a name, color and whether it holds people or companies.
 
-Lists appear in the module sidebar for quick access later.
+Lists appear in the module sidebar for quick access later. A list only accepts the kind of lead it was created for, so people lists are only offered when you save people results.
 
 ---
 
@@ -43,7 +44,7 @@ Lists appear in the module sidebar for quick access later.
 
 ## Keep lists clean
 
-Enable **Exclude saved leads** on new searches so you do not duplicate prospects already in a list or CRM.
+Under **Exclude leads already in lists**, tick the lists whose leads should be hidden so you do not duplicate prospects already in a list or CRM.
 
 ---
 
