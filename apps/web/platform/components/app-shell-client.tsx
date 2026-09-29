@@ -65,6 +65,21 @@ const MeetingPiPWidget = lazy(() =>
   import('@/app/weldmeet/components/meeting-pip-widget').then((m) => ({ default: m.MeetingPiPWidget })),
 );
 
+/** /auth, /onboarding and /invite bootstrap their own org context. */
+function bootstrapsOwnOrg(pathname: string): boolean {
+  return pathname.startsWith('/auth/') || pathname === '/onboarding' || pathname.startsWith('/invite');
+}
+
+/** Drop the persisted query cache (it belongs to the old org) and reload. */
+function reloadIntoNewOrg() {
+  try {
+    window.localStorage.removeItem('weldsuite:query-cache');
+  } catch {
+    // storage unavailable — reload anyway
+  }
+  window.location.href = '/';
+}
+
 interface AppShellClientProps {
   children: React.ReactNode;
 }
@@ -90,14 +105,7 @@ export function AppShellClient({ children }: AppShellClientProps) {
   // dropped the user back into the workspace they just left.
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
-    // /auth, /onboarding and /invite bootstrap their own org context.
-    if (
-      pathname.startsWith('/auth/') ||
-      pathname === '/onboarding' ||
-      pathname.startsWith('/invite')
-    ) {
-      return;
-    }
+    if (bootstrapsOwnOrg(pathname)) return;
     if (!orgListLoaded || !setActive || orgActivationRef.current) return;
 
     const firstOrgId = userMemberships?.data?.[0]?.organization?.id;
@@ -121,14 +129,7 @@ export function AppShellClient({ children }: AppShellClientProps) {
         clearPendingOrganization();
         // Session already had a different org, so this page hydrated against
         // the wrong workspace. Reload once the new org is active.
-        if (switchingFromActiveOrg) {
-          try {
-            window.localStorage.removeItem('weldsuite:query-cache');
-          } catch {
-            // storage unavailable — reload anyway
-          }
-          window.location.href = '/';
-        }
+        if (switchingFromActiveOrg) reloadIntoNewOrg();
       })
       .catch(() => {
         orgActivationRef.current = false;
