@@ -45,6 +45,56 @@ function makeAppLogoIcon(appCode: string, name: string) {
   };
 }
 
+// Build breadcrumb segments from the current path. The last segment is a leaf
+// (no href); the /settings index page is the profile editor, shown as a leaf.
+function buildBreadcrumbSegments(
+  pathname: string,
+  settingsTitle: string,
+  profileLabel: string,
+): BreadcrumbSegment[] {
+  const segments: BreadcrumbSegment[] = [{ label: settingsTitle, href: '/settings' }];
+  const pathParts = pathname.split('/').filter(Boolean);
+
+  if (pathParts.length <= 1) {
+    segments.push({ label: profileLabel });
+    return segments;
+  }
+
+  for (let i = 1; i < pathParts.length; i++) {
+    const part = pathParts[i];
+    // Capitalize and format the label
+    const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+    if (i === pathParts.length - 1) {
+      segments.push({ label });
+    } else {
+      segments.push({ label, href: '/' + pathParts.slice(0, i + 1).join('/') });
+    }
+  }
+  return segments;
+}
+
+const FULL_WIDTH_CLASS = 'h-full';
+const PAGE_PADDING_CLASS = 'px-4 md:px-6 pt-4 md:pt-[72px] pb-8';
+
+// Pick the content wrapper classes for the current settings page.
+function getContentWrapperClassName(pathname: string): string {
+  // Member detail, integrations listing + detail, new number page: full width
+  if (
+    /^\/settings\/team\/[^/]+$/.test(pathname) ||
+    pathname === '/settings/integrations' ||
+    /^\/settings\/integrations\/[^/]+$/.test(pathname) ||
+    pathname === '/settings/apps/phone-numbers/new-number'
+  ) {
+    return FULL_WIDTH_CLASS;
+  }
+  // Plans page - allow internal width control
+  if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
+  // Activity log - slightly wider to fit the table without scroll
+  if (pathname === '/settings/activity') return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
+  // Regular settings pages - constrained width
+  return `${PAGE_PADDING_CLASS} max-w-4xl mx-auto`;
+}
+
 interface SettingsLayoutClientProps {
   children: React.ReactNode;
   installedAppCodes: string[];
@@ -88,35 +138,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
 
   const isInstalled = (appCode: string) => installedAppCodes.includes(appCode);
 
-  // Generate breadcrumb segments based on the current path
-  const segments: BreadcrumbSegment[] = [
-    { label: ts.title, href: '/settings' },
-  ];
-
-  // Parse pathname to create breadcrumbs
-  const pathParts = pathname.split('/').filter(Boolean);
-
-  if (pathParts.length > 1) {
-    for (let i = 1; i < pathParts.length; i++) {
-      const part = pathParts[i];
-      const href = '/' + pathParts.slice(0, i + 1).join('/');
-
-      // Capitalize and format the label
-      const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
-
-      // If it's the last part, don't add href
-      const isLast = i === pathParts.length - 1;
-
-      if (isLast) {
-        segments.push({ label });
-      } else {
-        segments.push({ label, href });
-      }
-    }
-  } else {
-    // /settings index page is the profile editor — show it as a leaf segment.
-    segments.push({ label: ts.menu.profile });
-  }
+  const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu.profile);
 
   // Search items that are app-specific
   const appSearchItems: Record<string, SearchResult[]> = {
@@ -259,37 +281,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
             moduleKey="settings"
           />
           <ModuleContent className="overflow-y-auto">
-            {pathname.match(/^\/settings\/team\/[^/]+$/) ? (
-              // Member detail page - full width layout
-              <div className="h-full">
-                {children}
-              </div>
-            ) : pathname === '/settings/integrations' || pathname.match(/^\/settings\/integrations\/[^/]+$/) ? (
-              // Integrations listing + detail - full width for appstore-like design
-              <div className="h-full">
-                {children}
-              </div>
-            ) : pathname === '/settings/apps/phone-numbers/new-number' ? (
-              // New number page - full width for HostEntityFormLayout with sidebar
-              <div className="h-full">
-                {children}
-              </div>
-            ) : pathname === '/settings/plans' ? (
-              // Plans page - allow internal width control
-              <div className="px-4 md:px-6 pt-4 md:pt-[72px] pb-8">
-                {children}
-              </div>
-            ) : pathname === '/settings/activity' ? (
-              // Activity log - slightly wider to fit the table without scroll
-              <div className="px-4 md:px-6 pt-4 md:pt-[72px] pb-8 max-w-6xl mx-auto">
-                {children}
-              </div>
-            ) : (
-              // Regular settings pages - constrained width
-              <div className="px-4 md:px-6 pt-4 md:pt-[72px] pb-8 max-w-4xl mx-auto">
-                {children}
-              </div>
-            )}
+            <div className={getContentWrapperClassName(pathname)}>{children}</div>
           </ModuleContent>
         </div>
       </div>

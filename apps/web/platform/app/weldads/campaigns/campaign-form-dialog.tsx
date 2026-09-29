@@ -58,6 +58,18 @@ function majorToMinor(value: string | undefined): number | undefined {
   return Math.round(parsed * 100);
 }
 
+function budgetFields(values: { dailyBudget?: string; lifetimeBudget?: string }): {
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+} {
+  const dailyBudget = majorToMinor(values.dailyBudget);
+  const lifetimeBudget = majorToMinor(values.lifetimeBudget);
+  return {
+    ...(dailyBudget != null ? { dailyBudget } : {}),
+    ...(lifetimeBudget != null ? { lifetimeBudget } : {}),
+  };
+}
+
 function minorToMajor(value: number | null | undefined): string {
   if (value == null) return '';
   return (value / 100).toFixed(2);
@@ -138,8 +150,7 @@ export function CampaignFormDialog({
   };
 
   const onSubmit = async (values: FormValues) => {
-    const dailyBudget = majorToMinor(values.dailyBudget);
-    const lifetimeBudget = majorToMinor(values.lifetimeBudget);
+    const budgets = budgetFields(values);
 
     try {
       if (isEdit && campaign) {
@@ -147,8 +158,7 @@ export function CampaignFormDialog({
           id: campaign.id,
           name: values.name,
           objective: values.objective,
-          ...(dailyBudget != null ? { dailyBudget } : {}),
-          ...(lifetimeBudget != null ? { lifetimeBudget } : {}),
+          ...budgets,
         });
         toast.success(t.updateSuccess);
       } else {
@@ -157,8 +167,7 @@ export function CampaignFormDialog({
           name: values.name,
           objective: values.objective,
           status: values.startPaused ? 'PAUSED' : 'ACTIVE',
-          ...(dailyBudget != null ? { dailyBudget } : {}),
-          ...(lifetimeBudget != null ? { lifetimeBudget } : {}),
+          ...budgets,
         });
         toast.success(t.createSuccess);
       }
