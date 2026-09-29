@@ -122,7 +122,7 @@ bucket_name = "weldsuite-storage-test"
 name = "SEND_EMAIL"
 
 [[env.test.workflows]]
-name = "send-scheduled-email-v3"
+name = "send-scheduled-email-v3-test"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 

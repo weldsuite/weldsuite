@@ -118,13 +118,13 @@ binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
 [[env.test.workflows]]
-name = "transcribe-recording-v3"
+name = "transcribe-recording-v3-test"
 binding = "TRANSCRIBE_RECORDING"
 class_name = "TranscribeRecordingWorkflow"
 
 # Notification email defer window — class hosted in app-api.
 [[env.test.workflows]]
-name = "deferred-notification-email"
+name = "deferred-notification-email-test"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 script_name = "weldsuite-app-api-test"

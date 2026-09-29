@@ -501,9 +501,10 @@ Server callers:
    owner of `/webhooks/woocommerce`. OAuth redirects use the SPA URL, an env value or a
    client-supplied URI, never the worker's own host.
 4. Production: same order via `main`.
-5. Clean-up, when the time in each row of the table below has passed: remove the draining
-   workflow blocks/re-exports from app-api, then secrets only those used (`ASSEMBLYAI_API_KEY`,
-   `AGENT_RUNTIME_URL`, `CF_REALTIME_*`, `R2_SQL_*`, the hand-set module secrets). Stop
+5. Clean-up. The draining workflows are gone from app-api (2026-09-29, see the table
+   below). Its hand-set module secrets (`POSTPEER_*`, `LEMLIST_API_KEY`, `TELNYX_API_KEY`,
+   `REALTIME_REGISTER_*`, `CF_REALTIME_*`, …) are the only copy of some values: copy each into
+   Doppler before deleting it from app-api. Stop
    forwarding a module in production once no client calls app-api for it **and** no
    third party calls back on app-api's host for it. Callback status:
 
@@ -511,7 +512,7 @@ Server callers:
    |---|---|---|
    | WooCommerce connect (`/webhooks/woocommerce/auth`) | commerce | built per request → commerce-api host (2026-09-29) |
    | Telnyx AI `lookup_crm` tool | call | sent per call → call-api host (`lookupCrmUrl`, 2026-09-29) |
-   | Cloudflare Realtime webhook | meet | `POST /api/webhooks/cloudflare-realtime/setup` now registers meet-api's host; re-run it per env, then delete the old app-api registration (running both delivers every event twice) |
+   | Cloudflare Realtime webhook | meet | production registered on meet-api's host with a `CF_REALTIME_WEBHOOK_TOKEN` (2026-09-29; there was no registration before). Test: set the token, then `POST /api/webhooks/cloudflare-realtime/setup` once |
    | Helpdesk Slack / Discord OAuth `redirect_uri` | desk | still app-api (`helpdeskOAuthRedirectUri`): add the desk-api URL to both provider apps first, then switch `getHelpdeskWorkerUrl` |
    | Telnyx call-control webhook | call | Telnyx portal (connection settings) |
    | PostPeer webhook | social | PostPeer dashboard |
@@ -527,7 +528,7 @@ Server callers:
    binding (no secret), and consider Clerk M2M for the public ones (workflow-worker,
    billing-worker).
 
-## Workflows draining in app-api
+## Workflows that drained in app-api
 
 A Cloudflare Workflow name belongs to one worker, and instances already running must
 finish where they started. When a module moves, its workflow class gets a new name in
@@ -535,6 +536,15 @@ the module worker (same binding and class name) and app-api keeps the old
 `[[workflows]]` block plus a re-export of the class until the old instances are done
 (procedure: `.claude/skills/extract-api-module`, step 4b). Remove the app-api side after
 the date in the last column.
+
+**Done (2026-09-29).** No instance of any old name was left in flight in production, so
+the blocks and re-exports below were removed from app-api (with `AGENT_RUNTIME_URL` /
+`AGENT_COMPUTER_ENABLED`). The table stays as the record.
+
+**Workflow names are unique per Cloudflare account.** Test and production used to declare
+the same names, so each deploy moved them to its own script: production instances ran on
+the test worker after every `develop` deploy, and the other way round. Every
+`[[env.test.workflows]]` now ends in `-test` (dev ones in `-dev`).
 
 | Class | Module | Old name (app-api) | New name (module worker) | Remove from app-api after |
 |---|---|---|---|---|

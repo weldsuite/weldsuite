@@ -73,12 +73,12 @@ POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
 
 [[env.test.workflows]]
-name = "provision-workspace"
+name = "provision-workspace-test"
 binding = "PROVISION_WORKSPACE"
 class_name = "ProvisionWorkspaceWorkflow"
 
 [[env.test.workflows]]
-name = "refill-pool"
+name = "refill-pool-test"
 binding = "REFILL_POOL"
 class_name = "RefillPoolWorkflow"
 

@@ -137,25 +137,25 @@ bucket_name = "weldsuite-storage-test"
 name = "SEND_EMAIL"
 
 [[env.test.workflows]]
-name = "send-digest-v3"
+name = "send-digest-v3-test"
 binding = "SEND_DIGEST"
 class_name = "SendDigestWorkflow"
 
 [[env.test.workflows]]
-name = "import-tasks-v3"
+name = "import-tasks-v3-test"
 binding = "IMPORT_TASKS"
 class_name = "ImportTasksWorkflow"
 
 # Notification email defer window — class hosted in app-api.
 [[env.test.workflows]]
-name = "deferred-notification-email"
+name = "deferred-notification-email-test"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 script_name = "weldsuite-app-api-test"
 
 # GitHub Projects-v2 outbound sync — class hosted in integration-webhook-worker.
 [[env.test.workflows]]
-name = "github-project-outbound-int"
+name = "github-project-outbound-int-test"
 binding = "GITHUB_PROJECT_OUTBOUND"
 class_name = "GithubProjectOutboundSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"
