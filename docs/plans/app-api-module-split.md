@@ -524,9 +524,47 @@ Server callers:
    (`apps/tools/migrate-databases` `migrate:app-permissions`) may only `--execute` in an
    environment once the module workers are deployed there; until then unqualified
    grants keep working everywhere.
-7. Later: replace the `INTERNAL_API_SECRET` bearer on service-binding paths with RPC over the
-   binding (no secret), and consider Clerk M2M for the public ones (workflow-worker,
-   billing-worker).
+7. **Internal calls over named entrypoints (2026-09-29).** Worker-to-worker calls that
+   used the shared `INTERNAL_API_SECRET` bearer now go over a named `WorkerEntrypoint`
+   service binding. An entrypoint other than the default is reachable only through a
+   binding, so it is trusted by topology (precedent: `WorkspaceOnboardEntrypoint`). Each
+   `<Name>Internal` entrypoint runs a small Hono app that sets `internalTrusted` and
+   mounts only the internal routers at their usual paths; the existing secret checks
+   accept that flag, so the request shape (tenant headers, bodies) is unchanged and the
+   caller just stops sending the secret.
+
+   | Flow | Caller → callee | Binding (caller) | Entrypoint |
+   |---|---|---|---|
+   | connector/CRM/ad sync, webhooks | integration-sync-worker, integration-webhook-worker → connect-api `/api/integrations/*` | `CONNECT_INTERNAL` | `ConnectInternal` |
+   | `create_customer` | workflow-worker → connect-api `/api/internal/workflow-actions/*` | `CONNECT_INTERNAL` | `ConnectInternal` |
+   | `send_email` | workflow-worker → app-api `/api/internal/send-email` | `APP_API_INTERNAL` | `AppApiInternal` |
+   | phone-number fulfilment | billing-worker → call-api `/api/internal/telephony/*` | `CALL_INTERNAL` | `CallInternal` |
+   | agent computer / browser | agent-api, chat-api → agent-runtime `/v1/computer/*`, `/v1/browser/*` | `AGENT_RUNTIME` | `AgentRuntimeInternal` |
+
+   - **Transition.** The public secret-guarded internal paths still work and stay until
+     every caller in every environment uses its entrypoint, so callers fall back to them:
+     no binding, or a missing entrypoint (the only error that falls back, so a step is
+     never sent twice), means the old path with `INTERNAL_API_SECRET`. Once all five flows
+     have run over the entrypoints in production, delete the public mounts
+     (`/api/integrations` internal router, `/api/internal/*`, the agent-runtime bearer),
+     the fallback code, the `APP_API` / `AGENT_RUNTIME_URL` fallbacks that only served them
+     (integration-webhook-worker keeps `APP_API` for its public WooCommerce compat forward)
+     and `INTERNAL_API_SECRET` from workers that no longer verify or send it.
+   - **Deploy order.** Callees first. connect-api and call-api are module workers, which
+     deploy before the rest, so their entrypoints exist when integration-sync-worker,
+     integration-webhook-worker, workflow-worker and billing-worker deploy. app-api and
+     agent-runtime deploy in the same `workers` job as workflow-worker; agent-api and
+     chat-api are module workers, so they deploy *before* agent-runtime. Cloudflare only
+     documents that the target *worker* must exist when a binding is deployed; whether a
+     missing *entrypoint* also fails the deploy is not documented. If it does, land
+     agent-runtime (and app-api) one deploy before the caller bindings
+     (`AGENT_RUNTIME`, `APP_API_INTERNAL`); the code already falls back either way.
+   - **Stays on the secret.** The WooCommerce connect `user_id` HMAC (a signing key, not
+     auth) and workflow-worker's operator-only `POST /internal/schedule-index/rebuild`.
+     Consider Clerk M2M for any public internal path that survives (none is planned).
+   - Local dev: the `[[services]]` entrypoint bindings in the top-level (dev) config use
+     `remote = true` against the deployed test workers, like `WORKSPACE_WORKER`.
+     agent-api / chat-api keep `AGENT_RUNTIME_URL` (Docker runtime) locally.
 
 ## Workflows that drained in app-api
 
