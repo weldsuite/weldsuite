@@ -1,7 +1,7 @@
 
 import { Users, User, type LucideIcon } from 'lucide-react';
 import { WorkflowEditorClient } from '@/components/workflow-editor';
-import type { ComponentProps } from 'react';
+import { useMemo, type ComponentProps } from 'react';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -12,9 +12,12 @@ type EditorProps = Omit<ComponentProps<typeof WorkflowEditorClient>, 'editorHref
   onDirtyChange?: (isDirty: boolean) => void;
 };
 
+const EXCLUDED_VARIABLE_GROUPS = ['trigger', 'env'];
+
 export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPortalRef, onDirtyChange, ...props }: EditorProps) {
   const t = useTranslations();
-  const contactVariableGroup: VariableGroup = {
+  // Memoised so the canvas variable list stays referentially stable between renders.
+  const extraVariableGroups: VariableGroup[] = useMemo(() => [{
     id: 'contact',
     label: t('sweep.weldcrm.sequenceEditorWrapper.variableGroups.customer'),
     icon: <User className="h-4 w-4 text-emerald-500" />,
@@ -29,7 +32,7 @@ export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPort
       { path: 'contact.city', label: t('sweep.weldcrm.sequenceEditorWrapper.variables.city'), type: 'string' },
       { path: 'contact.country', label: t('sweep.weldcrm.sequenceEditorWrapper.variables.country'), type: 'string' },
     ],
-  };
+  }], [t]);
   // Always hide built-in nav tabs — wizard nav (draft) or sequence nav (active) handles navigation
   // Pause/Resume buttons are rendered by the parent page in the wizard nav's rightContent
   const draftOverrides = isDraft
@@ -49,8 +52,8 @@ export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPort
       {...props}
       editorHref={`/weldcrm/sequences/${sequenceId}`}
       triggerLocked
-      extraVariableGroups={[contactVariableGroup]}
-      excludeVariableGroups={['trigger', 'env']}
+      extraVariableGroups={extraVariableGroups}
+      excludeVariableGroups={EXCLUDED_VARIABLE_GROUPS}
       actionsPortalRef={actionsPortalRef}
       onDirtyChange={onDirtyChange}
       {...draftOverrides}
