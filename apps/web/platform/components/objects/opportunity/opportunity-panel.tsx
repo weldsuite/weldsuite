@@ -77,6 +77,7 @@ import {
   useLoseOpportunity,
   type Opportunity,
 } from './use-opportunity-data';
+import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { OPPORTUNITY_TABS, type OpportunityTab } from './opportunity-tabs';
 
 const OPPORTUNITY_PANEL_WIDTH = 400;
@@ -237,7 +238,12 @@ function OpportunityPanelTabsBar({
 
 // ─── Stage / status pickers ────────────────────────────────────────────────
 
-function getStageOptions(t: (path: string) => string): { value: string; label: string }[] {
+/**
+ * Legacy free-text stage values. Only used to label deals that predate
+ * pipeline stages (`stageId` is empty) — the stage picker itself lists the
+ * deal's own pipeline stages.
+ */
+function getLegacyStageOptions(t: (path: string) => string): { value: string; label: string }[] {
   return [
     { value: 'prospecting', label: t('sweep.entities.stageProspecting') },
     { value: 'qualification', label: t('sweep.entities.stageQualification') },
@@ -260,12 +266,10 @@ function getStatusOptions(
   ];
 }
 
-function StageBadge({ value }: { value: string }) {
-  const t = useTranslations();
-  const opt = getStageOptions(t).find((o) => o.value === value);
+function StageBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-      {opt?.label ?? value}
+      {label}
     </span>
   );
 }
@@ -413,7 +417,7 @@ function formatDate(iso: string | undefined): string | null {
   }
 }
 
-function OpportunityDetailsTab({
+export function OpportunityDetailsTab({
   opportunity,
   onUpdateField,
 }: {
@@ -421,8 +425,31 @@ function OpportunityDetailsTab({
   onUpdateField: (patch: Partial<Opportunity>) => void;
 }) {
   const t = useTranslations();
-  const stageOptions = useMemo(() => getStageOptions(t), [t]);
   const statusOptions = useMemo(() => getStatusOptions(t), [t]);
+
+  // The board places a deal by `stageId`, so the picker must list the deal's
+  // own pipeline stages and write `stageId` (not the legacy `stage` text).
+  const { data: stagesResult } = usePipelineStages(opportunity.pipeline || undefined);
+  const { data: pipelinesResult } = usePipelines();
+  const pipelineStages = useMemo(
+    () => [...(stagesResult?.data ?? [])].sort((a, b) => a.position - b.position),
+    [stagesResult],
+  );
+  const stageOptions = useMemo(
+    () => pipelineStages.map((s) => ({ value: s.id, label: s.name })),
+    [pipelineStages],
+  );
+  const legacyStageOptions = useMemo(() => getLegacyStageOptions(t), [t]);
+  const stageLabel = useCallback(
+    (value: string) =>
+      pipelineStages.find((s) => s.id === value)?.name ??
+      legacyStageOptions.find((o) => o.value === value)?.label ??
+      value,
+    [pipelineStages, legacyStageOptions],
+  );
+  const pipelineName =
+    pipelinesResult?.data?.find((p) => p.id === opportunity.pipeline)?.name ??
+    opportunity.pipeline;
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -441,10 +468,10 @@ function OpportunityDetailsTab({
       <SelectPropertyRow
         icon={Target}
         label={t('sweep.entities.fieldStage')}
-        value={opportunity.stage}
+        value={opportunity.stageId || opportunity.stage}
         options={stageOptions}
-        onChange={(v) => onUpdateField({ stage: v })}
-        renderBadge={(v) => <StageBadge value={v} />}
+        onChange={(v) => onUpdateField({ stageId: v, stage: v })}
+        renderBadge={(v) => <StageBadge label={stageLabel(v)} />}
       />
       <SelectPropertyRow
         icon={Flag}
@@ -524,8 +551,8 @@ function OpportunityDetailsTab({
       <PropertyRow
         icon={ActivityIcon}
         label={t('sweep.entities.fieldPipeline')}
-        value={opportunity.pipeline}
-        onSave={(v) => onUpdateField({ pipeline: v ?? undefined })}
+        value={pipelineName}
+        readOnly
       />
       <PropertyRow
         icon={StickyNote}

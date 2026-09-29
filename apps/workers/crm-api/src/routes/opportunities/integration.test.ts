@@ -195,4 +195,94 @@ describe('/api/opportunities · pglite integration', () => {
     const ids = body.data.map((r) => r.id);
     expect(ids).toContain(ownedId);
   });
+
+  // ---------------------------------------------------------------------------
+  // Stage moves: `stageId` is what the board places a deal by, `stage` is the
+  // legacy text twin — a move by `stageId` must not leave the two disagreeing.
+  // ---------------------------------------------------------------------------
+
+  async function seedDealInStage() {
+    const now = new Date();
+    const pipelineId = generateId('pl');
+    const stageOne = generateId('pls');
+    const stageTwo = generateId('pls');
+    await db.insert(schema.crmPipelineStages).values([
+      { id: stageOne, name: 'Stage 1', position: 0, pipeline: pipelineId, createdAt: now, updatedAt: now },
+      { id: stageTwo, name: 'Stage 2', position: 1, pipeline: pipelineId, createdAt: now, updatedAt: now },
+    ]);
+    const dealId = generateId('opp');
+    await db.insert(schema.crmOpportunities).values({
+      id: dealId,
+      name: 'Acme annual contract',
+      customerId: 'cust_stage_move',
+      amount: '1000',
+      currency: 'EUR',
+      stage: 'prospecting',
+      stageId: stageOne,
+      status: 'open',
+      ownerId: 'user_stage_move',
+      closeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      probability: 0,
+      pipeline: pipelineId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { dealId, stageOne, stageTwo };
+  }
+
+  it('PATCH /:id with only stageId moves the deal and keeps the legacy stage in step', async () => {
+    const { dealId, stageTwo } = await seedDealInStage();
+    mockedPublish.mockClear();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_stage_move',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageId: stageTwo }),
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.stageId).toBe(stageTwo);
+    expect(row?.stage).toBe(stageTwo);
+    expect(mockedPublish).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'opportunity', action: 'stage_changed' }),
+    );
+  });
+
+  it('PATCH /:id rejects a stageId that is not a pipeline stage and leaves the deal untouched', async () => {
+    const { dealId, stageOne } = await seedDealInStage();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_stage_move',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageId: 'pls_does_not_exist' }),
+    });
+    expect(res.status).toBe(400);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.stageId).toBe(stageOne);
+    expect(row?.stage).toBe('prospecting');
+  });
 });

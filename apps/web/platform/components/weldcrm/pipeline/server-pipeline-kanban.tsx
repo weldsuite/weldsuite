@@ -84,7 +84,9 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
 
   async function handleDealMove(dealId: string, fromStage: string, toStage: string) {
     try {
-      await updateStageMutation.mutateAsync({ id: dealId, stage: toStage });
+      // The board places a deal by `stageId`; write it alongside the legacy
+      // `stage` text so a drag survives a reload.
+      await updateStageMutation.mutateAsync({ id: dealId, stage: toStage, stageId: toStage });
     } catch (error) {
       console.error('Failed to update deal stage:', error);
       toast.error(t('sweep.weldcrm.serverPipelineKanban.failedToMoveDeal'));
