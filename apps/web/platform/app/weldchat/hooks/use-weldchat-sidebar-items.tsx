@@ -127,6 +127,205 @@ function resolveLiveGroupChannels(
   return [];
 }
 
+type Translate = ReturnType<typeof useTranslations>;
+type MuteChannelFn = ReturnType<typeof useMuteChannel>['mutate'];
+type ArchiveChannelFn = ReturnType<typeof useArchiveChannel>['mutate'];
+
+interface PendingDelete {
+  id: string;
+  name: string;
+  kind: 'channel' | 'dm';
+}
+
+interface ActiveCallRecord {
+  channelId: string;
+  callId: string;
+  callType: 'voice' | 'video';
+}
+
+type ActiveCallChannels = Map<string, { type: 'voice' | 'video'; id: string }>;
+
+interface SectionEntry {
+  id: string | null;
+  name: string;
+}
+
+/** Row-level handlers shared by every DM row's context-menu actions. */
+interface DmActionHandlers {
+  st: Translate;
+  muteChannel: MuteChannelFn;
+  archiveChannel: ArchiveChannelFn;
+  setSettingsTarget: (target: GroupSettingsTarget) => void;
+  setPendingDelete: (target: PendingDelete) => void;
+}
+
+/** Translation keys of the delete-confirmation dialog, per kind of conversation. */
+const DELETE_DIALOG_KEYS = {
+  dm: {
+    title: 'sweep.weldchat.sidebar.deleteDmTitle',
+    description: 'sweep.weldchat.sidebar.deleteDmDescription',
+  },
+  channel: {
+    title: 'sweep.weldchat.sidebar.deleteChannelTitle',
+    description: 'sweep.weldchat.sidebar.deleteChannelDescription',
+  },
+} as const;
+
+const toBadge = (count: number): string | undefined => (count > 0 ? String(count) : undefined);
+
+const getUserTopic = (userId: string | undefined, isActive: boolean): string =>
+  userId && isActive ? `chat.user.${userId}` : '';
+
+function hasUnreadMessages(ch: Pick<ChatChannel, 'lastMessageAt' | 'lastReadAt'>): boolean {
+  return !!ch.lastMessageAt && (!ch.lastReadAt || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt));
+}
+
+function buildActiveCallChannels(
+  activeCalls: ActiveCallRecord[],
+  callStatus: string,
+  activeCallChannelId: string | null,
+): ActiveCallChannels {
+  const result: ActiveCallChannels = new Map();
+  for (const call of activeCalls) {
+    result.set(call.channelId, { type: call.callType, id: call.callId });
+  }
+  const isInCall = callStatus === 'connected' || callStatus === 'connecting';
+  if (isInCall && activeCallChannelId && !result.has(activeCallChannelId)) {
+    result.set(activeCallChannelId, { type: 'voice', id: '' });
+  }
+  return result;
+}
+
+/** Same label the row itself shows, so the confirmation names the conversation the user actually clicked. */
+function getDmLabel(
+  dm: DmChannel,
+  otherMembers: ChatChannelMember[],
+  isGroup: boolean,
+  st: Translate,
+): string {
+  if (isGroup) {
+    return (
+      otherMembers
+        .map((m) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember'))
+        .join(', ') ||
+      dm.name ||
+      st('sweep.weldchat.channelEmptyState.groupFallback')
+    );
+  }
+  return (
+    otherMembers[0]?.name ||
+    otherMembers[0]?.email ||
+    dm.name ||
+    st('sweep.weldchat.sidebar.directMessageDisplayFallback')
+  );
+}
+
+function buildDmActions(
+  dm: DmChannel,
+  dmLabel: string,
+  { st, muteChannel, archiveChannel, setSettingsTarget, setPendingDelete }: DmActionHandlers,
+): NonNullable<MenuItemProps['actions']> {
+  return [
+    {
+      label: dm.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
+      icon: dm.isMuted ? Bell : BellOff,
+      onClick: () => muteChannel({ channelId: dm.id, mute: !dm.isMuted }),
+    },
+    {
+      label: st('sweep.weldchat.sidebar.settings'),
+      icon: Settings,
+      onClick: () =>
+        setSettingsTarget({
+          groupKey: `channel:${dm.id}`,
+          groupLabel:
+            dm.name ??
+            (dm.otherMembers?.[0]?.name ?? dm.otherMembers?.[0]?.email ?? st('sweep.weldchat.sidebar.directMessageFallback')),
+          channels: [dm],
+        }),
+    },
+    {
+      label: st('sweep.weldchat.sidebar.archive'),
+      icon: Archive,
+      onClick: () => archiveChannel(dm.id),
+    },
+    {
+      label: st('sweep.weldchat.sidebar.delete'),
+      icon: Trash2,
+      onClick: () => setPendingDelete({ id: dm.id, name: dmLabel, kind: 'dm' }),
+    },
+  ];
+}
+
+function buildDmItems(dms: DmChannel[], handlers: DmActionHandlers): MenuItemProps[] {
+  const dmItems: MenuItemProps[] = [];
+  const seenDmUsers = new Set<string>();
+  for (const dm of dms) {
+    const otherMembers = (dm.otherMembers ?? []).filter((m) => m?.userId);
+    const isGroup = otherMembers.length > 1;
+    const dmLabel = getDmLabel(dm, otherMembers, isGroup, handlers.st);
+    const rowProps = {
+      title: dmLabel,
+      bold: hasUnreadMessages(dm),
+      badge: toBadge(dm.unreadMentionCount || 0),
+      actions: buildDmActions(dm, dmLabel, handlers),
+      id: dm.id,
+    };
+
+    if (isGroup) {
+      if (seenDmUsers.has(dm.id)) continue;
+      seenDmUsers.add(dm.id);
+      dmItems.push({
+        ...rowProps,
+        href: `/weldchat/dm/group/${dm.id}`,
+        icon: createGroupDmAvatarIcon(otherMembers),
+      });
+      continue;
+    }
+
+    const other = otherMembers[0];
+    const key = other?.userId || dm.id;
+    if (seenDmUsers.has(key)) continue;
+    seenDmUsers.add(key);
+    dmItems.push({
+      ...rowProps,
+      href: `/weldchat/dm/${key}`,
+      icon: other ? createDmAvatarIcon(dmLabel, other.picture) : User,
+    });
+  }
+  return dmItems;
+}
+
+function buildAllSections(
+  sections: ReadonlyArray<{ id: string; name: string }>,
+  unsectionedChannelCount: number,
+  st: Translate,
+): SectionEntry[] {
+  const allSections: SectionEntry[] = sections.map((s) => ({ id: s.id, name: s.name }));
+  if (sections.length === 0 || unsectionedChannelCount > 0) {
+    const hasUserChannelsSection = sections.some((s) => s.name === 'Channels');
+    allSections.push({
+      id: null,
+      name: hasUserChannelsSection
+        ? st('sweep.weldchat.sidebar.otherChannels')
+        : st('sweep.weldchat.sidebar.channels'),
+    });
+  }
+  return allSections;
+}
+
+function withLiveChannels(
+  target: GroupSettingsTarget | null,
+  dms: DmChannel[],
+  channels: ChatChannel[],
+  channelSectionMap: Record<string, string | null | undefined>,
+): GroupSettingsTarget | null {
+  if (!target) return null;
+  return {
+    ...target,
+    channels: resolveLiveGroupChannels(target.groupKey, dms, channels, channelSectionMap),
+  };
+}
+
 export function useWeldchatSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -254,7 +453,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   // Push updates: on CALL_STARTED / CALL_ENDED from the user's topic, patch the cache.
   useTopic<{ channelId: string; callId: string; callType?: 'voice' | 'video' }>(
-    user?.id && isActive ? `chat.user.${user.id}` : '',
+    getUserTopic(user?.id, isActive),
     (event) => {
       if (event.event !== 'call_started' && event.event !== 'call_ended') return;
       queryClient.setQueryData<Array<{ channelId: string; callId: string; callType: 'voice' | 'video' }>>(
@@ -278,15 +477,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     },
   );
 
-  const activeCallChannels = new Map<string, { type: 'voice' | 'video'; id: string }>();
-  for (const call of activeCallsList ?? []) {
-    activeCallChannels.set(call.channelId, { type: call.callType, id: call.callId });
-  }
-  if ((callStatus === 'connected' || callStatus === 'connecting') && activeCallChannelId) {
-    if (!activeCallChannels.has(activeCallChannelId)) {
-      activeCallChannels.set(activeCallChannelId, { type: 'voice', id: '' });
-    }
-  }
+  const activeCallChannels = buildActiveCallChannels(activeCallsList ?? [], callStatus, activeCallChannelId);
 
   // Auto-assign newly created channel to pending section
   const prevChannelIdsRef = React.useRef<Set<string> | null>(null);
@@ -374,85 +565,13 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     };
     });
 
-  const dmItems: MenuItemProps[] = [];
-  const seenDmUsers = new Set<string>();
-  for (const dm of dms) {
-    const otherMembers = (dm.otherMembers ?? []).filter((m) => m?.userId);
-    const isGroup = otherMembers.length > 1;
-    const hasUnread = dm.lastMessageAt && (!dm.lastReadAt || new Date(dm.lastMessageAt) > new Date(dm.lastReadAt));
-    const mentionCount = dm.unreadMentionCount || 0;
-    // Same label the row itself shows, so the confirmation names the
-    // conversation the user actually clicked.
-    const dmLabel = isGroup
-      ? otherMembers
-          .map((m) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember'))
-          .join(', ') ||
-        dm.name ||
-        st('sweep.weldchat.channelEmptyState.groupFallback')
-      : otherMembers[0]?.name ||
-        otherMembers[0]?.email ||
-        dm.name ||
-        st('sweep.weldchat.sidebar.directMessageDisplayFallback');
-    const commonActions = [
-      {
-        label: dm.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
-        icon: dm.isMuted ? Bell : BellOff,
-        onClick: () => muteChannel({ channelId: dm.id, mute: !dm.isMuted }),
-      },
-      {
-        label: st('sweep.weldchat.sidebar.settings'),
-        icon: Settings,
-        onClick: () =>
-          setSettingsTarget({
-            groupKey: `channel:${dm.id}`,
-            groupLabel:
-              dm.name ??
-              (dm.otherMembers?.[0]?.name ?? dm.otherMembers?.[0]?.email ?? st('sweep.weldchat.sidebar.directMessageFallback')),
-            channels: [dm],
-          }),
-      },
-      {
-        label: st('sweep.weldchat.sidebar.archive'),
-        icon: Archive,
-        onClick: () => archiveChannel(dm.id),
-      },
-      {
-        label: st('sweep.weldchat.sidebar.delete'),
-        icon: Trash2,
-        onClick: () => setPendingDelete({ id: dm.id, name: dmLabel, kind: 'dm' }),
-      },
-    ];
-
-    if (isGroup) {
-      if (seenDmUsers.has(dm.id)) continue;
-      seenDmUsers.add(dm.id);
-      dmItems.push({
-        title: dmLabel,
-        href: `/weldchat/dm/group/${dm.id}`,
-        icon: createGroupDmAvatarIcon(otherMembers),
-        bold: !!hasUnread,
-        badge: mentionCount > 0 ? `${mentionCount}` : undefined,
-        actions: commonActions,
-        id: dm.id,
-      });
-      continue;
-    }
-
-    const other = otherMembers[0];
-    const otherUserId = other?.userId;
-    const key = otherUserId || dm.id;
-    if (seenDmUsers.has(key)) continue;
-    seenDmUsers.add(key);
-    dmItems.push({
-      title: dmLabel,
-      href: otherUserId ? `/weldchat/dm/${otherUserId}` : `/weldchat/dm/${dm.id}`,
-      icon: other ? createDmAvatarIcon(dmLabel, other.picture) : User,
-      bold: !!hasUnread,
-      badge: mentionCount > 0 ? `${mentionCount}` : undefined,
-      actions: commonActions,
-      id: dm.id,
-    });
-  }
+  const dmItems = buildDmItems(dms, {
+    st,
+    muteChannel,
+    archiveChannel,
+    setSettingsTarget,
+    setPendingDelete,
+  });
 
   // Entity-linked channels (tasks, projects, companies, …) are intentionally
   // NOT surfaced here. WeldChat's sidebar lists direct messages, group DMs and
@@ -578,14 +697,14 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         href: '/weldchat/activity',
         icon: AtSign,
         bold: unreadActivityCount > 0,
-        badge: unreadActivityCount > 0 ? String(unreadActivityCount) : undefined,
+        badge: toBadge(unreadActivityCount),
       },
       {
         title: t.drafts ?? 'Drafts',
         href: '/weldchat/drafts',
         icon: SquarePen,
         bold: draftCount > 0,
-        badge: draftCount > 0 ? String(draftCount) : undefined,
+        badge: toBadge(draftCount),
       },
       {
         title: t.directories ?? 'Directories',
@@ -670,21 +789,10 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const unsectionedChannelCount = allChannelItems.filter(
     (ch) => isUnsectioned(ch.id ?? ''),
   ).length;
-  const allSections: { id: string | null; name: string }[] = [
-    ...sections.map((s) => ({ id: s.id as string | null, name: s.name })),
-  ];
-  if (sections.length === 0 || unsectionedChannelCount > 0) {
-    const hasUserChannelsSection = sections.some((s) => s.name === 'Channels');
-    allSections.push({
-      id: null,
-      name: hasUserChannelsSection
-        ? st('sweep.weldchat.sidebar.otherChannels')
-        : st('sweep.weldchat.sidebar.channels'),
-    });
-  }
+  const allSections = buildAllSections(sections, unsectionedChannelCount, st);
   const totalSections = allSections.length;
 
-  for (const section of allSections) {
+  const buildSectionGroup = (section: SectionEntry): MenuGroupProps | null => {
     const sectionChannels = allChannelItems.filter((ch) =>
       section.id ? channelSectionMap[ch.id ?? ''] === section.id : isUnsectioned(ch.id ?? ''),
     );
@@ -700,7 +808,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       sectionSourceChannels,
       sectionKey,
     );
-    if (!shouldShowGroup(filteredSectionChannels, sectionKey)) continue;
+    if (!shouldShowGroup(filteredSectionChannels, sectionKey)) return null;
 
     const canDelete = totalSections > 1;
 
@@ -796,7 +904,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     const sectionDisplayItems = sectionCollapsed
       ? applyPeekFilter(filteredSectionChannels, sectionSourceChannels, sectionKey)
       : filteredSectionChannels;
-    menuGroups.push({
+    return {
       group: decorateLabel(section.name),
       items: sectionDisplayItems,
       collapsed: sectionCollapsed,
@@ -825,7 +933,12 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       groupContextMenu: contextMenu,
       customAddButton: addButton,
       addLabel: st('sweep.weldchat.sidebar.addChannel'),
-    });
+    };
+  };
+
+  for (const section of allSections) {
+    const group = buildSectionGroup(section);
+    if (group) menuGroups.push(group);
   }
 
   const dialogs = (
@@ -834,15 +947,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         <ConfirmDialog
           open
           onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
-          title={
-            pendingDelete.kind === 'dm'
-              ? st('sweep.weldchat.sidebar.deleteDmTitle')
-              : st('sweep.weldchat.sidebar.deleteChannelTitle')
-          }
-          description={(pendingDelete.kind === 'dm'
-            ? st('sweep.weldchat.sidebar.deleteDmDescription')
-            : st('sweep.weldchat.sidebar.deleteChannelDescription')
-          ).replace('{name}', pendingDelete.name)}
+          title={st(DELETE_DIALOG_KEYS[pendingDelete.kind].title)}
+          description={st(DELETE_DIALOG_KEYS[pendingDelete.kind].description).replace('{name}', pendingDelete.name)}
           confirmLabel={st('sweep.weldchat.sidebar.delete')}
           cancelLabel={st('sweep.weldchat.sidebar.deleteCancel')}
           variant="destructive"
@@ -882,19 +988,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         <GroupSettingsDialog
           open={!!settingsTarget}
           onOpenChange={(open) => { if (!open) setSettingsTarget(null); }}
-          target={
-            settingsTarget
-              ? {
-                  ...settingsTarget,
-                  channels: resolveLiveGroupChannels(
-                    settingsTarget.groupKey,
-                    dms,
-                    channels,
-                    channelSectionMap,
-                  ),
-                }
-              : null
-          }
+          target={withLiveChannels(settingsTarget, dms, channels, channelSectionMap)}
         />
       )}
     </React.Suspense>

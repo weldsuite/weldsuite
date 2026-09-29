@@ -8,7 +8,7 @@ import { MessageContextMenu } from './message-context-menu';
 import { FilePreview } from './file-preview';
 import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
-import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot } from 'lucide-react';
+import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, type LucideIcon } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
@@ -242,6 +242,67 @@ interface MessageItemProps {
   hasActiveCall?: boolean;
 }
 
+/** Derives the icon and call state of a system message from its text. */
+function classifySystemText(lowerText: string): { icon: LucideIcon | null; isCallStarted: boolean } {
+  const isPinMessage = lowerText.includes('pinned');
+  const isVoiceCall = lowerText.includes('voice call') || lowerText.includes('audio call');
+  const isVideoCall = lowerText.includes('video call');
+  const isCall = isVoiceCall || isVideoCall || lowerText.includes('started a call') || lowerText.includes('ended a call');
+  const isCallStarted = isCall && lowerText.includes('started');
+
+  if (isPinMessage) return { icon: Pin, isCallStarted };
+  if (isVideoCall) return { icon: Video, isCallStarted };
+  if (isCall) return { icon: Phone, isCallStarted };
+  return { icon: null, isCallStarted };
+}
+
+function SystemMessage({
+  message,
+  systemMatch,
+  hasActiveCall,
+}: Readonly<{
+  message: MessageItemMessage;
+  systemMatch: RegExpMatchArray | null | undefined;
+  hasActiveCall?: boolean;
+}>) {
+  const linkedMessageId = systemMatch?.[1];
+  const labelText = systemMatch
+    ? `${message.authorName} ${systemMatch[2]}`
+    : message.content;
+
+  const handleSystemClick = () => {
+    if (!linkedMessageId) return;
+    const el = document.querySelector(`[data-message-id="${linkedMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('pinned-highlight');
+      setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
+    }
+  };
+
+  const { icon: SystemIcon, isCallStarted } = classifySystemText(labelText?.toLowerCase() || '');
+  const isCallLive = isCallStarted && !!hasActiveCall;
+
+  return (
+    <div className="flex justify-center py-1.5 px-2 md:px-4">
+      <span
+        onClick={linkedMessageId ? handleSystemClick : undefined}
+        className={cn(
+          'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1',
+          isCallLive
+            ? 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5'
+            : 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
+          linkedMessageId && 'cursor-pointer hover:bg-muted',
+        )}
+      >
+        {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
+        {labelText}
+        {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
+      </span>
+    </div>
+  );
+}
+
 export function MessageItem({
   message,
   compact,
@@ -277,49 +338,7 @@ export function MessageItem({
   const isSystemLabel = isSystem || !!systemMatch;
 
   if (isSystemLabel) {
-    const linkedMessageId = systemMatch?.[1];
-    const labelText = systemMatch
-      ? `${message.authorName} ${systemMatch[2]}`
-      : message.content;
-
-    const handleSystemClick = () => {
-      if (!linkedMessageId) return;
-      const el = document.querySelector(`[data-message-id="${linkedMessageId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('pinned-highlight');
-        setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
-      }
-    };
-
-    const lowerText = labelText?.toLowerCase() || '';
-    const isPinMessage = lowerText.includes('pinned');
-    const isVoiceCall = lowerText.includes('voice call') || lowerText.includes('audio call');
-    const isVideoCall = lowerText.includes('video call');
-    const isCall = isVoiceCall || isVideoCall || lowerText.includes('started a call') || lowerText.includes('ended a call');
-    const isCallStarted = isCall && lowerText.includes('started');
-    const isCallLive = isCallStarted && !!hasActiveCall;
-
-    const SystemIcon = isPinMessage ? Pin : isVideoCall ? Video : isCall ? Phone : null;
-
-    return (
-      <div className="flex justify-center py-1.5 px-2 md:px-4">
-        <span
-          onClick={linkedMessageId ? handleSystemClick : undefined}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1',
-            isCallLive
-              ? 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5'
-              : 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
-            linkedMessageId && 'cursor-pointer hover:bg-muted',
-          )}
-        >
-          {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
-          {labelText}
-          {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
-        </span>
-      </div>
-    );
+    return <SystemMessage message={message} systemMatch={systemMatch} hasActiveCall={hasActiveCall} />;
   }
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

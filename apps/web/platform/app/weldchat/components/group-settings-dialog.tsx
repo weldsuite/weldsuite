@@ -150,6 +150,29 @@ type UiPreferencesWithGroupFilters = NonNullable<UserPreferences['uiPreferences'
   weldchatGroupFilters?: WeldchatGroupFilters;
 };
 
+interface ChannelModeLabels {
+  everyChannelVisible: string;
+  channelsWillBeShown: string;
+  channelsWillBeShownPlural: string;
+  channelsWillBeHidden: string;
+  channelsWillBeHiddenPlural: string;
+}
+
+/** Summary line under the channel-visibility rule select. */
+function describeChannelMode(
+  mode: ChannelMode | undefined,
+  count: number,
+  labels: ChannelModeLabels,
+): string {
+  const effectiveMode = mode ?? 'all';
+  if (effectiveMode === 'all') return labels.everyChannelVisible;
+  const isSingular = count === 1;
+  if (effectiveMode === 'include') {
+    return `${count} ${isSingular ? labels.channelsWillBeShown : labels.channelsWillBeShownPlural}`;
+  }
+  return `${count} ${isSingular ? labels.channelsWillBeHidden : labels.channelsWillBeHiddenPlural}`;
+}
+
 export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<GroupSettingsDialogProps>) {
   const { t } = useI18n();
 
@@ -808,11 +831,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
-                      {(draft.channelMode ?? 'all') === 'all'
-                        ? t.weldchat.groupSettings.channels.everyChannelVisible
-                        : (draft.channelMode === 'include'
-                            ? `${channelIds.size} ${channelIds.size === 1 ? t.weldchat.groupSettings.channels.channelsWillBeShown : t.weldchat.groupSettings.channels.channelsWillBeShownPlural}`
-                            : `${channelIds.size} ${channelIds.size === 1 ? t.weldchat.groupSettings.channels.channelsWillBeHidden : t.weldchat.groupSettings.channels.channelsWillBeHiddenPlural}`)}
+                      {describeChannelMode(draft.channelMode, channelIds.size, t.weldchat.groupSettings.channels)}
                     </p>
                   </div>
 
