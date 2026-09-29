@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  type GestureResponderEvent,
 } from 'react-native';
 import { useOrganization, useAuth, useUser } from '@clerk/expo';
 import { useObserve } from 'expo-observe';
@@ -54,6 +55,8 @@ import {
   mentionsToPlainText,
 } from '@/lib/chat/mentions';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+
+type Styles = ReturnType<typeof makeStyles>;
 
 interface ChatAttachment {
   id: string;
@@ -169,6 +172,34 @@ function classifyCallSystemMessage(content: string): { kind: 'missed' | 'made'; 
   if (text.includes('missed call')) return { kind: 'missed', isVideo };
   if (text.includes('started a') || text.includes('call ended')) return { kind: 'made', isVideo };
   return null;
+}
+
+/** Whether `item` opens a new calendar day relative to the chronologically previous message. */
+function startsNewDay(item: Message, prev: Message | undefined): boolean {
+  if (!prev) return true;
+  const itemDate = new Date(item.createdAt);
+  const prevDate = new Date(prev.createdAt);
+  return (
+    itemDate.getDate() !== prevDate.getDate() ||
+    itemDate.getMonth() !== prevDate.getMonth() ||
+    itemDate.getFullYear() !== prevDate.getFullYear()
+  );
+}
+
+/** Consecutive messages by one author within five minutes collapse to a compact row. */
+function isCompactMessage(item: Message, prev: Message | undefined): boolean {
+  if (!prev) return false;
+  const timeDiff = new Date(item.createdAt).getTime() - new Date(prev.createdAt).getTime();
+  return (
+    prev.type !== 'system' &&
+    prev.authorId === item.authorId &&
+    !item.parentId &&
+    // A reply always shows its full header, with the quote above it.
+    !item.metadata?.replyTo &&
+    !Number.isNaN(timeDiff) &&
+    timeDiff >= 0 &&
+    timeDiff < 300000
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -392,6 +423,1007 @@ const swipeReplyStyles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
+
+function blurTintFor(theme: string): BlurTint {
+  return theme === 'dark' ? 'dark' : 'light';
+}
+
+function hasSendableContent(input: string, files: RNFile[]): boolean {
+  return input.trim().length > 0 || files.length > 0;
+}
+
+/** Whether a reply/edit/file/typing row sits above the composer divider. */
+function hasComposerContext(ctx: {
+  editing: boolean;
+  replying: boolean;
+  fileCount: number;
+  typingCount: number;
+}): boolean {
+  return ctx.editing || ctx.replying || ctx.fileCount > 0 || ctx.typingCount > 0;
+}
+
+/** Index of the pinned message currently shown (cycles through the pins). */
+function pinnedPositionFor(index: number, count: number): number {
+  return count > 0 ? index % count : 0;
+}
+
+type ActiveCall = NonNullable<ReturnType<typeof useCall>['activeChannelCalls'][string]>;
+type ImageOrigin = { x: number; y: number; width: number; height: number };
+type OpenImage = (url: string, origin: ImageOrigin | null) => void;
+type MeasurableTarget = {
+  measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void;
+} | null;
+type BlurTint = 'dark' | 'light';
+
+function SystemMessage({
+  content,
+  colors,
+  styles,
+}: Readonly<{ content: string; colors: ThemeColors; styles: Styles }>) {
+  const call = classifyCallSystemMessage(content);
+  if (!call) {
+    return (
+      <View style={styles.systemMessage}>
+        <Text style={styles.systemText}>{content}</Text>
+      </View>
+    );
+  }
+  // Missed calls stay red; past/answered calls get a neutral gray theme.
+  const isMissed = call.kind === 'missed';
+  const bg = isMissed ? colors.destructive : colors.secondary;
+  const fg = isMissed ? '#fff' : colors.mutedForeground;
+  const PhoneIcon = isMissed ? PhoneMissed : Phone;
+  return (
+    <View style={styles.systemMessage}>
+      <View style={[styles.callSystemPill, { backgroundColor: bg }]}>
+        {call.isVideo && !isMissed ? (
+          <VideoCameraIcon size={14} color={fg} fill={fg} strokeWidth={2} />
+        ) : (
+          <PhoneIcon size={13} color={fg} fill={fg} strokeWidth={2} />
+        )}
+        <Text style={[styles.callSystemText, { color: fg }]}>{content}</Text>
+      </View>
+    </View>
+  );
+}
+
+function DateSeparator({ label, styles }: Readonly<{ label: string; styles: Styles }>) {
+  return (
+    <View style={styles.dateSeparator}>
+      <View style={styles.dateLine} />
+      <Text style={styles.dateLabel}>{label}</Text>
+      <View style={styles.dateLine} />
+    </View>
+  );
+}
+
+function replyQuoteText(replyRef: ChatReplyReference, membersMap: Map<string, string>): string {
+  if (replyRef.content) {
+    return mentionsToPlainText(replyRef.content, membersMap).replace(/\s+/g, ' ');
+  }
+  return replyRef.hasAttachments ? 'Attachment' : 'Original message';
+}
+
+function ReplyQuote({
+  replyRef,
+  membersMap,
+  styles,
+  onJump,
+}: Readonly<{
+  replyRef: ChatReplyReference;
+  membersMap: Map<string, string>;
+  styles: Styles;
+  onJump: (messageId: string) => void;
+}>) {
+  return (
+    <TouchableOpacity
+      style={styles.replyQuote}
+      activeOpacity={0.6}
+      onPress={() => onJump(replyRef.messageId)}
+    >
+      <View style={styles.replyQuoteSpine} />
+      {replyRef.authorAvatar ? (
+        <Image source={{ uri: replyRef.authorAvatar }} style={styles.replyQuoteAvatar} />
+      ) : (
+        <View style={[styles.replyQuoteAvatar, styles.replyQuoteAvatarFallback]}>
+          <Text style={styles.replyQuoteAvatarText}>{(replyRef.authorName || '?')[0].toUpperCase()}</Text>
+        </View>
+      )}
+      <Text style={styles.replyQuoteAuthor} numberOfLines={1}>
+        {replyRef.authorName}
+      </Text>
+      <Text style={styles.replyQuoteText} numberOfLines={1}>
+        {replyQuoteText(replyRef, membersMap)}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function ImageAttachment({
+  att,
+  styles,
+  onOpen,
+}: Readonly<{ att: ChatAttachment; styles: Styles; onOpen: OpenImage }>) {
+  const handlePress = (e: GestureResponderEvent) => {
+    // Grow the photo FROM its thumbnail spot into the centered
+    // fullscreen viewer (shared-element). Measure the thumbnail's
+    // window rect so the viewer can interpolate from it to center.
+    const target = e.currentTarget as unknown as MeasurableTarget;
+    if (target?.measureInWindow) {
+      target.measureInWindow((x, y, w, h) => onOpen(att.url, { x, y, width: w, height: h }));
+    } else {
+      onOpen(att.url, null);
+    }
+  };
+  return (
+    <TouchableOpacity activeOpacity={1} onPress={handlePress}>
+      <Image source={{ uri: att.url }} style={styles.attachmentImage} resizeMode="cover" />
+    </TouchableOpacity>
+  );
+}
+
+function AttachmentItem({
+  att,
+  colors,
+  styles,
+  onOpenImage,
+}: Readonly<{
+  att: ChatAttachment;
+  colors: ThemeColors;
+  styles: Styles;
+  onOpenImage: OpenImage;
+}>) {
+  if (att.mimeType.startsWith('image/')) {
+    return <ImageAttachment att={att} styles={styles} onOpen={onOpenImage} />;
+  }
+  if (att.mimeType.startsWith('audio/')) {
+    return <AudioPlayer uri={att.url} />;
+  }
+  return (
+    <TouchableOpacity style={styles.attachmentFile} onPress={() => openExternalUrl(att.url)}>
+      <FileText size={20} color={colors.muted} />
+      <View style={styles.attachmentFileInfo}>
+        <Text style={styles.attachmentFileName} numberOfLines={1}>{att.fileName}</Text>
+        <Text style={styles.attachmentFileSize}>{formatFileSize(att.fileSize)}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function MessageAttachments({
+  attachments,
+  colors,
+  styles,
+  onOpenImage,
+}: Readonly<{
+  attachments: ChatAttachment[];
+  colors: ThemeColors;
+  styles: Styles;
+  onOpenImage: OpenImage;
+}>) {
+  return (
+    <View style={styles.attachmentList}>
+      {attachments.map((att) => (
+        <AttachmentItem
+          key={att.id}
+          att={att}
+          colors={colors}
+          styles={styles}
+          onOpenImage={onOpenImage}
+        />
+      ))}
+    </View>
+  );
+}
+
+/** Message text, edited marker, attachments and reactions (shared by both row layouts). */
+function MessageExtras({
+  item,
+  membersMap,
+  currentUserId,
+  colors,
+  styles,
+  onOpenImage,
+  onToggleReaction,
+}: Readonly<{
+  item: Message;
+  membersMap: Map<string, string>;
+  currentUserId: string;
+  colors: ThemeColors;
+  styles: Styles;
+  onOpenImage: OpenImage;
+  onToggleReaction: (messageId: string, emoji: string, hasReacted: boolean) => void;
+}>) {
+  const { reactions, attachments } = item;
+  return (
+    <>
+      {item.content ? renderMessageText(item.content, membersMap, colors) : null}
+      {item.editedAt ? <Text style={styles.editedLabel}>(edited)</Text> : null}
+      {attachments && attachments.length > 0 && (
+        <MessageAttachments
+          attachments={attachments}
+          colors={colors}
+          styles={styles}
+          onOpenImage={onOpenImage}
+        />
+      )}
+      {reactions && Object.keys(reactions).length > 0 ? (
+        <ReactionBar
+          reactions={reactions}
+          currentUserId={currentUserId}
+          onToggle={(emoji, hasReacted) => onToggleReaction(item.id, emoji, hasReacted)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function MessageAvatar({ item, styles }: Readonly<{ item: Message; styles: Styles }>) {
+  if (item.authorAvatar) {
+    return <Image source={{ uri: item.authorAvatar }} style={styles.msgAvatarImg} />;
+  }
+  return (
+    <View style={styles.msgAvatar}>
+      <Text style={styles.msgAvatarText}>
+        {(item.authorName || '?')[0].toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+function ThreadLink({
+  count,
+  colors,
+  styles,
+  onPress,
+}: Readonly<{ count: number; colors: ThemeColors; styles: Styles; onPress: () => void }>) {
+  return (
+    <TouchableOpacity style={styles.threadLink} onPress={onPress}>
+      <MessageSquare size={14} color={colors.info} />
+      <Text style={styles.threadText}>
+        {count} {count === 1 ? 'reply' : 'replies'}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function HeaderAvatar({
+  isDm,
+  isPrivate,
+  picture,
+  channelName,
+  colors,
+  styles,
+}: Readonly<{
+  isDm: boolean;
+  isPrivate: boolean;
+  picture?: string | null;
+  channelName: string;
+  colors: ThemeColors;
+  styles: Styles;
+}>) {
+  if (!isDm) {
+    const ChannelIcon = isPrivate ? Lock : Hash;
+    return (
+      <View style={styles.headerChannelIcon}>
+        <ChannelIcon size={21} color={colors.text} strokeWidth={2.25} />
+      </View>
+    );
+  }
+  if (picture) {
+    return <Image source={{ uri: picture }} style={styles.headerAvatar} />;
+  }
+  return (
+    <View style={styles.headerAvatarFallback}>
+      <Text style={styles.headerAvatarText}>
+        {(channelName || '?')[0].toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+function ChannelHeader({
+  hideBackButton,
+  isDm,
+  isPrivate,
+  channelName,
+  picture,
+  peerIsOnline,
+  inCall,
+  colors,
+  styles,
+  onBack,
+  onOpenProfile,
+  onStartCall,
+}: Readonly<{
+  hideBackButton?: boolean;
+  isDm: boolean;
+  isPrivate: boolean;
+  channelName: string;
+  picture?: string | null;
+  peerIsOnline: boolean | null;
+  inCall: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onBack: () => void;
+  onOpenProfile: () => void;
+  onStartCall: (callType: 'voice' | 'video') => void;
+}>) {
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerContent}>
+        {!hideBackButton && (
+          <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={HIT_SLOP}>
+            <ChevronLeft size={26} color={colors.text} strokeWidth={2.2} />
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          style={styles.headerIdentity}
+          activeOpacity={0.7}
+          onPress={onOpenProfile}
+          disabled={!isDm}
+        >
+          <HeaderAvatar
+            isDm={isDm}
+            isPrivate={isPrivate}
+            picture={picture}
+            channelName={channelName}
+            colors={colors}
+            styles={styles}
+          />
+          <View style={styles.headerIdentityText}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {channelName}
+            </Text>
+            {isDm && peerIsOnline !== null && (
+              <Text style={styles.headerPresenceText} numberOfLines={1}>
+                {peerIsOnline ? 'Active now' : 'Offline'}
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.headerActions}>
+          {/* While a call is already active (e.g. minimized to the top bar),
+              disable the call buttons so tapping them can't start a second call. */}
+          <TouchableOpacity
+            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+            activeOpacity={0.6}
+            disabled={inCall}
+            onPress={() => onStartCall('video')}
+          >
+            <VideoCameraIcon size={30} color={colors.text} strokeWidth={1.6} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+            activeOpacity={0.6}
+            disabled={inCall}
+            onPress={() => onStartCall('voice')}
+          >
+            <Phone size={22} color={colors.text} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** Active-call banner — tap to join the ongoing call. */
+function CallBanner({
+  activeCall,
+  sessionCallId,
+  colors,
+  styles,
+  onJoin,
+}: Readonly<{
+  activeCall: ActiveCall | null;
+  sessionCallId?: string;
+  colors: ThemeColors;
+  styles: Styles;
+  onJoin: (callType: ActiveCall['callType']) => void;
+}>) {
+  if (!activeCall || sessionCallId === activeCall.callId) return null;
+  const isVideo = activeCall.callType === 'video';
+  const CallIcon = isVideo ? VideoCameraIcon : Phone;
+  return (
+    <TouchableOpacity
+      style={styles.callBanner}
+      activeOpacity={0.85}
+      onPress={() => onJoin(activeCall.callType)}
+    >
+      <View style={styles.callBannerLeft}>
+        <View style={styles.callBannerDot} />
+        <CallIcon size={18} color={colors.success} strokeWidth={2} />
+        <Text style={styles.callBannerText} numberOfLines={1}>
+          {isVideo ? 'Video call in progress' : 'Voice call in progress'}
+        </Text>
+      </View>
+      <View style={styles.callBannerJoinBtn}>
+        <Text style={styles.callBannerJoinText}>Join</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+/** Pinned message bar. */
+function PinnedBar({
+  current,
+  count,
+  position,
+  colors,
+  styles,
+  onPress,
+  onUnpin,
+}: Readonly<{
+  current: Message | undefined;
+  count: number;
+  position: number;
+  colors: ThemeColors;
+  styles: Styles;
+  onPress: () => void;
+  onUnpin: () => void;
+}>) {
+  if (!current) return null;
+  return (
+    <TouchableOpacity style={styles.pinnedBar} onPress={onPress} activeOpacity={0.7}>
+      <View style={styles.pinnedLineContainer}>
+        {Array.from({ length: count }, (_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.pinnedLineSegment,
+              { backgroundColor: i === position ? BRAND : colors.secondary },
+            ]}
+          />
+        ))}
+      </View>
+      <View style={styles.pinnedContent}>
+        <Text style={styles.pinnedAuthor} numberOfLines={1}>
+          {current.authorName}
+          {count > 1 && (
+            <Text style={styles.pinnedCount}>{`  ${position + 1} of ${count}`}</Text>
+          )}
+        </Text>
+        <Text style={styles.pinnedText} numberOfLines={1}>
+          {current.content}
+        </Text>
+      </View>
+      <TouchableOpacity onPress={onUnpin} hitSlop={HIT_SLOP}>
+        <X size={16} color={colors.muted} />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+/** Edit mode banner. */
+function EditBar({
+  active,
+  colors,
+  styles,
+  onClose,
+}: Readonly<{ active: boolean; colors: ThemeColors; styles: Styles; onClose: () => void }>) {
+  if (!active) return null;
+  return (
+    <View style={styles.editBar}>
+      <Pencil size={14} color={BRAND} strokeWidth={2.5} />
+      <Text style={styles.editBarLabel} numberOfLines={1}>
+        Editing message
+      </Text>
+      <TouchableOpacity style={styles.editBarClose} onPress={onClose} hitSlop={HIT_SLOP}>
+        <X size={14} color={colors.text} strokeWidth={3} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/** Long reply chain → suggest continuing in a thread (Discord-style). */
+function ThreadSuggestion({
+  visible,
+  colors,
+  styles,
+  onContinue,
+  onDismiss,
+}: Readonly<{
+  visible: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onContinue: () => void;
+  onDismiss: () => void;
+}>) {
+  if (!visible) return null;
+  return (
+    <View style={styles.threadSuggest}>
+      <MessageSquare size={16} color={BRAND} strokeWidth={2.2} />
+      <Text style={styles.threadSuggestText} numberOfLines={2}>
+        Looks like a conversation. Continue it in a thread?
+      </Text>
+      <TouchableOpacity style={styles.threadSuggestBtn} onPress={onContinue} activeOpacity={0.8}>
+        <Text style={styles.threadSuggestBtnText}>Create thread</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onDismiss}
+        hitSlop={HIT_SLOP}
+        accessibilityLabel="Dismiss thread suggestion"
+      >
+        <X size={14} color={colors.muted} strokeWidth={2.5} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/** Reply preview. */
+function ReplyBar({
+  replyTo,
+  replyMention,
+  colors,
+  styles,
+  onClose,
+  onToggleMention,
+}: Readonly<{
+  replyTo: ReplyTarget | null;
+  replyMention: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onClose: () => void;
+  onToggleMention: () => void;
+}>) {
+  if (!replyTo) return null;
+  const mentionColor = replyMention ? BRAND : colors.muted;
+  return (
+    <View style={styles.replyBar}>
+      <View style={styles.replyBarRow}>
+        <TouchableOpacity style={styles.replyBarClose} onPress={onClose} hitSlop={HIT_SLOP}>
+          <X size={14} color={colors.text} strokeWidth={3} />
+        </TouchableOpacity>
+        <Text style={styles.replyBarLabel} numberOfLines={1}>
+          Replying to <Text style={styles.replyBarLabelName}>{replyTo.authorName}</Text>
+        </Text>
+        <TouchableOpacity
+          style={styles.replyBarMention}
+          onPress={onToggleMention}
+          hitSlop={HIT_SLOP}
+          activeOpacity={0.6}
+        >
+          <AtSign size={16} color={mentionColor} strokeWidth={2.5} />
+          <Text style={[styles.replyBarMentionText, { color: mentionColor }]}>
+            {replyMention ? 'ON' : 'OFF'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function PendingFiles({
+  files,
+  colors,
+  styles,
+  onRemove,
+}: Readonly<{
+  files: RNFile[];
+  colors: ThemeColors;
+  styles: Styles;
+  onRemove: (index: number) => void;
+}>) {
+  if (files.length === 0) return null;
+  return (
+    <View style={styles.pendingFiles}>
+      {files.map((f, i) => (
+        <View key={i} style={styles.pendingFile}>
+          <Paperclip size={12} color={colors.muted} />
+          <Text style={styles.pendingFileName} numberOfLines={1}>{f.name}</Text>
+          <TouchableOpacity onPress={() => onRemove(i)}>
+            <X size={14} color={colors.muted} />
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function typingLabel(typingUsers: string[], membersMap: Map<string, string>): string {
+  const first = membersMap.get(typingUsers[0]) ?? 'Someone';
+  if (typingUsers.length === 1) return `${first} is typing...`;
+  if (typingUsers.length === 2) {
+    return `${first} and ${membersMap.get(typingUsers[1]) ?? 'someone'} are typing...`;
+  }
+  return `${first} and ${typingUsers.length - 1} others are typing...`;
+}
+
+function TypingIndicator({
+  typingUsers,
+  membersMap,
+  styles,
+}: Readonly<{ typingUsers: string[]; membersMap: Map<string, string>; styles: Styles }>) {
+  if (typingUsers.length === 0) return null;
+  return (
+    <View style={styles.typingRow}>
+      <Text style={styles.typingText}>{typingLabel(typingUsers, membersMap)}</Text>
+    </View>
+  );
+}
+
+function RecordingPill({
+  meteringDb,
+  colors,
+  styles,
+  onCancel,
+  onSend,
+}: Readonly<{
+  meteringDb: number;
+  colors: ThemeColors;
+  styles: Styles;
+  onCancel: () => void;
+  onSend: () => void;
+}>) {
+  return (
+    <View style={styles.recordingPill}>
+      <TouchableOpacity style={styles.stopBtnInline} onPress={onCancel} activeOpacity={0.8}>
+        <View style={styles.stopSquare} />
+      </TouchableOpacity>
+      <Waveform active color={colors.mutedForeground} level={meteringDb} />
+      <TouchableOpacity style={styles.sendBtn} onPress={onSend} activeOpacity={0.85}>
+        <ArrowUp size={17} color={colors.background} strokeWidth={2.5} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SendButtonIcon({
+  uploading,
+  canSend,
+  colors,
+}: Readonly<{ uploading: boolean; canSend: boolean; colors: ThemeColors }>) {
+  if (uploading) return <ActivityIndicator size="small" color={colors.background} />;
+  if (canSend) return <ArrowUp size={20} color={colors.background} strokeWidth={2.6} />;
+  return <AudioLines size={19} color={colors.background} strokeWidth={2} />;
+}
+
+interface ExpandedComposerProps {
+  input: string;
+  placeholder: string;
+  members: Map<string, string>;
+  uploading: boolean;
+  canSend: boolean;
+  blurTint: BlurTint;
+  colors: ThemeColors;
+  styles: Styles;
+  inputRef: React.RefObject<TextInput | null>;
+  inputScrollRef: React.RefObject<ScrollView | null>;
+  inputContentHeightRef: React.RefObject<number>;
+  inputUserScrollingRef: React.RefObject<boolean>;
+  onChangeText: (text: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  onAttach: () => void;
+  onSend: () => void;
+  onStartRecording: () => void;
+}
+
+function ExpandedComposer({
+  input,
+  placeholder,
+  members,
+  uploading,
+  canSend,
+  blurTint,
+  colors,
+  styles,
+  inputRef,
+  inputScrollRef,
+  inputContentHeightRef,
+  inputUserScrollingRef,
+  onChangeText,
+  onFocus,
+  onBlur,
+  onAttach,
+  onSend,
+  onStartRecording,
+}: Readonly<ExpandedComposerProps>) {
+  const hasMentions = hasMentionTokens(input);
+  return (
+    <View style={styles.composerShadow}>
+      <View style={styles.inputContainer}>
+        <BlurView
+          intensity={100}
+          tint={blurTint}
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.composerGlass}
+          pointerEvents="none"
+        />
+        {/* Text input area */}
+        <ScrollView
+          ref={inputScrollRef}
+          style={styles.inputWrapper}
+          contentContainerStyle={styles.inputWrapperContent}
+          keyboardShouldPersistTaps="always"
+          showsVerticalScrollIndicator
+          nestedScrollEnabled
+          overScrollMode="never"
+          decelerationRate="normal"
+          onScrollBeginDrag={() => { inputUserScrollingRef.current = true; }}
+          onScrollEndDrag={(e) => {
+            const v = e.nativeEvent.velocity?.y ?? 0;
+            if (Math.abs(v) < 0.05) {
+              inputUserScrollingRef.current = false;
+            }
+          }}
+          onMomentumScrollEnd={() => { inputUserScrollingRef.current = false; }}
+          onContentSizeChange={(_, h) => {
+            const grew = h > inputContentHeightRef.current;
+            inputContentHeightRef.current = h;
+            if (grew && !inputUserScrollingRef.current) {
+              inputScrollRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+        >
+          <TextInput
+            ref={inputRef}
+            style={[styles.input, hasMentions && styles.inputTransparent]}
+            value={input}
+            onChangeText={onChangeText}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            placeholder={placeholder}
+            placeholderTextColor={colors.mutedForeground}
+            multiline
+            autoFocus
+            scrollEnabled={false}
+            textAlignVertical="top"
+          />
+          {hasMentions && (
+            <View style={styles.inputOverlay} pointerEvents="none">
+              {renderInputWithBadges(input, members, colors)}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Bottom action bar — ChatGPT-style: "+" on the left, mic + a solid
+            circular voice/send button on the right. */}
+        <View style={styles.inputActions}>
+          <TouchableOpacity style={styles.composerPlusBtn} onPress={onAttach} activeOpacity={0.6}>
+            <Plus size={24} color={colors.text} strokeWidth={2.1} />
+          </TouchableOpacity>
+          <View style={styles.composerActionsRight}>
+            <TouchableOpacity
+              style={[styles.composerSolidBtn, uploading && styles.sendBtnDisabled]}
+              onPress={canSend ? onSend : onStartRecording}
+              disabled={uploading}
+              activeOpacity={0.85}
+            >
+              <SendButtonIcon uploading={uploading} canSend={canSend} colors={colors} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function CollapsedComposer({
+  placeholder,
+  blurTint,
+  colors,
+  styles,
+  onAttach,
+  onExpand,
+  onStartRecording,
+}: Readonly<{
+  placeholder: string;
+  blurTint: BlurTint;
+  colors: ThemeColors;
+  styles: Styles;
+  onAttach: () => void;
+  onExpand: () => void;
+  onStartRecording: () => void;
+}>) {
+  return (
+    <View style={styles.composerShadowCollapsed}>
+      <View style={styles.inputContainerCollapsed}>
+        <BlurView
+          intensity={100}
+          tint={blurTint}
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.composerGlass}
+          pointerEvents="none"
+        />
+        <TouchableOpacity style={styles.plainBtn} onPress={onAttach}>
+          <Plus size={24} color={colors.text} strokeWidth={2.1} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.collapsedInputArea} onPress={onExpand} activeOpacity={0.7}>
+          <Text style={styles.collapsedPlaceholder} numberOfLines={1}>
+            {placeholder}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.composerSolidBtn}
+          onPress={onStartRecording}
+          activeOpacity={0.85}
+        >
+          <AudioLines size={19} color={colors.background} strokeWidth={2} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+interface ComposerProps extends Omit<ExpandedComposerProps, 'onFocus' | 'onBlur' | 'placeholder'> {
+  isDm: boolean;
+  channelName: string;
+  isArchived: boolean;
+  isRecording: boolean;
+  isInputExpanded: boolean;
+  meteringDb: number;
+  onFocusInput: () => void;
+  onBlurInput: () => void;
+  onUnarchive: () => void;
+  onCancelRecording: () => void;
+  onSendRecording: () => void;
+}
+
+/** Archived banner plus the input bar (recording / expanded / collapsed). */
+function Composer(props: Readonly<ComposerProps>) {
+  const { isArchived, isRecording, isInputExpanded, colors, styles } = props;
+  const placeholder = props.isDm ? 'Message...' : `Message #${props.channelName}`;
+
+  let inputBody: React.ReactNode;
+  if (isRecording) {
+    inputBody = (
+      <RecordingPill
+        meteringDb={props.meteringDb}
+        colors={colors}
+        styles={styles}
+        onCancel={props.onCancelRecording}
+        onSend={props.onSendRecording}
+      />
+    );
+  } else if (isInputExpanded) {
+    inputBody = (
+      <ExpandedComposer
+        {...props}
+        placeholder={placeholder}
+        onFocus={props.onFocusInput}
+        onBlur={props.onBlurInput}
+      />
+    );
+  } else {
+    inputBody = (
+      <CollapsedComposer
+        placeholder={placeholder}
+        blurTint={props.blurTint}
+        colors={colors}
+        styles={styles}
+        onAttach={props.onAttach}
+        onExpand={props.onFocusInput}
+        onStartRecording={props.onStartRecording}
+      />
+    );
+  }
+
+  return (
+    <>
+      {isArchived ? (
+        <View style={styles.archivedBanner}>
+          <Archive size={16} color={colors.muted} />
+          <Text style={styles.archivedText}>This conversation is archived</Text>
+          <TouchableOpacity style={styles.unarchiveBtn} onPress={props.onUnarchive}>
+            <Text style={styles.unarchiveBtnText}>Unarchive</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      {/* Input bar */}
+      <View style={[styles.inputBar, !isInputExpanded && styles.inputBarCollapsed, isArchived && styles.inputBarHidden]}>
+        {inputBody}
+      </View>
+    </>
+  );
+}
+
+const PIN_DURATIONS = [
+  { label: '24 hours', value: '24h' },
+  { label: '7 days', value: '7d' },
+  { label: '30 days', value: '30d' },
+  { label: 'Always', value: 'forever' },
+];
+
+/** Pin duration picker, then the "notify others?" step. */
+function PinDurationModal({
+  visible,
+  pinDuration,
+  colors,
+  styles,
+  onRequestClose,
+  onDismiss,
+  onSelectDuration,
+  onConfirm,
+}: Readonly<{
+  visible: boolean;
+  pinDuration: string | null;
+  colors: ThemeColors;
+  styles: Styles;
+  onRequestClose: () => void;
+  onDismiss: () => void;
+  onSelectDuration: (duration: string) => void;
+  onConfirm: (silent: boolean) => void;
+}>) {
+  const optionStyle = ({ pressed }: { pressed: boolean }) => [
+    styles.pinDurationOption,
+    pressed && styles.pinDurationOptionPressed,
+  ];
+
+  const durationStep = (
+    <>
+      <Text style={styles.pinDurationTitle}>Pin for how long?</Text>
+      {PIN_DURATIONS.map((opt) => (
+        <Pressable
+          key={opt.value}
+          style={optionStyle}
+          onPress={() => onSelectDuration(opt.value)}
+        >
+          {opt.value === 'forever' ? (
+            <InfinityIcon size={20} color={colors.text} />
+          ) : (
+            <Clock size={20} color={colors.text} />
+          )}
+          <Text style={styles.pinDurationOptionText}>{opt.label}</Text>
+        </Pressable>
+      ))}
+    </>
+  );
+
+  const notifyStep = (
+    <>
+      <Text style={styles.pinDurationTitle}>Notify others?</Text>
+      <Pressable style={optionStyle} onPress={() => onConfirm(false)}>
+        <Bell size={20} color={colors.text} />
+        <View style={styles.pinOptionContent}>
+          <Text style={styles.pinDurationOptionText}>Pin with alert</Text>
+          <Text style={styles.pinOptionDesc}>Members will be notified</Text>
+        </View>
+      </Pressable>
+      <Pressable style={optionStyle} onPress={() => onConfirm(true)}>
+        <BellOff size={20} color={colors.muted} />
+        <View style={styles.pinOptionContent}>
+          <Text style={styles.pinDurationOptionText}>Pin silently</Text>
+          <Text style={styles.pinOptionDesc}>No one will be notified</Text>
+        </View>
+      </Pressable>
+    </>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onRequestClose}>
+      <Pressable style={styles.pinDurationBackdrop} onPress={onDismiss}>
+        <Pressable style={styles.pinDurationSheet}>
+          <View style={styles.pinDurationHandle}>
+            <View style={styles.pinDurationHandleBar} />
+          </View>
+          {pinDuration ? notifyStep : durationStep}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function EmptyChannel({
+  isDm,
+  channelName,
+  styles,
+}: Readonly<{ isDm: boolean; channelName: string; styles: Styles }>) {
+  return (
+    <View style={styles.empty}>
+      <Text style={styles.emptyTitle}>
+        {isDm ? `Conversation with ${channelName}` : `Welcome to #${channelName}`}
+      </Text>
+      <Text style={styles.emptyText}>
+        This is the start of the conversation.
+      </Text>
+    </View>
+  );
+}
 
 interface ChannelViewProps {
   channelId: string;
@@ -1115,58 +2147,18 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     return date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   }, []);
 
+  const openImage: OpenImage = (url, origin) => {
+    setViewingImageOrigin(origin);
+    setViewingImage(url);
+  };
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     if (item.type === 'system') {
-      const call = classifyCallSystemMessage(item.content);
-      if (call) {
-        // Missed calls stay red; past/answered calls get a neutral gray theme.
-        const isMissed = call.kind === 'missed';
-        const bg = isMissed ? colors.destructive : colors.secondary;
-        const fg = isMissed ? '#fff' : colors.mutedForeground;
-        const PhoneIcon = isMissed ? PhoneMissed : Phone;
-        return (
-          <View style={styles.systemMessage}>
-            <View style={[styles.callSystemPill, { backgroundColor: bg }]}>
-              {call.isVideo && !isMissed ? (
-                <VideoCameraIcon size={14} color={fg} fill={fg} strokeWidth={2} />
-              ) : (
-                <PhoneIcon size={13} color={fg} fill={fg} strokeWidth={2} />
-              )}
-              <Text style={[styles.callSystemText, { color: fg }]}>{item.content}</Text>
-            </View>
-          </View>
-        );
-      }
-      return (
-        <View style={styles.systemMessage}>
-          <Text style={styles.systemText}>{item.content}</Text>
-        </View>
-      );
+      return <SystemMessage content={item.content} colors={colors} styles={styles} />;
     }
 
     // With inverted FlatList, data is reversed: index+1 is the chronologically previous message
     const prev = reversedMessages[index + 1];
-
-    // Show date separator if first message of the day (chronologically)
-    const itemDate = new Date(item.createdAt);
-    const prevDate = prev ? new Date(prev.createdAt) : null;
-    const showDateLabel = !prevDate ||
-      itemDate.getDate() !== prevDate.getDate() ||
-      itemDate.getMonth() !== prevDate.getMonth() ||
-      itemDate.getFullYear() !== prevDate.getFullYear();
-    const itemTime = new Date(item.createdAt).getTime();
-    const prevTime = prev ? new Date(prev.createdAt).getTime() : 0;
-    const timeDiff = itemTime - prevTime;
-    const isCompact =
-      !!prev &&
-      prev.type !== 'system' &&
-      prev.authorId === item.authorId &&
-      !item.parentId &&
-      // A reply always shows its full header, with the quote above it.
-      !item.metadata?.replyTo &&
-      !Number.isNaN(timeDiff) &&
-      timeDiff >= 0 &&
-      timeDiff < 300000;
 
     // An optimistic row has no server id yet — nothing to act on.
     const onLongPress = () => {
@@ -1181,104 +2173,29 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       startReply(item);
     };
 
-    const replyRef = item.metadata?.replyTo;
-    const replyQuote = replyRef ? (
-      <TouchableOpacity
-        style={styles.replyQuote}
-        activeOpacity={0.6}
-        onPress={() => jumpToMessage(replyRef.messageId)}
-      >
-        <View style={styles.replyQuoteSpine} />
-        {replyRef.authorAvatar ? (
-          <Image source={{ uri: replyRef.authorAvatar }} style={styles.replyQuoteAvatar} />
-        ) : (
-          <View style={[styles.replyQuoteAvatar, styles.replyQuoteAvatarFallback]}>
-            <Text style={styles.replyQuoteAvatarText}>{(replyRef.authorName || '?')[0].toUpperCase()}</Text>
-          </View>
-        )}
-        <Text style={styles.replyQuoteAuthor} numberOfLines={1}>
-          {replyRef.authorName}
-        </Text>
-        <Text style={styles.replyQuoteText} numberOfLines={1}>
-          {replyRef.content
-            ? mentionsToPlainText(replyRef.content, membersMap).replace(/\s+/g, ' ')
-            : replyRef.hasAttachments
-              ? 'Attachment'
-              : 'Original message'}
-        </Text>
-      </TouchableOpacity>
+    // Show date separator if first message of the day (chronologically)
+    const dateSeparator = startsNewDay(item, prev) ? (
+      <DateSeparator label={formatDateLabel(item.createdAt)} styles={styles} />
     ) : null;
 
-    const reactions = item.reactions && Object.keys(item.reactions).length > 0;
-    const hasThread = (item.threadReplyCount ?? 0) > 0;
-
-    const dateSeparator = showDateLabel ? (
-      <View style={styles.dateSeparator}>
-        <View style={styles.dateLine} />
-        <Text style={styles.dateLabel}>{formatDateLabel(item.createdAt)}</Text>
-        <View style={styles.dateLine} />
-      </View>
-    ) : null;
-
-    const renderAttachments = (atts: ChatAttachment[]) => (
-      <View style={styles.attachmentList}>
-        {atts.map((att) => {
-          if (att.mimeType.startsWith('image/')) {
-            return (
-              <TouchableOpacity
-                key={att.id}
-                activeOpacity={1}
-                onPress={(e) => {
-                  // Grow the photo FROM its thumbnail spot into the centered
-                  // fullscreen viewer (shared-element). Measure the thumbnail's
-                  // window rect so the viewer can interpolate from it to center.
-                  const target = e.currentTarget as any;
-                  if (target?.measureInWindow) {
-                    target.measureInWindow((x: number, y: number, w: number, h: number) => {
-                      setViewingImageOrigin({ x, y, width: w, height: h });
-                      setViewingImage(att.url);
-                    });
-                  } else {
-                    setViewingImageOrigin(null);
-                    setViewingImage(att.url);
-                  }
-                }}
-              >
-                <Image source={{ uri: att.url }} style={styles.attachmentImage} resizeMode="cover" />
-              </TouchableOpacity>
-            );
-          }
-          if (att.mimeType.startsWith('audio/')) {
-            return <AudioPlayer key={att.id} uri={att.url} />;
-          }
-          return (
-            <TouchableOpacity key={att.id} style={styles.attachmentFile} onPress={() => openExternalUrl(att.url)}>
-              <FileText size={20} color={colors.muted} />
-              <View style={styles.attachmentFileInfo}>
-                <Text style={styles.attachmentFileName} numberOfLines={1}>{att.fileName}</Text>
-                <Text style={styles.attachmentFileSize}>{formatFileSize(att.fileSize)}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+    const extras = (
+      <MessageExtras
+        item={item}
+        membersMap={membersMap}
+        currentUserId={userId ?? ''}
+        colors={colors}
+        styles={styles}
+        onOpenImage={openImage}
+        onToggleReaction={handleToggleReaction}
+      />
     );
 
-    if (isCompact) {
+    if (isCompactMessage(item, prev)) {
       return (
         <>
           <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
             <View style={[styles.messageCompact, item.pending && styles.messagePending]}>
-              {item.content ? renderMessageText(item.content, membersMap, colors) : null}
-              {item.editedAt ? <Text style={styles.editedLabel}>(edited)</Text> : null}
-              {item.attachments && item.attachments.length > 0 && renderAttachments(item.attachments)}
-              {reactions && (
-                <ReactionBar
-                  reactions={item.reactions!}
-                  currentUserId={userId ?? ''}
-                  onToggle={(emoji, hasReacted) => handleToggleReaction(item.id, emoji, hasReacted)}
-                />
-              )}
+              {extras}
             </View>
           </SwipeableMessage>
           {dateSeparator}
@@ -1286,21 +2203,24 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       );
     }
 
+    const replyRef = item.metadata?.replyTo;
+    const replyQuote = replyRef ? (
+      <ReplyQuote
+        replyRef={replyRef}
+        membersMap={membersMap}
+        styles={styles}
+        onJump={jumpToMessage}
+      />
+    ) : null;
+    const threadCount = item.threadReplyCount ?? 0;
+
     return (
       <>
         <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
           <View style={item.pending && styles.messagePending}>
           {replyQuote}
           <View style={[styles.message, replyQuote ? styles.messageAfterQuote : null]}>
-            {item.authorAvatar ? (
-              <Image source={{ uri: item.authorAvatar }} style={styles.msgAvatarImg} />
-            ) : (
-              <View style={styles.msgAvatar}>
-                <Text style={styles.msgAvatarText}>
-                  {(item.authorName || '?')[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <MessageAvatar item={item} styles={styles} />
             <View style={styles.msgContent}>
               <View style={styles.msgHeader}>
                 <Text style={styles.msgAuthor}>{item.authorName}</Text>
@@ -1311,23 +2231,14 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
                   })}
                 </Text>
               </View>
-              {item.content ? renderMessageText(item.content, membersMap, colors) : null}
-              {item.editedAt ? <Text style={styles.editedLabel}>(edited)</Text> : null}
-              {item.attachments && item.attachments.length > 0 && renderAttachments(item.attachments)}
-              {reactions && (
-                <ReactionBar
-                  reactions={item.reactions!}
-                  currentUserId={userId ?? ''}
-                  onToggle={(emoji, hasReacted) => handleToggleReaction(item.id, emoji, hasReacted)}
+              {extras}
+              {threadCount > 0 && (
+                <ThreadLink
+                  count={threadCount}
+                  colors={colors}
+                  styles={styles}
+                  onPress={() => openThread(item)}
                 />
-              )}
-              {hasThread && (
-                <TouchableOpacity style={styles.threadLink} onPress={() => openThread(item)}>
-                  <MessageSquare size={14} color={colors.info} />
-                  <Text style={styles.threadText}>
-                    {item.threadReplyCount} {item.threadReplyCount === 1 ? 'reply' : 'replies'}
-                  </Text>
-                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -1376,7 +2287,8 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
   }, [channelId, router]);
 
   const [pinnedIndex, setPinnedIndex] = useState(0);
-  const currentPinned = pinnedMessages.length > 0 ? pinnedMessages[pinnedIndex % pinnedMessages.length] : null;
+  const pinnedPosition = pinnedPositionFor(pinnedIndex, pinnedMessages.length);
+  const currentPinned: Message | undefined = pinnedMessages[pinnedPosition];
 
   // Presence subtitle under the DM peer's name. We only have the roster's
   // membership status (no real last-seen timestamp), so this is "Active now"
@@ -1393,165 +2305,101 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     return memberStatus.get(peerId) === 'ACTIVE';
   }, [isDm, channel?.otherUserId, channelName, membersMap, memberStatus]);
 
+  const openPeerProfile = () => {
+    if (!isDm) return;
+    // Prefer otherUserId from backend; fall back to looking it up by
+    // matching the DM display name against workspace members.
+    let targetUserId: string | undefined = channel?.otherUserId;
+    if (!targetUserId && channelName) {
+      for (const [uid, name] of membersMap.entries()) {
+        if (name === channelName) { targetUserId = uid; break; }
+      }
+    }
+    if (targetUserId) router.push(`/user/${targetUserId}` as any);
+  };
+
+  const handlePinnedBarPress = () => {
+    if (!currentPinned) return;
+    if (pinnedMessages.length > 1) {
+      setPinnedIndex((i) => i + 1);
+    }
+    const idx = reversedMessages.findIndex((m) => m.id === currentPinned.id);
+    if (idx >= 0) {
+      flatListRef.current?.scrollToIndex({ index: idx, animated: true });
+    }
+  };
+
+  const handleUnpinCurrent = () => {
+    const msg = currentPinned;
+    if (!msg) return;
+    setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
+    setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isPinned: false } : m));
+    appApi.chatMessages.unpin(msg.id).then(() => loadMessages()).catch(console.error);
+  };
+
+  const handleInputChange = (text: string) => {
+    setInput(text);
+    if (text.length > 0) onKeystroke();
+    // Draft autosave (skip in edit mode — we're editing an existing message)
+    if (!editingMessage) {
+      if (text.trim().length > 0) {
+        saveDraft(text);
+      } else {
+        // Input cleared — delete the draft
+        clearDraft();
+      }
+    }
+    setMentionQuery(detectMentionQuery(text));
+  };
+
+  const blurTint = blurTintFor(theme);
+  const canSend = hasSendableContent(input, pendingFiles);
+  const composerConnected = hasComposerContext({
+    editing: !!editingMessage,
+    replying: !!replyTo,
+    fileCount: pendingFiles.length,
+    typingCount: typingUsers.length,
+  });
+
   return (
     <View style={styles.container}>
       {/* Header */}
       {!hideHeader && (
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-        {!hideBackButton && (
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <ChevronLeft size={26} color={colors.text} strokeWidth={2.2} />
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.headerIdentity}
-          activeOpacity={0.7}
-          onPress={() => {
-            if (!isDm) return;
-            // Prefer otherUserId from backend; fall back to looking it up by
-            // matching the DM display name against workspace members.
-            let targetUserId: string | undefined = channel?.otherUserId;
-            if (!targetUserId && channelName) {
-              for (const [uid, name] of membersMap.entries()) {
-                if (name === channelName) { targetUserId = uid; break; }
-              }
-            }
-            if (targetUserId) router.push(`/user/${targetUserId}` as any);
-          }}
-          disabled={!isDm}
-        >
-          {isDm ? (
-            channel?.picture ? (
-              <Image source={{ uri: channel.picture }} style={styles.headerAvatar} />
-            ) : (
-              <View style={styles.headerAvatarFallback}>
-                <Text style={styles.headerAvatarText}>
-                  {(channelName || '?')[0].toUpperCase()}
-                </Text>
-              </View>
-            )
-          ) : (
-            <View style={styles.headerChannelIcon}>
-              {isPrivate ? (
-                <Lock size={21} color={colors.text} strokeWidth={2.25} />
-              ) : (
-                <Hash size={21} color={colors.text} strokeWidth={2.25} />
-              )}
-            </View>
-          )}
-          <View style={styles.headerIdentityText}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {channelName}
-            </Text>
-            {isDm && peerIsOnline !== null && (
-              <Text style={styles.headerPresenceText} numberOfLines={1}>
-                {peerIsOnline ? 'Active now' : 'Offline'}
-              </Text>
-            )}
-          </View>
-        </TouchableOpacity>
-
-        <View style={styles.headerActions}>
-          {/* While a call is already active (e.g. minimized to the top bar),
-              disable the call buttons so tapping them can't start a second call. */}
-          <TouchableOpacity
-            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-            activeOpacity={0.6}
-            disabled={inCall}
-            onPress={() => handleStartCall('video')}
-          >
-            <VideoCameraIcon size={30} color={colors.text} strokeWidth={1.6} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-            activeOpacity={0.6}
-            disabled={inCall}
-            onPress={() => handleStartCall('voice')}
-          >
-            <Phone size={22} color={colors.text} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
-        </View>
-      </View>
+        <ChannelHeader
+          hideBackButton={hideBackButton}
+          isDm={isDm}
+          isPrivate={isPrivate}
+          channelName={channelName}
+          picture={channel?.picture}
+          peerIsOnline={peerIsOnline}
+          inCall={inCall}
+          colors={colors}
+          styles={styles}
+          onBack={() => router.back()}
+          onOpenProfile={openPeerProfile}
+          onStartCall={handleStartCall}
+        />
       )}
 
       {/* Active-call banner — tap to join the ongoing call */}
-      {activeCall && session?.callId !== activeCall.callId && (
-        <TouchableOpacity
-          style={styles.callBanner}
-          activeOpacity={0.85}
-          onPress={() => handleStartCall(activeCall.callType)}
-        >
-          <View style={styles.callBannerLeft}>
-            <View style={styles.callBannerDot} />
-            {activeCall.callType === 'video' ? (
-              <VideoCameraIcon size={18} color={colors.success} strokeWidth={2} />
-            ) : (
-              <Phone size={18} color={colors.success} strokeWidth={2} />
-            )}
-            <Text style={styles.callBannerText} numberOfLines={1}>
-              {activeCall.callType === 'video' ? 'Video call in progress' : 'Voice call in progress'}
-            </Text>
-          </View>
-          <View style={styles.callBannerJoinBtn}>
-            <Text style={styles.callBannerJoinText}>Join</Text>
-          </View>
-        </TouchableOpacity>
-      )}
+      <CallBanner
+        activeCall={activeCall}
+        sessionCallId={session?.callId}
+        colors={colors}
+        styles={styles}
+        onJoin={handleStartCall}
+      />
 
       {/* Pinned message bar */}
-      {currentPinned && (
-        <TouchableOpacity
-          style={styles.pinnedBar}
-          onPress={() => {
-            if (pinnedMessages.length > 1) {
-              setPinnedIndex((i) => i + 1);
-            }
-            const idx = reversedMessages.findIndex((m) => m.id === currentPinned.id);
-            if (idx >= 0) {
-              flatListRef.current?.scrollToIndex({ index: idx, animated: true });
-            }
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.pinnedLineContainer}>
-            {pinnedMessages.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.pinnedLineSegment,
-                  { backgroundColor: i === (pinnedIndex % pinnedMessages.length) ? BRAND : colors.secondary },
-                ]}
-              />
-            ))}
-          </View>
-          <View style={styles.pinnedContent}>
-            <Text style={styles.pinnedAuthor} numberOfLines={1}>
-              {currentPinned.authorName}
-              {pinnedMessages.length > 1 && (
-                <Text style={styles.pinnedCount}>{`  ${(pinnedIndex % pinnedMessages.length) + 1} of ${pinnedMessages.length}`}</Text>
-              )}
-            </Text>
-            <Text style={styles.pinnedText} numberOfLines={1}>
-              {currentPinned.content}
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => {
-              const msg = currentPinned;
-              if (!msg) return;
-              setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
-              setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isPinned: false } : m));
-              appApi.chatMessages.unpin(msg.id).then(() => loadMessages()).catch(console.error);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <X size={16} color={colors.muted} />
-          </TouchableOpacity>
-        </TouchableOpacity>
-      )}
+      <PinnedBar
+        current={currentPinned}
+        count={pinnedMessages.length}
+        position={pinnedPosition}
+        colors={colors}
+        styles={styles}
+        onPress={handlePinnedBarPress}
+        onUnpin={handleUnpinCurrent}
+      />
 
       {/* Messages — wrapped so the list shrinks when the keyboard appears,
           keeping the input bar's distance from the latest message constant. */}
@@ -1588,14 +2436,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           windowSize={10}
           removeClippedSubviews
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>
-                {isDm ? `Conversation with ${channelName}` : `Welcome to #${channelName}`}
-              </Text>
-              <Text style={styles.emptyText}>
-                This is the start of the conversation.
-              </Text>
-            </View>
+            <EmptyChannel isDm={isDm} channelName={channelName} styles={styles} />
           }
         />
       </Animated.View>
@@ -1626,7 +2467,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         >
           <BlurView
             intensity={100}
-            tint={theme === 'dark' ? 'dark' : 'light'}
+            tint={blurTint}
             experimentalBlurMethod="dimezisBlurView"
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
@@ -1646,275 +2487,84 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         }}
       />
       {/* Edit mode banner */}
-      {editingMessage && (
-        <View style={styles.editBar}>
-          <Pencil size={14} color={BRAND} strokeWidth={2.5} />
-          <Text style={styles.editBarLabel} numberOfLines={1}>
-            Editing message
-          </Text>
-          <TouchableOpacity
-            style={styles.editBarClose}
-            onPress={() => {
-              setEditingMessage(null);
-              setInput('');
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <X size={14} color={colors.text} strokeWidth={3} />
-          </TouchableOpacity>
-        </View>
-      )}
+      <EditBar
+        active={!!editingMessage}
+        colors={colors}
+        styles={styles}
+        onClose={() => {
+          setEditingMessage(null);
+          setInput('');
+        }}
+      />
 
       {/* Long reply chain → suggest continuing in a thread (Discord-style) */}
-      {showThreadSuggestion && (
-        <View style={styles.threadSuggest}>
-          <MessageSquare size={16} color={BRAND} strokeWidth={2.2} />
-          <Text style={styles.threadSuggestText} numberOfLines={2}>
-            Looks like a conversation. Continue it in a thread?
-          </Text>
-          <TouchableOpacity style={styles.threadSuggestBtn} onPress={continueInThread} activeOpacity={0.8}>
-            <Text style={styles.threadSuggestBtnText}>Create thread</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={dismissThreadSuggestion}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Dismiss thread suggestion"
-          >
-            <X size={14} color={colors.muted} strokeWidth={2.5} />
-          </TouchableOpacity>
-        </View>
-      )}
+      <ThreadSuggestion
+        visible={showThreadSuggestion}
+        colors={colors}
+        styles={styles}
+        onContinue={continueInThread}
+        onDismiss={dismissThreadSuggestion}
+      />
 
       {/* Reply preview */}
-      {replyTo && (
-        <View style={styles.replyBar}>
-          <View style={styles.replyBarRow}>
-            <TouchableOpacity
-              style={styles.replyBarClose}
-              onPress={() => setReplyTo(null)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <X size={14} color={colors.text} strokeWidth={3} />
-            </TouchableOpacity>
-            <Text style={styles.replyBarLabel} numberOfLines={1}>
-              Replying to <Text style={styles.replyBarLabelName}>{replyTo.authorName}</Text>
-            </Text>
-            <TouchableOpacity
-              style={styles.replyBarMention}
-              onPress={() => setReplyMention((v) => !v)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.6}
-            >
-              <AtSign size={16} color={replyMention ? BRAND : colors.muted} strokeWidth={2.5} />
-              <Text style={[styles.replyBarMentionText, { color: replyMention ? BRAND : colors.muted }]}>
-                {replyMention ? 'ON' : 'OFF'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      <ReplyBar
+        replyTo={replyTo}
+        replyMention={replyMention}
+        colors={colors}
+        styles={styles}
+        onClose={() => setReplyTo(null)}
+        onToggleMention={() => setReplyMention((v) => !v)}
+      />
 
       {/* Pending files */}
-      {pendingFiles.length > 0 && (
-        <View style={styles.pendingFiles}>
-          {pendingFiles.map((f, i) => (
-            <View key={i} style={styles.pendingFile}>
-              <Paperclip size={12} color={colors.muted} />
-              <Text style={styles.pendingFileName} numberOfLines={1}>{f.name}</Text>
-              <TouchableOpacity onPress={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}>
-                <X size={14} color={colors.muted} />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
+      <PendingFiles
+        files={pendingFiles}
+        colors={colors}
+        styles={styles}
+        onRemove={(i) => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+      />
 
       {/* Typing indicator */}
-      {typingUsers.length > 0 && (
-        <View style={styles.typingRow}>
-          <Text style={styles.typingText}>
-            {typingUsers.length === 1
-              ? `${membersMap.get(typingUsers[0]) ?? 'Someone'} is typing...`
-              : typingUsers.length === 2
-              ? `${membersMap.get(typingUsers[0]) ?? 'Someone'} and ${membersMap.get(typingUsers[1]) ?? 'someone'} are typing...`
-              : `${membersMap.get(typingUsers[0]) ?? 'Someone'} and ${typingUsers.length - 1} others are typing...`}
-          </Text>
-        </View>
-      )}
+      <TypingIndicator typingUsers={typingUsers} membersMap={membersMap} styles={styles} />
 
       {/* Divider line — sits directly above the input; any reply/edit/file/
           typing context rows render above this line, connecting to it flush. */}
       <View
         style={[
           styles.composerDivider,
-          (!!editingMessage || !!replyTo || pendingFiles.length > 0 || typingUsers.length > 0) &&
-            styles.composerDividerConnected,
+          composerConnected && styles.composerDividerConnected,
         ]}
       />
 
       {/* Archived banner or input bar */}
-      {isArchived ? (
-        <View style={styles.archivedBanner}>
-          <Archive size={16} color={colors.muted} />
-          <Text style={styles.archivedText}>This conversation is archived</Text>
-          <TouchableOpacity style={styles.unarchiveBtn} onPress={handleUnarchive}>
-            <Text style={styles.unarchiveBtnText}>Unarchive</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-      {/* Input bar */}
-      <View style={[styles.inputBar, !isInputExpanded && styles.inputBarCollapsed, isArchived && styles.inputBarHidden]}>
-
-        {isRecording ? (
-          <View style={styles.recordingPill}>
-            <TouchableOpacity
-              style={styles.stopBtnInline}
-              onPress={handleCancelRecording}
-              activeOpacity={0.8}
-            >
-              <View style={styles.stopSquare} />
-            </TouchableOpacity>
-            <Waveform active={isRecording} color={colors.mutedForeground} level={meteringDb} />
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={handleSendRecording}
-              activeOpacity={0.85}
-            >
-              <ArrowUp size={17} color={colors.background} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        ) : isInputExpanded ? (
-          <View style={styles.composerShadow}>
-          <View style={styles.inputContainer}>
-            <BlurView
-              intensity={100}
-              tint={theme === 'dark' ? 'dark' : 'light'}
-              experimentalBlurMethod="dimezisBlurView"
-              style={styles.composerGlass}
-              pointerEvents="none"
-            />
-            {/* Text input area */}
-            <ScrollView
-              ref={inputScrollRef}
-              style={styles.inputWrapper}
-              contentContainerStyle={styles.inputWrapperContent}
-              keyboardShouldPersistTaps="always"
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
-              overScrollMode="never"
-              decelerationRate="normal"
-              onScrollBeginDrag={() => { inputUserScrollingRef.current = true; }}
-              onScrollEndDrag={(e) => {
-                const v = e.nativeEvent.velocity?.y ?? 0;
-                if (Math.abs(v) < 0.05) {
-                  inputUserScrollingRef.current = false;
-                }
-              }}
-              onMomentumScrollEnd={() => { inputUserScrollingRef.current = false; }}
-              onContentSizeChange={(_, h) => {
-                const grew = h > inputContentHeightRef.current;
-                inputContentHeightRef.current = h;
-                if (grew && !inputUserScrollingRef.current) {
-                  inputScrollRef.current?.scrollToEnd({ animated: false });
-                }
-              }}
-            >
-              <TextInput
-                ref={inputRef}
-                style={[styles.input, hasMentionTokens(input) && styles.inputTransparent]}
-                value={input}
-                onChangeText={(text) => {
-                  setInput(text);
-                  if (text.length > 0) onKeystroke();
-                  // Draft autosave (skip in edit mode — we're editing an existing message)
-                  if (!editingMessage) {
-                    if (text.trim().length > 0) {
-                      saveDraft(text);
-                    } else {
-                      // Input cleared — delete the draft
-                      clearDraft();
-                    }
-                  }
-                  setMentionQuery(detectMentionQuery(text));
-                }}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                placeholder={isDm ? `Message...` : `Message #${channelName}`}
-                placeholderTextColor={colors.mutedForeground}
-                multiline
-                autoFocus
-                scrollEnabled={false}
-                textAlignVertical="top"
-              />
-              {hasMentionTokens(input) && (
-                <View style={styles.inputOverlay} pointerEvents="none">
-                  {renderInputWithBadges(input, membersMap, colors)}
-                </View>
-              )}
-            </ScrollView>
-
-            {/* Bottom action bar — ChatGPT-style: "+" on the left, mic + a solid
-                circular voice/send button on the right. */}
-            <View style={styles.inputActions}>
-              <TouchableOpacity
-                style={styles.composerPlusBtn}
-                onPress={openAttachmentPicker}
-                activeOpacity={0.6}
-              >
-                <Plus size={24} color={colors.text} strokeWidth={2.1} />
-              </TouchableOpacity>
-              <View style={styles.composerActionsRight}>
-                <TouchableOpacity
-                  style={[styles.composerSolidBtn, uploading && styles.sendBtnDisabled]}
-                  onPress={(input.trim() || pendingFiles.length > 0) ? handleSend : handleStartRecording}
-                  disabled={uploading}
-                  activeOpacity={0.85}
-                >
-                  {uploading ? (
-                    <ActivityIndicator size="small" color={colors.background} />
-                  ) : (input.trim() || pendingFiles.length > 0) ? (
-                    <ArrowUp size={20} color={colors.background} strokeWidth={2.6} />
-                  ) : (
-                    <AudioLines size={19} color={colors.background} strokeWidth={2} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-          </View>
-        ) : (
-          <View style={styles.composerShadowCollapsed}>
-          <View style={styles.inputContainerCollapsed}>
-            <BlurView
-              intensity={100}
-              tint={theme === 'dark' ? 'dark' : 'light'}
-              experimentalBlurMethod="dimezisBlurView"
-              style={styles.composerGlass}
-              pointerEvents="none"
-            />
-            <TouchableOpacity style={styles.plainBtn} onPress={openAttachmentPicker}>
-              <Plus size={24} color={colors.text} strokeWidth={2.1} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.collapsedInputArea}
-              onPress={() => setIsInputFocused(true)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.collapsedPlaceholder} numberOfLines={1}>
-                {isDm ? `Message...` : `Message #${channelName}`}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.composerSolidBtn}
-              onPress={handleStartRecording}
-              activeOpacity={0.85}
-            >
-              <AudioLines size={19} color={colors.background} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-          </View>
-        )}
-      </View>
+      <Composer
+        isArchived={isArchived}
+        isRecording={isRecording}
+        isInputExpanded={isInputExpanded}
+        meteringDb={meteringDb}
+        input={input}
+        isDm={isDm}
+        channelName={channelName}
+        members={membersMap}
+        uploading={uploading}
+        canSend={canSend}
+        blurTint={blurTint}
+        colors={colors}
+        styles={styles}
+        inputRef={inputRef}
+        inputScrollRef={inputScrollRef}
+        inputContentHeightRef={inputContentHeightRef}
+        inputUserScrollingRef={inputUserScrollingRef}
+        onChangeText={handleInputChange}
+        onFocusInput={() => setIsInputFocused(true)}
+        onBlurInput={() => setIsInputFocused(false)}
+        onAttach={openAttachmentPicker}
+        onSend={handleSend}
+        onStartRecording={handleStartRecording}
+        onCancelRecording={handleCancelRecording}
+        onSendRecording={handleSendRecording}
+        onUnarchive={handleUnarchive}
+      />
       </KeyboardStickyView>
 
       {/* Message actions bottom sheet */}
@@ -1960,64 +2610,16 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       />
 
       {/* Pin duration picker */}
-      <Modal
+      <PinDurationModal
         visible={showPinDuration}
-        transparent
-        animationType="fade"
+        pinDuration={pinDuration}
+        colors={colors}
+        styles={styles}
         onRequestClose={() => setShowPinDuration(false)}
-      >
-        <Pressable style={styles.pinDurationBackdrop} onPress={() => { setShowPinDuration(false); setPinDuration(null); setMessageToPin(null); }}>
-          <Pressable style={styles.pinDurationSheet}>
-            <View style={styles.pinDurationHandle}>
-              <View style={styles.pinDurationHandleBar} />
-            </View>
-            {!pinDuration ? (
-              <>
-                <Text style={styles.pinDurationTitle}>Pin for how long?</Text>
-                {[
-                  { label: '24 hours', value: '24h', icon: <Clock size={20} color={colors.text} /> },
-                  { label: '7 days', value: '7d', icon: <Clock size={20} color={colors.text} /> },
-                  { label: '30 days', value: '30d', icon: <Clock size={20} color={colors.text} /> },
-                  { label: 'Always', value: 'forever', icon: <InfinityIcon size={20} color={colors.text} /> },
-                ].map((opt) => (
-                  <Pressable
-                    key={opt.value}
-                    style={({ pressed }) => [styles.pinDurationOption, pressed && styles.pinDurationOptionPressed]}
-                    onPress={() => handleSelectDuration(opt.value)}
-                  >
-                    {opt.icon}
-                    <Text style={styles.pinDurationOptionText}>{opt.label}</Text>
-                  </Pressable>
-                ))}
-              </>
-            ) : (
-              <>
-                <Text style={styles.pinDurationTitle}>Notify others?</Text>
-                <Pressable
-                  style={({ pressed }) => [styles.pinDurationOption, pressed && styles.pinDurationOptionPressed]}
-                  onPress={() => handlePinConfirm(false)}
-                >
-                  <Bell size={20} color={colors.text} />
-                  <View style={styles.pinOptionContent}>
-                    <Text style={styles.pinDurationOptionText}>Pin with alert</Text>
-                    <Text style={styles.pinOptionDesc}>Members will be notified</Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.pinDurationOption, pressed && styles.pinDurationOptionPressed]}
-                  onPress={() => handlePinConfirm(true)}
-                >
-                  <BellOff size={20} color={colors.muted} />
-                  <View style={styles.pinOptionContent}>
-                    <Text style={styles.pinDurationOptionText}>Pin silently</Text>
-                    <Text style={styles.pinOptionDesc}>No one will be notified</Text>
-                  </View>
-                </Pressable>
-              </>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onDismiss={() => { setShowPinDuration(false); setPinDuration(null); setMessageToPin(null); }}
+        onSelectDuration={handleSelectDuration}
+        onConfirm={handlePinConfirm}
+      />
     </View>
   );
 }
