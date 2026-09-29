@@ -2451,6 +2451,47 @@ function MonthView({
     pendingDragRef.current = true;
   }, []);
 
+  // Event chips (plus the "+N more" line) of one day cell. `reserved` is the
+  // number of slots taken by the quick-create preview / drag ghost.
+  const renderDayEventChips = (day: Date, dayEvents: CalendarEvent[], reserved: number) => {
+    const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
+    return (
+      <>
+        {dayEvents.slice(0, visible).map((evt, ei) => {
+          const isEventSelected = selectedEventId === evt.id;
+          const isDragging = dragEvent?.id === evt.id;
+          return (
+            <MonthEventChip
+              key={evt.id || ei}
+              color={getEventColor(evt, calendarColorMap)}
+              time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
+              title={evt.title}
+              className={cn(
+                isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
+                isDragging && "opacity-40 pointer-events-none",
+              )}
+              style={{ cursor: 'grab' }}
+              onMouseDown={(e) => handleEventDragStart(evt, e)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
+              }}
+            />
+          );
+        })}
+        {hidden > 0 && (
+          <MonthMoreButton
+            label={t.misc.moreEvents.replace('{count}', String(hidden))}
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowDay(day);
+            }}
+          />
+        )}
+      </>
+    );
+  };
+
   const dayNames = [
     t.bookingEditorDays.mon,
     t.bookingEditorDays.tue,
@@ -2519,46 +2560,8 @@ function MonthView({
                     </span>
                   </div>
                   <div className="space-y-0.5 overflow-hidden">
-                    {(() => {
-                      // The quick-create preview / drag ghost occupies a slot too.
-                      const reserved = (isSelected && !dragEvent) || isDragOver ? 1 : 0;
-                      const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
-                      return (
-                        <>
-                          {dayEvents.slice(0, visible).map((evt, ei) => {
-                            const isEventSelected = selectedEventId === evt.id;
-                            const isDragging = dragEvent?.id === evt.id;
-                            return (
-                              <MonthEventChip
-                                key={evt.id || ei}
-                                color={getEventColor(evt, calendarColorMap)}
-                                time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
-                                title={evt.title}
-                                className={cn(
-                                  isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
-                                  isDragging && "opacity-40 pointer-events-none",
-                                )}
-                                style={{ cursor: 'grab' }}
-                                onMouseDown={(e) => handleEventDragStart(evt, e)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
-                                }}
-                              />
-                            );
-                          })}
-                          {hidden > 0 && (
-                            <MonthMoreButton
-                              label={t.misc.moreEvents.replace('{count}', String(hidden))}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onShowDay(day);
-                              }}
-                            />
-                          )}
-                        </>
-                      );
-                    })()}
+                    {/* The quick-create preview / drag ghost occupies a slot too. */}
+                    {renderDayEventChips(day, dayEvents, (isSelected && !dragEvent) || isDragOver ? 1 : 0)}
                     {/* Ghost preview on drag target */}
                     {isDragOver && dragEvent && (
                       <div

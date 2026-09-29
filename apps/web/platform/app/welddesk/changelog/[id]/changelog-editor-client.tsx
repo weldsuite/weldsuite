@@ -38,6 +38,11 @@ import {
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import {
+  handleEditorStructureKeys,
+  nextCommandIndex,
+  previousCommandIndex,
+} from '@/app/welddesk/lib/rich-editor-keydown';
 
 interface Command {
   id: string;
@@ -166,140 +171,61 @@ export function ChangelogEditorClient(_props: ChangelogEditorClientProps) {
     }
   };
 
-  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // Ensure the current element has proper direction
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
-
-      // Handle backspace in list items
-      if (e.key === 'Backspace' && element.tagName === 'LI') {
-        const range = selection.getRangeAt(0);
-        const listItem = element;
-
-        // Check if cursor is at the very start of the list item
-        if (range.collapsed && range.startOffset === 0) {
-          // Check if we're at the start of the first text node or the list item itself
-          const isAtStart = range.startContainer === listItem ||
-                           (range.startContainer === listItem.firstChild &&
-                            range.startContainer.nodeType === Node.TEXT_NODE);
-
-          if (isAtStart) {
-            const list = listItem.parentElement;
-
-            if (list && (list.tagName === 'UL' || list.tagName === 'OL')) {
-              e.preventDefault();
-
-              // Get the HTML content of the list item
-              const content = listItem.innerHTML.replace(/^\u200B/, '').trim() || '';
-
-              // Create a paragraph with the list item content
-              const paragraph = document.createElement('p');
-              paragraph.setAttribute('dir', 'ltr');
-
-              if (content) {
-                paragraph.innerHTML = content;
-              } else {
-                paragraph.appendChild(document.createTextNode('\u200B'));
-              }
-
-              // Get the position where we need to insert
-              const nextSibling = list.nextSibling;
-              const parentNode = list.parentNode;
-
-              // Remove the list item first
-              listItem.remove();
-
-              // Check if list still has items
-              if (list.children.length === 0) {
-                // List is empty, replace it with the paragraph
-                parentNode?.replaceChild(paragraph, list);
-              } else {
-                // List still has items, insert paragraph after it
-                if (nextSibling) {
-                  parentNode?.insertBefore(paragraph, nextSibling);
-                } else {
-                  parentNode?.appendChild(paragraph);
-                }
-              }
-
-              // Set cursor at the start of the new paragraph
-              setTimeout(() => {
-                const newRange = document.createRange();
-                const firstNode = paragraph.childNodes[0];
-
-                if (firstNode && firstNode.nodeType === Node.TEXT_NODE) {
-                  newRange.setStart(firstNode, 0);
-                } else if (firstNode) {
-                  newRange.setStart(firstNode, 0);
-                } else {
-                  newRange.setStart(paragraph, 0);
-                }
-
-                newRange.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-
-                // Update content
-                if (contentRef.current) {
-                  setContent(contentRef.current.innerHTML);
-                }
-              }, 0);
-            }
-          }
-        }
-      }
+  const syncContentFromEditor = () => {
+    if (contentRef.current) {
+      setContent(contentRef.current.innerHTML);
     }
+  };
 
-    // Handle command menu navigation
-    if (showCommandMenu) {
-      if (e.key === 'ArrowDown') {
+  const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    switch (e.key) {
+      case 'ArrowDown':
         e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === 'ArrowUp') {
+        setSelectedCommandIndex((prev) => nextCommandIndex(prev, filteredCommands.length));
+        break;
+      case 'ArrowUp':
         e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-      } else if (e.key === 'Enter') {
+        setSelectedCommandIndex((prev) => previousCommandIndex(prev, filteredCommands.length));
+        break;
+      case 'Enter':
         e.preventDefault();
-        if (filteredCommands[selectedCommandIndex]) {
-          filteredCommands[selectedCommandIndex].action();
-        }
-      } else if (e.key === 'Escape') {
+        filteredCommands[selectedCommandIndex]?.action();
+        break;
+      case 'Escape':
         e.preventDefault();
         setShowCommandMenu(false);
         setCommandFilter('');
-      }
+        break;
+    }
+  };
+
+  const openCommandMenuAtCaret = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const editorRect = contentRef.current?.getBoundingClientRect();
+
+    if (editorRect) {
+      setCommandMenuPosition({
+        top: rect.bottom - editorRect.top + 5,
+        left: rect.left - editorRect.left,
+      });
+    }
+    setShowCommandMenu(true);
+    setCommandFilter('');
+    setSelectedCommandIndex(0);
+  };
+
+  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Keep the current element LTR and handle backspace in list items
+    handleEditorStructureKeys(e, syncContentFromEditor);
+
+    if (showCommandMenu) {
+      handleCommandMenuKeyDown(e);
     } else if (e.key === '/') {
       // Show command menu when / is typed
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const editorRect = contentRef.current?.getBoundingClientRect();
-
-          if (editorRect) {
-            setCommandMenuPosition({
-              top: rect.bottom - editorRect.top + 5,
-              left: rect.left - editorRect.left,
-            });
-          }
-          setShowCommandMenu(true);
-          setCommandFilter('');
-          setSelectedCommandIndex(0);
-        }
-      }, 0);
+      setTimeout(openCommandMenuAtCaret, 0);
     }
   };
 
