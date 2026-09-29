@@ -226,147 +226,567 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
 }
 
 
-export default function EmailDetailScreen() {
-  const params = useLocalSearchParams<{
-    id: string;
-    fromName?: string;
-    fromEmail?: string;
-    subject?: string;
-    preview?: string;
-    fromNotification?: string;
-  }>();
-  const id = firstParam(params.id);
-  const fromName = firstParam(params.fromName);
-  const fromEmail = firstParam(params.fromEmail);
-  const subject = firstParam(params.subject);
-  const preview = firstParam(params.preview);
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const isNotFoundError = (err: unknown) => isApiError(err) && err.status === 404;
+
+// Fetch the message with a few retries. Only a genuine 404 means the
+// message is really gone; a network drop, a not-yet-ready auth token, or
+// a 5xx are transient and must NOT surface as "Email not found" — we
+// retry, then fall back to a retryable error state.
+async function fetchMessageWithRetry(
+  id: string,
+  isCancelled: () => boolean,
+): Promise<{ fetched: any; gone: boolean }> {
+  for (let attempt = 0; attempt < 3 && !isCancelled(); attempt++) {
+    try {
+      return { fetched: await getMessage(id), gone: false };
+    } catch (err) {
+      if (isNotFoundError(err)) return { fetched: null, gone: true };
+      if (attempt < 2) await delay(300 * (attempt + 1));
+    }
+  }
+  return { fetched: null, gone: false };
+}
+
+interface LoadEmailContext {
+  id: string;
+  cache: ReturnType<typeof useMailCache>;
+  stub: any;
+  isCancelled: () => boolean;
+  setEmail: (email: any) => void;
+  setThreadMessages: (messages: any[]) => void;
+  setLoading: (loading: boolean) => void;
+  setBodyLoading: (loading: boolean) => void;
+  setLoadOutcome: (outcome: 'gone' | 'failed' | null) => void;
+  refreshMail: () => void;
+}
+
+function showCachedEmail(ctx: LoadEmailContext, cachedMsg: any, cachedThread: any) {
+  ctx.setEmail(cachedMsg);
+  if (cachedThread) ctx.setThreadMessages((cachedThread as any[]).filter((m) => m.id !== ctx.id));
+  ctx.setLoading(false);
+  ctx.setBodyLoading(false);
+}
+
+function applyFetchResult(
+  ctx: LoadEmailContext,
+  { fetched, gone, hasCached }: { fetched: any; gone: boolean; hasCached: boolean },
+) {
+  if (fetched) {
+    ctx.setEmail(fetched);
+    ctx.setLoadOutcome(null);
+    ctx.setBodyLoading(false);
+    ctx.cache.setMessage(ctx.id, fetched as Record<string, unknown>);
+    markMessageRead(ctx.id).catch(() => {});
+    return;
+  }
+  // Nothing fetched and nothing to show.
+  if (hasCached || ctx.stub) return;
+  if (gone) {
+    // Genuinely gone server-side. We had nothing cached, so the tapped row
+    // was a stale/dead entry in the list — re-sync so it disappears.
+    ctx.setLoadOutcome('gone');
+    ctx.refreshMail();
+  } else {
+    // Couldn't reach it after retries and have nothing to show — offer a
+    // retry instead of a misleading "not found".
+    ctx.setLoadOutcome('failed');
+  }
+}
+
+// Thread is best-effort and must never gate the message view.
+async function loadThreadBestEffort(ctx: LoadEmailContext) {
+  try {
+    const t = await getThread(ctx.id);
+    if (!ctx.isCancelled()) {
+      ctx.cache.setThread(ctx.id, t);
+      ctx.setThreadMessages(t.filter((m: { id: string }) => m.id !== ctx.id));
+    }
+  } catch {
+    // Keep any cached thread already shown.
+  }
+}
+
+async function loadEmail(ctx: LoadEmailContext) {
+  const { id, cache, isCancelled } = ctx;
+  // Cache-first: if we've opened this email before, show it (and its thread)
+  // instantly, so a re-open works offline and there's no spinner online.
+  const [cachedMsg, cachedThread] = await Promise.all([cache.getMessage(id), cache.getThread(id)]);
+  if (isCancelled()) return;
+  if (cachedMsg) showCachedEmail(ctx, cachedMsg, cachedThread);
+
+  const { fetched, gone } = await fetchMessageWithRetry(id, isCancelled);
+  if (isCancelled()) return;
+  applyFetchResult(ctx, { fetched, gone, hasCached: !!cachedMsg });
+
+  await loadThreadBestEffort(ctx);
+
+  if (!isCancelled()) {
+    ctx.setLoading(false);
+    ctx.setBodyLoading(false);
+  }
+}
+
+const countAddresses = (value: any): number => {
+  const text = formatRecipients(value);
+  return text ? text.split(/[,;]\s*/).filter(Boolean).length : 0;
+};
+
+// Reply All only makes sense with more than one recipient.
+const hasMultipleRecipientsIn = (message: any): boolean =>
+  countAddresses(message.to) + countAddresses(message.cc) > 1;
+
+const emailDate = (email: any) => email.receivedAt || email.receivedDate || email.createdAt;
+
+function formatDetailedDate(d: string | undefined): string {
+  if (!d) return '';
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return '';
+  const time = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${time}`;
+}
+
+const HEADER_HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 6 };
+
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+function EmailStatusFrame({ onClose, children }: Readonly<{ onClose: () => void; children: React.ReactNode }>) {
+  const { theme, colors } = useTheme();
+  const isDark = theme === 'dark';
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.topHeader,
+          { paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: '#E5E7EB' },
+        ]}
+      >
+        <View style={styles.topHeaderRow}>
+          <CloseArchiveButtons
+            onClose={onClose}
+            onArchiveAndNext={() => {}}
+            borderColor={isDark ? colors.border : '#E5E7EB'}
+            iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+            archiveDisabled
+          />
+        </View>
+      </View>
+      <View style={styles.centerContainer}>{children}</View>
+    </View>
+  );
+}
+
+function EmailLoadingScreen({ onClose }: Readonly<{ onClose: () => void }>) {
+  const { colors } = useTheme();
+  return (
+    <EmailStatusFrame onClose={onClose}>
+      {/* ActivityIndicator animates on the UI thread, so it stays smooth even
+          while the JS thread is busy with the navigation + fetch that opening
+          an email kicks off (MaterialSpinner's SVG animation janks there). */}
+      <ActivityIndicator size="large" color={colors.text} />
+    </EmailStatusFrame>
+  );
+}
+
+function EmailUnavailableScreen({ onClose, isGone, onRetry }: Readonly<{ onClose: () => void; isGone: boolean; onRetry: () => void }>) {
+  const { colors } = useTheme();
+  return (
+    <EmailStatusFrame onClose={onClose}>
+      <Text style={[styles.errorText, { color: colors.text }]}>
+        {isGone ? 'Email not found' : "Couldn't load this email"}
+      </Text>
+      {!isGone && (
+        <TouchableOpacity
+          onPress={onRetry}
+          style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
+        </TouchableOpacity>
+      )}
+    </EmailStatusFrame>
+  );
+}
+
+function HeaderIconButton({ onPress, children }: Readonly<{ onPress: () => void; children: React.ReactNode }>) {
+  return (
+    <TouchableOpacity onPress={onPress} style={styles.topHeaderIconBtn} hitSlop={HEADER_HIT_SLOP}>
+      {children}
+    </TouchableOpacity>
+  );
+}
+
+interface EmailTopHeaderProps {
+  email: any;
+  isPinned: boolean;
+  isDark: boolean;
+  colors: ThemeColors;
+  topInset: number;
+  onContinueToNext: () => void;
+  onArchiveAndNext: () => void;
+  onStar: () => void;
+  onPin: () => void;
+  onArchive: () => void;
+  onSnooze: () => void;
+  onLabels: () => void;
+  onMore: () => void;
+}
+
+// Top Header Bar — subject inline + actions
+function EmailTopHeader({
+  email,
+  isPinned,
+  isDark,
+  colors,
+  topInset,
+  onContinueToNext,
+  onArchiveAndNext,
+  onStar,
+  onPin,
+  onArchive,
+  onSnooze,
+  onLabels,
+  onMore,
+}: Readonly<EmailTopHeaderProps>) {
+  const starColor = email.isStarred ? '#EAB308' : '#6B7280';
+  const pinColor = isPinned ? '#3B82F6' : '#6B7280';
+
+  return (
+    <View
+      style={[
+        styles.topHeader,
+        {
+          paddingTop: topInset,
+          backgroundColor: colors.background,
+          borderBottomColor: '#E5E7EB',
+        },
+      ]}
+    >
+      <View style={styles.topHeaderRow}>
+        <CloseArchiveButtons
+          onClose={onContinueToNext}
+          onArchiveAndNext={onArchiveAndNext}
+          borderColor={isDark ? colors.border : '#E5E7EB'}
+          iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+        />
+        <View style={{ flex: 1 }} />
+        <View style={styles.topHeaderActions}>
+          <HeaderIconButton onPress={onStar}>
+            <Star
+              size={18}
+              color={starColor}
+              fill={email.isStarred ? '#EAB308' : 'transparent'}
+              strokeWidth={2}
+            />
+          </HeaderIconButton>
+          <HeaderIconButton onPress={onPin}>
+            <Pin
+              size={18}
+              color={pinColor}
+              fill={isPinned ? '#3B82F6' : 'transparent'}
+              strokeWidth={2}
+            />
+          </HeaderIconButton>
+          <HeaderIconButton onPress={onArchive}>
+            <Archive size={18} color="#6B7280" strokeWidth={2} />
+          </HeaderIconButton>
+          <HeaderIconButton onPress={onSnooze}>
+            <Clock size={18} color="#6B7280" strokeWidth={2} />
+          </HeaderIconButton>
+          <HeaderIconButton onPress={onLabels}>
+            <Tag size={18} color="#6B7280" strokeWidth={2} />
+          </HeaderIconButton>
+          <HeaderIconButton onPress={onMore}>
+            <MoreVertical size={18} color="#6B7280" strokeWidth={2} />
+          </HeaderIconButton>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+interface EmailSenderHeaderProps {
+  email: any;
+  senderName: string;
+  avatarColor: string;
+  showEmailDetails: boolean;
+  colors: ThemeColors;
+  onOpenContact: () => void;
+  onToggleDetails: () => void;
+}
+
+// Sender Header — avatar | name to email | date · more
+function EmailSenderHeader({ email, senderName, avatarColor, showEmailDetails, colors, onOpenContact, onToggleDetails }: Readonly<EmailSenderHeaderProps>) {
+  const DetailsChevron = showEmailDetails ? ChevronUp : ChevronDown;
+
+  return (
+    <View style={styles.senderHeader}>
+      <View style={styles.senderLeft}>
+        <TouchableOpacity onPress={onOpenContact} activeOpacity={0.7}>
+          <View style={[styles.senderAvatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.senderAvatarText}>
+              {senderName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        <View style={styles.senderInfo}>
+          <View style={styles.senderLineWrap}>
+            <TouchableOpacity onPress={onOpenContact} activeOpacity={0.7}>
+              <Text style={[styles.senderName, { color: colors.text }]} numberOfLines={1}>
+                {senderName}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.senderToWord}>to</Text>
+            <TouchableOpacity
+              onPress={onToggleDetails}
+              activeOpacity={0.7}
+              style={styles.senderRecipientWrap}
+            >
+              <Text style={styles.senderRecipientEmail} numberOfLines={1}>
+                {formatRecipients(email.to) || 'me'}
+              </Text>
+              <DetailsChevron size={13} color="#3B82F6" strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+      <Text style={styles.senderDate}>
+        {formatPlatformDate(emailDate(email))}
+      </Text>
+    </View>
+  );
+}
+
+// Email Details Panel
+function EmailDetailsPanel({ email, senderName, senderEmail, colors }: Readonly<{ email: any; senderName: string; senderEmail: string; colors: ThemeColors }>) {
+  return (
+    <View style={[styles.detailsPanel, { borderColor: '#E5E7EB' }]}>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>From</Text>
+        <View style={styles.detailValue}>
+          <Text style={[styles.detailName, { color: colors.text }]}>{senderName}</Text>
+          <Text style={styles.detailEmail}>{senderEmail}</Text>
+        </View>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>To</Text>
+        <Text style={[styles.detailEmailLine, { color: colors.text }]}>
+          {formatRecipients(email.to)}
+        </Text>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>Date</Text>
+        <Text style={[styles.detailEmailLine, { color: colors.text }]}>
+          {formatDetailedDate(emailDate(email))}
+        </Text>
+      </View>
+      <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
+        <Lock size={14} color="#6B7280" strokeWidth={2} style={{ marginTop: 2 }} />
+        <Text style={[styles.detailEmailLine, { color: colors.text, marginLeft: 6 }]}>
+          Standard encryption (TLS)
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function EmailBody({ email, bodyLoading, colors }: Readonly<{ email: any; bodyLoading: boolean; colors: ThemeColors }>) {
+  const html = email.bodyHtml || email.htmlBody || email.htmlContent;
+  if (html) {
+    return (
+      <EmailHtmlView
+        html={html}
+        fontSize={14}
+        lineHeight={1.625}
+        initialHeight={300}
+        style={styles.webViewBody}
+      />
+    );
+  }
+  if (bodyLoading) {
+    return (
+      <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+        <ActivityIndicator size="small" color={colors.text} />
+      </View>
+    );
+  }
+  return (
+    <Text style={[styles.body, { color: colors.text }]}>
+      {email.textBody || email.textContent || email.body || email.preview || email.snippet || 'No content'}
+    </Text>
+  );
+}
+
+const attachmentName = (attachment: any): string =>
+  attachment.fileName || attachment.filename || attachment.name || 'Attachment';
+
+function AttachmentCard({ attachment, colors, isDark }: Readonly<{ attachment: any; colors: ThemeColors; isDark: boolean }>) {
+  const name = attachmentName(attachment);
+  const { kind, color, ext } = getAttachmentVisual(name);
+  const Icon = ATTACHMENT_ICONS[kind];
+  const sizeLabel = attachment.size > 0 ? formatFileSize(attachment.size) : '';
+
+  return (
+    <TouchableOpacity
+      style={[styles.attachmentCard, { borderColor: colors.border || '#E5E7EB', backgroundColor: isDark ? '#1F1F23' : '#FFFFFF' }]}
+      activeOpacity={0.7}
+      onPress={() => openAttachment(attachment)}
+    >
+      <View style={[styles.attachmentCardIcon, { backgroundColor: color + '1A' }]}>
+        <Icon size={20} color={color} strokeWidth={2} />
+      </View>
+      <View style={styles.attachmentCardMeta}>
+        <Text style={[styles.attachmentCardName, { color: colors.text }]} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.attachmentCardSub} numberOfLines={1}>
+          {[ext, sizeLabel].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+      <Download size={16} color="#9CA3AF" strokeWidth={2} />
+    </TouchableOpacity>
+  );
+}
+
+// Attachments — Gmail-style cards in a horizontal rail with typed icons
+function AttachmentsBlock({ attachments, colors, isDark }: Readonly<{ attachments: any[]; colors: ThemeColors; isDark: boolean }>) {
+  return (
+    <View style={styles.attachmentsBlock}>
+      <View style={styles.attachmentsHeader}>
+        <Paperclip size={13} color="#6B7280" strokeWidth={2} />
+        <Text style={styles.attachmentsHeaderText}>
+          {attachments.length} {attachments.length === 1 ? 'ATTACHMENT' : 'ATTACHMENTS'}
+        </Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.attachmentRail}
+      >
+        {attachments.map((attachment) => (
+          <AttachmentCard
+            key={attachment.id || attachmentName(attachment)}
+            attachment={attachment}
+            colors={colors}
+            isDark={isDark}
+          />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+interface ActionBarButtonProps {
+  label: string;
+  isDark: boolean;
+  colors: ThemeColors;
+  onPress: () => void;
+  children: React.ReactNode;
+}
+
+function ActionBarButton({ label, isDark, colors, onPress, children }: Readonly<ActionBarButtonProps>) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.actionBarBtn,
+        {
+          backgroundColor: isDark ? '#1F1F23' : '#FFFFFF',
+          borderColor: isDark ? '#3F3F46' : '#E5E7EB',
+        },
+      ]}
+      activeOpacity={0.7}
+      onPress={onPress}
+    >
+      {children}
+      <Text style={[styles.actionBarText, { color: colors.text }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+interface EmailActionBarProps {
+  hasMultipleRecipients: boolean;
+  isDark: boolean;
+  colors: ThemeColors;
+  bottomInset: number;
+  onCompose: (mode: 'reply' | 'replyAll' | 'forward') => void;
+}
+
+// Gmail-style fixed action bar
+function EmailActionBar({ hasMultipleRecipients, isDark, colors, bottomInset, onCompose }: Readonly<EmailActionBarProps>) {
+  return (
+    <View
+      style={[
+        styles.actionBar,
+        {
+          paddingBottom: bottomInset + 6,
+          backgroundColor: colors.background,
+          borderTopColor: colors.border || colors.divider || '#E5E7EB',
+        },
+      ]}
+    >
+      <ActionBarButton label="Reply" isDark={isDark} colors={colors} onPress={() => onCompose('reply')}>
+        <Reply size={16} color={colors.text} strokeWidth={2} />
+      </ActionBarButton>
+      {hasMultipleRecipients && (
+        <ActionBarButton label="Reply all" isDark={isDark} colors={colors} onPress={() => onCompose('replyAll')}>
+          <ReplyAll size={16} color={colors.text} strokeWidth={2} />
+        </ActionBarButton>
+      )}
+      <ActionBarButton label="Forward" isDark={isDark} colors={colors} onPress={() => onCompose('forward')}>
+        <Forward size={16} color={colors.text} strokeWidth={2} />
+      </ActionBarButton>
+    </View>
+  );
+}
+
+function showMoreMenu(onAction: (buttonIndex: number) => void) {
+  const options = ['Mark as unread', 'Delete', 'Mark as spam', 'Report phishing', 'Cancel'];
+  const cancelButtonIndex = options.length - 1;
+  const destructiveButtonIndex = [1, 2]; // Delete + Mark as spam
+
+  if (Platform.OS === 'ios') {
+    ActionSheetIOS.showActionSheetWithOptions(
+      { options, cancelButtonIndex, destructiveButtonIndex },
+      (buttonIndex) => onAction(buttonIndex),
+    );
+  } else {
+    Alert.alert('Actions', undefined, [
+      { text: 'Mark as unread', onPress: () => onAction(0) },
+      { text: 'Delete', style: 'destructive', onPress: () => onAction(1) },
+      { text: 'Mark as spam', style: 'destructive', onPress: () => onAction(2) },
+      { text: 'Report phishing', onPress: () => onAction(3) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+}
+
+interface EmailDetailContentProps {
+  email: any;
+  setEmail: (email: any) => void;
+  threadMessages: any[];
+  bodyLoading: boolean;
+  currentId: string | undefined;
+  goBack: () => void;
+}
+
+function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, currentId, goBack }: Readonly<EmailDetailContentProps>) {
   const { theme, colors } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();
-  const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
-  const { organizationId } = useClerkAuth();
   const { refreshMail, accounts } = useMail();
-  const cache = useMailCache();
   const outbox = useMailOutbox();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
   const { openCompose: openComposeOverlay } = useComposeOverlay();
 
-  const stub = useMemo(
-    () => (id ? stubEmailFromTarget(id, { fromName, fromEmail, subject, preview }) : null),
-    [id, fromName, fromEmail, subject, preview],
-  );
-
-  const [email, setEmail] = useState<any>(stub);
-  const [threadMessages, setThreadMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(!stub);
-  const [bodyLoading, setBodyLoading] = useState(true);
-  // How the message load ended when there's nothing to show: a real 404 (the
-  // message is genuinely gone) vs a transient failure (offline / token not
-  // ready / 5xx) that a Retry can recover. Keeps a network blip from lying
-  // "Email not found".
-  const [loadOutcome, setLoadOutcome] = useState<'gone' | 'failed' | null>(null);
-  const [reloadTick, setReloadTick] = useState(0);
   const [showEmailDetails, setShowEmailDetails] = useState(false);
   const [, setIsScrolled] = useState(false);
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [snoozePickerVisible, setSnoozePickerVisible] = useState(false);
   const [labelPickerVisible, setLabelPickerVisible] = useState(false);
-
-  useEffect(() => {
-    hideAppSplash();
-    markInteractive();
-  }, [markInteractive]);
-
-  const goBack = useCallback(() => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/');
-  }, [router]);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    setLoadOutcome(null);
-    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-    const load = async () => {
-      // Cache-first: if we've opened this email before, show it (and its thread)
-      // instantly, so a re-open works offline and there's no spinner online.
-      const [cachedMsg, cachedThread] = await Promise.all([cache.getMessage(id), cache.getThread(id)]);
-      if (cancelled) return;
-      if (cachedMsg) {
-        setEmail(cachedMsg);
-        if (cachedThread) setThreadMessages((cachedThread as any[]).filter((m) => m.id !== id));
-        setLoading(false);
-        setBodyLoading(false);
-      }
-
-      // Fetch the message with a few retries. Only a genuine 404 means the
-      // message is really gone; a network drop, a not-yet-ready auth token, or
-      // a 5xx are transient and must NOT surface as "Email not found" — we
-      // retry, then fall back to a retryable error state.
-      let fetched: any = null;
-      let gone = false;
-      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
-        try {
-          fetched = await getMessage(id);
-          break;
-        } catch (err) {
-          if (isApiError(err) && err.status === 404) {
-            gone = true;
-            break;
-          }
-          if (attempt < 2) await delay(300 * (attempt + 1));
-        }
-      }
-      if (cancelled) return;
-
-      if (fetched) {
-        setEmail(fetched);
-        setLoadOutcome(null);
-        setBodyLoading(false);
-        cache.setMessage(id, fetched as Record<string, unknown>);
-        markMessageRead(id).catch(() => {});
-      } else if (gone) {
-        // Genuinely gone server-side. If we had nothing cached, the tapped row
-        // was a stale/dead entry in the list — re-sync so it disappears.
-        if (!cachedMsg && !stub) {
-          setLoadOutcome('gone');
-          refreshMail();
-        }
-      } else if (!cachedMsg && !stub) {
-        // Couldn't reach it after retries and have nothing to show — offer a
-        // retry instead of a misleading "not found".
-        setLoadOutcome('failed');
-      }
-
-      // Thread is best-effort and must never gate the message view.
-      try {
-        const t = await getThread(id);
-        if (!cancelled) {
-          cache.setThread(id, t);
-          setThreadMessages(t.filter((m: { id: string }) => m.id !== id));
-        }
-      } catch {
-        // Keep any cached thread already shown.
-      }
-
-      if (!cancelled) {
-        setLoading(false);
-        setBodyLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [id, cache, reloadTick, organizationId, refreshMail, stub]);
-
-  const retryLoad = useCallback(() => {
-    setLoading(true);
-    setLoadOutcome(null);
-    setReloadTick((t) => t + 1);
-  }, []);
 
   const toggleThreadExpanded = useCallback((messageId: string) => {
     setExpandedThreadIds(prev => {
@@ -381,7 +801,6 @@ export default function EmailDetailScreen() {
   }, []);
 
   const handleStarToggle = async () => {
-    if (!email) return;
     const wasStarred = email.isStarred;
     setEmail({ ...email, isStarred: !wasStarred });
     // Durable + offline-safe: queues the change and flushes when online. Never
@@ -392,13 +811,9 @@ export default function EmailDetailScreen() {
 
   // Pin is client-side only (no backend field) — toggle it in the shared
   // PinnedMessages context so the inbox reflects it too.
-  const handlePinToggle = () => {
-    if (!email) return;
-    togglePin(email.id);
-  };
+  const handlePinToggle = () => togglePin(email.id);
 
   const handleDelete = useCallback(async () => {
-    if (!email) return;
     // Queue the delete (replays on reconnect) and leave — the inbox overlay
     // hides it immediately, online or off.
     await outbox.remove(email.id);
@@ -407,7 +822,6 @@ export default function EmailDetailScreen() {
   }, [email, outbox, refreshMail, goBack]);
 
   const handleArchive = async () => {
-    if (!email) return;
     await outbox.archive(email.id);
     refreshMail();
     goBack();
@@ -421,7 +835,6 @@ export default function EmailDetailScreen() {
 
   // Check: archive this conversation and open the next row (web archive-and-next).
   const handleArchiveAndNext = useCallback(async () => {
-    if (!email) return;
     const fromId = email.id;
     await outbox.archive(fromId);
     refreshMail();
@@ -430,22 +843,16 @@ export default function EmailDetailScreen() {
 
   // X: leave this conversation in the inbox and open the next one.
   const handleContinueToNext = useCallback(() => {
-    if (!email) {
-      goBack();
-      return;
-    }
     goToNextOrBack(email.id);
-  }, [email, goBack, goToNextOrBack]);
+  }, [email, goToNextOrBack]);
 
   const handleMarkAsUnread = useCallback(async () => {
-    if (!email) return;
     await outbox.update(email.id, { isRead: false });
     refreshMail();
     goBack();
   }, [email, goBack, refreshMail, outbox]);
 
   const handleMoreMenuAction = useCallback((buttonIndex: number) => {
-    if (!email) return;
     switch (buttonIndex) {
       case 0: // Mark as unread
         handleMarkAsUnread();
@@ -468,30 +875,8 @@ export default function EmailDetailScreen() {
     }
   }, [email, goBack, handleMarkAsUnread, handleDelete, refreshMail, outbox]);
 
-  const handleMoreMenu = () => {
-    const options = ['Mark as unread', 'Delete', 'Mark as spam', 'Report phishing', 'Cancel'];
-    const cancelButtonIndex = options.length - 1;
-    const destructiveButtonIndex = [1, 2]; // Delete + Mark as spam
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex, destructiveButtonIndex },
-        (buttonIndex) => handleMoreMenuAction(buttonIndex),
-      );
-    } else {
-      Alert.alert('Actions', undefined, [
-        { text: 'Mark as unread', onPress: () => handleMoreMenuAction(0) },
-        { text: 'Delete', style: 'destructive', onPress: () => handleMoreMenuAction(1) },
-        { text: 'Mark as spam', style: 'destructive', onPress: () => handleMoreMenuAction(2) },
-        { text: 'Report phishing', onPress: () => handleMoreMenuAction(3) },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    }
-  };
-
   const handleSnoozeSelect = useCallback(async (until: string, _label: string) => {
     setSnoozePickerVisible(false);
-    if (!email) return;
     const accountId = email.accountId || '';
     await outbox.snooze(email.id, accountId, until);
     refreshMail();
@@ -499,9 +884,9 @@ export default function EmailDetailScreen() {
   }, [email, goBack, refreshMail, outbox]);
 
   const handleLabelsChanged = useCallback((newLabels: string[]) => {
-    if (email) setEmail({ ...email, labels: newLabels });
+    setEmail({ ...email, labels: newLabels });
     refreshMail();
-  }, [email, refreshMail]);
+  }, [email, refreshMail, setEmail]);
 
   const openComposeForMessage = (msg: any, mode: 'reply' | 'replyAll' | 'forward') => {
     openComposeOverlay(
@@ -514,173 +899,34 @@ export default function EmailDetailScreen() {
     );
   };
 
-  const openCompose = (mode: 'reply' | 'replyAll' | 'forward') => {
-    if (!email) return;
-    openComposeForMessage(email, mode);
-  };
-
-  if (loading && !email) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View
-          style={[
-            styles.topHeader,
-            { paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: '#E5E7EB' },
-          ]}
-        >
-          <View style={styles.topHeaderRow}>
-            <CloseArchiveButtons
-              onClose={goBack}
-              onArchiveAndNext={() => {}}
-              borderColor={isDark ? colors.border : '#E5E7EB'}
-              iconColor={isDark ? colors.mutedForeground : '#6B7280'}
-              archiveDisabled
-            />
-          </View>
-        </View>
-        <View style={styles.centerContainer}>
-          {/* ActivityIndicator animates on the UI thread, so it stays smooth even
-              while the JS thread is busy with the navigation + fetch that opening
-              an email kicks off (MaterialSpinner's SVG animation janks there). */}
-          <ActivityIndicator size="large" color={colors.text} />
-        </View>
-      </View>
-    );
-  }
-
-  if (!email) {
-    // A real 404 → the message is gone. Anything else (offline / token / 5xx)
-    // is transient and gets a Retry rather than a false "not found".
-    const isGone = loadOutcome === 'gone';
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View
-          style={[
-            styles.topHeader,
-            { paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: '#E5E7EB' },
-          ]}
-        >
-          <View style={styles.topHeaderRow}>
-            <CloseArchiveButtons
-              onClose={goBack}
-              onArchiveAndNext={() => {}}
-              borderColor={isDark ? colors.border : '#E5E7EB'}
-              iconColor={isDark ? colors.mutedForeground : '#6B7280'}
-              archiveDisabled
-            />
-          </View>
-        </View>
-        <View style={styles.centerContainer}>
-          <Text style={[styles.errorText, { color: colors.text }]}>
-            {isGone ? 'Email not found' : "Couldn't load this email"}
-          </Text>
-          {!isGone && (
-            <TouchableOpacity
-              onPress={retryLoad}
-              style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-    );
-  }
-
   const senderName = getSenderName(email.from) || email.fromName || 'Unknown';
   const senderEmail = email.fromEmail || getSenderEmail(email.from);
   const avatarColor = getInitialColor(senderName);
-
-  // Determine if Reply All makes sense
-  const toStr = typeof email.to === 'string' ? email.to : formatRecipients(email.to);
-  const ccStr = typeof email.cc === 'string' ? email.cc : formatRecipients(email.cc);
-  const toCount = toStr ? toStr.split(/[,;]\s*/).filter(Boolean).length : 0;
-  const ccCount = ccStr ? ccStr.split(/[,;]\s*/).filter(Boolean).length : 0;
-  const hasMultipleRecipients = (toCount + ccCount) > 1;
+  const openContact = () => router.push(`/contact/${encodeURIComponent(senderEmail || senderName)}` as any);
 
   // Older thread messages (everything except current email, newest first below)
-  const olderMessages = threadMessages.filter(m => m.id !== id).reverse();
+  const olderMessages = threadMessages.filter(m => m.id !== currentId).reverse();
   const hasThread = olderMessages.length > 0;
   const threadCount = olderMessages.length + 1; // Include current message
+  const hasAttachments = !!email.attachments?.length;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top Header Bar — subject inline + actions */}
-      <View
-        style={[
-          styles.topHeader,
-          {
-            paddingTop: insets.top,
-            backgroundColor: colors.background,
-            borderBottomColor: '#E5E7EB',
-          },
-        ]}
-      >
-        <View style={styles.topHeaderRow}>
-          <CloseArchiveButtons
-            onClose={handleContinueToNext}
-            onArchiveAndNext={handleArchiveAndNext}
-            borderColor={isDark ? colors.border : '#E5E7EB'}
-            iconColor={isDark ? colors.mutedForeground : '#6B7280'}
-          />
-          <View style={{ flex: 1 }} />
-          <View style={styles.topHeaderActions}>
-            <TouchableOpacity
-              onPress={handleStarToggle}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Star
-                size={18}
-                color={email.isStarred ? '#EAB308' : '#6B7280'}
-                fill={email.isStarred ? '#EAB308' : 'transparent'}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handlePinToggle}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Pin
-                size={18}
-                color={isMessagePinned(email.id) ? '#3B82F6' : '#6B7280'}
-                fill={isMessagePinned(email.id) ? '#3B82F6' : 'transparent'}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleArchive}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Archive size={18} color="#6B7280" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setSnoozePickerVisible(true)}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Clock size={18} color="#6B7280" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setLabelPickerVisible(true)}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Tag size={18} color="#6B7280" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleMoreMenu}
-              style={styles.topHeaderIconBtn}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <MoreVertical size={18} color="#6B7280" strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      <EmailTopHeader
+        email={email}
+        isPinned={isMessagePinned(email.id)}
+        isDark={isDark}
+        colors={colors}
+        topInset={insets.top}
+        onContinueToNext={handleContinueToNext}
+        onArchiveAndNext={handleArchiveAndNext}
+        onStar={handleStarToggle}
+        onPin={handlePinToggle}
+        onArchive={handleArchive}
+        onSnooze={() => setSnoozePickerVisible(true)}
+        onLabels={() => setLabelPickerVisible(true)}
+        onMore={() => showMoreMenu(handleMoreMenuAction)}
+      />
 
       <ScrollView
         style={styles.scrollView}
@@ -700,153 +946,26 @@ export default function EmailDetailScreen() {
           )}
         </View>
 
-        {/* Sender Header — avatar | name to email | date · more */}
-        <View style={styles.senderHeader}>
-          <View style={styles.senderLeft}>
-            <TouchableOpacity
-              onPress={() => router.push(`/contact/${encodeURIComponent(senderEmail || senderName)}` as any)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.senderAvatar, { backgroundColor: avatarColor }]}>
-                <Text style={styles.senderAvatarText}>
-                  {senderName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            <View style={styles.senderInfo}>
-              <View style={styles.senderLineWrap}>
-                <TouchableOpacity
-                  onPress={() => router.push(`/contact/${encodeURIComponent(senderEmail || senderName)}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.senderName, { color: colors.text }]} numberOfLines={1}>
-                    {senderName}
-                  </Text>
-                </TouchableOpacity>
-                <Text style={styles.senderToWord}>to</Text>
-                <TouchableOpacity
-                  onPress={() => setShowEmailDetails(!showEmailDetails)}
-                  activeOpacity={0.7}
-                  style={styles.senderRecipientWrap}
-                >
-                  <Text style={styles.senderRecipientEmail} numberOfLines={1}>
-                    {(typeof email.to === 'string' ? email.to : formatRecipients(email.to)) || 'me'}
-                  </Text>
-                  {showEmailDetails ? (
-                    <ChevronUp size={13} color="#3B82F6" strokeWidth={2} />
-                  ) : (
-                    <ChevronDown size={13} color="#3B82F6" strokeWidth={2} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-          <Text style={styles.senderDate}>
-            {formatPlatformDate(email.receivedAt || email.receivedDate || email.createdAt)}
-          </Text>
-        </View>
+        <EmailSenderHeader
+          email={email}
+          senderName={senderName}
+          avatarColor={avatarColor}
+          showEmailDetails={showEmailDetails}
+          colors={colors}
+          onOpenContact={openContact}
+          onToggleDetails={() => setShowEmailDetails(!showEmailDetails)}
+        />
 
-        {/* Email Details Panel */}
         {showEmailDetails && (
-          <View style={[styles.detailsPanel, { borderColor: '#E5E7EB' }]}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>From</Text>
-              <View style={styles.detailValue}>
-                <Text style={[styles.detailName, { color: colors.text }]}>{senderName}</Text>
-                <Text style={styles.detailEmail}>{senderEmail}</Text>
-              </View>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>To</Text>
-              <Text style={[styles.detailEmailLine, { color: colors.text }]}>
-                {typeof email.to === 'string' ? email.to : formatRecipients(email.to)}
-              </Text>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Date</Text>
-              <Text style={[styles.detailEmailLine, { color: colors.text }]}>
-                {(() => {
-                  const d = email.receivedAt || email.receivedDate || email.createdAt;
-                  if (!d) return '';
-                  const date = new Date(d);
-                  if (Number.isNaN(date.getTime())) return '';
-                  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                })()}
-              </Text>
-            </View>
-            <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-              <Lock size={14} color="#6B7280" strokeWidth={2} style={{ marginTop: 2 }} />
-              <Text style={[styles.detailEmailLine, { color: colors.text, marginLeft: 6 }]}>
-                Standard encryption (TLS)
-              </Text>
-            </View>
-          </View>
+          <EmailDetailsPanel email={email} senderName={senderName} senderEmail={senderEmail} colors={colors} />
         )}
 
         {/* Email Body */}
         <View style={styles.bodySection}>
-          {(email.bodyHtml || email.htmlBody || email.htmlContent) ? (
-            <EmailHtmlView
-              html={email.bodyHtml || email.htmlBody || email.htmlContent}
-              fontSize={14}
-              lineHeight={1.625}
-              initialHeight={300}
-              style={styles.webViewBody}
-            />
-          ) : bodyLoading ? (
-            <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={colors.text} />
-            </View>
-          ) : (
-            <Text style={[styles.body, { color: colors.text }]}>
-              {email.textBody || email.textContent || email.body || email.preview || email.snippet || 'No content'}
-            </Text>
-          )}
+          <EmailBody email={email} bodyLoading={bodyLoading} colors={colors} />
         </View>
 
-        {/* Attachments — Gmail-style cards in a horizontal rail with typed icons */}
-        {email.attachments && email.attachments.length > 0 && (
-          <View style={styles.attachmentsBlock}>
-            <View style={styles.attachmentsHeader}>
-              <Paperclip size={13} color="#6B7280" strokeWidth={2} />
-              <Text style={styles.attachmentsHeaderText}>
-                {email.attachments.length} {email.attachments.length === 1 ? 'ATTACHMENT' : 'ATTACHMENTS'}
-              </Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.attachmentRail}
-            >
-              {email.attachments.map((attachment: any) => {
-                const name = attachment.fileName || attachment.filename || attachment.name || 'Attachment';
-                const { kind, color, ext } = getAttachmentVisual(name);
-                const Icon = ATTACHMENT_ICONS[kind];
-                return (
-                  <TouchableOpacity
-                    key={attachment.id || name}
-                    style={[styles.attachmentCard, { borderColor: colors.border || '#E5E7EB', backgroundColor: isDark ? '#1F1F23' : '#FFFFFF' }]}
-                    activeOpacity={0.7}
-                    onPress={() => openAttachment(attachment)}
-                  >
-                    <View style={[styles.attachmentCardIcon, { backgroundColor: color + '1A' }]}>
-                      <Icon size={20} color={color} strokeWidth={2} />
-                    </View>
-                    <View style={styles.attachmentCardMeta}>
-                      <Text style={[styles.attachmentCardName, { color: colors.text }]} numberOfLines={1}>
-                        {name}
-                      </Text>
-                      <Text style={styles.attachmentCardSub} numberOfLines={1}>
-                        {[ext, attachment.size > 0 ? formatFileSize(attachment.size) : ''].filter(Boolean).join(' · ')}
-                      </Text>
-                    </View>
-                    <Download size={16} color="#9CA3AF" strokeWidth={2} />
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        )}
+        {hasAttachments && <AttachmentsBlock attachments={email.attachments} colors={colors} isDark={isDark} />}
 
         {/* Previous Conversations */}
         {hasThread && (
@@ -871,62 +990,13 @@ export default function EmailDetailScreen() {
         <View style={{ height: 60 + insets.bottom }} />
       </ScrollView>
 
-      {/* Gmail-style fixed action bar */}
-      <View
-        style={[
-          styles.actionBar,
-          {
-            paddingBottom: insets.bottom + 6,
-            backgroundColor: colors.background,
-            borderTopColor: colors.border || colors.divider || '#E5E7EB',
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={[
-            styles.actionBarBtn,
-            {
-              backgroundColor: isDark ? '#1F1F23' : '#FFFFFF',
-              borderColor: isDark ? '#3F3F46' : '#E5E7EB',
-            },
-          ]}
-          activeOpacity={0.7}
-          onPress={() => openCompose('reply')}
-        >
-          <Reply size={16} color={colors.text} strokeWidth={2} />
-          <Text style={[styles.actionBarText, { color: colors.text }]}>Reply</Text>
-        </TouchableOpacity>
-        {hasMultipleRecipients && (
-          <TouchableOpacity
-            style={[
-            styles.actionBarBtn,
-            {
-              backgroundColor: isDark ? '#1F1F23' : '#FFFFFF',
-              borderColor: isDark ? '#3F3F46' : '#E5E7EB',
-            },
-          ]}
-            activeOpacity={0.7}
-            onPress={() => openCompose('replyAll')}
-          >
-            <ReplyAll size={16} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.actionBarText, { color: colors.text }]}>Reply all</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[
-            styles.actionBarBtn,
-            {
-              backgroundColor: isDark ? '#1F1F23' : '#FFFFFF',
-              borderColor: isDark ? '#3F3F46' : '#E5E7EB',
-            },
-          ]}
-          activeOpacity={0.7}
-          onPress={() => openCompose('forward')}
-        >
-          <Forward size={16} color={colors.text} strokeWidth={2} />
-          <Text style={[styles.actionBarText, { color: colors.text }]}>Forward</Text>
-        </TouchableOpacity>
-      </View>
+      <EmailActionBar
+        hasMultipleRecipients={hasMultipleRecipientsIn(email)}
+        isDark={isDark}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onCompose={(mode) => openComposeForMessage(email, mode)}
+      />
 
       {/* Snooze Picker */}
       <SnoozePickerModal
@@ -948,4 +1018,95 @@ export default function EmailDetailScreen() {
   );
 }
 
+export default function EmailDetailScreen() {
+  const params = useLocalSearchParams<{
+    id: string;
+    fromName?: string;
+    fromEmail?: string;
+    subject?: string;
+    preview?: string;
+    fromNotification?: string;
+  }>();
+  const id = firstParam(params.id);
+  const fromName = firstParam(params.fromName);
+  const fromEmail = firstParam(params.fromEmail);
+  const subject = firstParam(params.subject);
+  const preview = firstParam(params.preview);
+  const router = useRouter();
+  const { markInteractive } = useObserve();
+  const { organizationId } = useClerkAuth();
+  const { refreshMail } = useMail();
+  const cache = useMailCache();
 
+  const stub = useMemo(
+    () => (id ? stubEmailFromTarget(id, { fromName, fromEmail, subject, preview }) : null),
+    [id, fromName, fromEmail, subject, preview],
+  );
+
+  const [email, setEmail] = useState<any>(stub);
+  const [threadMessages, setThreadMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(!stub);
+  const [bodyLoading, setBodyLoading] = useState(true);
+  // How the message load ended when there's nothing to show: a real 404 (the
+  // message is genuinely gone) vs a transient failure (offline / token not
+  // ready / 5xx) that a Retry can recover. Keeps a network blip from lying
+  // "Email not found".
+  const [loadOutcome, setLoadOutcome] = useState<'gone' | 'failed' | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
+
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [router]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    setLoadOutcome(null);
+    loadEmail({
+      id,
+      cache,
+      stub,
+      isCancelled: () => cancelled,
+      setEmail,
+      setThreadMessages,
+      setLoading,
+      setBodyLoading,
+      setLoadOutcome,
+      refreshMail,
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, cache, reloadTick, organizationId, refreshMail, stub]);
+
+  const retryLoad = useCallback(() => {
+    setLoading(true);
+    setLoadOutcome(null);
+    setReloadTick((t) => t + 1);
+  }, []);
+
+  if (loading && !email) return <EmailLoadingScreen onClose={goBack} />;
+
+  if (!email) {
+    // A real 404 → the message is gone. Anything else (offline / token / 5xx)
+    // is transient and gets a Retry rather than a false "not found".
+    return <EmailUnavailableScreen onClose={goBack} isGone={loadOutcome === 'gone'} onRetry={retryLoad} />;
+  }
+
+  return (
+    <EmailDetailContent
+      email={email}
+      setEmail={setEmail}
+      threadMessages={threadMessages}
+      bodyLoading={bodyLoading}
+      currentId={id}
+      goBack={goBack}
+    />
+  );
+}

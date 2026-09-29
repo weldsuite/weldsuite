@@ -43,6 +43,409 @@ interface Task {
   createdAt: string;
 }
 
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+const parseDate = (dateString?: string): Date | null => {
+  if (!dateString) return null;
+  return new Date(dateString);
+};
+
+// Helper functions for date grouping
+const isToday = (date: Date) => {
+  const today = new Date();
+  return date.toDateString() === today.toDateString();
+};
+
+const isTomorrow = (date: Date) => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return date.toDateString() === tomorrow.toDateString();
+};
+
+const isPast = (date: Date) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date < today;
+};
+
+const isThisWeek = (date: Date) => {
+  const today = new Date();
+  const weekFromNow = new Date();
+  weekFromNow.setDate(today.getDate() + 7);
+  return date > today && date <= weekFromNow;
+};
+
+const formatDate = (date: Date) => {
+  if (isToday(date)) return 'Today';
+  if (isTomorrow(date)) return 'Tomorrow';
+
+  const month = date.toLocaleString('default', { month: 'short' });
+  const day = date.getDate();
+  return `${month} ${day}`;
+};
+
+const dateFromToday = (offsetDays: number): Date => {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date;
+};
+
+const DUE_DATE_OPTIONS: { label: string; offsetDays: number; isActive: (date: Date) => boolean }[] = [
+  { label: 'Today', offsetDays: 0, isActive: isToday },
+  { label: 'Tomorrow', offsetDays: 1, isActive: isTomorrow },
+  {
+    label: 'This Week',
+    offsetDays: 7,
+    isActive: date => isThisWeek(date) && !isToday(date) && !isTomorrow(date),
+  },
+];
+
+const getInitials = (name: string) => {
+  return name
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+};
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  'todo': { label: 'To Do', color: '#6B7280', bgColor: '#F3F4F6' },
+  'in-progress': { label: 'In Progress', color: '#3B82F6', bgColor: '#DBEAFE' },
+  'blocked': { label: 'Blocked', color: '#EF4444', bgColor: '#FEE2E2' },
+  'done': { label: 'Done', color: '#10B981', bgColor: '#D1FAE5' },
+};
+
+const getStatusConfig = (status?: string) => (status ? STATUS_CONFIG[status] ?? null : null);
+
+const matchesTaskFilters = (task: Task, searchTerm: string, selectedStatus: string | null) => {
+  const matchesSearch =
+    task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    task.linkedCompany?.name.toLowerCase().includes(searchTerm.toLowerCase());
+
+  const matchesStatus = selectedStatus === null || task.status === selectedStatus;
+
+  return matchesSearch && matchesStatus;
+};
+
+const groupTasksByDate = (filteredTasks: Task[]) => {
+  const openWithDate = (predicate: (date: Date) => boolean) => (t: Task) => {
+    const date = parseDate(t.dueDate);
+    return !t.completed && !!date && predicate(date);
+  };
+
+  return {
+    overdueTasks: filteredTasks.filter(openWithDate(date => isPast(date) && !isToday(date))),
+    todayTasks: filteredTasks.filter(openWithDate(isToday)),
+    tomorrowTasks: filteredTasks.filter(openWithDate(isTomorrow)),
+    thisWeekTasks: filteredTasks.filter(
+      openWithDate(date => isThisWeek(date) && !isToday(date) && !isTomorrow(date))
+    ),
+    laterTasks: filteredTasks.filter(
+      openWithDate(date => !isThisWeek(date) && !isPast(date) && !isToday(date) && !isTomorrow(date))
+    ),
+    noDateTasks: filteredTasks.filter(t => !t.completed && !t.dueDate),
+    completedTasks: filteredTasks.filter(t => t.completed),
+  };
+};
+
+interface TaskItemProps {
+  task: Task;
+  colors: ThemeColors;
+  onPress: (task: Task) => void;
+  onToggle: (taskId: string) => void;
+}
+
+const TaskItem = ({ task, colors, onPress, onToggle }: TaskItemProps) => {
+  const dueDate = parseDate(task.dueDate);
+  const isOverdue = dueDate && isPast(dueDate) && !isToday(dueDate);
+  const statusConfig = getStatusConfig(task.status);
+
+  return (
+    <TouchableOpacity
+      style={[styles.taskItem, { backgroundColor: colors.background }]}
+      activeOpacity={0.7}
+      onPress={() => onPress(task)}
+    >
+      <View style={styles.taskRow}>
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation();
+            onToggle(task.id);
+          }}
+          style={[
+            styles.checkbox,
+            {
+              borderColor: task.completed ? '#8B5CF6' : '#D1D5DB',
+              backgroundColor: task.completed ? '#8B5CF6' : 'transparent',
+            }
+          ]}
+        >
+          {task.completed && (
+            <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.taskContent}>
+          <Text
+            style={[
+              styles.taskTitle,
+              { color: colors.text },
+              task.completed && styles.taskTitleCompleted
+            ]}
+            numberOfLines={1}
+          >
+            {task.title}
+          </Text>
+
+          <View style={styles.taskMeta}>
+            {statusConfig && (
+              <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+                <Text style={[styles.statusText, { color: statusConfig.color }]}>
+                  {statusConfig.label}
+                </Text>
+              </View>
+            )}
+
+            {task.linkedCompany && (
+              <View style={styles.companyBadge}>
+                <View
+                  style={[
+                    styles.companyDot,
+                    { backgroundColor: task.linkedCompany.color || '#6B7280' }
+                  ]}
+                />
+                <Text style={[styles.companyText, { color: colors.muted }]}>
+                  {task.linkedCompany.name}
+                </Text>
+              </View>
+            )}
+
+            {dueDate && (
+              <View style={styles.dueDateBadge}>
+                <Calendar
+                  size={11}
+                  color={isOverdue ? '#EF4444' : colors.muted}
+                  strokeWidth={2}
+                />
+                <Text
+                  style={[
+                    styles.dueDateText,
+                    { color: isOverdue ? '#EF4444' : colors.muted }
+                  ]}
+                >
+                  {formatDate(dueDate)}
+                </Text>
+              </View>
+            )}
+
+            {task.assignee && (
+              <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
+                <Text style={styles.avatarText}>
+                  {getInitials(task.assignee.name)}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+interface TaskSectionProps {
+  title: string;
+  tasks: Task[];
+  colors: ThemeColors;
+  onPressTask: (task: Task) => void;
+  onToggleTask: (taskId: string) => void;
+}
+
+const TaskSection = ({ title, tasks, colors, onPressTask, onToggleTask }: TaskSectionProps) => {
+  if (tasks.length === 0) return null;
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: colors.muted }]}>
+          {title}
+        </Text>
+        <View style={[styles.countBadge, { backgroundColor: '#F3F4F6' }]}>
+          <Text style={[styles.countText, { color: '#6B7280' }]}>
+            {tasks.length}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.taskList}>
+        {tasks.map(task => (
+          <TaskItem key={task.id} task={task} colors={colors} onPress={onPressTask} onToggle={onToggleTask} />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+const TaskDetailsContent = ({ task, colors }: { task: Task; colors: ThemeColors }) => {
+  const statusConfig = getStatusConfig(task.status);
+  const dueDate = parseDate(task.dueDate);
+
+  return (
+    <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+      {/* Task Title */}
+      <View style={styles.modalSection}>
+        <Text style={[styles.modalLabel, { color: colors.muted }]}>Title</Text>
+        <Text style={[styles.modalTaskTitle, { color: colors.text }]}>
+          {task.title}
+        </Text>
+      </View>
+
+      {/* Description */}
+      {task.description && (
+        <View style={styles.modalSection}>
+          <Text style={[styles.modalLabel, { color: colors.muted }]}>Description</Text>
+          <Text style={[styles.modalText, { color: colors.text }]}>
+            {task.description}
+          </Text>
+        </View>
+      )}
+
+      {/* Status */}
+      {task.status && (
+        <View style={styles.modalSection}>
+          <Text style={[styles.modalLabel, { color: colors.muted }]}>Status</Text>
+          <View style={styles.modalRow}>
+            {statusConfig ? (
+              <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+                <Text style={[styles.statusText, { color: statusConfig.color }]}>
+                  {statusConfig.label}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {/* Company */}
+      {task.linkedCompany && (
+        <View style={styles.modalSection}>
+          <Text style={[styles.modalLabel, { color: colors.muted }]}>Company</Text>
+          <View style={styles.modalRow}>
+            <View
+              style={[
+                styles.companyDot,
+                { backgroundColor: task.linkedCompany.color || '#6B7280' }
+              ]}
+            />
+            <Text style={[styles.modalText, { color: colors.text }]}>
+              {task.linkedCompany.name}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Due Date */}
+      {task.dueDate && (
+        <View style={styles.modalSection}>
+          <Text style={[styles.modalLabel, { color: colors.muted }]}>Due Date</Text>
+          <View style={styles.modalRow}>
+            <Calendar size={16} color={colors.text} strokeWidth={2} />
+            <Text style={[styles.modalText, { color: colors.text }]}>
+              {dueDate ? formatDate(dueDate) : task.dueDate}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Assignee */}
+      {task.assignee && (
+        <View style={styles.modalSection}>
+          <Text style={[styles.modalLabel, { color: colors.muted }]}>Assignee</Text>
+          <View style={styles.modalRow}>
+            <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
+              <Text style={styles.avatarText}>
+                {getInitials(task.assignee.name)}
+              </Text>
+            </View>
+            <Text style={[styles.modalText, { color: colors.text }]}>
+              {task.assignee.name}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Created At */}
+      <View style={styles.modalSection}>
+        <Text style={[styles.modalLabel, { color: colors.muted }]}>Created</Text>
+        <Text style={[styles.modalText, { color: colors.text }]}>
+          {new Date(task.createdAt).toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+          })}
+        </Text>
+      </View>
+    </ScrollView>
+  );
+};
+
+interface StatusFilterProps {
+  tasks: Task[];
+  selectedStatus: string | null;
+  colors: ThemeColors;
+  onSelect: (status: string | null) => void;
+}
+
+const StatusFilter = ({ tasks, selectedStatus, colors, onSelect }: StatusFilterProps) => {
+  const statusOptions = [
+    { key: null, label: 'All Tasks', count: tasks.length },
+    { key: 'todo', label: 'To Do', count: tasks.filter(t => t.status === 'todo').length },
+    { key: 'in-progress', label: 'In Progress', count: tasks.filter(t => t.status === 'in-progress').length },
+    { key: 'blocked', label: 'Blocked', count: tasks.filter(t => t.status === 'blocked').length },
+    { key: 'done', label: 'Done', count: tasks.filter(t => t.status === 'done').length },
+  ];
+
+  return (
+    <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
+        {statusOptions.map((item) => {
+          const isSelected = selectedStatus === item.key;
+          return (
+            <TouchableOpacity
+              key={item.key || 'all'}
+              style={[
+                styles.filterButton,
+                {
+                  backgroundColor: isSelected ? colors.text : colors.background,
+                  borderColor: isSelected ? colors.text : colors.buttonBorder,
+                }
+              ]}
+              onPress={() => onSelect(item.key)}
+            >
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  { color: isSelected ? colors.background : colors.text }
+                ]}
+              >
+                {item.label}
+              </Text>
+              <Text
+                style={[
+                  styles.filterButtonCount,
+                  { color: isSelected ? colors.background : colors.muted }
+                ]}
+              >
+                ({item.count})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+};
+
 export default function TasksScreen() {
   const { colors } = useTheme();
   const toast = useToast();
@@ -95,81 +498,12 @@ export default function TasksScreen() {
     loadTasks();
   };
 
-  const parseDate = (dateString?: string): Date | null => {
-    if (!dateString) return null;
-    return new Date(dateString);
-  };
-
-  // Helper functions for date grouping
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
-
-  const isTomorrow = (date: Date) => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return date.toDateString() === tomorrow.toDateString();
-  };
-
-  const isPast = (date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return date < today;
-  };
-
-  const isThisWeek = (date: Date) => {
-    const today = new Date();
-    const weekFromNow = new Date();
-    weekFromNow.setDate(today.getDate() + 7);
-    return date > today && date <= weekFromNow;
-  };
-
-  const formatDate = (date: Date) => {
-    if (isToday(date)) return 'Today';
-    if (isTomorrow(date)) return 'Tomorrow';
-
-    const month = date.toLocaleString('default', { month: 'short' });
-    const day = date.getDate();
-    return `${month} ${day}`;
-  };
-
   // Filter tasks
-  const filteredTasks = tasks.filter(task => {
-    const matchesSearch =
-      task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.linkedCompany?.name.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesStatus = selectedStatus === null || task.status === selectedStatus;
-
-    return matchesSearch && matchesStatus;
-  });
+  const filteredTasks = tasks.filter(task => matchesTaskFilters(task, searchTerm, selectedStatus));
 
   // Group tasks by date
-  const overdueTasks = filteredTasks.filter(t => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && date && isPast(date) && !isToday(date);
-  });
-  const todayTasks = filteredTasks.filter(t => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && date && isToday(date);
-  });
-  const tomorrowTasks = filteredTasks.filter(t => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && date && isTomorrow(date);
-  });
-  const thisWeekTasks = filteredTasks.filter(t => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && date && isThisWeek(date) && !isToday(date) && !isTomorrow(date);
-  });
-  const laterTasks = filteredTasks.filter(t => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && date && !isThisWeek(date) && !isPast(date) && !isToday(date) && !isTomorrow(date);
-  });
-  const noDateTasks = filteredTasks.filter(t =>
-    !t.completed && !t.dueDate
-  );
-  const completedTasks = filteredTasks.filter(t => t.completed);
+  const { overdueTasks, todayTasks, tomorrowTasks, thisWeekTasks, laterTasks, noDateTasks, completedTasks } =
+    groupTasksByDate(filteredTasks);
 
   const toggleTask = async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -223,198 +557,15 @@ export default function TasksScreen() {
     setIsCreateModalVisible(false);
   };
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  const renderStatusFilter = () => {
-    const statusOptions = [
-      { key: null, label: 'All Tasks', count: tasks.length },
-      { key: 'todo', label: 'To Do', count: tasks.filter(t => t.status === 'todo').length },
-      { key: 'in-progress', label: 'In Progress', count: tasks.filter(t => t.status === 'in-progress').length },
-      { key: 'blocked', label: 'Blocked', count: tasks.filter(t => t.status === 'blocked').length },
-      { key: 'done', label: 'Done', count: tasks.filter(t => t.status === 'done').length },
-    ];
-
-    return (
-      <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-          {statusOptions.map((item) => (
-            <TouchableOpacity
-              key={item.key || 'all'}
-              style={[
-                styles.filterButton,
-                {
-                  backgroundColor: selectedStatus === item.key ? colors.text : colors.background,
-                  borderColor: selectedStatus === item.key ? colors.text : colors.buttonBorder,
-                }
-              ]}
-              onPress={() => setSelectedStatus(item.key)}
-            >
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  { color: selectedStatus === item.key ? colors.background : colors.text }
-                ]}
-              >
-                {item.label}
-              </Text>
-              <Text
-                style={[
-                  styles.filterButtonCount,
-                  { color: selectedStatus === item.key ? colors.background : colors.muted }
-                ]}
-              >
-                ({item.count})
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  const getStatusConfig = (status?: string) => {
-    switch (status) {
-      case 'todo':
-        return { label: 'To Do', color: '#6B7280', bgColor: '#F3F4F6' };
-      case 'in-progress':
-        return { label: 'In Progress', color: '#3B82F6', bgColor: '#DBEAFE' };
-      case 'blocked':
-        return { label: 'Blocked', color: '#EF4444', bgColor: '#FEE2E2' };
-      case 'done':
-        return { label: 'Done', color: '#10B981', bgColor: '#D1FAE5' };
-      default:
-        return null;
-    }
-  };
-
-  const TaskItem = ({ task }: { task: Task }) => {
-    const dueDate = parseDate(task.dueDate);
-    const isOverdue = dueDate && isPast(dueDate) && !isToday(dueDate);
-    const statusConfig = getStatusConfig(task.status);
-
-    return (
-      <TouchableOpacity
-        style={[styles.taskItem, { backgroundColor: colors.background }]}
-        activeOpacity={0.7}
-        onPress={() => handleTaskClick(task)}
-      >
-        <View style={styles.taskRow}>
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation();
-              toggleTask(task.id);
-            }}
-            style={[
-              styles.checkbox,
-              {
-                borderColor: task.completed ? '#8B5CF6' : '#D1D5DB',
-                backgroundColor: task.completed ? '#8B5CF6' : 'transparent',
-              }
-            ]}
-          >
-            {task.completed && (
-              <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.taskContent}>
-            <Text
-              style={[
-                styles.taskTitle,
-                { color: colors.text },
-                task.completed && styles.taskTitleCompleted
-              ]}
-              numberOfLines={1}
-            >
-              {task.title}
-            </Text>
-
-            <View style={styles.taskMeta}>
-              {statusConfig && (
-                <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-                  <Text style={[styles.statusText, { color: statusConfig.color }]}>
-                    {statusConfig.label}
-                  </Text>
-                </View>
-              )}
-
-              {task.linkedCompany && (
-                <View style={styles.companyBadge}>
-                  <View
-                    style={[
-                      styles.companyDot,
-                      { backgroundColor: task.linkedCompany.color || '#6B7280' }
-                    ]}
-                  />
-                  <Text style={[styles.companyText, { color: colors.muted }]}>
-                    {task.linkedCompany.name}
-                  </Text>
-                </View>
-              )}
-
-              {dueDate && (
-                <View style={styles.dueDateBadge}>
-                  <Calendar
-                    size={11}
-                    color={isOverdue ? '#EF4444' : colors.muted}
-                    strokeWidth={2}
-                  />
-                  <Text
-                    style={[
-                      styles.dueDateText,
-                      { color: isOverdue ? '#EF4444' : colors.muted }
-                    ]}
-                  >
-                    {formatDate(dueDate)}
-                  </Text>
-                </View>
-              )}
-
-              {task.assignee && (
-                <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
-                  <Text style={styles.avatarText}>
-                    {getInitials(task.assignee.name)}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const TaskSection = ({ title, tasks }: { title: string; tasks: Task[] }) => {
-    if (tasks.length === 0) return null;
-
-    return (
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.muted }]}>
-            {title}
-          </Text>
-          <View style={[styles.countBadge, { backgroundColor: '#F3F4F6' }]}>
-            <Text style={[styles.countText, { color: '#6B7280' }]}>
-              {tasks.length}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.taskList}>
-          {tasks.map(task => (
-            <TaskItem key={task.id} task={task} />
-          ))}
-        </View>
-      </View>
-    );
-  };
+  const taskSections: { title: string; tasks: Task[] }[] = [
+    { title: 'Overdue', tasks: overdueTasks },
+    { title: 'Today', tasks: todayTasks },
+    { title: 'Tomorrow', tasks: tomorrowTasks },
+    { title: 'This week', tasks: thisWeekTasks },
+    { title: 'Later', tasks: laterTasks },
+    { title: 'No date', tasks: noDateTasks },
+    ...(showCompleted ? [{ title: 'Completed', tasks: completedTasks }] : []),
+  ];
 
   // Stats
   const _totalTasks = tasks.filter(t => !t.completed).length;
@@ -459,7 +610,12 @@ export default function TasksScreen() {
         </View>
       </View>
 
-      {renderStatusFilter()}
+      <StatusFilter
+        tasks={tasks}
+        selectedStatus={selectedStatus}
+        colors={colors}
+        onSelect={setSelectedStatus}
+      />
 
       {/* Task List */}
       <ScrollView
@@ -470,15 +626,16 @@ export default function TasksScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {overdueTasks.length > 0 && <TaskSection title="Overdue" tasks={overdueTasks} />}
-        {todayTasks.length > 0 && <TaskSection title="Today" tasks={todayTasks} />}
-        {tomorrowTasks.length > 0 && <TaskSection title="Tomorrow" tasks={tomorrowTasks} />}
-        {thisWeekTasks.length > 0 && <TaskSection title="This week" tasks={thisWeekTasks} />}
-        {laterTasks.length > 0 && <TaskSection title="Later" tasks={laterTasks} />}
-        {noDateTasks.length > 0 && <TaskSection title="No date" tasks={noDateTasks} />}
-        {showCompleted && completedTasks.length > 0 && (
-          <TaskSection title="Completed" tasks={completedTasks} />
-        )}
+        {taskSections.map(section => (
+          <TaskSection
+            key={section.title}
+            title={section.title}
+            tasks={section.tasks}
+            colors={colors}
+            onPressTask={handleTaskClick}
+            onToggleTask={toggleTask}
+          />
+        ))}
 
         {filteredTasks.length === 0 && (
           <View style={styles.emptyState}>
@@ -516,106 +673,7 @@ export default function TasksScreen() {
           </View>
 
           {/* Modal Content */}
-          {selectedTask && (
-            <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-              {/* Task Title */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: colors.muted }]}>Title</Text>
-                <Text style={[styles.modalTaskTitle, { color: colors.text }]}>
-                  {selectedTask.title}
-                </Text>
-              </View>
-
-              {/* Description */}
-              {selectedTask.description && (
-                <View style={styles.modalSection}>
-                  <Text style={[styles.modalLabel, { color: colors.muted }]}>Description</Text>
-                  <Text style={[styles.modalText, { color: colors.text }]}>
-                    {selectedTask.description}
-                  </Text>
-                </View>
-              )}
-
-              {/* Status */}
-              {selectedTask.status && (
-                <View style={styles.modalSection}>
-                  <Text style={[styles.modalLabel, { color: colors.muted }]}>Status</Text>
-                  <View style={styles.modalRow}>
-                    {(() => {
-                      const statusConfig = getStatusConfig(selectedTask.status);
-                      return statusConfig ? (
-                        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-                          <Text style={[styles.statusText, { color: statusConfig.color }]}>
-                            {statusConfig.label}
-                          </Text>
-                        </View>
-                      ) : null;
-                    })()}
-                  </View>
-                </View>
-              )}
-
-              {/* Company */}
-              {selectedTask.linkedCompany && (
-                <View style={styles.modalSection}>
-                  <Text style={[styles.modalLabel, { color: colors.muted }]}>Company</Text>
-                  <View style={styles.modalRow}>
-                    <View
-                      style={[
-                        styles.companyDot,
-                        { backgroundColor: selectedTask.linkedCompany.color || '#6B7280' }
-                      ]}
-                    />
-                    <Text style={[styles.modalText, { color: colors.text }]}>
-                      {selectedTask.linkedCompany.name}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Due Date */}
-              {selectedTask.dueDate && (
-                <View style={styles.modalSection}>
-                  <Text style={[styles.modalLabel, { color: colors.muted }]}>Due Date</Text>
-                  <View style={styles.modalRow}>
-                    <Calendar size={16} color={colors.text} strokeWidth={2} />
-                    <Text style={[styles.modalText, { color: colors.text }]}>
-                      {parseDate(selectedTask.dueDate) ? formatDate(parseDate(selectedTask.dueDate)!) : selectedTask.dueDate}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Assignee */}
-              {selectedTask.assignee && (
-                <View style={styles.modalSection}>
-                  <Text style={[styles.modalLabel, { color: colors.muted }]}>Assignee</Text>
-                  <View style={styles.modalRow}>
-                    <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
-                      <Text style={styles.avatarText}>
-                        {getInitials(selectedTask.assignee.name)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.modalText, { color: colors.text }]}>
-                      {selectedTask.assignee.name}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Created At */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: colors.muted }]}>Created</Text>
-                <Text style={[styles.modalText, { color: colors.text }]}>
-                  {new Date(selectedTask.createdAt).toLocaleDateString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </Text>
-              </View>
-            </ScrollView>
-          )}
+          {selectedTask && <TaskDetailsContent task={selectedTask} colors={colors} />}
         </SafeAreaView>
       </Modal>
 
@@ -705,56 +763,26 @@ export default function TasksScreen() {
             <View style={styles.modalSection}>
               <Text style={[styles.modalLabel, { color: '#374151' }]}>Due Date (Optional)</Text>
               <View style={styles.dateOptions}>
-                <TouchableOpacity
-                  style={[
-                    styles.dateOption,
-                    {
-                      backgroundColor: newTaskDueDate && isToday(newTaskDueDate) ? '#DBEAFE' : colors.background,
-                      borderColor: newTaskDueDate && isToday(newTaskDueDate) ? '#3B82F6' : '#E5E7EB',
-                    }
-                  ]}
-                  onPress={() => setNewTaskDueDate(new Date())}
-                >
-                  <Text style={[styles.dateOptionText, { color: newTaskDueDate && isToday(newTaskDueDate) ? '#3B82F6' : colors.text }]}>
-                    Today
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.dateOption,
-                    {
-                      backgroundColor: newTaskDueDate && isTomorrow(newTaskDueDate) ? '#DBEAFE' : colors.background,
-                      borderColor: newTaskDueDate && isTomorrow(newTaskDueDate) ? '#3B82F6' : '#E5E7EB',
-                    }
-                  ]}
-                  onPress={() => {
-                    const tomorrow = new Date();
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    setNewTaskDueDate(tomorrow);
-                  }}
-                >
-                  <Text style={[styles.dateOptionText, { color: newTaskDueDate && isTomorrow(newTaskDueDate) ? '#3B82F6' : colors.text }]}>
-                    Tomorrow
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.dateOption,
-                    {
-                      backgroundColor: newTaskDueDate && isThisWeek(newTaskDueDate) && !isToday(newTaskDueDate) && !isTomorrow(newTaskDueDate) ? '#DBEAFE' : colors.background,
-                      borderColor: newTaskDueDate && isThisWeek(newTaskDueDate) && !isToday(newTaskDueDate) && !isTomorrow(newTaskDueDate) ? '#3B82F6' : '#E5E7EB',
-                    }
-                  ]}
-                  onPress={() => {
-                    const nextWeek = new Date();
-                    nextWeek.setDate(nextWeek.getDate() + 7);
-                    setNewTaskDueDate(nextWeek);
-                  }}
-                >
-                  <Text style={[styles.dateOptionText, { color: newTaskDueDate && isThisWeek(newTaskDueDate) && !isToday(newTaskDueDate) && !isTomorrow(newTaskDueDate) ? '#3B82F6' : colors.text }]}>
-                    This Week
-                  </Text>
-                </TouchableOpacity>
+                {DUE_DATE_OPTIONS.map(option => {
+                  const isActive = !!newTaskDueDate && option.isActive(newTaskDueDate);
+                  return (
+                    <TouchableOpacity
+                      key={option.label}
+                      style={[
+                        styles.dateOption,
+                        {
+                          backgroundColor: isActive ? '#DBEAFE' : colors.background,
+                          borderColor: isActive ? '#3B82F6' : '#E5E7EB',
+                        }
+                      ]}
+                      onPress={() => setNewTaskDueDate(dateFromToday(option.offsetDays))}
+                    >
+                      <Text style={[styles.dateOptionText, { color: isActive ? '#3B82F6' : colors.text }]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
               {newTaskDueDate && (
                 <TouchableOpacity

@@ -23,6 +23,7 @@ import {
   Clock,
   Tag as TagIcon,
   Plus,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import type {
@@ -31,6 +32,7 @@ import type {
   CreateTaskInput,
   UpdateTaskInput,
   ProjectLabel,
+  ProjectMember,
 } from '@/types/weldflow';
 import { LABEL_COLORS } from '@/types/weldflow';
 import { useProjectMembers, useLabels, useCreateLabel } from '@/hooks/use-weldflow';
@@ -91,6 +93,10 @@ const HOUR_PRESETS: { value: string; label: string }[] = [
 ];
 
 type PickerType = null | 'status' | 'priority' | 'dueDate' | 'startDate' | 'assignees' | 'hours' | 'labels';
+type DateKind = 'startDate' | 'dueDate';
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+const ACCENT = '#E84C3D';
 
 function formatDate(iso: string | null): string {
   if (!iso) return 'Not set';
@@ -108,6 +114,567 @@ function formatHours(raw: string): string {
   return n === 1 ? '1 hour' : `${n} hours`;
 }
 
+function toggleInList(list: string[], item: string): string[] {
+  return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+}
+
+function memberDisplayName(member: ProjectMember): string {
+  return member.user?.name || member.user?.email || member.userId;
+}
+
+function describeAssignees(assigneeIds: string[], members: ProjectMember[]): string {
+  if (assigneeIds.length === 0) return 'Unassigned';
+  if (assigneeIds.length > 1) return `${assigneeIds.length} assignees`;
+  const member = members.find((x) => x.userId === assigneeIds[0]);
+  return member ? memberDisplayName(member) : assigneeIds[0];
+}
+
+/** Returns the normalised hours string, or null when the input is not numeric. */
+function parseCustomHours(trimmed: string): string | null {
+  if (!trimmed) return '';
+  return Number.isNaN(Number(trimmed)) ? null : trimmed;
+}
+
+function checkNewLabelName(name: string, labels: ProjectLabel[]): 'empty' | 'duplicate' | null {
+  if (!name) return 'empty';
+  return labels.some((l) => l.name.toLowerCase() === name.toLowerCase()) ? 'duplicate' : null;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error';
+}
+
+// ---------------------------------------------------------------------------
+// Presentational building blocks
+// ---------------------------------------------------------------------------
+
+function FieldShell({ label, half, colors, children }: Readonly<{ label: string; half?: boolean; colors: ThemeColors; children: React.ReactNode }>) {
+  return (
+    <View style={half ? [styles.field, styles.rowCol] : styles.field}>
+      <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function PickerButton({
+  onPress,
+  colors,
+  extraStyle,
+  children,
+}: Readonly<{ onPress: () => void; colors: ThemeColors; extraStyle?: object; children: React.ReactNode }>) {
+  return (
+    <TouchableOpacity
+      style={[styles.pickerButton, extraStyle, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
+      onPress={onPress}
+    >
+      {children}
+    </TouchableOpacity>
+  );
+}
+
+interface PickerFieldProps {
+  label: string;
+  icon: LucideIcon;
+  text: string;
+  hasValue: boolean;
+  half?: boolean;
+  colors: ThemeColors;
+  onOpen: () => void;
+  onClear?: () => void;
+}
+
+function PickerField({ label, icon: Icon, text, hasValue, half, colors, onOpen, onClear }: Readonly<PickerFieldProps>) {
+  return (
+    <FieldShell label={label} half={half} colors={colors}>
+      <PickerButton onPress={onOpen} colors={colors}>
+        <View style={styles.iconLeft}>
+          <Icon size={16} color={colors.muted} />
+          <Text style={[styles.pickerText, { color: hasValue ? colors.text : colors.muted }]}>{text}</Text>
+        </View>
+        {hasValue && onClear ? (
+          <TouchableOpacity onPress={onClear} hitSlop={8}>
+            <X size={16} color={colors.muted} />
+          </TouchableOpacity>
+        ) : (
+          <ChevronDown size={18} color={colors.muted} />
+        )}
+      </PickerButton>
+    </FieldShell>
+  );
+}
+
+interface SheetModalProps {
+  visible: boolean;
+  onClose: () => void;
+  colors: ThemeColors;
+  bottomInset: number;
+  maxHeight?: `${number}%`;
+  animationType?: 'fade' | 'slide';
+  children: React.ReactNode;
+}
+
+function SheetModal({ visible, onClose, colors, bottomInset, maxHeight, animationType = 'fade', children }: Readonly<SheetModalProps>) {
+  return (
+    <Modal visible={visible} transparent animationType={animationType} onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable
+          style={[
+            styles.modalSheet,
+            { backgroundColor: colors.cardBackground, paddingBottom: bottomInset + 16 },
+            maxHeight ? { maxHeight } : undefined,
+          ]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          {children}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function SheetHeader({ title, actionLabel, colors, onClose }: Readonly<{ title: string; actionLabel: string; colors: ThemeColors; onClose: () => void }>) {
+  return (
+    <View style={styles.sheetHeader}>
+      <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>{title}</Text>
+      <TouchableOpacity onPress={onClose}>
+        <Text style={[styles.sheetAction, { color: ACCENT }]}>{actionLabel}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function OptionRow({ onPress, selected, colors, children }: Readonly<{ onPress: () => void; selected?: boolean; colors: ThemeColors; children: React.ReactNode }>) {
+  return (
+    <TouchableOpacity style={[styles.modalOption, { borderBottomColor: colors.divider }]} onPress={onPress}>
+      {children}
+      {selected ? <Check size={18} color={BRAND} /> : null}
+    </TouchableOpacity>
+  );
+}
+
+function OptionText({ colors, children, accent }: Readonly<{ colors: ThemeColors; children: React.ReactNode; accent?: boolean }>) {
+  return (
+    <Text style={[styles.modalOptionText, accent ? { color: ACCENT, fontWeight: '600' } : { color: colors.text }]}>
+      {children}
+    </Text>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sheets
+// ---------------------------------------------------------------------------
+
+interface OptionSheetProps {
+  picker: PickerType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  colors: ThemeColors;
+  bottomInset: number;
+  onSelectStatus: (status: TaskStatus) => void;
+  onSelectPriority: (priority: TaskPriority) => void;
+  onClose: () => void;
+}
+
+function StatusPrioritySheet({ picker, status, priority, colors, bottomInset, onSelectStatus, onSelectPriority, onClose }: Readonly<OptionSheetProps>) {
+  const isStatus = picker === 'status';
+  const options = isStatus ? STATUS_OPTIONS : PRIORITY_OPTIONS;
+  const isActive = (value: string) => (isStatus ? value === status : value === priority);
+  const handleSelect = (value: string) => {
+    if (isStatus) onSelectStatus(value as TaskStatus);
+    else onSelectPriority(value as TaskPriority);
+    onClose();
+  };
+
+  return (
+    <SheetModal
+      visible={picker === 'status' || picker === 'priority'}
+      onClose={onClose}
+      colors={colors}
+      bottomInset={bottomInset}
+    >
+      <Text style={[styles.modalTitle, { color: colors.text }]}>
+        {isStatus ? 'Change status' : 'Change priority'}
+      </Text>
+      {options.map((opt) => (
+        <OptionRow key={opt.value} colors={colors} selected={isActive(opt.value)} onPress={() => handleSelect(opt.value)}>
+          <Text style={[styles.modalOptionText, { color: colors.text }]}>{opt.label}</Text>
+        </OptionRow>
+      ))}
+    </SheetModal>
+  );
+}
+
+function MemberRow({ member, selected, colors, onToggle }: Readonly<{ member: ProjectMember; selected: boolean; colors: ThemeColors; onToggle: () => void }>) {
+  const showEmail = !!member.user?.email && !!member.user?.name;
+  return (
+    <OptionRow colors={colors} selected={selected} onPress={onToggle}>
+      <View style={styles.memberInfo}>
+        <Text style={[styles.modalOptionText, { color: colors.text }]} numberOfLines={1}>
+          {memberDisplayName(member)}
+        </Text>
+        {showEmail ? (
+          <Text style={[styles.memberEmail, { color: colors.muted }]} numberOfLines={1}>
+            {member.user?.email}
+          </Text>
+        ) : null}
+      </View>
+    </OptionRow>
+  );
+}
+
+interface AssigneesSheetProps {
+  visible: boolean;
+  isLoading: boolean;
+  members: ProjectMember[];
+  assigneeIds: string[];
+  colors: ThemeColors;
+  bottomInset: number;
+  onToggle: (userId: string) => void;
+  onClose: () => void;
+}
+
+function AssigneesSheet({ visible, isLoading, members, assigneeIds, colors, bottomInset, onToggle, onClose }: Readonly<AssigneesSheetProps>) {
+  let body: React.ReactNode;
+  if (isLoading) {
+    body = <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />;
+  } else if (members.length === 0) {
+    body = <Text style={[styles.emptyState, { color: colors.muted }]}>No members on this project yet.</Text>;
+  } else {
+    body = (
+      <ScrollView>
+        {members.map((m) => (
+          <MemberRow
+            key={m.id}
+            member={m}
+            colors={colors}
+            selected={assigneeIds.includes(m.userId)}
+            onToggle={() => onToggle(m.userId)}
+          />
+        ))}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <SheetModal visible={visible} onClose={onClose} colors={colors} bottomInset={bottomInset} maxHeight="70%">
+      <SheetHeader title="Assignees" actionLabel="Done" colors={colors} onClose={onClose} />
+      {body}
+    </SheetModal>
+  );
+}
+
+interface HoursSheetProps {
+  visible: boolean;
+  estimatedHours: string;
+  customMode: boolean;
+  customInput: string;
+  colors: ThemeColors;
+  bottomInset: number;
+  onCustomInputChange: (value: string) => void;
+  onConfirmCustom: () => void;
+  onPickPreset: (value: string) => void;
+  onSelectCustom: () => void;
+  onClose: () => void;
+}
+
+function HoursSheet({
+  visible,
+  estimatedHours,
+  customMode,
+  customInput,
+  colors,
+  bottomInset,
+  onCustomInputChange,
+  onConfirmCustom,
+  onPickPreset,
+  onSelectCustom,
+  onClose,
+}: Readonly<HoursSheetProps>) {
+  return (
+    <SheetModal visible={visible} onClose={onClose} colors={colors} bottomInset={bottomInset}>
+      <SheetHeader title="Estimated hours" actionLabel="Close" colors={colors} onClose={onClose} />
+
+      {customMode ? (
+        <View style={styles.customInputWrap}>
+          <TextInput
+            style={[
+              styles.input,
+              { color: colors.text, backgroundColor: colors.background, borderColor: colors.divider, flex: 1 },
+            ]}
+            placeholder="Enter hours e.g. 2.5"
+            placeholderTextColor={colors.muted}
+            value={customInput}
+            onChangeText={onCustomInputChange}
+            keyboardType="decimal-pad"
+            autoFocus
+            onSubmitEditing={onConfirmCustom}
+          />
+          <TouchableOpacity style={styles.customConfirmBtn} onPress={onConfirmCustom}>
+            <Text style={styles.customConfirmText}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView>
+          {HOUR_PRESETS.map((p) => (
+            <OptionRow key={p.value} colors={colors} selected={estimatedHours === p.value} onPress={() => onPickPreset(p.value)}>
+              <OptionText colors={colors}>{p.label}</OptionText>
+            </OptionRow>
+          ))}
+          <OptionRow colors={colors} onPress={onSelectCustom}>
+            <OptionText colors={colors} accent>Custom…</OptionText>
+          </OptionRow>
+        </ScrollView>
+      )}
+    </SheetModal>
+  );
+}
+
+interface NewLabelFormProps {
+  name: string;
+  color: string;
+  isPending: boolean;
+  colors: ThemeColors;
+  onNameChange: (name: string) => void;
+  onColorChange: (color: string) => void;
+  onCancel: () => void;
+  onCreate: () => void;
+}
+
+function NewLabelForm({ name, color, isPending, colors, onNameChange, onColorChange, onCancel, onCreate }: Readonly<NewLabelFormProps>) {
+  const createDisabled = isPending || !name.trim();
+
+  return (
+    <View style={styles.newLabelWrap}>
+      <TextInput
+        style={[
+          styles.input,
+          { color: colors.text, backgroundColor: colors.background, borderColor: colors.divider },
+        ]}
+        placeholder="Label name"
+        placeholderTextColor={colors.muted}
+        value={name}
+        onChangeText={onNameChange}
+        autoFocus
+      />
+      <View style={styles.colorRow}>
+        {LABEL_COLORS.map((c) => (
+          <TouchableOpacity
+            key={c}
+            onPress={() => onColorChange(c)}
+            style={[
+              styles.colorSwatch,
+              { backgroundColor: c, borderColor: c === color ? colors.text : 'transparent' },
+            ]}
+          />
+        ))}
+      </View>
+      <View style={styles.newLabelActions}>
+        <TouchableOpacity
+          onPress={onCancel}
+          style={[styles.secondaryBtn, { borderColor: colors.divider }]}
+        >
+          <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onCreate}
+          disabled={createDisabled}
+          style={[styles.primaryBtn, createDisabled && { opacity: 0.6 }]}
+        >
+          {isPending ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.primaryBtnText}>Create</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+interface LabelsSheetProps {
+  visible: boolean;
+  isLoading: boolean;
+  availableLabels: ProjectLabel[];
+  selectedLabels: string[];
+  colors: ThemeColors;
+  bottomInset: number;
+  onToggle: (name: string) => void;
+  onCreated: (name: string) => void;
+  onClose: () => void;
+}
+
+function LabelsSheet({ visible, isLoading, availableLabels, selectedLabels, colors, bottomInset, onToggle, onCreated, onClose }: Readonly<LabelsSheetProps>) {
+  const createLabel = useCreateLabel();
+
+  // Create-on-the-fly UI
+  const [creatingLabel, setCreatingLabel] = useState(false);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [newLabelColor, setNewLabelColor] = useState<string>(LABEL_COLORS[4]); // #3b82f6 blue
+
+  const handleCreateLabel = async () => {
+    const name = newLabelName.trim();
+    const problem = checkNewLabelName(name, availableLabels);
+    if (problem === 'empty') return;
+    if (problem === 'duplicate') {
+      Alert.alert('Label exists', 'A label with that name already exists.');
+      return;
+    }
+    try {
+      const res = await createLabel.mutateAsync({ name, color: newLabelColor });
+      onCreated(res.data.name);
+      setNewLabelName('');
+      setCreatingLabel(false);
+    } catch (err) {
+      Alert.alert('Could not create label', errorMessage(err));
+    }
+  };
+
+  const handleCancelCreate = () => {
+    setCreatingLabel(false);
+    setNewLabelName('');
+  };
+
+  const showEmptyHint = availableLabels.length === 0 && !creatingLabel;
+
+  return (
+    <SheetModal visible={visible} onClose={onClose} colors={colors} bottomInset={bottomInset} maxHeight="75%">
+      <SheetHeader title="Labels" actionLabel="Done" colors={colors} onClose={onClose} />
+
+      {isLoading ? (
+        <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />
+      ) : (
+        <ScrollView>
+          {availableLabels.map((l) => (
+            <OptionRow key={l.id} colors={colors} selected={selectedLabels.includes(l.name)} onPress={() => onToggle(l.name)}>
+              <View style={styles.labelRowLeft}>
+                <View style={[styles.labelDot, { backgroundColor: l.color }]} />
+                <Text style={[styles.modalOptionText, { color: colors.text }]}>{l.name}</Text>
+              </View>
+            </OptionRow>
+          ))}
+
+          {showEmptyHint ? (
+            <Text style={[styles.emptyState, { color: colors.muted }]}>
+              No labels yet. Create your first below.
+            </Text>
+          ) : null}
+
+          {creatingLabel ? (
+            <NewLabelForm
+              name={newLabelName}
+              color={newLabelColor}
+              isPending={createLabel.isPending}
+              colors={colors}
+              onNameChange={setNewLabelName}
+              onColorChange={setNewLabelColor}
+              onCancel={handleCancelCreate}
+              onCreate={handleCreateLabel}
+            />
+          ) : (
+            <OptionRow colors={colors} onPress={() => setCreatingLabel(true)}>
+              <View style={styles.labelRowLeft}>
+                <Plus size={18} color={BRAND} />
+                <OptionText colors={colors} accent>Create new label</OptionText>
+              </View>
+            </OptionRow>
+          )}
+        </ScrollView>
+      )}
+    </SheetModal>
+  );
+}
+
+interface DatePickerModalProps {
+  picker: PickerType;
+  startDate: string | null;
+  dueDate: string | null;
+  colors: ThemeColors;
+  bottomInset: number;
+  onChange: (kind: DateKind, iso: string) => void;
+  onClear: (kind: DateKind) => void;
+  onClose: () => void;
+}
+
+function DatePickerModal({ picker, startDate, dueDate, colors, bottomInset, onChange, onClear, onClose }: Readonly<DatePickerModalProps>) {
+  if (picker !== 'startDate' && picker !== 'dueDate') return null;
+
+  const current = picker === 'startDate' ? startDate : dueDate;
+  const value = current ? new Date(current) : new Date();
+  const handleChange = (_event: unknown, selected?: Date) => {
+    if (Platform.OS === 'android') onClose();
+    if (selected) onChange(picker, selected.toISOString());
+  };
+
+  if (Platform.OS !== 'ios') {
+    return <DateTimePicker value={value} mode="date" display="default" onChange={handleChange} />;
+  }
+
+  return (
+    <SheetModal visible onClose={onClose} colors={colors} bottomInset={bottomInset} animationType="slide">
+      <View style={styles.sheetHeader}>
+        <TouchableOpacity onPress={() => onClear(picker)}>
+          <Text style={[styles.sheetAction, { color: '#DC2626' }]}>Clear</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onClose}>
+          <Text style={[styles.sheetAction, { color: ACCENT }]}>Done</Text>
+        </TouchableOpacity>
+      </View>
+      <DateTimePicker
+        value={value}
+        mode="date"
+        display="spinner"
+        onChange={handleChange}
+        themeVariant={colors.text === '#FFFFFF' ? 'dark' : 'light'}
+      />
+    </SheetModal>
+  );
+}
+
+function TitleField({ value, error, autoFocus, colors, onChange }: Readonly<{ value: string; error: string | null; autoFocus: boolean; colors: ThemeColors; onChange: (value: string) => void }>) {
+  return (
+    <FieldShell label="Title" colors={colors}>
+      <TextInput
+        style={[
+          styles.input,
+          {
+            color: colors.text,
+            backgroundColor: colors.cardBackground,
+            borderColor: error ? '#DC2626' : colors.divider,
+          },
+        ]}
+        placeholder="Task title"
+        placeholderTextColor={colors.muted}
+        value={value}
+        onChangeText={onChange}
+        returnKeyType="next"
+        autoFocus={autoFocus}
+      />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </FieldShell>
+  );
+}
+
+function SubmitButton({ isSubmitting, label, onPress }: Readonly<{ isSubmitting: boolean; label: string; onPress: () => void }>) {
+  return (
+    <TouchableOpacity
+      style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]}
+      onPress={onPress}
+      disabled={isSubmitting}
+    >
+      {isSubmitting ? (
+        <ActivityIndicator size="small" color="#fff" />
+      ) : (
+        <Text style={styles.submitText}>{label}</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Form
+// ---------------------------------------------------------------------------
+
 export function TaskForm({
   mode,
   projectId,
@@ -124,7 +691,6 @@ export function TaskForm({
 
   const labelsQuery = useLabels();
   const availableLabels = labelsQuery.data?.data ?? [];
-  const createLabel = useCreateLabel();
 
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [description, setDescription] = useState(initialValues?.description ?? '');
@@ -147,52 +713,30 @@ export function TaskForm({
     hoursCustomMode ? (initialValues?.estimatedHours ?? '') : '',
   );
 
-  // Labels picker — create-on-the-fly UI
-  const [creatingLabel, setCreatingLabel] = useState(false);
-  const [newLabelName, setNewLabelName] = useState('');
-  const [newLabelColor, setNewLabelColor] = useState<string>(LABEL_COLORS[4]); // #3b82f6 blue
-
   const selectedLabelObjects = useMemo<ProjectLabel[]>(
     () => availableLabels.filter((l) => selectedLabels.includes(l.name)),
     [availableLabels, selectedLabels],
   );
 
-  const toggleAssignee = (userId: string) => {
-    setAssigneeIds((current) =>
-      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId],
-    );
-  };
+  const closePicker = () => setPicker(null);
 
-  const toggleLabel = (name: string) => {
-    setSelectedLabels((current) =>
-      current.includes(name) ? current.filter((n) => n !== name) : [...current, name],
-    );
-  };
+  const toggleAssignee = (userId: string) => setAssigneeIds((current) => toggleInList(current, userId));
 
-  const assigneeLabel = () => {
-    if (assigneeIds.length === 0) return 'Unassigned';
-    if (assigneeIds.length === 1) {
-      const m = members.find((x) => x.userId === assigneeIds[0]);
-      return m?.user?.name || m?.user?.email || assigneeIds[0];
-    }
-    return `${assigneeIds.length} assignees`;
-  };
+  const toggleLabel = (name: string) => setSelectedLabels((current) => toggleInList(current, name));
 
-  const handleDateChange = (kind: 'startDate' | 'dueDate') => (
-    _event: unknown,
-    selected?: Date,
-  ) => {
-    if (Platform.OS === 'android') setPicker(null);
-    if (!selected) return;
-    const iso = selected.toISOString();
+  const setDateFor = (kind: DateKind, iso: string | null) => {
     if (kind === 'startDate') setStartDate(iso);
     else setDueDate(iso);
   };
 
-  const clearDate = (kind: 'startDate' | 'dueDate') => {
-    if (kind === 'startDate') setStartDate(null);
-    else setDueDate(null);
+  const clearDate = (kind: DateKind) => {
+    setDateFor(kind, null);
     setPicker(null);
+  };
+
+  const handleTitleChange = (value: string) => {
+    setTitle(value);
+    setTitleError(null);
   };
 
   const handlePickPresetHours = (value: string) => {
@@ -208,15 +752,12 @@ export function TaskForm({
   };
 
   const handleConfirmCustomHours = () => {
-    const trimmed = hoursCustomInput.trim();
-    if (!trimmed) {
-      setEstimatedHours('');
-    } else if (Number.isNaN(Number(trimmed))) {
+    const parsed = parseCustomHours(hoursCustomInput.trim());
+    if (parsed === null) {
       Alert.alert('Invalid value', 'Enter a numeric hour value, e.g. 2.5');
       return;
-    } else {
-      setEstimatedHours(trimmed);
     }
+    setEstimatedHours(parsed);
     setPicker(null);
   };
 
@@ -224,23 +765,6 @@ export function TaskForm({
     setEstimatedHours('');
     setHoursCustomMode(false);
     setHoursCustomInput('');
-  };
-
-  const handleCreateLabel = async () => {
-    const name = newLabelName.trim();
-    if (!name) return;
-    if (availableLabels.some((l) => l.name.toLowerCase() === name.toLowerCase())) {
-      Alert.alert('Label exists', 'A label with that name already exists.');
-      return;
-    }
-    try {
-      const res = await createLabel.mutateAsync({ name, color: newLabelColor });
-      setSelectedLabels((current) => [...current, res.data.name]);
-      setNewLabelName('');
-      setCreatingLabel(false);
-    } catch (err) {
-      Alert.alert('Could not create label', err instanceof Error ? err.message : 'Unknown error');
-    }
   };
 
   const handleSubmit = async () => {
@@ -265,32 +789,15 @@ export function TaskForm({
 
   return (
     <View style={styles.container}>
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>Title</Text>
-        <TextInput
-          style={[
-            styles.input,
-            {
-              color: colors.text,
-              backgroundColor: colors.cardBackground,
-              borderColor: titleError ? '#DC2626' : colors.divider,
-            },
-          ]}
-          placeholder="Task title"
-          placeholderTextColor={colors.muted}
-          value={title}
-          onChangeText={(v) => {
-            setTitle(v);
-            if (titleError) setTitleError(null);
-          }}
-          returnKeyType="next"
-          autoFocus={mode === 'create'}
-        />
-        {titleError ? <Text style={styles.errorText}>{titleError}</Text> : null}
-      </View>
+      <TitleField
+        value={title}
+        error={titleError}
+        autoFocus={mode === 'create'}
+        colors={colors}
+        onChange={handleTitleChange}
+      />
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>Description</Text>
+      <FieldShell label="Description" colors={colors}>
         <TextInput
           style={[
             styles.input,
@@ -304,122 +811,68 @@ export function TaskForm({
           multiline
           textAlignVertical="top"
         />
-      </View>
+      </FieldShell>
 
       <View style={styles.row}>
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>Status</Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-            onPress={() => setPicker('status')}
-          >
+        <FieldShell label="Status" half colors={colors}>
+          <PickerButton onPress={() => setPicker('status')} colors={colors}>
             <StatusBadge status={status} />
             <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
+          </PickerButton>
+        </FieldShell>
 
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>Priority</Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-            onPress={() => setPicker('priority')}
-          >
+        <FieldShell label="Priority" half colors={colors}>
+          <PickerButton onPress={() => setPicker('priority')} colors={colors}>
             <PriorityIndicator priority={priority} showLabel />
             <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
+          </PickerButton>
+        </FieldShell>
       </View>
 
       <View style={styles.row}>
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>Start date</Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-            onPress={() => setPicker('startDate')}
-          >
-            <View style={styles.iconLeft}>
-              <CalIcon size={16} color={colors.muted} />
-              <Text style={[styles.pickerText, { color: startDate ? colors.text : colors.muted }]}>
-                {formatDate(startDate)}
-              </Text>
-            </View>
-            {startDate ? (
-              <TouchableOpacity onPress={() => setStartDate(null)} hitSlop={8}>
-                <X size={16} color={colors.muted} />
-              </TouchableOpacity>
-            ) : (
-              <ChevronDown size={18} color={colors.muted} />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>Due date</Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-            onPress={() => setPicker('dueDate')}
-          >
-            <View style={styles.iconLeft}>
-              <CalIcon size={16} color={colors.muted} />
-              <Text style={[styles.pickerText, { color: dueDate ? colors.text : colors.muted }]}>
-                {formatDate(dueDate)}
-              </Text>
-            </View>
-            {dueDate ? (
-              <TouchableOpacity onPress={() => setDueDate(null)} hitSlop={8}>
-                <X size={16} color={colors.muted} />
-              </TouchableOpacity>
-            ) : (
-              <ChevronDown size={18} color={colors.muted} />
-            )}
-          </TouchableOpacity>
-        </View>
+        <PickerField
+          label="Start date"
+          icon={CalIcon}
+          text={formatDate(startDate)}
+          hasValue={!!startDate}
+          half
+          colors={colors}
+          onOpen={() => setPicker('startDate')}
+          onClear={() => setStartDate(null)}
+        />
+        <PickerField
+          label="Due date"
+          icon={CalIcon}
+          text={formatDate(dueDate)}
+          hasValue={!!dueDate}
+          half
+          colors={colors}
+          onOpen={() => setPicker('dueDate')}
+          onClear={() => setDueDate(null)}
+        />
       </View>
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>Assignees</Text>
-        <TouchableOpacity
-          style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-          onPress={() => setPicker('assignees')}
-        >
-          <View style={styles.iconLeft}>
-            <Users size={16} color={colors.muted} />
-            <Text style={[styles.pickerText, { color: assigneeIds.length > 0 ? colors.text : colors.muted }]}>
-              {assigneeLabel()}
-            </Text>
-          </View>
-          <ChevronDown size={18} color={colors.muted} />
-        </TouchableOpacity>
-      </View>
+      <PickerField
+        label="Assignees"
+        icon={Users}
+        text={describeAssignees(assigneeIds, members)}
+        hasValue={assigneeIds.length > 0}
+        colors={colors}
+        onOpen={() => setPicker('assignees')}
+      />
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>Estimated hours</Text>
-        <TouchableOpacity
-          style={[styles.pickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-          onPress={() => setPicker('hours')}
-        >
-          <View style={styles.iconLeft}>
-            <Clock size={16} color={colors.muted} />
-            <Text style={[styles.pickerText, { color: estimatedHours ? colors.text : colors.muted }]}>
-              {formatHours(estimatedHours)}
-            </Text>
-          </View>
-          {estimatedHours ? (
-            <TouchableOpacity onPress={clearHours} hitSlop={8}>
-              <X size={16} color={colors.muted} />
-            </TouchableOpacity>
-          ) : (
-            <ChevronDown size={18} color={colors.muted} />
-          )}
-        </TouchableOpacity>
-      </View>
+      <PickerField
+        label="Estimated hours"
+        icon={Clock}
+        text={formatHours(estimatedHours)}
+        hasValue={!!estimatedHours}
+        colors={colors}
+        onOpen={() => setPicker('hours')}
+        onClear={clearHours}
+      />
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>Labels</Text>
-        <TouchableOpacity
-          style={[styles.pickerButton, styles.labelPickerButton, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}
-          onPress={() => setPicker('labels')}
-        >
+      <FieldShell label="Labels" colors={colors}>
+        <PickerButton onPress={() => setPicker('labels')} colors={colors} extraStyle={styles.labelPickerButton}>
           <View style={styles.labelPickerInner}>
             <TagIcon size={16} color={colors.muted} />
             {selectedLabelObjects.length === 0 ? (
@@ -435,340 +888,73 @@ export function TaskForm({
             )}
           </View>
           <ChevronDown size={18} color={colors.muted} />
-        </TouchableOpacity>
-      </View>
+        </PickerButton>
+      </FieldShell>
 
-      <TouchableOpacity
-        style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]}
+      <SubmitButton
+        isSubmitting={isSubmitting}
+        label={submitLabel ?? (mode === 'create' ? 'Create task' : 'Save changes')}
         onPress={handleSubmit}
-        disabled={isSubmitting}
-      >
-        {isSubmitting ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>
-            {submitLabel ?? (mode === 'create' ? 'Create task' : 'Save changes')}
-          </Text>
-        )}
-      </TouchableOpacity>
+      />
 
-      {/* Status / Priority bottom sheet */}
-      <Modal
-        visible={picker === 'status' || picker === 'priority'}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPicker(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setPicker(null)}>
-          <Pressable
-            style={[styles.modalSheet, { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {picker === 'status' ? 'Change status' : 'Change priority'}
-            </Text>
-            {(picker === 'status' ? STATUS_OPTIONS : PRIORITY_OPTIONS).map((opt) => {
-              const active = picker === 'status' ? opt.value === status : opt.value === priority;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                  onPress={() => {
-                    if (picker === 'status') setStatus(opt.value as TaskStatus);
-                    else setPriority(opt.value as TaskPriority);
-                    setPicker(null);
-                  }}
-                >
-                  <Text style={[styles.modalOptionText, { color: colors.text }]}>{opt.label}</Text>
-                  {active ? <Check size={18} color={BRAND} /> : null}
-                </TouchableOpacity>
-              );
-            })}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <StatusPrioritySheet
+        picker={picker}
+        status={status}
+        priority={priority}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onSelectStatus={setStatus}
+        onSelectPriority={setPriority}
+        onClose={closePicker}
+      />
 
-      {/* Assignees bottom sheet — multi-select */}
-      <Modal
+      <AssigneesSheet
         visible={picker === 'assignees'}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPicker(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setPicker(null)}>
-          <Pressable
-            style={[
-              styles.modalSheet,
-              { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16, maxHeight: '70%' },
-            ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Assignees</Text>
-              <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            {membersQuery.isLoading ? (
-              <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />
-            ) : members.length === 0 ? (
-              <Text style={[styles.emptyState, { color: colors.muted }]}>No members on this project yet.</Text>
-            ) : (
-              <ScrollView>
-                {members.map((m) => {
-                  const selected = assigneeIds.includes(m.userId);
-                  const display = m.user?.name || m.user?.email || m.userId;
-                  return (
-                    <TouchableOpacity
-                      key={m.id}
-                      style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                      onPress={() => toggleAssignee(m.userId)}
-                    >
-                      <View style={styles.memberInfo}>
-                        <Text style={[styles.modalOptionText, { color: colors.text }]} numberOfLines={1}>
-                          {display}
-                        </Text>
-                        {m.user?.email && m.user?.name ? (
-                          <Text style={[styles.memberEmail, { color: colors.muted }]} numberOfLines={1}>
-                            {m.user.email}
-                          </Text>
-                        ) : null}
-                      </View>
-                      {selected ? <Check size={18} color={BRAND} /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        isLoading={membersQuery.isLoading}
+        members={members}
+        assigneeIds={assigneeIds}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onToggle={toggleAssignee}
+        onClose={closePicker}
+      />
 
-      {/* Hours bottom sheet — preset + custom */}
-      <Modal
+      <HoursSheet
         visible={picker === 'hours'}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPicker(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setPicker(null)}>
-          <Pressable
-            style={[styles.modalSheet, { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Estimated hours</Text>
-              <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Close</Text>
-              </TouchableOpacity>
-            </View>
+        estimatedHours={estimatedHours}
+        customMode={hoursCustomMode}
+        customInput={hoursCustomInput}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onCustomInputChange={setHoursCustomInput}
+        onConfirmCustom={handleConfirmCustomHours}
+        onPickPreset={handlePickPresetHours}
+        onSelectCustom={handleSelectCustomHours}
+        onClose={closePicker}
+      />
 
-            {hoursCustomMode ? (
-              <View style={styles.customInputWrap}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { color: colors.text, backgroundColor: colors.background, borderColor: colors.divider, flex: 1 },
-                  ]}
-                  placeholder="Enter hours e.g. 2.5"
-                  placeholderTextColor={colors.muted}
-                  value={hoursCustomInput}
-                  onChangeText={setHoursCustomInput}
-                  keyboardType="decimal-pad"
-                  autoFocus
-                  onSubmitEditing={handleConfirmCustomHours}
-                />
-                <TouchableOpacity style={styles.customConfirmBtn} onPress={handleConfirmCustomHours}>
-                  <Text style={styles.customConfirmText}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <ScrollView>
-                {HOUR_PRESETS.map((p) => {
-                  const active = estimatedHours === p.value;
-                  return (
-                    <TouchableOpacity
-                      key={p.value}
-                      style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                      onPress={() => handlePickPresetHours(p.value)}
-                    >
-                      <Text style={[styles.modalOptionText, { color: colors.text }]}>{p.label}</Text>
-                      {active ? <Check size={18} color={BRAND} /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-                <TouchableOpacity
-                  style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                  onPress={handleSelectCustomHours}
-                >
-                  <Text style={[styles.modalOptionText, { color: '#E84C3D', fontWeight: '600' }]}>Custom…</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Labels bottom sheet — multi-select w/ create */}
-      <Modal
+      <LabelsSheet
         visible={picker === 'labels'}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPicker(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setPicker(null)}>
-          <Pressable
-            style={[
-              styles.modalSheet,
-              { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16, maxHeight: '75%' },
-            ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Labels</Text>
-              <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
+        isLoading={labelsQuery.isLoading}
+        availableLabels={availableLabels}
+        selectedLabels={selectedLabels}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onToggle={toggleLabel}
+        onCreated={(name) => setSelectedLabels((current) => [...current, name])}
+        onClose={closePicker}
+      />
 
-            {labelsQuery.isLoading ? (
-              <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />
-            ) : (
-              <ScrollView>
-                {availableLabels.map((l) => {
-                  const selected = selectedLabels.includes(l.name);
-                  return (
-                    <TouchableOpacity
-                      key={l.id}
-                      style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                      onPress={() => toggleLabel(l.name)}
-                    >
-                      <View style={styles.labelRowLeft}>
-                        <View style={[styles.labelDot, { backgroundColor: l.color }]} />
-                        <Text style={[styles.modalOptionText, { color: colors.text }]}>{l.name}</Text>
-                      </View>
-                      {selected ? <Check size={18} color={BRAND} /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {availableLabels.length === 0 && !creatingLabel ? (
-                  <Text style={[styles.emptyState, { color: colors.muted }]}>
-                    No labels yet. Create your first below.
-                  </Text>
-                ) : null}
-
-                {creatingLabel ? (
-                  <View style={styles.newLabelWrap}>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        { color: colors.text, backgroundColor: colors.background, borderColor: colors.divider },
-                      ]}
-                      placeholder="Label name"
-                      placeholderTextColor={colors.muted}
-                      value={newLabelName}
-                      onChangeText={setNewLabelName}
-                      autoFocus
-                    />
-                    <View style={styles.colorRow}>
-                      {LABEL_COLORS.map((c) => (
-                        <TouchableOpacity
-                          key={c}
-                          onPress={() => setNewLabelColor(c)}
-                          style={[
-                            styles.colorSwatch,
-                            { backgroundColor: c, borderColor: c === newLabelColor ? colors.text : 'transparent' },
-                          ]}
-                        />
-                      ))}
-                    </View>
-                    <View style={styles.newLabelActions}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setCreatingLabel(false);
-                          setNewLabelName('');
-                        }}
-                        style={[styles.secondaryBtn, { borderColor: colors.divider }]}
-                      >
-                        <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={handleCreateLabel}
-                        disabled={createLabel.isPending || !newLabelName.trim()}
-                        style={[styles.primaryBtn, (createLabel.isPending || !newLabelName.trim()) && { opacity: 0.6 }]}
-                      >
-                        {createLabel.isPending ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <Text style={styles.primaryBtnText}>Create</Text>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                    onPress={() => setCreatingLabel(true)}
-                  >
-                    <View style={styles.labelRowLeft}>
-                      <Plus size={18} color={BRAND} />
-                      <Text style={[styles.modalOptionText, { color: '#E84C3D', fontWeight: '600' }]}>
-                        Create new label
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Date picker */}
-      {picker === 'startDate' || picker === 'dueDate' ? (
-        Platform.OS === 'ios' ? (
-          <Modal visible transparent animationType="slide" onRequestClose={() => setPicker(null)}>
-            <Pressable style={styles.modalBackdrop} onPress={() => setPicker(null)}>
-              <Pressable
-                style={[styles.modalSheet, { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 }]}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <View style={styles.sheetHeader}>
-                  <TouchableOpacity onPress={() => clearDate(picker)}>
-                    <Text style={[styles.sheetAction, { color: '#DC2626' }]}>Clear</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setPicker(null)}>
-                    <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
-                  </TouchableOpacity>
-                </View>
-                <DateTimePicker
-                  value={
-                    (picker === 'startDate' ? startDate : dueDate)
-                      ? new Date((picker === 'startDate' ? startDate : dueDate) as string)
-                      : new Date()
-                  }
-                  mode="date"
-                  display="spinner"
-                  onChange={handleDateChange(picker)}
-                  themeVariant={colors.text === '#FFFFFF' ? 'dark' : 'light'}
-                />
-              </Pressable>
-            </Pressable>
-          </Modal>
-        ) : (
-          <DateTimePicker
-            value={
-              (picker === 'startDate' ? startDate : dueDate)
-                ? new Date((picker === 'startDate' ? startDate : dueDate) as string)
-                : new Date()
-            }
-            mode="date"
-            display="default"
-            onChange={handleDateChange(picker)}
-          />
-        )
-      ) : null}
+      <DatePickerModal
+        picker={picker}
+        startDate={startDate}
+        dueDate={dueDate}
+        colors={colors}
+        bottomInset={insets.bottom}
+        onChange={setDateFor}
+        onClear={clearDate}
+        onClose={closePicker}
+      />
     </View>
   );
 }
