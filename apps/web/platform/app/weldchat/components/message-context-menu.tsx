@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -154,16 +154,27 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
     );
   };
 
+  // Radix hands focus back to the right-clicked message when the menu closes,
+  // which would undo the composer focus that Reply / Reply in thread / Edit just
+  // requested. For those actions, leave focus where the composer put it.
+  const focusComposerOnCloseRef = useRef(false);
+  const handleCloseAutoFocus = (event: Event) => {
+    if (!focusComposerOnCloseRef.current) return;
+    focusComposerOnCloseRef.current = false;
+    event.preventDefault();
+  };
+
   const handleEdit = () => {
+    focusComposerOnCloseRef.current = true;
     setReplyTo(null);
-    setEditingMessage({ messageId: message.id, content: message.content ?? '' });
+    setEditingMessage({ messageId: message.id, content: message.content ?? '', parentId: message.parentId });
   };
 
   return (
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
+        <ContextMenuContent className="w-56" onCloseAutoFocus={handleCloseAutoFocus}>
           <ContextMenuSub>
             <ContextMenuSubTrigger>
               <Smile className="h-4 w-4 mr-0.5" />
@@ -190,18 +201,20 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
             {t.weldchat.messageContextMenu.markAsUnread}
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={() =>
+            onClick={() => {
+              focusComposerOnCloseRef.current = true;
               setReplyTo({
                 messageId: message.id,
                 authorName: message.authorName ?? '',
                 content: message.content ?? '',
-              })
-            }
+                parentId: message.parentId,
+              });
+            }}
           >
             <Reply className="h-4 w-4 mr-0.5" />
             {t.weldchat.messageContextMenu.reply}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => openThread(message.id)}>
+          <ContextMenuItem onClick={() => { focusComposerOnCloseRef.current = true; openThread(message.id); }}>
             <MessageSquare className="h-4 w-4 mr-0.5" />
             {t.weldchat.messageContextMenu.replyInThread}
           </ContextMenuItem>
