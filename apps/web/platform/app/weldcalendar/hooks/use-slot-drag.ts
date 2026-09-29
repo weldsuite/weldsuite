@@ -39,6 +39,17 @@ function clampMinutes(minutes: number): number {
   return Math.max(0, Math.min(1440, minutes));
 }
 
+/**
+ * Minute of the day (snapped to 15, clamped to 0..1440) under the pointer.
+ *
+ * `columnTop` is the day column's `getBoundingClientRect().top`. The column
+ * scrolls with the grid, so that rect already reflects the scroll position:
+ * adding the scroll container's `scrollTop` on top counts the scroll twice.
+ */
+export function minuteFromPointer(clientY: number, columnTop: number, hourHeight: number): number {
+  return snapTo15(clampMinutes(((clientY - columnTop) / hourHeight) * 60));
+}
+
 export function useSlotDrag({ hourHeight, onSelectSlot }: UseSlotDragOptions): SlotDragResult {
   const [dragState, setDragState] = useState<{
     day: Date;
@@ -63,14 +74,8 @@ export function useSlotDrag({ hourHeight, onSelectSlot }: UseSlotDragOptions): S
     const col = (e.currentTarget as HTMLElement).closest('[data-day-col]') as HTMLElement;
     if (!col) return;
 
-    const scrollContainer = col.closest('.overflow-y-auto') as HTMLElement;
     const colRect = col.getBoundingClientRect();
-    const scrollTop = scrollContainer?.scrollTop || 0;
-    const hh = hourHeightRef.current;
-
-    // Compute precise minute from mouse Y within the column
-    const relativeY = e.clientY - colRect.top + scrollTop;
-    const startMinute = snapTo15(clampMinutes((relativeY / hh) * 60));
+    const startMinute = minuteFromPointer(e.clientY, colRect.top, hourHeightRef.current);
 
     const dayKey = format(day, 'yyyy-MM-dd');
     const startX = e.clientX;
@@ -87,12 +92,9 @@ export function useSlotDrag({ hourHeight, onSelectSlot }: UseSlotDragOptions): S
       if (Math.abs(dx) + Math.abs(dy) > 5) {
         // Promote to drag
         cleanup();
-        const colNow = document.querySelector(`[data-day-col="${dayKey}"]`) as HTMLElement;
-        const scrollNow = colNow?.closest('.overflow-y-auto') as HTMLElement;
-        const colRectNow = colNow?.getBoundingClientRect();
-        const scrollTopNow = scrollNow?.scrollTop || 0;
-        const relY = me.clientY - (colRectNow?.top || columnTop) + scrollTopNow;
-        const endMinute = snapTo15(clampMinutes((relY / hourHeightRef.current) * 60));
+        const colNow = document.querySelector(`[data-day-col="${dayKey}"]`) as HTMLElement | null;
+        const colTopNow = colNow?.getBoundingClientRect().top ?? columnTop;
+        const endMinute = minuteFromPointer(me.clientY, colTopNow, hourHeightRef.current);
 
         setDragState({
           day,
@@ -133,14 +135,9 @@ export function useSlotDrag({ hourHeight, onSelectSlot }: UseSlotDragOptions): S
     pendingCleanupRef.current?.();
 
     const handleMouseMove = (e: MouseEvent) => {
-      const hh = hourHeightRef.current;
       const col = document.querySelector(`[data-day-col="${dragState.dayKey}"]`) as HTMLElement;
       if (!col) return;
-      const scrollContainer = col.closest('.overflow-y-auto') as HTMLElement;
-      const colRect = col.getBoundingClientRect();
-      const scrollTop = scrollContainer?.scrollTop || 0;
-      const relativeY = e.clientY - colRect.top + scrollTop;
-      const endMinute = snapTo15(clampMinutes((relativeY / hh) * 60));
+      const endMinute = minuteFromPointer(e.clientY, col.getBoundingClientRect().top, hourHeightRef.current);
       setDragState((prev) => prev ? { ...prev, endMinute } : null);
     };
 
