@@ -55,7 +55,7 @@ export interface TaskDetailPanelProps {
   currentUserId?: string;
   // Subtasks
   subtasks?: SubtaskItem[];
-  onCreateSubtask?: () => void;
+  onCreateSubtask?: (title: string) => void;
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
   parentTask?: { id: string; title: string; status?: string } | null;
