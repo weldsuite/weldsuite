@@ -79,108 +79,154 @@ interface Token {
   numValue?: number;
 }
 
+function isDigit(ch: string | undefined): boolean {
+  return ch !== undefined && ch >= '0' && ch <= '9';
+}
+
+function isLetter(ch: string | undefined): boolean {
+  return ch !== undefined && ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z'));
+}
+
+/** Characters allowed inside a cell-reference / function-name word. */
+function isWordChar(ch: string | undefined): boolean {
+  return ch === '$' || isLetter(ch) || isDigit(ch) || ch === '_';
+}
+
+/** Characters allowed in the second half of a range (`A1:B5`). */
+function isRangeEndChar(ch: string | undefined): boolean {
+  return ch === '$' || isLetter(ch) || isDigit(ch);
+}
+
+/**
+ * Each scanner inspects `s` at `i`. When it recognises its construct it appends any
+ * tokens to `tokens` and returns the index to continue from; otherwise it returns `null`.
+ */
+type Scanner = (s: string, i: number, tokens: Token[]) => number | null;
+
+function scanWhitespace(s: string, i: number): number | null {
+  return s[i] === ' ' || s[i] === '\t' ? i + 1 : null;
+}
+
+function scanString(s: string, i: number, tokens: Token[]): number | null {
+  if (s[i] !== '"') return null;
+  let str = '';
+  i++;
+  while (i < s.length && s[i] !== '"') {
+    if (s[i] === '\\' && i + 1 < s.length) { str += s[i + 1]; i += 2; }
+    else { str += s[i]; i++; }
+  }
+  i++; // closing quote
+  tokens.push({ type: TokenType.STRING, value: str });
+  return i;
+}
+
+function scanNumber(s: string, i: number, tokens: Token[]): number | null {
+  if (!(isDigit(s[i]) || (s[i] === '.' && i + 1 < s.length && isDigit(s[i + 1])))) return null;
+  let num = '';
+  while (i < s.length && (isDigit(s[i]) || s[i] === '.')) { num += s[i]; i++; }
+  tokens.push({ type: TokenType.NUMBER, value: num, numValue: Number.parseFloat(num) });
+  return i;
+}
+
+function readWhile(s: string, i: number, pred: (ch: string | undefined) => boolean): string {
+  let out = '';
+  while (i < s.length && pred(s[i])) { out += s[i]; i++; }
+  return out;
+}
+
+/** Cell ref, function name, range or boolean literal, all of which start with `$` or a letter. */
+function scanWord(s: string, i: number, tokens: Token[]): number | null {
+  if (!(s[i] === '$' || isLetter(s[i]))) return null;
+  const word = readWhile(s, i, isWordChar);
+  i += word.length;
+
+  // Check for range: WORD:WORD
+  if (i < s.length && s[i] === ':' && parseRef(word)) {
+    i++; // skip :
+    const word2 = readWhile(s, i, isRangeEndChar);
+    tokens.push({ type: TokenType.RANGE, value: `${word}:${word2}` });
+    return i + word2.length;
+  }
+
+  const isRef = parseRef(word) !== null;
+
+  // Check if it's a function (next char is '(')
+  const nextNonSpace = s.substring(i).search(/\S/);
+  const nextChar = nextNonSpace >= 0 ? s[i + nextNonSpace] : '';
+  if (nextChar === '(' && !isRef) {
+    tokens.push({ type: TokenType.FUNCTION, value: word.toUpperCase() });
+    return i;
+  }
+
+  // Check if it's a cell reference
+  if (isRef) {
+    tokens.push({ type: TokenType.CELL_REF, value: word.toUpperCase() });
+    return i;
+  }
+
+  // Otherwise treat as function name or boolean
+  const upper = word.toUpperCase();
+  if (upper === 'TRUE' || upper === 'FALSE') {
+    tokens.push({ type: TokenType.STRING, value: upper });
+    return i;
+  }
+  tokens.push({ type: TokenType.FUNCTION, value: upper });
+  return i;
+}
+
+/** `<>`, `<=`, `<`, `>=`, `>`. A trailing lone `<` is dropped (as it always was). */
+function scanComparison(s: string, i: number, tokens: Token[]): number | null {
+  if (s[i] === '<' && i + 1 < s.length) {
+    if (s[i + 1] === '>') { tokens.push({ type: TokenType.COMPARE, value: '<>' }); return i + 2; }
+    if (s[i + 1] === '=') { tokens.push({ type: TokenType.COMPARE, value: '<=' }); return i + 2; }
+    tokens.push({ type: TokenType.COMPARE, value: '<' });
+    return i + 1;
+  }
+  if (s[i] === '>' && i + 1 < s.length && s[i + 1] === '=') {
+    tokens.push({ type: TokenType.COMPARE, value: '>=' });
+    return i + 2;
+  }
+  if (s[i] === '>') {
+    tokens.push({ type: TokenType.COMPARE, value: '>' });
+    return i + 1;
+  }
+  return null;
+}
+
+const SINGLE_CHAR_TOKENS: ReadonlyMap<string, TokenType> = new Map([
+  ['(', TokenType.LPAREN],
+  [')', TokenType.RPAREN],
+  [',', TokenType.COMMA],
+  ['+', TokenType.OPERATOR],
+  ['-', TokenType.OPERATOR],
+  ['*', TokenType.OPERATOR],
+  ['/', TokenType.OPERATOR],
+  ['^', TokenType.OPERATOR],
+  ['&', TokenType.CONCAT],
+  ['=', TokenType.COMPARE],
+]);
+
+/** Single-char tokens; any other character is skipped. */
+function scanSingleChar(s: string, i: number, tokens: Token[]): number {
+  const type = SINGLE_CHAR_TOKENS.get(s[i]);
+  if (type !== undefined) tokens.push({ type, value: s[i] });
+  return i + 1;
+}
+
+const SCANNERS: readonly Scanner[] = [scanWhitespace, scanString, scanNumber, scanWord, scanComparison];
+
 function tokenize(formula: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   const s = formula;
 
   while (i < s.length) {
-    // Skip whitespace
-    if (s[i] === ' ' || s[i] === '\t') { i++; continue; }
-
-    // String literal
-    if (s[i] === '"') {
-      let str = '';
-      i++;
-      while (i < s.length && s[i] !== '"') {
-        if (s[i] === '\\' && i + 1 < s.length) { str += s[i + 1]; i += 2; }
-        else { str += s[i]; i++; }
-      }
-      i++; // closing quote
-      tokens.push({ type: TokenType.STRING, value: str });
-      continue;
+    let next: number | null = null;
+    for (const scan of SCANNERS) {
+      next = scan(s, i, tokens);
+      if (next !== null) break;
     }
-
-    // Number
-    if ((s[i] >= '0' && s[i] <= '9') || (s[i] === '.' && i + 1 < s.length && s[i + 1] >= '0' && s[i + 1] <= '9')) {
-      let num = '';
-      while (i < s.length && ((s[i] >= '0' && s[i] <= '9') || s[i] === '.')) { num += s[i]; i++; }
-      tokens.push({ type: TokenType.NUMBER, value: num, numValue: Number.parseFloat(num) });
-      continue;
-    }
-
-    // Cell ref or function name or range — starts with $ or letter
-    if (s[i] === '$' || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z')) {
-      let word = '';
-      while (i < s.length && (s[i] === '$' || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] === '_')) {
-        word += s[i]; i++;
-      }
-
-      // Check for range: WORD:WORD
-      if (i < s.length && s[i] === ':') {
-        const startRef = parseRef(word);
-        if (startRef) {
-          i++; // skip :
-          let word2 = '';
-          while (i < s.length && (s[i] === '$' || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9'))) {
-            word2 += s[i]; i++;
-          }
-          tokens.push({ type: TokenType.RANGE, value: `${word}:${word2}` });
-          continue;
-        }
-      }
-
-      // Check if it's a function (next char is '(')
-      const nextNonSpace = s.substring(i).search(/\S/);
-      const nextChar = nextNonSpace >= 0 ? s[i + nextNonSpace] : '';
-      if (nextChar === '(' && !parseRef(word)) {
-        tokens.push({ type: TokenType.FUNCTION, value: word.toUpperCase() });
-        continue;
-      }
-
-      // Check if it's a cell reference
-      const ref = parseRef(word);
-      if (ref) {
-        tokens.push({ type: TokenType.CELL_REF, value: word.toUpperCase() });
-        continue;
-      }
-
-      // Otherwise treat as function name or boolean
-      const upper = word.toUpperCase();
-      if (upper === 'TRUE' || upper === 'FALSE') {
-        tokens.push({ type: TokenType.STRING, value: upper });
-        continue;
-      }
-      tokens.push({ type: TokenType.FUNCTION, value: upper });
-      continue;
-    }
-
-    // Two-char operators
-    if (s[i] === '<' && i + 1 < s.length) {
-      if (s[i + 1] === '>') { tokens.push({ type: TokenType.COMPARE, value: '<>' }); i += 2; continue; }
-      if (s[i + 1] === '=') { tokens.push({ type: TokenType.COMPARE, value: '<=' }); i += 2; continue; }
-      tokens.push({ type: TokenType.COMPARE, value: '<' }); i++; continue;
-    }
-    if (s[i] === '>' && i + 1 < s.length && s[i + 1] === '=') {
-      tokens.push({ type: TokenType.COMPARE, value: '>=' }); i += 2; continue;
-    }
-    if (s[i] === '>') { tokens.push({ type: TokenType.COMPARE, value: '>' }); i++; continue; }
-
-    // Single-char tokens
-    switch (s[i]) {
-      case '(': tokens.push({ type: TokenType.LPAREN, value: '(' }); break;
-      case ')': tokens.push({ type: TokenType.RPAREN, value: ')' }); break;
-      case ',': tokens.push({ type: TokenType.COMMA, value: ',' }); break;
-      case '+': tokens.push({ type: TokenType.OPERATOR, value: '+' }); break;
-      case '-': tokens.push({ type: TokenType.OPERATOR, value: '-' }); break;
-      case '*': tokens.push({ type: TokenType.OPERATOR, value: '*' }); break;
-      case '/': tokens.push({ type: TokenType.OPERATOR, value: '/' }); break;
-      case '^': tokens.push({ type: TokenType.OPERATOR, value: '^' }); break;
-      case '&': tokens.push({ type: TokenType.CONCAT, value: '&' }); break;
-      case '=': tokens.push({ type: TokenType.COMPARE, value: '=' }); break;
-      default: i++; continue; // skip unknown
-    }
-    i++;
+    i = next ?? scanSingleChar(s, i, tokens);
   }
 
   tokens.push({ type: TokenType.EOF, value: '' });
@@ -602,18 +648,9 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
         if (String(cellVal) === String(lookup)) {
           return getCellValue(firstCol + colIdx, r);
         }
-      } else {
+      } else if (Number(cellVal) <= Number(lookup)) {
         // Approximate match: find largest value <= lookup
-        if (Number(cellVal) <= Number(lookup)) {
-          // Keep going to find the last match
-          let lastMatch = r;
-          for (let r2 = r + 1; r2 <= maxRow; r2++) {
-            const v2 = getCellValue(firstCol, r2);
-            if (Number(v2) <= Number(lookup)) lastMatch = r2;
-            else break;
-          }
-          return getCellValue(firstCol + colIdx, lastMatch);
-        }
+        return getCellValue(firstCol + colIdx, lastApproxMatchRow(firstCol, r, maxRow, lookup));
       }
     }
     return '#N/A';
@@ -645,24 +682,10 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
     // Determine if it's a row or column vector
     const isRow = minRow === maxRow;
     const count = isRow ? maxCol - minCol + 1 : maxRow - minRow + 1;
+    const cellAt = (i: number): CellValue => (isRow ? getCellValue(minCol + i, minRow) : getCellValue(minCol, minRow + i));
 
     for (let i = 0; i < count; i++) {
-      const cellVal = isRow
-        ? getCellValue(minCol + i, minRow)
-        : getCellValue(minCol, minRow + i);
-
-      if (matchType === 0 && String(cellVal) === String(lookup)) return i + 1;
-      if (matchType === 1 && Number(cellVal) <= Number(lookup)) {
-        // Continue until we find the last <= value
-        if (i === count - 1 || Number(isRow ? getCellValue(minCol + i + 1, minRow) : getCellValue(minCol, minRow + i + 1)) > Number(lookup)) {
-          return i + 1;
-        }
-      }
-      if (matchType === -1 && Number(cellVal) >= Number(lookup)) {
-        if (i === count - 1 || Number(isRow ? getCellValue(minCol + i + 1, minRow) : getCellValue(minCol, minRow + i + 1)) < Number(lookup)) {
-          return i + 1;
-        }
-      }
+      if (isMatchAt(matchType, lookup, i, count, cellAt)) return i + 1;
     }
     return '#N/A';
   },
@@ -746,6 +769,37 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
   PI: () => Math.PI,
 };
 
+/** VLOOKUP approximate match: the last consecutive row (from `startRow`) whose key is <= lookup. */
+function lastApproxMatchRow(firstCol: number, startRow: number, maxRow: number, lookup: CellValue): number {
+  let lastMatch = startRow;
+  for (let r2 = startRow + 1; r2 <= maxRow; r2++) {
+    const v2 = getCellValue(firstCol, r2);
+    if (Number(v2) <= Number(lookup)) lastMatch = r2;
+    else break;
+  }
+  return lastMatch;
+}
+
+/** MATCH: does position `i` of the lookup vector satisfy the given match type? */
+function isMatchAt(
+  matchType: number,
+  lookup: CellValue,
+  i: number,
+  count: number,
+  cellAt: (i: number) => CellValue,
+): boolean {
+  const cellVal = cellAt(i);
+  if (matchType === 0) return String(cellVal) === String(lookup);
+  if (matchType === 1) {
+    // Continue until we find the last <= value
+    return Number(cellVal) <= Number(lookup) && (i === count - 1 || Number(cellAt(i + 1)) > Number(lookup));
+  }
+  if (matchType === -1) {
+    return Number(cellVal) >= Number(lookup) && (i === count - 1 || Number(cellAt(i + 1)) < Number(lookup));
+  }
+  return false;
+}
+
 function matchesCriteria(value: CellValue, criteria: string): boolean {
   // Criteria can be: "hello", ">5", "<=10", "<>abc", "=test"
   if (criteria.startsWith('>=')) {
@@ -778,6 +832,56 @@ function getCellValue(col: number, row: number): CellValue {
   return null;
 }
 
+function applyBinaryOp(op: string, left: CellValue, right: CellValue): CellValue {
+  switch (op) {
+    case '+': return toNumber(left) + toNumber(right);
+    case '-': return toNumber(left) - toNumber(right);
+    case '*': return toNumber(left) * toNumber(right);
+    case '/': {
+      const d = toNumber(right);
+      if (d === 0) return '#DIV/0!';
+      return toNumber(left) / d;
+    }
+    case '^': return Math.pow(toNumber(left), toNumber(right));
+    case '&': return toString(left) + toString(right);
+    case '=': return left == right; // loose equality for number/string
+    case '<>': return left != right;
+    case '<': return toNumber(left) < toNumber(right);
+    case '>': return toNumber(left) > toNumber(right);
+    case '<=': return toNumber(left) <= toNumber(right);
+    case '>=': return toNumber(left) >= toNumber(right);
+    default: return '#ERROR!';
+  }
+}
+
+function evalBinary(
+  node: Extract<ASTNode, { type: 'binary' }>,
+  getCellValue: CellGetter,
+  visited: Set<string>,
+): CellValue {
+  const left = evalNode(node.left, getCellValue, visited);
+  if (isError(left)) return left;
+  const right = evalNode(node.right, getCellValue, visited);
+  if (isError(right)) return right;
+  return applyBinaryOp(node.op, left, right);
+}
+
+function evalFunctionCall(
+  node: Extract<ASTNode, { type: 'function' }>,
+  getCellValue: CellGetter,
+  visited: Set<string>,
+): CellValue {
+  const fn = FUNCTIONS[node.name];
+  if (!fn) return '#NAME?';
+  try {
+    return fn(node.args, getCellValue, visited, evalNode);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : undefined;
+    if (message?.startsWith('#')) return message as FormulaError;
+    return '#ERROR!';
+  }
+}
+
 function evalNode(node: ASTNode, getCellValue: CellGetter, visited: Set<string>): CellValue {
   switch (node.type) {
     case 'number': return node.value;
@@ -803,44 +907,9 @@ function evalNode(node: ASTNode, getCellValue: CellGetter, visited: Set<string>)
       return operand;
     }
 
-    case 'binary': {
-      const left = evalNode(node.left, getCellValue, visited);
-      if (isError(left)) return left;
-      const right = evalNode(node.right, getCellValue, visited);
-      if (isError(right)) return right;
+    case 'binary': return evalBinary(node, getCellValue, visited);
 
-      switch (node.op) {
-        case '+': return toNumber(left) + toNumber(right);
-        case '-': return toNumber(left) - toNumber(right);
-        case '*': return toNumber(left) * toNumber(right);
-        case '/': {
-          const d = toNumber(right);
-          if (d === 0) return '#DIV/0!';
-          return toNumber(left) / d;
-        }
-        case '^': return Math.pow(toNumber(left), toNumber(right));
-        case '&': return toString(left) + toString(right);
-        case '=': return left == right; // loose equality for number/string
-        case '<>': return left != right;
-        case '<': return toNumber(left) < toNumber(right);
-        case '>': return toNumber(left) > toNumber(right);
-        case '<=': return toNumber(left) <= toNumber(right);
-        case '>=': return toNumber(left) >= toNumber(right);
-        default: return '#ERROR!';
-      }
-    }
-
-    case 'function': {
-      const fn = FUNCTIONS[node.name];
-      if (!fn) return '#NAME?';
-      try {
-        return fn(node.args, getCellValue, visited, evalNode);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : undefined;
-        if (message?.startsWith('#')) return message as FormulaError;
-        return '#ERROR!';
-      }
-    }
+    case 'function': return evalFunctionCall(node, getCellValue, visited);
   }
 }
 
@@ -872,6 +941,32 @@ export function evaluate(
   }
 }
 
+/** Every "col,row" key covered by a range token. */
+function rangeDependencies(rangeText: string): string[] {
+  const range = parseRange(rangeText);
+  if (!range) return [];
+  const deps: string[] = [];
+  const minCol = Math.min(range.start.col, range.end.col);
+  const maxCol = Math.max(range.start.col, range.end.col);
+  const minRow = Math.min(range.start.row, range.end.row);
+  const maxRow = Math.max(range.start.row, range.end.row);
+  for (let r = minRow; r <= maxRow; r++) {
+    for (let c = minCol; c <= maxCol; c++) {
+      deps.push(`${c},${r}`);
+    }
+  }
+  return deps;
+}
+
+function tokenDependencies(t: Token): string[] {
+  if (t.type === TokenType.CELL_REF) {
+    const ref = parseRef(t.value);
+    return ref ? [`${ref.col},${ref.row}`] : [];
+  }
+  if (t.type === TokenType.RANGE) return rangeDependencies(t.value);
+  return [];
+}
+
 /**
  * Get the set of cell references that a formula depends on.
  * Returns an array of "col,row" strings.
@@ -885,24 +980,8 @@ export function getDependencies(formula: string): string[] {
   try {
     const tokens = tokenize(expr);
     for (const t of tokens) {
-      if (t.type === TokenType.CELL_REF) {
-        const ref = parseRef(t.value);
-        if (ref) deps.push(`${ref.col},${ref.row}`);
-      }
-      if (t.type === TokenType.RANGE) {
-        const range = parseRange(t.value);
-        if (range) {
-          const minCol = Math.min(range.start.col, range.end.col);
-          const maxCol = Math.max(range.start.col, range.end.col);
-          const minRow = Math.min(range.start.row, range.end.row);
-          const maxRow = Math.max(range.start.row, range.end.row);
-          for (let r = minRow; r <= maxRow; r++) {
-            for (let c = minCol; c <= maxCol; c++) {
-              deps.push(`${c},${r}`);
-            }
-          }
-        }
-      }
+      // push one by one: spreading a huge range would exceed the call-argument limit
+      for (const dep of tokenDependencies(t)) deps.push(dep);
     }
   } catch {
     // Parse error — no deps

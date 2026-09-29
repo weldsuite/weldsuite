@@ -38,9 +38,9 @@ export function getCellFormat(rowData: Record<string, unknown> | undefined, colI
   return fmt && typeof fmt === 'object' ? fmt as CellFormat : undefined;
 }
 
-export function getCellStyle(format: CellFormat | undefined): React.CSSProperties {
-  if (!format) return {};
-  const style: React.CSSProperties & { '--cell-rotation'?: string } = {};
+type CellStyle = React.CSSProperties & { '--cell-rotation'?: string };
+
+function applyBasicStyle(style: CellStyle, format: CellFormat): void {
   if (format.bold) style.fontWeight = 'bold';
   if (format.italic) style.fontStyle = 'italic';
   if (format.strikethrough) style.textDecoration = 'line-through';
@@ -49,55 +49,70 @@ export function getCellStyle(format: CellFormat | undefined): React.CSSPropertie
   if (format.fontFamily) style.fontFamily = format.fontFamily;
   if (format.fontSize) style.fontSize = `${format.fontSize}px`;
   if (format.textAlign) style.textAlign = format.textAlign;
-  // Vertical align
-  if (format.verticalAlign) {
-    switch (format.verticalAlign) {
-      case 'top': style.alignItems = 'flex-start'; break;
-      case 'middle': style.alignItems = 'center'; break;
-      case 'bottom': style.alignItems = 'flex-end'; break;
-    }
+}
+
+function applyVerticalAlign(style: CellStyle, format: CellFormat): void {
+  if (!format.verticalAlign) return;
+  switch (format.verticalAlign) {
+    case 'top': style.alignItems = 'flex-start'; break;
+    case 'middle': style.alignItems = 'center'; break;
+    case 'bottom': style.alignItems = 'flex-end'; break;
+  }
+  style.display = 'flex';
+}
+
+function applyTextWrap(style: CellStyle, format: CellFormat): void {
+  if (!format.textWrap) return;
+  switch (format.textWrap) {
+    case 'wrap': style.whiteSpace = 'pre-wrap'; style.wordBreak = 'break-word'; break;
+    case 'clip': style.whiteSpace = 'nowrap'; style.overflow = 'hidden'; style.textOverflow = 'clip'; break;
+    case 'overflow': style.whiteSpace = 'nowrap'; style.overflow = 'visible'; break;
+  }
+}
+
+// Text rotation — use writing-mode for vertical, and a rotated inner span approach for angles
+function applyTextRotation(style: CellStyle, format: CellFormat): void {
+  if (!format.textRotation) return;
+  const deg = format.textRotation;
+  if (deg === 90) {
+    // Vertical upward: text reads bottom-to-top
+    style.writingMode = 'vertical-rl';
+    style.transform = 'rotate(180deg)';
+  } else if (deg === -90) {
+    // Vertical downward: text reads top-to-bottom
+    style.writingMode = 'vertical-rl';
+  } else {
+    // Tilted text (e.g. 45° or -45°): rotate the content in-place
+    // The cell needs to be tall enough — handled by row height
     style.display = 'flex';
+    style.alignItems = 'flex-end';
+    style.overflow = 'visible';
+    // Use a CSS custom property so the cell renderer can apply rotation to inner text
+    style['--cell-rotation'] = `${deg}deg`;
   }
-  // Text wrapping
-  if (format.textWrap) {
-    switch (format.textWrap) {
-      case 'wrap': style.whiteSpace = 'pre-wrap'; style.wordBreak = 'break-word'; break;
-      case 'clip': style.whiteSpace = 'nowrap'; style.overflow = 'hidden'; style.textOverflow = 'clip'; break;
-      case 'overflow': style.whiteSpace = 'nowrap'; style.overflow = 'visible'; break;
-    }
+}
+
+function applyBorder(style: CellStyle, format: CellFormat): void {
+  if (!format.border || format.border === 'none') return;
+  const b = '1px solid #000';
+  switch (format.border) {
+    case 'all': style.border = b; break;
+    case 'outer': style.border = b; break;
+    case 'top': style.borderTop = b; break;
+    case 'bottom': style.borderBottom = b; break;
+    case 'left': style.borderLeft = b; break;
+    case 'right': style.borderRight = b; break;
   }
-  // Text rotation — use writing-mode for vertical, and a rotated inner span approach for angles
-  if (format.textRotation) {
-    const deg = format.textRotation;
-    if (deg === 90) {
-      // Vertical upward: text reads bottom-to-top
-      style.writingMode = 'vertical-rl';
-      style.transform = 'rotate(180deg)';
-    } else if (deg === -90) {
-      // Vertical downward: text reads top-to-bottom
-      style.writingMode = 'vertical-rl';
-    } else {
-      // Tilted text (e.g. 45° or -45°): rotate the content in-place
-      // The cell needs to be tall enough — handled by row height
-      style.display = 'flex';
-      style.alignItems = 'flex-end';
-      style.overflow = 'visible';
-      // Use a CSS custom property so the cell renderer can apply rotation to inner text
-      style['--cell-rotation'] = `${deg}deg`;
-    }
-  }
-  // Borders
-  if (format.border && format.border !== 'none') {
-    const b = '1px solid #000';
-    switch (format.border) {
-      case 'all': style.border = b; break;
-      case 'outer': style.border = b; break;
-      case 'top': style.borderTop = b; break;
-      case 'bottom': style.borderBottom = b; break;
-      case 'left': style.borderLeft = b; break;
-      case 'right': style.borderRight = b; break;
-    }
-  }
+}
+
+export function getCellStyle(format: CellFormat | undefined): React.CSSProperties {
+  if (!format) return {};
+  const style: CellStyle = {};
+  applyBasicStyle(style, format);
+  applyVerticalAlign(style, format);
+  applyTextWrap(style, format);
+  applyTextRotation(style, format);
+  applyBorder(style, format);
   return style;
 }
 

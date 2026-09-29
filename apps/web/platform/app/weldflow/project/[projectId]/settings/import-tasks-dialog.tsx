@@ -303,6 +303,33 @@ interface JobStatus {
   errorMessage?: string | null;
 }
 
+type ImportTranslations = ReturnType<typeof useI18n>['t'];
+
+// Toast summarising a finished (completed or failed) import job.
+function notifyImportFinished(job: JobStatus, t: ImportTranslations): void {
+  if (job.status === "failed") {
+    toast.error(job.errorMessage || t.projects.settings.failedToStartImport);
+    return;
+  }
+
+  const successCount = job.imported + job.updated;
+  if (job.failed === 0) {
+    const parts: string[] = [];
+    if (job.imported > 0) parts.push(`${job.imported} ${t.projects.settings.importedLabel.toLowerCase()}`);
+    if (job.updated > 0) parts.push(`${job.updated} ${t.projects.settings.updatedLabel.toLowerCase()}`);
+    toast.success(t.projects.settings.importSuccessAll.replace('{parts}', parts.join(", ") || t.projects.settings.processedLabel.toLowerCase()));
+  } else if (successCount > 0) {
+    toast.warning(
+      t.projects.settings.importSuccessPartial
+        .replace('{success}', String(successCount))
+        .replace('{total}', String(job.total))
+        .replace('{failed}', String(job.failed)),
+    );
+  } else {
+    toast.error(t.projects.settings.importAllFailed.replace('{failed}', String(job.failed)));
+  }
+}
+
 interface ImportTasksDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -619,26 +646,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
             setStep("result");
             setIsImporting(false);
 
-            if (job.status === "failed") {
-              toast.error(job.errorMessage || t.projects.settings.failedToStartImport);
-            } else {
-              const successCount = job.imported + job.updated;
-              if (job.failed === 0) {
-                const parts: string[] = [];
-                if (job.imported > 0) parts.push(`${job.imported} ${t.projects.settings.importedLabel.toLowerCase()}`);
-                if (job.updated > 0) parts.push(`${job.updated} ${t.projects.settings.updatedLabel.toLowerCase()}`);
-                toast.success(t.projects.settings.importSuccessAll.replace('{parts}', parts.join(", ") || t.projects.settings.processedLabel.toLowerCase()));
-              } else if (successCount > 0) {
-                toast.warning(
-                  t.projects.settings.importSuccessPartial
-                    .replace('{success}', String(successCount))
-                    .replace('{total}', String(job.total))
-                    .replace('{failed}', String(job.failed)),
-                );
-              } else {
-                toast.error(t.projects.settings.importAllFailed.replace('{failed}', String(job.failed)));
-              }
-            }
+            notifyImportFinished(job, t);
           }
         } catch (pollErr) {
           console.error("[Import] Poll error:", pollErr);

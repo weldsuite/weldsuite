@@ -577,6 +577,73 @@ function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDelet
   );
 }
 
+// ---------- Pipeline helpers ----------
+
+const STAGE_SORTABLE_PREFIX = 'sortable-stage-';
+const STAGE_DROP_PREFIX = 'stage-';
+
+function matchesEqualityFilter(operator: string, actual: string, expected: string): boolean {
+  return operator === 'is' ? actual === expected : actual !== expected;
+}
+
+function matchesAssigneeFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  if (filter.value === '__unassigned__') {
+    return filter.operator === 'is' ? !feature.owner : !!feature.owner;
+  }
+  const name = (feature.owner?.name || '').toLowerCase();
+  return matchesEqualityFilter(filter.operator, name, filter.value.toLowerCase());
+}
+
+function matchesDueFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  const dueDate = feature.endAt.toISOString().split('T')[0];
+  if (filter.operator === 'is') return dueDate === filter.value;
+  if (filter.operator === 'before') return dueDate < filter.value;
+  if (filter.operator === 'after') return dueDate > filter.value;
+  return true;
+}
+
+function featureMatchesFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  if (!filter.operator || !filter.value) return true;
+
+  switch (filter.field) {
+    case 'stage':
+      return matchesEqualityFilter(filter.operator, feature.column, filter.value);
+    case 'priority':
+      return matchesEqualityFilter(filter.operator, (feature.priority || '').toLowerCase(), filter.value.toLowerCase());
+    case 'assignee':
+      return matchesAssigneeFilter(feature, filter);
+    case 'due':
+      return matchesDueFilter(feature, filter);
+    default:
+      return true;
+  }
+}
+
+/** Stage id a stage-reorder drag was dropped on. */
+function resolveStageDropId(overId: string): string {
+  if (overId.startsWith(STAGE_SORTABLE_PREFIX)) return overId.replace(STAGE_SORTABLE_PREFIX, '');
+  if (overId.startsWith(STAGE_DROP_PREFIX)) return overId.replace(STAGE_DROP_PREFIX, '');
+  return overId;
+}
+
+/** Stage id a task drag was dropped on (a stage itself, or the stage of the task dropped on). */
+function resolveTaskDropStageId(overId: string, features: TaskFeature[]): string | undefined {
+  if (overId.startsWith(STAGE_DROP_PREFIX)) return overId.replace(STAGE_DROP_PREFIX, '');
+  if (overId.startsWith(STAGE_SORTABLE_PREFIX)) return overId.replace(STAGE_SORTABLE_PREFIX, '');
+  return features.find(f => f.id === overId)?.column;
+}
+
+/** Move stage `fromId` to the position of `toId`; null when either is missing. */
+function reorderStages(stages: StageColumn[], fromId: string, toId: string): StageColumn[] | null {
+  const oldIdx = stages.findIndex(s => s.id === fromId);
+  const newIdx = stages.findIndex(s => s.id === toId);
+  if (oldIdx === -1 || newIdx === -1) return null;
+  const next = [...stages];
+  const [moved] = next.splice(oldIdx, 1);
+  next.splice(newIdx, 0, moved);
+  return next;
+}
+
 // ---------- Main Pipeline Component ----------
 
 const PipelinePage = () => {
@@ -733,34 +800,6 @@ const PipelinePage = () => {
     return m;
   }, [columns]);
 
-  // Filter matching helper
-  const matchesFilter = useCallback((feature: TaskFeature, filter: ActiveFilter): boolean => {
-    if (!filter.operator || !filter.value) return true;
-    const val = filter.value.toLowerCase();
-
-    if (filter.field === 'stage') {
-      return filter.operator === 'is' ? feature.column === filter.value : feature.column !== filter.value;
-    }
-    if (filter.field === 'priority') {
-      const p = (feature.priority || '').toLowerCase();
-      return filter.operator === 'is' ? p === val : p !== val;
-    }
-    if (filter.field === 'assignee') {
-      if (filter.value === '__unassigned__') {
-        return filter.operator === 'is' ? !feature.owner : !!feature.owner;
-      }
-      const name = (feature.owner?.name || '').toLowerCase();
-      return filter.operator === 'is' ? name === val : name !== val;
-    }
-    if (filter.field === 'due') {
-      const dueDate = feature.endAt.toISOString().split('T')[0];
-      if (filter.operator === 'is') return dueDate === filter.value;
-      if (filter.operator === 'before') return dueDate < filter.value;
-      if (filter.operator === 'after') return dueDate > filter.value;
-    }
-    return true;
-  }, []);
-
   // Filtered features
   const filteredFeatures = useMemo(() => {
     let result = features;
@@ -779,12 +818,12 @@ const PipelinePage = () => {
 
     if (activeFilters.length > 0) {
       for (const filter of activeFilters) {
-        result = result.filter(f => matchesFilter(f, filter));
+        result = result.filter(f => featureMatchesFilter(f, filter));
       }
     }
 
     return result;
-  }, [features, searchQuery, activeFilters, matchesFilter]);
+  }, [features, searchQuery, activeFilters]);
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {
@@ -813,24 +852,16 @@ const PipelinePage = () => {
     const overId = over.id as string;
 
     // Stage reordering
-    if (activeId.startsWith('sortable-stage-')) {
-      const fromId = activeId.replace('sortable-stage-', '');
-      let toId = overId;
-      if (overId.startsWith('sortable-stage-')) toId = overId.replace('sortable-stage-', '');
-      else if (overId.startsWith('stage-')) toId = overId.replace('stage-', '');
+    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
+      const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
+      const toId = resolveStageDropId(overId);
 
       if (fromId !== toId) {
         setColumns(prev => {
-          const oldIdx = prev.findIndex(s => s.id === fromId);
-          const newIdx = prev.findIndex(s => s.id === toId);
-          if (oldIdx !== -1 && newIdx !== -1) {
-            const next = [...prev];
-            const [moved] = next.splice(oldIdx, 1);
-            next.splice(newIdx, 0, moved);
-            persistStageOrder(next);
-            return next;
-          }
-          return prev;
+          const next = reorderStages(prev, fromId, toId);
+          if (!next) return prev;
+          persistStageOrder(next);
+          return next;
         });
       }
       setDraggedFeatureOriginalColumn(null);
@@ -842,13 +873,7 @@ const PipelinePage = () => {
     const movedFeature = features.find(f => f.id === draggedFeatureOriginalColumn.id);
     if (!movedFeature) { setDraggedFeatureOriginalColumn(null); return; }
 
-    let targetStageId: string | undefined;
-    if (overId.startsWith('stage-')) targetStageId = overId.replace('stage-', '');
-    else if (overId.startsWith('sortable-stage-')) targetStageId = overId.replace('sortable-stage-', '');
-    else {
-      const overFeature = features.find(f => f.id === overId);
-      if (overFeature) targetStageId = overFeature.column;
-    }
+    const targetStageId = resolveTaskDropStageId(overId, features);
 
     if (targetStageId && targetStageId !== draggedFeatureOriginalColumn.column) {
       // Optimistic update

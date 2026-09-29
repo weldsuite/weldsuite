@@ -327,6 +327,29 @@ function buildTaskUpdatePayload(data: Partial<Task>): Record<string, unknown> {
   return apiData;
 }
 
+// Build the inline-update payload for toggling `memberId` in a task's assignee list.
+function buildAssigneeToggleUpdate(
+  resolvedIds: string[],
+  memberId: string,
+  isSelected: boolean,
+  availableAssignees: { id: string; name: string; avatar?: string }[],
+): Partial<Task> {
+  const nextIds = isSelected
+    ? resolvedIds.filter((id) => id !== memberId)
+    : [...resolvedIds, memberId];
+  const nextAssignees = nextIds.map((id) => {
+    const m = availableAssignees.find((x) => x.id === id);
+    return { id, name: m?.name || '', avatar: m?.avatar };
+  });
+  const primary = nextAssignees[0];
+  return {
+    assigneeId: primary?.id ?? null,
+    assignee: primary?.name,
+    assigneeIds: nextIds,
+    assignees: nextAssignees,
+  };
+}
+
 const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: number; scaleX: number; scaleY: number } }) => ({
   ...transform,
   x: 0,
@@ -1287,22 +1310,12 @@ export function MyTasksClient({
                       <Button
                         key={member.id}
                         variant="ghost"
-                        onClick={() => {
-                          const nextIds = isSelected
-                            ? resolvedIds.filter((id) => id !== member.id)
-                            : [...resolvedIds, member.id];
-                          const nextAssignees = nextIds.map((id) => {
-                            const m = availableAssignees.find((x) => x.id === id);
-                            return { id, name: m?.name || '', avatar: m?.avatar };
-                          });
-                          const primary = nextAssignees[0];
-                          updateTaskInline(task.id, {
-                            assigneeId: primary?.id ?? null,
-                            assignee: primary?.name,
-                            assigneeIds: nextIds,
-                            assignees: nextAssignees,
-                          });
-                        }}
+                        onClick={() =>
+                          updateTaskInline(
+                            task.id,
+                            buildAssigneeToggleUpdate(resolvedIds, member.id, isSelected, availableAssignees),
+                          )
+                        }
                         className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                       >
                         <span className="flex items-center gap-2">
