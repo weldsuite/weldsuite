@@ -104,6 +104,71 @@ const categories = [
   { value: 'api', label: 'API & Developers' },
 ];
 
+const FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: string]> = [
+  ['bold', 'bold'],
+  ['italic', 'italic'],
+  ['underline', 'underline'],
+  ['strikeThrough', 'strikethrough'],
+  ['insertUnorderedList', 'bulletList'],
+  ['insertOrderedList', 'numberedList'],
+  ['justifyLeft', 'alignLeft'],
+  ['justifyCenter', 'alignCenter'],
+  ['justifyRight', 'alignRight'],
+  ['justifyFull', 'alignJustify'],
+];
+
+function getActiveFormats(): Set<string> {
+  const formats = new Set<string>();
+  for (const [command, format] of FORMAT_COMMANDS) {
+    if (document.queryCommandState(command)) formats.add(format);
+  }
+  return formats;
+}
+
+/** Element containing the start of the current selection (text nodes resolve to their parent). */
+function getSelectionStartElement(): HTMLElement | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const container = selection.getRangeAt(0).startContainer as HTMLElement;
+  return container.nodeType === Node.TEXT_NODE
+    ? (container.parentElement as HTMLElement)
+    : container;
+}
+
+/** Force left-to-right direction on the paragraph that holds the caret. */
+function forceParagraphLtr() {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return;
+  let element = selection.anchorNode as HTMLElement;
+  if (element.nodeType === Node.TEXT_NODE) {
+    element = element.parentElement as HTMLElement;
+  }
+  if (element?.tagName === 'P') {
+    element.setAttribute('dir', 'ltr');
+    element.style.direction = 'ltr';
+  }
+}
+
+function resolveFontSize(currentFontSize: number): string {
+  const matchedSize = fontSizes.find((s) => Number.parseInt(s.value) === currentFontSize);
+  if (matchedSize) return matchedSize.value;
+  // Find closest size
+  const closestSize = fontSizes.reduce((prev, curr) => {
+    return Math.abs(Number.parseInt(curr.value) - currentFontSize) < Math.abs(Number.parseInt(prev.value) - currentFontSize)
+      ? curr
+      : prev;
+  }, fontSizes[0]);
+  return closestSize.value;
+}
+
+function getOptionLabel(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  value: string,
+  fallback: string,
+) {
+  return value ? options.find((option) => option.value === value)?.label : fallback;
+}
+
 export default function NewHelpArticlePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -326,61 +391,25 @@ export default function NewHelpArticlePage() {
   };
 
   const checkActiveFormats = () => {
-    const formats = new Set<string>();
-
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikethrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('bulletList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('numberedList');
-    if (document.queryCommandState('justifyLeft')) formats.add('alignLeft');
-    if (document.queryCommandState('justifyCenter')) formats.add('alignCenter');
-    if (document.queryCommandState('justifyRight')) formats.add('alignRight');
-    if (document.queryCommandState('justifyFull')) formats.add('alignJustify');
-
-    setActiveFormats(formats);
+    setActiveFormats(getActiveFormats());
 
     // Check font family and font size from selection
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      let element = range.startContainer as HTMLElement;
+    const element = getSelectionStartElement();
+    if (!element) return;
 
-      // If text node, get parent element
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
+    const computedStyle = window.getComputedStyle(element);
 
-      if (element) {
-        // Get computed styles
-        const computedStyle = window.getComputedStyle(element);
-
-        // Check font family
-        const currentFontFamily = computedStyle.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
-        const matchedFont = fontFamilies.find(f =>
-          f.value.toLowerCase() === currentFontFamily.toLowerCase()
-        );
-        if (matchedFont) {
-          setFontFamily(matchedFont.value);
-        }
-
-        // Check font size
-        const currentFontSize = Math.round(Number.parseFloat(computedStyle.fontSize));
-        const matchedSize = fontSizes.find(s => Number.parseInt(s.value) === currentFontSize);
-        if (matchedSize) {
-          setFontSize(matchedSize.value);
-        } else {
-          // Find closest size
-          const closestSize = fontSizes.reduce((prev, curr) => {
-            return Math.abs(Number.parseInt(curr.value) - currentFontSize) < Math.abs(Number.parseInt(prev.value) - currentFontSize)
-              ? curr
-              : prev;
-          }, fontSizes[0]);
-          setFontSize(closestSize.value);
-        }
-      }
+    // Check font family
+    const currentFontFamily = computedStyle.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+    const matchedFont = fontFamilies.find(f =>
+      f.value.toLowerCase() === currentFontFamily.toLowerCase()
+    );
+    if (matchedFont) {
+      setFontFamily(matchedFont.value);
     }
+
+    // Check font size
+    setFontSize(resolveFontSize(Math.round(Number.parseFloat(computedStyle.fontSize))));
   };
 
   const handleContentInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -421,17 +450,7 @@ export default function NewHelpArticlePage() {
   };
 
   const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
-    }
+    forceParagraphLtr();
 
     if (showCommandMenu) {
       if (e.key === 'ArrowDown') {
@@ -1134,9 +1153,7 @@ export default function NewHelpArticlePage() {
                 aria-expanded={fontFamilyOpen}
                 className="h-8 w-40 justify-between text-xs shadow-none"
               >
-                {fontFamily
-                  ? fontFamilies.find((font) => font.value === fontFamily)?.label
-                  : th.selectFont}
+                {getOptionLabel(fontFamilies, fontFamily, th.selectFont)}
                 <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -1179,9 +1196,7 @@ export default function NewHelpArticlePage() {
                 aria-expanded={fontSizeOpen}
                 className="h-8 w-20 justify-between text-xs shadow-none"
               >
-                {fontSize
-                  ? fontSizes.find((size) => size.value === fontSize)?.label
-                  : th.size}
+                {getOptionLabel(fontSizes, fontSize, th.size)}
                 <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
