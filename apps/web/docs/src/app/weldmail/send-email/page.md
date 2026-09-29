@@ -22,12 +22,14 @@ Use **search** and **filters** to find threads by sender, label, or date.
 
 ## Reply or forward
 
+{% video src="/videos/help/weldmail-reply-to-email.mp4" poster="/videos/help/weldmail-reply-to-email.jpg" title="How to reply to an email in WeldMail" caption="Open a message, click Reply, write your response, and send it." /%}
+
 1. Open the message.
 2. Click **Reply**, **Reply all**, or **Forward**.
-3. Write your response in the compose area.
+3. Write your response in the reply box that opens above the message.
 4. Click **Send**.
 
-Quoted text from the original message is included automatically.
+The original message is quoted in your reply automatically.
 
 ---
 

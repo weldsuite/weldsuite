@@ -12,12 +12,14 @@ Invite people to your workspace and control which apps and actions they can use.
 
 ## Invite a teammate
 
-1. Open **Settings** → **Team** (or **Members**).
-2. Click **Invite member**.
-3. Enter **email address** and choose a **role** (Owner, Admin, Member, or custom).
-4. Send the invite.
+1. Open **Settings** → **Team Members**.
+2. Click **Invite Member**.
+3. Enter their **email address** and **name**, then choose a **role** (Admin, Member, Viewer, or a custom role).
+4. Click **Send Invite**.
 
-They receive an email with a link to join the workspace. Pending invites appear in the list until accepted.
+They receive an email with a link to join the workspace. Pending invitations appear under **Pending invitations** until they are accepted. Use **Add another** in the dialog to invite several people at once.
+
+{% video src="/videos/help/settings-team-and-permissions.mp4" poster="/videos/help/settings-team-and-permissions.jpg" title="How to invite a teammate" caption="Open Settings, Team Members, click Invite Member, fill in the details and send the invite." /%}
 
 ---
 

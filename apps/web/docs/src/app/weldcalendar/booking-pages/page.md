@@ -13,19 +13,21 @@ Let customers and partners book time with you without back-and-forth email. {% .
 ## Open scheduling
 
 1. Open **WeldCalendar**.
-2. Go to **Scheduling** or **Booking pages** in the module sidebar (`/weldcalendar/scheduling`).
-3. View existing pages or create a new one.
+2. Find the **Booking pages** section in the module sidebar.
+3. View your existing pages there, or add a new one.
 
 ---
 
 ## Create a booking page
 
-1. Click **New booking page**.
-2. Set **title** and **duration** (15, 30, 60 minutes, etc.).
-3. Define **availability** — which days and hours slots appear.
-4. Connect the **calendar** that holds booked events.
-5. Add **buffer** time between meetings if needed.
-6. Save and copy the **public link**.
+1. In the sidebar, click **Add booking page** (or the **+** next to **Booking pages**).
+2. On the **Schedule** tab, enter a **title** and choose the **duration** of each appointment (15 minutes up to 2 hours, or a custom length).
+3. Define your **general availability**: which days and hours slots appear. The week preview updates as you edit.
+4. Add **buffer** time between meetings under **Booked appointment settings** if needed, and check which **calendar** the page uses.
+5. Click **Continue** to open the **Details** tab, where you can review the **booking link**, add a **description** and set a **location**.
+6. Click **Create**. To copy the **public link** later, hover the page in the sidebar and click the link icon.
+
+{% video src="/videos/help/weldcalendar-booking-pages.mp4" poster="/videos/help/weldcalendar-booking-pages.jpg" title="How to create a booking page" caption="Add a booking page, set the title, duration, availability and buffer, review the details, click Create and copy the link." /%}
 
 Share the link on your website, in email signatures, or in WeldDesk replies.
 
@@ -39,7 +41,7 @@ Guests open the link, pick an open slot in their timezone, enter name and email,
 
 ## Manage pages
 
-Edit availability, pause a page temporarily, or delete old pages from the scheduling list.
+Hover a page in the sidebar and open the **⋮** menu to edit its availability or delete it.
 
 ---
 

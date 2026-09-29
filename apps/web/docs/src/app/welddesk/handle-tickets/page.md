@@ -8,49 +8,45 @@ nextjs:
 
 Work incoming support requests from the WeldDesk inbox through resolution. {% .lead %}
 
+{% video src="/videos/help/welddesk-handle-tickets.mp4" poster="/videos/help/welddesk-handle-tickets.jpg" title="How to handle a support conversation in WeldDesk" caption="Open a conversation, assign it to yourself, reply to the customer, add an internal note, and close it." /%}
+
 ---
 
 ## Open the inbox
 
 1. Open **WeldDesk** from the app rail.
-2. Select **Inbox** or **Tickets** in the module sidebar.
-3. Unassigned and open conversations appear at the top of the queue.
+2. Select **Inbox** in the module sidebar.
+3. Open conversations appear in the list on the left, newest first. Conversations nobody owns yet are tagged **Unassigned**, and customers who are still waiting for an answer are tagged **Waiting longest**.
 
-Use filters for **status**, **assignee**, **channel** (email vs chat), or **priority**.
+Click **Filter** to narrow the list by **state** (open or closed), **assignee** (all, your inbox, or unassigned), and sort order. Use the sidebar to jump straight to the **Email** or **Phone** inbox.
 
 ---
 
 ## Pick up a conversation
 
 1. Click a row to open the thread.
-2. Read the customer message and any prior history in the panel.
-3. Click **Assign to me** (or assign to a teammate) so others know who owns it.
+2. Read the customer message and any earlier history in the thread.
+3. Click **Assign** in the header and choose yourself (or a teammate) so others know who owns it.
 
-Reply in the composer at the bottom — customers receive email or chat responses depending on channel.
-
----
-
-## Update ticket status
-
-Common statuses include **Open**, **Pending** (waiting on customer), **Resolved**, and **Closed**.
-
-1. Open the ticket.
-2. Change **Status** in the header or properties sidebar.
-3. Add an internal **note** if teammates need context without emailing the customer.
+Reply in the composer at the bottom and press **Enter** (or click **Send reply**). Customers receive your answer on the channel they used, for example email or chat.
 
 ---
 
-## Use saved replies and knowledge base
+## Add an internal note
 
-- Insert **canned responses** for frequent answers.
-- Link **knowledge base articles** when a public doc answers the question.
-- **Snooze** or **archive** when waiting on the customer.
+Switch the composer from **Reply** to **Note** to write something only your team can see. Notes are marked **Internal note** in the thread and are never sent to the customer.
 
 ---
 
-## Close the loop
+## Close the conversation
 
-When the issue is fixed, set status to **Resolved** or **Closed**. Some workspaces send a satisfaction survey automatically.
+A conversation is either **open** or **closed**.
+
+1. Open the conversation.
+2. Click the checkmark in the header to close it.
+3. To reopen it later, filter the list by **Closed**, open the conversation, and click the checkmark again.
+
+The thread records who assigned, closed, or reopened the conversation.
 
 ---
 

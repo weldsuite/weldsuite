@@ -13,7 +13,7 @@ Track opportunities from first touch to won or lost using pipelines and deal boa
 ## Open a pipeline
 
 1. Open **WeldCRM**.
-2. In the module sidebar, choose **Pipelines** (or a named pipeline such as **Sales**).
+2. In the module sidebar, choose a pipeline under **Deals** (for example **Sales**).
 3. You see stages as columns with deal cards in each.
 
 Switch to **list view** if you prefer a table instead of a board.
@@ -22,7 +22,7 @@ Switch to **list view** if you prefer a table instead of a board.
 
 ## Create a deal
 
-1. Click **New deal** (or **+** in a stage column on the board).
+1. Click **Add Deal** (or **+** in a stage column on the board).
 2. Enter deal name, value, expected close date, and linked **company** or **contact**.
 3. Choose the starting **stage**.
 4. Save.
@@ -34,6 +34,8 @@ The deal appears on the board and on related contact/company timelines.
 ## Move a deal forward
 
 **Board view:** drag the deal card to the next stage column.
+
+{% video src="/videos/help/weldcrm-sales-pipeline.mp4" poster="/videos/help/weldcrm-sales-pipeline.jpg" title="Move a deal through your pipeline" caption="Open a pipeline and drag a deal card to the next stage." /%}
 
 **Detail panel:** open the deal, change **Stage** in the header or properties, and save.
 

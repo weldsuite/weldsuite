@@ -13,12 +13,15 @@ Set up a shared project space for tasks, timelines, and files. {% .lead %}
 ## Create the project
 
 1. Open **WeldFlow**.
-2. Click **New project** (or **+** next to Projects in the sidebar).
-3. Enter a **name** and optional **description**.
-4. Choose a **template** if your workspace offers one (blank, software, marketing, etc.).
-5. Save.
+2. Hover **Projects** in the sidebar and click **+** (or click **Add project** when the list is empty).
+3. Enter a **name** for the project.
+4. Optionally pick a **color** and **icon** so the project is easy to spot in the sidebar.
+5. Click **Create Project**.
+6. Click the new project in the sidebar to open it.
 
-The project opens with default views: Tasks, and optionally Gantt, Files, or Goals depending on template.
+{% video src="/videos/help/weldflow-create-project.mp4" poster="/videos/help/weldflow-create-project.jpg" title="How to create a project in WeldFlow" caption="Add a project from the sidebar, give it a name and color, then open it." /%}
+
+The project opens on its **Tasks** view. The tabs next to it (Gantt, Sheets, Whiteboard, Workload, Files, and more) give you other ways to plan and share the work.
 
 ---
 

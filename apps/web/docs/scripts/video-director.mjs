@@ -33,7 +33,7 @@ async function resolveFfmpeg() {
  * Overlay injected into every page before app code runs. Pure DOM so it works
  * on any page, and pointer-events: none so it never intercepts real clicks.
  */
-function overlayInitScript() {
+function overlayInitScript({ captionPosition = 'bottom' } = {}) {
   const install = () => {
     if (document.getElementById('__video-overlay')) return
     const root = document.createElement('div')
@@ -46,6 +46,8 @@ function overlayInitScript() {
         @keyframes __video-ripple { from { transform: scale(.3); opacity: 1 } to { transform: scale(1.4); opacity: 0 } }
         #__video-caption { position: absolute; left: 50%; bottom: 28px; transform: translate(-50%, 16px); max-width: 78%; padding: 12px 20px; border-radius: 14px; background: rgba(15,23,42,.92); color: #fff; font-size: 19px; font-weight: 500; line-height: 1.35; box-shadow: 0 10px 30px rgba(0,0,0,.3); opacity: 0; transition: opacity .3s ease, transform .3s ease; display: flex; align-items: center; gap: 12px; }
         #__video-caption.visible { opacity: 1; transform: translate(-50%, 0); }
+        #__video-overlay.captions-top #__video-caption { bottom: auto; top: 14px; transform: translate(-50%, -16px); }
+        #__video-overlay.captions-top #__video-caption.visible { transform: translate(-50%, 0); }
         #__video-caption .step { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; background: #6366f1; font-size: 15px; font-weight: 700; }
         #__video-caption .step:empty { display: none; }
         #__video-card { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(135deg, #0f172a, #312e81); color: #fff; opacity: 0; transition: opacity .45s ease; text-align: center; }
@@ -59,6 +61,7 @@ function overlayInitScript() {
       <div id="__video-caption"><span class="step"></span><span class="text"></span></div>
       <svg id="__video-cursor" viewBox="0 0 24 24"><path d="M4 2.5v17.2l4.6-4.4 2.9 6.6 3-1.3-2.9-6.5h6.4z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
     `
+    if (captionPosition === 'top') root.classList.add('captions-top')
     document.documentElement.appendChild(root)
     const cursor = root.querySelector('#__video-cursor')
     document.addEventListener(
@@ -263,7 +266,8 @@ export class Director {
  * Record one video. `run(director, page)` performs the scripted steps; the
  * recording starts once `readySelector` is visible so loading spinners are
  * never in the video. Optional `intro` / `outro` title cards bracket it, and
- * the intro card doubles as the poster image.
+ * the intro card doubles as the poster image. `captionPosition: 'top'` moves
+ * captions up for screens whose key controls sit at the bottom (composers).
  */
 export async function recordVideo(browser, video, env, outputDir, workDir) {
   const context = await browser.newContext({
@@ -272,7 +276,7 @@ export async function recordVideo(browser, video, env, outputDir, workDir) {
     colorScheme: 'light',
     reducedMotion: 'no-preference',
   })
-  await context.addInitScript(overlayInitScript)
+  await context.addInitScript(overlayInitScript, { captionPosition: video.captionPosition })
   const page = await context.newPage()
   if (video.mockRoutes) await video.mockRoutes(page, env)
 

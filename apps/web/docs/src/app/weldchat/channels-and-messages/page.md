@@ -22,6 +22,8 @@ If you do not see a channel, use **Browse channels** or ask an admin to invite y
 
 ## Send a message
 
+{% video src="/videos/help/weldchat-channels-and-messages.mp4" poster="/videos/help/weldchat-channels-and-messages.jpg" title="How to send a message in a channel" caption="Open a channel from the sidebar, type your message, and press Enter to send it." /%}
+
 1. Select a channel or DM.
 2. Type in the message box at the bottom.
 3. Press **Enter** to send (or **Shift+Enter** for a new line, depending on your settings).
