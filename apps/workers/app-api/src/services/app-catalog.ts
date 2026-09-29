@@ -134,7 +134,7 @@ export async function listCatalogCategories(masterDb: MasterDatabase): Promise<s
     .from(appCatalog)
     .where(and(eq(appCatalog.isActive, true), eq(appCatalog.isPublished, true)));
 
-  return [...new Set(apps.map((a) => a.category))].filter(Boolean).sort();
+  return [...new Set(apps.map((a) => a.category))].filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
 /** Single published catalog app + installation info, or null when unknown. */

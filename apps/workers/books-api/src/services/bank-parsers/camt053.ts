@@ -76,7 +76,7 @@ export function parseCAMT053(content: string): BankFileParseResult {
 
     // Compute date range
     if (result.transactions.length > 0) {
-      const dates = result.transactions.map((t) => t.date).sort();
+      const dates = result.transactions.map((t) => t.date).sort((a, b) => (a < b ? -1 : Number(a > b)));
       result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
     }
   } catch (err) {
