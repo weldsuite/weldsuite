@@ -33,13 +33,11 @@ export interface Env extends KitEnv {
   R2_ANALYTICS_BUCKET?: string;
 
   // --- Helpdesk workflow engine (apps/workers/helpdesk-workflow-worker) -----------
-  /** Base URL of helpdesk-workflow-worker — used by
+  /** Service binding to helpdesk-workflow-worker — used by
    *  POST /api/helpdesk-workflows/executions/:executionId/resume to forward
-   *  customer responses to its /respond endpoint. */
-  HELPDESK_WORKFLOW_WORKER_URL?: string;
-  /** Shared secret for internal service-to-service auth. Sent as the bearer
-   *  when helpdesk-workflows forwards to helpdesk-workflow-worker. */
-  INTERNAL_API_SECRET?: string;
+   *  customer responses to its /respond endpoint. The worker has no public
+   *  hostname: it only answers service bindings. */
+  HELPDESK_WORKFLOW?: Fetcher;
 
   // --- Helpdesk Discord/Slack channel integrations -------------------------
   /** Discord OAuth app credentials + bot token — WeldDesk helpdesk Discord

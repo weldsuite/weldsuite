@@ -4,7 +4,10 @@
  * Workflow execution via CF Workflows + assignment routing via DO + SLA cron.
  *
  * Entry points:
- * 1. HTTP fetch: /event, /respond (workflow), /assign, /release, /sync-agents
+ * 1. HTTP fetch: /event, /respond (workflow), /assign, /release, /sync-agents.
+ *    Service bindings only (desk-api, helpdesk-widget-api, discord-bot-worker):
+ *    these endpoints carry no auth, so a request that arrives on a public
+ *    hostname is refused.
  * 2. Cron scheduled: SLA breach detection (every minute)
  * 3. CF Workflow: ConversationWorkflow (step execution)
  */
@@ -13,6 +16,7 @@ import { AssignmentRouter } from './durable-objects/assignment-router';
 import { ConversationWorkflow } from './workflows/conversation-workflow';
 import { getMasterDb, getTenantDbForWorkspace } from './db';
 import { checkSlaBreaches } from './lib/sla-breach-checker';
+import { isPublicHost } from './lib/public-host';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { and, eq, isNotNull, isNull, inArray } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
@@ -33,6 +37,10 @@ export default {
 
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (isPublicHost(url.hostname)) {
+      return new Response('Not found', { status: 404 });
+    }
 
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });

@@ -16,8 +16,6 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 
-/** Local Env extension until HELPDESK_WORKFLOW_WORKER_URL lands in src/types.ts (integration step). */
-type EnvWithWorkflowWorker = Env & { HELPDESK_WORKFLOW_WORKER_URL?: string };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskWorkflows;
@@ -468,7 +466,7 @@ const resumeSchema = z.object({
  *     would make the worker's waiting_for_input lookup 404);
  *   - when the forward succeeds we do NOT touch the execution row (the CF
  *     Workflow persists status/context itself on resume);
- *   - when no worker URL is configured or the forward fails, we fall back to
+ *   - when the worker binding is missing or the forward fails, we fall back to
  *     the legacy DB flip (status -> running, response stored in stepOutputs)
  *     so the response is at least recorded, matching old behavior.
  */
@@ -491,17 +489,15 @@ app.post(
       }
 
       // --- Forward to helpdesk-workflow-worker /respond (real resume path) ---
-      const workerUrl = (c.env as EnvWithWorkflowWorker).HELPDESK_WORKFLOW_WORKER_URL;
+      const workflowWorker = c.env.HELPDESK_WORKFLOW;
       const orgId = c.get('orgId');
       let forwarded = false;
-      if (workerUrl && orgId && execution.conversationId) {
+      if (workflowWorker && orgId && execution.conversationId) {
         try {
           const r = response as Record<string, unknown>;
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (c.env.INTERNAL_API_SECRET) headers['Authorization'] = `Bearer ${c.env.INTERNAL_API_SECRET}`;
-          const fwdRes = await fetch(`${workerUrl}/respond`, {
+          const fwdRes = await workflowWorker.fetch('https://helpdesk-workflow-worker/respond', {
             method: 'POST',
-            headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               conversationId: execution.conversationId,
               workspaceId: orgId,
