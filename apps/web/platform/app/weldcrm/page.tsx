@@ -67,6 +67,66 @@ type CompanyOption = { id: string; name: string; avatar?: string };
 const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
 const TASK_PRIORITY_ORDER = ['low', 'medium', 'high'];
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Predicate for the "due date" filter values; unknown values match every task. */
+function makeDueDateMatcher(value: string): (task: Task) => boolean {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTomorrow = new Date(startOfToday.getTime() + DAY_MS);
+  const startOfDayAfterTomorrow = new Date(startOfToday.getTime() + 2 * DAY_MS);
+  const endOfWeek = new Date(startOfToday.getTime() + 7 * DAY_MS);
+
+  return (t) => {
+    switch (value) {
+      case 'overdue': return Boolean(t.dueDate && t.dueDate < startOfToday && t.status !== 'done');
+      case 'today': return Boolean(t.dueDate && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow);
+      case 'tomorrow': return Boolean(t.dueDate && t.dueDate >= startOfTomorrow && t.dueDate < startOfDayAfterTomorrow);
+      case 'this-week': return Boolean(t.dueDate && t.dueDate >= startOfDayAfterTomorrow && t.dueDate < endOfWeek);
+      case 'later': return Boolean(t.dueDate && t.dueDate >= endOfWeek);
+      case 'no-date': return !t.dueDate;
+      default: return true;
+    }
+  };
+}
+
+/** Builds the per-task predicate for one active filter, or null when the field is not filterable. */
+function makeTaskFilterMatcher(filter: ActiveFilter): ((task: Task) => boolean) | null {
+  const { value } = filter;
+  switch (filter.field) {
+    case 'status': return (t) => t.status === value;
+    case 'assignee': return (t) => t.assignee?.name === value;
+    case 'due date': return makeDueDateMatcher(value);
+    case 'company': return (t) => t.linkedCompany?.name === value;
+    case 'priority': return (t) => t.priority === value;
+    case 'label': return (t) => Array.isArray(t.labels) && t.labels.includes(value);
+    default: return null;
+  }
+}
+
+function applyTaskFilters(items: Task[], filters: ActiveFilter[]): Task[] {
+  let result = items;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    const matches = makeTaskFilterMatcher(filter);
+    if (!matches) continue;
+    result = filter.operator === 'is' ? result.filter(matches) : result.filter((t) => !matches(t));
+  }
+  return result;
+}
+
+/** Next assignee list after toggling `memberId` in the current selection. */
+function toggleAssignee(
+  currentIds: string[],
+  memberId: string,
+  directory: ReadonlyArray<{ id: string; name: string }>,
+): { id: string; name: string }[] {
+  const nextIds = currentIds.includes(memberId)
+    ? currentIds.filter((id) => id !== memberId)
+    : [...currentIds, memberId];
+  return nextIds.map((id) => ({ id, name: directory.find((x) => x.id === id)?.name || '' }));
+}
+
 const CompanyPicker = React.memo(function CompanyPicker({
   taskId,
   linkedCompany,
@@ -489,60 +549,6 @@ export default function CrmTasksClient() {
     </Popover>
   );
 
-  // Apply filters function
-  const applyFilters = useCallback((items: Task[], filters: ActiveFilter[]) => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-    const startOfDayAfterTomorrow = new Date(startOfToday.getTime() + 2 * 24 * 60 * 60 * 1000);
-    const endOfWeek = new Date(startOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-    let result = items;
-
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-
-      if (filter.field === 'status') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.status === filter.value)
-          : result.filter(t => t.status !== filter.value);
-      } else if (filter.field === 'assignee') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.assignee?.name === filter.value)
-          : result.filter(t => t.assignee?.name !== filter.value);
-      } else if (filter.field === 'due date') {
-        const matchesDueDate = (t: Task) => {
-          switch (filter.value) {
-            case 'overdue': return t.dueDate && t.dueDate < startOfToday && t.status !== 'done';
-            case 'today': return t.dueDate && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow;
-            case 'tomorrow': return t.dueDate && t.dueDate >= startOfTomorrow && t.dueDate < startOfDayAfterTomorrow;
-            case 'this-week': return t.dueDate && t.dueDate >= startOfDayAfterTomorrow && t.dueDate < endOfWeek;
-            case 'later': return t.dueDate && t.dueDate >= endOfWeek;
-            case 'no-date': return !t.dueDate;
-            default: return true;
-          }
-        };
-        result = filter.operator === 'is'
-          ? result.filter(matchesDueDate)
-          : result.filter(t => !matchesDueDate(t));
-      } else if (filter.field === 'company') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.linkedCompany?.name === filter.value)
-          : result.filter(t => t.linkedCompany?.name !== filter.value);
-      } else if (filter.field === 'priority') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.priority === filter.value)
-          : result.filter(t => t.priority !== filter.value);
-      } else if (filter.field === 'label') {
-        result = filter.operator === 'is'
-          ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
-          : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
-      }
-    });
-
-    return result;
-  }, []);
-
   // Handlers
   const openTaskPanel = useCallback((task: Task) => {
     openObjectPanel({ type: 'task', id: task.id });
@@ -860,16 +866,9 @@ export default function CrmTasksClient() {
                         variant="ghost"
                         key={member.id}
                         onClick={() => {
-                          const nextIds = isSelected
-                            ? resolvedIds.filter((id) => id !== member.id)
-                            : [...resolvedIds, member.id];
-                          const nextAssignees = nextIds.map((id) => {
-                            const m = availableAssignees.find((x) => x.id === id);
-                            return { id, name: m?.name || '' };
-                          });
-                          const primary = nextAssignees[0] ?? undefined;
+                          const nextAssignees = toggleAssignee(resolvedIds, member.id, availableAssignees);
                           handlers.onUpdate(task.id, {
-                            assignee: primary,
+                            assignee: nextAssignees[0] ?? undefined,
                             assignees: nextAssignees,
                           });
                         }}
@@ -1053,7 +1052,7 @@ export default function CrmTasksClient() {
           filters={filterConfigs}
           groups={groupConfigs}
           maxFilters={5}
-          applyFilters={applyFilters}
+          applyFilters={applyTaskFilters}
           onUpdateItem={(id, data) => updateTaskMutation.mutate({ taskId: id, data })}
           onDeleteItem={(id) => deleteTaskMutation.mutate(id)}
           renderRow={renderTaskRow}
