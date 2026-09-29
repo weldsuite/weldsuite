@@ -1,25 +1,28 @@
 
-import { useParams, useRouter } from '@/lib/router';
+import { useParams } from '@/lib/router';
 import { useArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { ArticleViewer } from "./article-viewer";
 import { PageLoader } from '@/components/page-loader';
+import { useRedirectWhenMissing } from '@/hooks/use-redirect-when-missing';
 
 export default function ArticlePage() {
   const t = useTranslations();
   const params = useParams();
-  const router = useRouter();
   const id = params.id as string;
 
-  const { data: result, isLoading } = useArticle(id);
+  const query = useArticle(id);
+  const articleData = query.data?.data;
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
-
-  const articleData = result?.data;
+  // Redirect only once the fetch has settled and the article is really gone,
+  // never while the query is still pending (see useRedirectWhenMissing).
+  const status = useRedirectWhenMissing(query, !!articleData, '/welddesk/help-center/articles');
 
   if (!articleData) {
-    router.push('/welddesk/help-center/articles');
-    return null;
+    if (status === 'error') {
+      return <p className="p-6 text-sm text-muted-foreground">{t('common.toast.failedToLoad')}</p>;
+    }
+    return <PageLoader fullScreen={false} />;
   }
 
   const article = {
