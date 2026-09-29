@@ -491,16 +491,24 @@ Server callers:
    AssemblyAI (prd), Telnyx ids and keys, Slack, Vercel, Attio, HubSpot, Google OAuth.
 2. Merge to `develop` → module workers deploy first, then app-api starts forwarding.
    Smoke-test each module on app-test.
-3. Direct client calls: add modules to `VITE_API_MODULES` (platform Pages build) and
-   `EXPO_PUBLIC_API_MODULES` (mobile) one at a time. **Connect first needs a fix**: the
-   WooCommerce connect callback is built from the request origin, so a direct call would
-   send WooCommerce to connect-api's host at `/webhooks/woocommerce` (owned by commerce).
-   Check other OAuth/webhook URLs built from the request origin the same way.
+3. Direct client calls: **done (2026-09-29)**. `VITE_API_MODULES` (platform Pages build) and
+   `EXPO_PUBLIC_API_MODULES` (mobile OTA in deploy.yml + every `eas.json` profile) are `all`;
+   `parseModuleList` expands that to every module worker, and `all,-<module>` sends one
+   module back through app-api if it misbehaves. All traffic already ran on the module
+   workers via forwarding, so going direct only drops the app-api hop. The WooCommerce
+   connect callback was the one URL built from the request origin; it now uses
+   `originForPathFrom` (`@weldsuite/api-modules`), which points it at commerce-api, the
+   owner of `/webhooks/woocommerce`. OAuth redirects use the SPA URL, an env value or a
+   client-supplied URI, never the worker's own host.
 4. Production: same order via `main`.
 5. Clean-up, when the time in each row of the table below has passed: remove the draining
    workflow blocks/re-exports from app-api, then secrets only those used (`ASSEMBLYAI_API_KEY`,
    `AGENT_RUNTIME_URL`, `CF_REALTIME_*`, `R2_SQL_*`, the hand-set module secrets). Stop
-   forwarding a module in production once no client calls app-api for it.
+   forwarding a module in production once no client calls app-api for it **and** no
+   third party calls back on app-api's host for it: helpdesk Slack/Discord OAuth callbacks,
+   the Cloudflare Realtime webhook and the Telnyx, WooCommerce (existing stores), PostPeer and
+   Realtime Register webhooks are registered on app-api's host today. Re-register them on the
+   module host first.
 6. **App-scoped permissions**: every API worker applies them (the kit sets the
    X-Weld-App context; `requirePermission` / the resolver are the same package code).
    Enforcement (`PERMISSIONS_APP_ENFORCE="true"`) must be switched on in app-api **and

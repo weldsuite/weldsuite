@@ -21,6 +21,7 @@ import {
   getConnector,
   getDefaultConnectorFieldMappings,
   listConnectors,
+  WOOCOMMERCE_AUTH_CALLBACK_PATH,
 } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -52,6 +53,7 @@ import {
   unregisterConnectionWebhooks,
 } from '@weldsuite/connect-domain/connectors/webhooks';
 import { and, eq, isNull } from 'drizzle-orm';
+import { originForPathFrom } from '@weldsuite/api-modules';
 import {
   removeConnectorIndex,
   setConnectorIndexEnabled,
@@ -335,7 +337,8 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
       enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
       displayName: body.displayName,
       returnUrl: body.returnUrl,
-      requestOrigin: new URL(c.req.url).origin,
+      // The callback path belongs to commerce-api; this worker's own host would 404.
+      requestOrigin: originForPathFrom(new URL(c.req.url).origin, WOOCOMMERCE_AUTH_CALLBACK_PATH),
     });
     if ('error' in result) return error.badRequest(c, result.error);
     return success(c, result);
