@@ -320,6 +320,39 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
   );
 }
 
+type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
+
+// Seat and credit usage figures derived from the subscription and plan limits.
+function computeBillingUsage(
+  subscription: BillingSubscriptionResponse | null,
+  planLimits: Billing.PlanLimits | null,
+) {
+  const membersUsed = subscription?.usedSeats || planLimits?.currentUsage?.memberCount || 1;
+  const membersTotal = subscription?.purchasedSeats || planLimits?.maxMembers || planLimits?.purchasedSeats;
+  const membersPercentage = membersTotal ? (membersUsed / membersTotal) * 100 : 0;
+
+  const creditsUsed = planLimits?.currentUsage?.aiCreditsUsedThisMonth || 0;
+  const creditsTotal = planLimits?.currentUsage?.creditsMonthlyAllocation || planLimits?.aiCreditsPerMonth || 250;
+  const creditsBalance = planLimits?.currentUsage?.creditsBalance ?? (creditsTotal - creditsUsed);
+
+  return { membersUsed, membersTotal, membersPercentage, creditsBalance };
+}
+
+// Subtitle under "Current plan": renewal / cancellation date, or the raw status.
+function describePlanStatus(
+  subscription: BillingSubscriptionResponse | null,
+  renewalDate: string,
+  ts: BillingStrings,
+): string {
+  if (subscription?.status === 'active' && !subscription?.cancelAtPeriodEnd) {
+    return ts.renews.replace('{date}', renewalDate);
+  }
+  if (subscription?.cancelAtPeriodEnd) {
+    return ts.cancels.replace('{date}', renewalDate);
+  }
+  return subscription?.status || ts.accessDeniedPlans;
+}
+
 export default function BillingSettingsPage() {
   const { t } = useI18n();
   const st = useTranslations();
@@ -525,13 +558,7 @@ export default function BillingSettingsPage() {
     ? format(new Date(subscription.currentPeriodEnd), 'MMMM do, yyyy')
     : st('sweep.settings.billingPage.notAvailable');
 
-  const membersUsed = subscription?.usedSeats || planLimits?.currentUsage?.memberCount || 1;
-  const membersTotal = subscription?.purchasedSeats || planLimits?.maxMembers || planLimits?.purchasedSeats;
-  const membersPercentage = membersTotal ? (membersUsed / membersTotal) * 100 : 0;
-
-  const creditsUsed = planLimits?.currentUsage?.aiCreditsUsedThisMonth || 0;
-  const creditsTotal = planLimits?.currentUsage?.creditsMonthlyAllocation || planLimits?.aiCreditsPerMonth || 250;
-  const creditsBalance = planLimits?.currentUsage?.creditsBalance ?? (creditsTotal - creditsUsed);
+  const { membersUsed, membersTotal, membersPercentage, creditsBalance } = computeBillingUsage(subscription, planLimits);
 
   return (
     <div className="space-y-10 max-w-4xl">
@@ -545,11 +572,7 @@ export default function BillingSettingsPage() {
       <div>
         <h2 className="text-base font-semibold mb-1">{ts.currentPlan}</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          {subscription?.status === 'active' && !subscription?.cancelAtPeriodEnd
-            ? ts.renews.replace('{date}', renewalDate)
-            : subscription?.cancelAtPeriodEnd
-            ? ts.cancels.replace('{date}', renewalDate)
-            : subscription?.status || ts.accessDeniedPlans}
+          {describePlanStatus(subscription, renewalDate, ts)}
         </p>
 
         <div className="border rounded-xl p-4 flex items-center justify-between">
