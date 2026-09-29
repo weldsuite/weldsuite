@@ -69,6 +69,58 @@ interface GuestChatPanelProps {
 const REALTIME_PUBLIC_URL =
   process.env.NEXT_PUBLIC_REALTIME_URL?.replace(/\/$/, '') ?? '';
 
+/** A frame published on the meeting chat realtime channel. */
+interface RealtimeChatFrame {
+  type?: string;
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string | null;
+  content: string;
+  htmlContent?: string | null;
+  ts?: number;
+  attachments?: ApiChatAttachment[];
+}
+
+/**
+ * Realtime payloads carry attachments in {id,name,size,type,url} shape (host +
+ * portal publishers agree on this); map to the shared ChatMessageAttachment
+ * shape the panel renders.
+ */
+function toChatAttachment(a: ApiChatAttachment): ChatMessageAttachment {
+  return {
+    id: a.id,
+    fileName: a.name ?? a.fileName,
+    fileSize: a.size ?? a.fileSize,
+    mimeType: a.type ?? a.mimeType,
+    url: a.url,
+  } as ChatMessageAttachment;
+}
+
+function toIncomingMessage(msg: RealtimeChatFrame): ChatMessage {
+  return {
+    id: msg.id,
+    authorId: msg.senderId,
+    authorName: msg.senderName,
+    authorAvatar: msg.senderAvatar ?? null,
+    content: msg.content,
+    htmlContent: msg.htmlContent ?? null,
+    type: 'message',
+    createdAt: new Date(msg.ts ?? Date.now()).toISOString(),
+    attachments: Array.isArray(msg.attachments)
+      ? msg.attachments.map(toChatAttachment)
+      : undefined,
+  };
+}
+
+function appendIfNew(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  return prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming];
+}
+
+function removeMessage(prev: ChatMessage[], id: string): ChatMessage[] {
+  return prev.filter((m) => m.id !== id);
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -176,36 +228,14 @@ export function GuestChatPanel({
 
       ws.addEventListener('message', (ev) => {
         try {
-          const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
+          const msg: RealtimeChatFrame = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
 
           if (msg.type === 'message' && msg.id && msg.senderId !== guestUserId) {
-            const incoming: ChatMessage = {
-              id: msg.id,
-              authorId: msg.senderId,
-              authorName: msg.senderName,
-              authorAvatar: msg.senderAvatar ?? null,
-              content: msg.content,
-              htmlContent: msg.htmlContent ?? null,
-              type: 'message',
-              createdAt: new Date(msg.ts ?? Date.now()).toISOString(),
-              // Realtime payloads carry attachments in {id,name,size,type,url}
-              // shape (host + portal publishers agree on this); map to the
-              // shared ChatMessageAttachment shape the panel renders.
-              attachments: Array.isArray(msg.attachments)
-                ? msg.attachments.map((a: ApiChatAttachment) => ({
-                    id: a.id,
-                    fileName: a.name ?? a.fileName,
-                    fileSize: a.size ?? a.fileSize,
-                    mimeType: a.type ?? a.mimeType,
-                    url: a.url,
-                  }))
-                : undefined,
-            };
-            setMessages((prev) =>
-              prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming],
-            );
+            const incoming = toIncomingMessage(msg);
+            setMessages((prev) => appendIfNew(prev, incoming));
           } else if (msg.type === 'message:deleted' && msg.id) {
-            setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+            const deletedId = msg.id;
+            setMessages((prev) => removeMessage(prev, deletedId));
           }
         } catch {
           // ignore malformed frames

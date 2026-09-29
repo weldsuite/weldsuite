@@ -1,9 +1,9 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormRegister } from 'react-hook-form';
 import { Loader2, Mail, ShieldAlert, User } from 'lucide-react';
-import type { Ref } from 'react';
+import type { CSSProperties, Ref } from 'react';
 
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -42,6 +42,220 @@ interface LandingScreenProps {
   onSubmit: (values: GuestJoinFormInput) => void | Promise<void>;
 }
 
+const EASE = 'cubic-bezier(0.25, 0.1, 0.25, 1)';
+
+function getInitials(name: string | undefined, placeholder: string): string {
+  if (!name) return placeholder.charAt(0).toUpperCase();
+  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function getFormStyle(isMobile: boolean, joining: boolean): CSSProperties | undefined {
+  if (isMobile) return undefined;
+  return {
+    maxWidth: joining ? 850 : 1100,
+    gap: joining ? 0 : 40,
+    transition: 'max-width 400ms ' + EASE + ', gap 400ms ' + EASE,
+  };
+}
+
+function getPreviewColumnStyle(isMobile: boolean, joining: boolean): CSSProperties | undefined {
+  if (isMobile) return undefined;
+  return { flex: joining ? '1 1 100%' : '1 1 0%', transition: 'flex 400ms ' + EASE };
+}
+
+function getFormColumnStyle(isMobile: boolean, joining: boolean): CSSProperties | undefined {
+  if (isMobile) return undefined;
+  return {
+    width: joining ? 0 : 320,
+    opacity: joining ? 0 : 1,
+    transition: 'width 400ms ' + EASE + ', opacity 300ms ease',
+  };
+}
+
+function getFormColumnMobileClass(isMobile: boolean, joining: boolean): string {
+  if (!isMobile) return '';
+  return joining ? 'hidden' : 'w-full';
+}
+
+function isPermissionUndecided(state: PermState): boolean {
+  return state === 'prompt' || state === 'unknown';
+}
+
+function isPermissionPending(
+  previewStream: MediaStream | null,
+  audioPermission: PermState,
+  videoPermission: PermState,
+): boolean {
+  if (previewStream) return false;
+  if (audioPermission === 'denied' || videoPermission === 'denied') return false;
+  return isPermissionUndecided(audioPermission) || isPermissionUndecided(videoPermission);
+}
+
+function ConnectingOverlay() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0b]/70 backdrop-blur-sm z-20">
+      <div className="flex items-center gap-2.5">
+        <Loader2 className="h-5 w-5 animate-spin text-[#82828a]" />
+        <span className="text-[#82828a] text-sm">Connecting...</span>
+      </div>
+    </div>
+  );
+}
+
+function PermissionPrompt({ onAllow }: Readonly<{ onAllow: () => void }>) {
+  return (
+    <div className="absolute top-12 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-gray-900/80 backdrop-blur-sm ring-1 ring-white/20 rounded-lg px-3 py-2 text-[12px] text-white/90 max-w-[90%]">
+      <ShieldAlert className="h-4 w-4 flex-shrink-0 text-white/70" />
+      <span className="leading-tight">Camera and microphone access required.</span>
+      <button
+        type="button"
+        onClick={onAllow}
+        className="ml-1 text-[12px] font-medium text-white underline underline-offset-2 hover:text-white/80"
+      >
+        Allow
+      </button>
+    </div>
+  );
+}
+
+type PreviewPaneProps = Pick<
+  LandingScreenProps,
+  | 'joining'
+  | 'personTheme'
+  | 'videoRef'
+  | 'previewStream'
+  | 'previewAudioEnabled'
+  | 'previewVideoEnabled'
+  | 'audioPermission'
+  | 'videoPermission'
+  | 'audioInputs'
+  | 'videoInputs'
+  | 'selectedAudioInput'
+  | 'selectedVideoInput'
+  | 'togglePreviewAudio'
+  | 'togglePreviewVideo'
+  | 'changeAudioDevice'
+  | 'changeVideoDevice'
+  | 'requestPermissions'
+> & {
+  displayName: string;
+  initials: string;
+};
+
+function PreviewVideoArea({
+  joining,
+  personTheme,
+  videoRef,
+  previewStream,
+  previewVideoEnabled,
+  initials,
+}: Readonly<
+  Pick<
+    PreviewPaneProps,
+    'joining' | 'personTheme' | 'videoRef' | 'previewStream' | 'previewVideoEnabled' | 'initials'
+  >
+>) {
+  if (previewVideoEnabled && previewStream) {
+    return <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover -scale-x-100" />;
+  }
+  if (joining) return null;
+  return <ParticipantAvatar initials={initials} color={personTheme.avatar} />;
+}
+
+function PreviewPane(props: Readonly<PreviewPaneProps>) {
+  const {
+    joining,
+    personTheme,
+    previewStream,
+    previewAudioEnabled,
+    previewVideoEnabled,
+    audioPermission,
+    videoPermission,
+    requestPermissions,
+    displayName,
+  } = props;
+  const showColoredPreviewTile = !previewVideoEnabled || !previewStream;
+  const showPermissionPrompt =
+    !joining && isPermissionPending(previewStream, audioPermission, videoPermission);
+
+  return (
+    <div
+      className="relative w-full aspect-[3/2] ring-1 ring-white/[0.06] rounded-2xl overflow-hidden flex items-center justify-center transition-colors duration-300 [container-type:size]"
+      style={{ backgroundColor: showColoredPreviewTile ? personTheme.tile : PREVIEW_DARK_BG }}
+    >
+      <PreviewVideoArea {...props} />
+
+      <ParticipantNameTag name={displayName} audioEnabled={previewAudioEnabled} />
+
+      {joining && <ConnectingOverlay />}
+
+      {showPermissionPrompt && <PermissionPrompt onAllow={requestPermissions} />}
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+        <PrejoinMediaControls
+          previewAudioEnabled={previewAudioEnabled}
+          previewVideoEnabled={previewVideoEnabled}
+          audioPermission={audioPermission}
+          videoPermission={videoPermission}
+          audioInputs={props.audioInputs}
+          videoInputs={props.videoInputs}
+          selectedAudioInput={props.selectedAudioInput}
+          selectedVideoInput={props.selectedVideoInput}
+          togglePreviewAudio={props.togglePreviewAudio}
+          togglePreviewVideo={props.togglePreviewVideo}
+          changeAudioDevice={props.changeAudioDevice}
+          changeVideoDevice={props.changeVideoDevice}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface JoinFieldsProps {
+  register: UseFormRegister<GuestJoinFormInput>;
+  namePlaceholder: string;
+  nameError: string | undefined;
+  emailError: string | undefined;
+  displayedError: string | null;
+}
+
+function JoinFields({
+  register,
+  namePlaceholder,
+  nameError,
+  emailError,
+  displayedError,
+}: Readonly<JoinFieldsProps>) {
+  return (
+    <div className="w-full mt-8 space-y-3 text-left">
+      <div className="relative">
+        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          id="guest-name"
+          placeholder={namePlaceholder}
+          aria-invalid={nameError ? true : undefined}
+          className={cn('pl-9', nameError ? 'border-destructive focus-visible:ring-destructive/50' : '')}
+          {...register('name')}
+        />
+      </div>
+      <div className="relative">
+        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          id="guest-email"
+          type="email"
+          placeholder="Your email"
+          aria-invalid={emailError ? true : undefined}
+          className={cn('pl-9', emailError ? 'border-destructive focus-visible:ring-destructive/50' : '')}
+          {...register('email')}
+        />
+      </div>
+      {displayedError && (
+        <p className="text-sm text-destructive">{displayedError}</p>
+      )}
+    </div>
+  );
+}
+
 export function LandingScreen({
   joinCode,
   meetingInfo,
@@ -76,21 +290,14 @@ export function LandingScreen({
   const isMobile = useIsMobile();
 
   const namePlaceholder = 'Your name';
-  const initials = watchedName
-    ? watchedName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-    : namePlaceholder.charAt(0).toUpperCase();
+  const initials = getInitials(watchedName, namePlaceholder);
 
   const platformUrl = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://app.weldsuite.org';
-  const showColoredPreviewTile = !previewVideoEnabled || !previewStream;
-  const permissionDenied = audioPermission === 'denied' || videoPermission === 'denied';
-  const permissionPending = !previewStream && !permissionDenied && (
-    audioPermission === 'prompt' || videoPermission === 'prompt' ||
-    audioPermission === 'unknown' || videoPermission === 'unknown'
-  );
 
   const nameError = formState.errors.name?.message;
   const emailError = formState.errors.email?.message;
   const displayedError = submitError ?? nameError ?? emailError ?? null;
+  const submitDisabled = joining || !formState.isValid;
 
   return (
     <div className="relative flex-1 flex items-center justify-center min-h-screen bg-background">
@@ -111,81 +318,34 @@ export function LandingScreen({
           'w-full',
           isMobile ? 'flex flex-col items-stretch gap-6 px-5 max-w-[440px]' : 'flex items-center px-8',
         )}
-        style={
-          isMobile
-            ? undefined
-            : {
-                maxWidth: joining ? 850 : 1100,
-                gap: joining ? 0 : 40,
-                transition:
-                  'max-width 400ms cubic-bezier(0.25, 0.1, 0.25, 1), gap 400ms cubic-bezier(0.25, 0.1, 0.25, 1)',
-              }
-        }
+        style={getFormStyle(isMobile, joining)}
       >
         {/* Left — Video preview */}
         <div
           className={cn('flex flex-col gap-4', isMobile && 'w-full')}
-          style={
-            isMobile
-              ? undefined
-              : { flex: joining ? '1 1 100%' : '1 1 0%', transition: 'flex 400ms cubic-bezier(0.25, 0.1, 0.25, 1)' }
-          }
+          style={getPreviewColumnStyle(isMobile, joining)}
         >
-          <div
-            className="relative w-full aspect-[3/2] ring-1 ring-white/[0.06] rounded-2xl overflow-hidden flex items-center justify-center transition-colors duration-300 [container-type:size]"
-            style={{ backgroundColor: showColoredPreviewTile ? personTheme.tile : PREVIEW_DARK_BG }}
-          >
-            {previewVideoEnabled && previewStream ? (
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover -scale-x-100" />
-            ) : !joining ? (
-              <ParticipantAvatar initials={initials} color={personTheme.avatar} />
-            ) : null}
-
-            <ParticipantNameTag
-              name={watchedName || 'You'}
-              audioEnabled={previewAudioEnabled}
-            />
-
-            {joining && (
-              <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0b]/70 backdrop-blur-sm z-20">
-                <div className="flex items-center gap-2.5">
-                  <Loader2 className="h-5 w-5 animate-spin text-[#82828a]" />
-                  <span className="text-[#82828a] text-sm">Connecting...</span>
-                </div>
-              </div>
-            )}
-
-            {!joining && !permissionDenied && permissionPending && (
-              <div className="absolute top-12 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-gray-900/80 backdrop-blur-sm ring-1 ring-white/20 rounded-lg px-3 py-2 text-[12px] text-white/90 max-w-[90%]">
-                <ShieldAlert className="h-4 w-4 flex-shrink-0 text-white/70" />
-                <span className="leading-tight">Camera and microphone access required.</span>
-                <button
-                  type="button"
-                  onClick={requestPermissions}
-                  className="ml-1 text-[12px] font-medium text-white underline underline-offset-2 hover:text-white/80"
-                >
-                  Allow
-                </button>
-              </div>
-            )}
-
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
-              <PrejoinMediaControls
-                previewAudioEnabled={previewAudioEnabled}
-                previewVideoEnabled={previewVideoEnabled}
-                audioPermission={audioPermission}
-                videoPermission={videoPermission}
-                audioInputs={audioInputs}
-                videoInputs={videoInputs}
-                selectedAudioInput={selectedAudioInput}
-                selectedVideoInput={selectedVideoInput}
-                togglePreviewAudio={togglePreviewAudio}
-                togglePreviewVideo={togglePreviewVideo}
-                changeAudioDevice={changeAudioDevice}
-                changeVideoDevice={changeVideoDevice}
-              />
-            </div>
-          </div>
+          <PreviewPane
+            joining={joining}
+            personTheme={personTheme}
+            videoRef={videoRef}
+            previewStream={previewStream}
+            previewAudioEnabled={previewAudioEnabled}
+            previewVideoEnabled={previewVideoEnabled}
+            audioPermission={audioPermission}
+            videoPermission={videoPermission}
+            audioInputs={audioInputs}
+            videoInputs={videoInputs}
+            selectedAudioInput={selectedAudioInput}
+            selectedVideoInput={selectedVideoInput}
+            togglePreviewAudio={togglePreviewAudio}
+            togglePreviewVideo={togglePreviewVideo}
+            changeAudioDevice={changeAudioDevice}
+            changeVideoDevice={changeVideoDevice}
+            requestPermissions={requestPermissions}
+            displayName={watchedName || 'You'}
+            initials={initials}
+          />
         </div>
 
         {/* Right — Join form (stacks below the preview on mobile; hidden while
@@ -193,55 +353,28 @@ export function LandingScreen({
         <div
           className={cn(
             'flex flex-col items-center text-center overflow-visible',
-            isMobile && (joining ? 'hidden' : 'w-full'),
+            getFormColumnMobileClass(isMobile, joining),
           )}
-          style={
-            isMobile
-              ? undefined
-              : {
-                  width: joining ? 0 : 320,
-                  opacity: joining ? 0 : 1,
-                  transition: 'width 400ms cubic-bezier(0.25, 0.1, 0.25, 1), opacity 300ms ease',
-                }
-          }
+          style={getFormColumnStyle(isMobile, joining)}
         >
           <h2 className="text-[24px] font-semibold tracking-tight leading-tight">
             {meetingInfo?.title || 'Join Meeting'}
           </h2>
           <AttendeesRow meetingInfo={meetingInfo} />
 
-          <div className="w-full mt-8 space-y-3 text-left">
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="guest-name"
-                placeholder={namePlaceholder}
-                aria-invalid={nameError ? true : undefined}
-                className={cn('pl-9', nameError ? 'border-destructive focus-visible:ring-destructive/50' : '')}
-                {...register('name')}
-              />
-            </div>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="guest-email"
-                type="email"
-                placeholder="Your email"
-                aria-invalid={emailError ? true : undefined}
-                className={cn('pl-9', emailError ? 'border-destructive focus-visible:ring-destructive/50' : '')}
-                {...register('email')}
-              />
-            </div>
-            {displayedError && (
-              <p className="text-sm text-destructive">{displayedError}</p>
-            )}
-          </div>
+          <JoinFields
+            register={register}
+            namePlaceholder={namePlaceholder}
+            nameError={nameError}
+            emailError={emailError}
+            displayedError={displayedError}
+          />
 
           <div className="w-full mt-5 flex flex-col gap-3">
             <Button
               type="submit"
-              disabled={joining || !formState.isValid}
-              aria-disabled={joining || !formState.isValid}
+              disabled={submitDisabled}
+              aria-disabled={submitDisabled}
               className="w-full h-[48px] rounded-xl text-[15px] font-medium disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed"
             >
               {joining ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Join now'}
