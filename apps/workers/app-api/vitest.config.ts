@@ -45,6 +45,12 @@ export default defineConfig({
       // `cloudflare:email` is a Workers-runtime module with no node resolution;
       // point it at a test stub so route modules that import it can load.
       'cloudflare:email': path.resolve(__dirname, './src/test/stubs/cloudflare-email.ts'),
+      // Same for `cloudflare:workers` (src/index.ts exports the AppApiInternal
+      // WorkerEntrypoint and the workflow classes).
+      'cloudflare:workers': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-kit/src/testing/cloudflare-workers-stub.ts',
+      ),
     },
   },
 });

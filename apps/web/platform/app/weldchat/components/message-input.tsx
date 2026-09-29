@@ -16,7 +16,7 @@ import type { RoomClient } from '@weldsuite/realtime/client';
 import { MentionAutocomplete, type MentionSelection } from './mention-autocomplete';
 import { SlashCommandPalette } from './slash-command-palette';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useChatContext } from './chat-context';
+import { useChatContext, type ReplyTo } from './chat-context';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
@@ -198,6 +198,15 @@ function htmlToContent(html: string): string {
   });
 
   return div.innerText;
+}
+
+/** Send fields for a Discord-style inline reply (nothing when not replying). */
+function replyFields(replyTo: ReplyTo | null) {
+  if (!replyTo) return {};
+  return {
+    replyToId: replyTo.messageId,
+    _replyPreview: { messageId: replyTo.messageId, authorName: replyTo.authorName, content: replyTo.content },
+  };
 }
 
 function formatDuration(seconds: number): string {
@@ -404,11 +413,13 @@ export function MessageInput({
       return;
     }
 
-    const replyParentId = replyTo?.messageId || parentId;
+    // Discord-style reply: stays where it was written (channel or this thread)
+    // and quotes the message it answers, instead of opening a thread on it.
     sendMessage({
       channelId,
       content: trimmed,
-      parentId: replyParentId,
+      parentId,
+      ...replyFields(replyTo),
       mentions: mentions.length > 0 ? mentions : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -417,11 +428,11 @@ export function MessageInput({
   }, [content, channelId, parentId, mentions, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
-    const replyParentId = replyTo?.messageId || parentId;
     sendMessage({
       channelId,
       content: '',
-      parentId: replyParentId,
+      parentId,
+      ...replyFields(replyTo),
       attachments: [clipAttachment],
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     });

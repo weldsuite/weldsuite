@@ -11,6 +11,7 @@
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
 
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { connectorRoutes } from './routes/connectors';
 import { externalWebhooksRoutes } from './routes/external-webhooks';
@@ -44,8 +45,8 @@ app.route('/api/weldconnect/github', githubCallbackRoutes);
 
 // Internal service-to-service WeldConnect actions — PUBLIC mount (no Clerk).
 // Auth is the in-route `Authorization: Bearer <INTERNAL_API_SECRET>` check.
-// Caller: workflow-worker's create_customer action. Must stay ABOVE the
-// /api/* guard.
+// Caller: workflow-worker's create_customer action, now over ConnectInternal
+// (below); this mount stays for the transition. Must stay ABOVE the /api/* guard.
 app.route('/api/internal/workflow-actions', internalWorkflowActionsRoutes);
 
 // External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
@@ -59,8 +60,9 @@ app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
 // never reach this worker.
 
 // Internal (service-binding) integration endpoints — X-Internal-Secret auth
-// for integration-sync-worker / integration-webhook-worker (they call app-api
-// over their APP_API binding; its forwarder hands /api/integrations here).
+// for integration-sync-worker / integration-webhook-worker. They now call
+// ConnectInternal (below); this mount stays for the transition, reached over
+// their APP_API binding (app-api's forwarder hands /api/integrations here).
 // Handlers call next() when no internal headers are present, so normal
 // platform traffic falls through to the Clerk-authed /api/integrations router
 // mounted after the guard. Must stay ABOVE the /api/* guard.
@@ -91,3 +93,25 @@ app.route('/api/workflows', workflowsRoutes);
 export default {
   fetch: app.fetch,
 };
+
+// Internal entrypoint — bound as `CONNECT_INTERNAL` (entrypoint = "ConnectInternal")
+// by integration-sync-worker, integration-webhook-worker and workflow-worker. A
+// named entrypoint is only reachable over a service binding, so it is trusted by
+// topology: the routes below accept `internalTrusted` instead of the
+// INTERNAL_API_SECRET check. Only the internal routers are mounted here, at the
+// same paths as on the public app; the public secret-guarded mounts above stay
+// until every caller uses the entrypoint (docs/plans/app-api-module-split.md,
+// rollout item 7).
+const internalApp = createModuleApi<Env, Variables>({ service: 'connect-api' });
+internalApp.use('*', async (c, next) => {
+  c.set('internalTrusted', true);
+  await next();
+});
+internalApp.route('/api/integrations', integrationsInternalRoutes);
+internalApp.route('/api/internal/workflow-actions', internalWorkflowActionsRoutes);
+
+export class ConnectInternal extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    return internalApp.fetch(request, this.env, this.ctx);
+  }
+}

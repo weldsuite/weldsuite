@@ -75,6 +75,34 @@ describe('create_customer', () => {
     ).rejects.toThrow(/Create customer failed: 500.*boom/);
   });
 
+  it('calls the ConnectInternal entrypoint without a secret or public fetch when it is bound', async () => {
+    const calls = stubFetch(okResponse);
+    const entrypoint = vi.fn(async (_url: string, _init?: RequestInit) => okResponse());
+    const ctx = makeActionContext({ env: { CONNECT_INTERNAL: { fetch: entrypoint } as never } });
+
+    const res = await handleCreateCustomer({ name: 'Acme' }, ctx);
+
+    expect((res as { customerId: string }).customerId).toBe('company_1');
+    expect(calls).toHaveLength(0);
+    const [url, init] = entrypoint.mock.calls[0];
+    expect(url).toBe('https://internal/api/internal/workflow-actions/create-customer');
+    expect(new Headers(init?.headers).get('authorization')).toBeNull();
+    expect(JSON.parse(String(init?.body)).customer).toEqual({ name: 'Acme' });
+  });
+
+  it('falls back to the secret-guarded HTTP route when the entrypoint is not deployed yet', async () => {
+    const calls = stubFetch(okResponse);
+    const entrypoint = vi.fn(async () => {
+      throw new Error('Worker "connect-api" has no entrypoint named "ConnectInternal"');
+    });
+    const ctx = makeActionContext({ env: { CONNECT_INTERNAL: { fetch: entrypoint } as never, INTERNAL_API_SECRET: 'secret' } });
+
+    await handleCreateCustomer({ name: 'Acme' }, ctx);
+
+    expect(entrypoint).toHaveBeenCalledTimes(1);
+    expect(new Headers(calls[0].init?.headers).get('authorization')).toBe('Bearer secret');
+  });
+
   it('fails clearly when the internal secret is missing', async () => {
     await expect(handleCreateCustomer({ name: 'Acme' }, makeActionContext())).rejects.toThrow(
       /INTERNAL_API_SECRET/,

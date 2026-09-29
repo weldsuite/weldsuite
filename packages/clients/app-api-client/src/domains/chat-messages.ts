@@ -49,6 +49,10 @@ export interface CreateChatMessageInput {
   authorId?: string | null;
   body?: string;
   parentId?: string | null;
+  /** Discord-style inline reply target — stays top-level, unlike `parentId`. */
+  replyToId?: string | null;
+  /** Ping the author of `replyToId` (default true). */
+  replyMention?: boolean;
   attachments?: unknown;
   metadata?: unknown;
   [key: string]: unknown;

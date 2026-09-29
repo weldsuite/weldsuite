@@ -373,6 +373,9 @@ const sendMessageSchema = z
     parentId: z.string().optional(),
     attachments: z.array(messageAttachmentSchema).optional(),
     mentions: z.array(z.string()).optional(),
+    // Discord-style inline reply (stays in the channel, unlike parentId).
+    replyToId: z.string().optional(),
+    replyMention: z.boolean().optional(),
   })
   .refine((d) => d.content.length > 0 || (d.attachments?.length ?? 0) > 0, {
     message: 'Message must have content or attachments',

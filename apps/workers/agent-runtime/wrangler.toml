@@ -1,8 +1,12 @@
 # WeldAgent cloud computer — Cloudflare Sandbox (Linux) + Browser Run.
-# Called only by app-api with INTERNAL_API_SECRET. One sandbox per workspace.
+# Called only by agent-api and chat-api (WeldAgent computer/browser tools). One
+# sandbox per workspace. Primary path: the `AgentRuntimeInternal` entrypoint
+# (src/index.ts), bound as AGENT_RUNTIME in those workers: reachable only over a
+# service binding, so no secret. Fallback: public URL + INTERNAL_API_SECRET bearer,
+# until every env has the binding (docs/plans/app-api-module-split.md, item 7).
 #
 # Secrets (wrangler secret put):
-# - INTERNAL_API_SECRET (must match app-api)
+# - INTERNAL_API_SECRET (fallback bearer; must match agent-api / chat-api)
 #
 # Local: Docker must be running for Sandbox. Browser binding uses remote = true.
 

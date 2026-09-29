@@ -2,9 +2,10 @@
  * CRM actions: create_customer.
  *
  * A "customer" is a CRM company with status `customer`. Creation is delegated
- * to app-api (POST /api/internal/workflow-actions/create-customer) rather than
- * inserted here: the companies service there stamps `displayName` and the
- * other required columns, and app-api publishes the `company:created` entity
+ * to connect-api (POST /api/internal/workflow-actions/create-customer, over its
+ * `CONNECT_INTERNAL` entrypoint binding) rather than inserted here: the
+ * companies service there stamps `displayName` and the other required columns,
+ * and connect-api publishes the `company:created` entity
  * event — which this worker can't do on its own (it has no ENTITY_EVENTS
  * producer). The run's chain depth travels along so the event it causes can't
  * retrigger workflows indefinitely.
@@ -51,6 +52,7 @@ export const handleCreateCustomer: ActionHandler = async (inputs, ctx) => {
       },
     },
     'Create customer',
+    'CONNECT_INTERNAL',
   );
 
   return {

@@ -201,9 +201,11 @@ export interface Env {
   }>;
   // (SEND_DIGEST and IMPORT_TASKS moved to flow-api, SEND_SCHEDULED_EMAIL to
   // mail-api and WELDAGENT_JOB to agent-api with their modules.)
-  /** Shared secret for internal service-to-service auth. Consumed by
-   *  /api/internal (workflow-worker send_email bearer). Must be SET with the
-   *  same value those callers send. (The internal /api/integrations router
+  /** Shared secret for internal service-to-service auth. Consumed by the
+   *  PUBLIC /api/internal mount (workflow-worker send_email bearer), which
+   *  stays until workflow-worker reaches `AppApiInternal` over its
+   *  APP_API_INTERNAL binding (no secret). Must be SET with the same value
+   *  that caller sends while it does. (The internal /api/integrations router
    *  moved to connect-api, the agent-runtime calls to agent-api.) */
   INTERNAL_API_SECRET?: string;
   // (CONNECTOR_WEBHOOK_BASE_URL moved to connect-api with the connectors.)
@@ -290,4 +292,8 @@ export type Variables = {
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */
   customObject?: CustomObjectRow;
+  /** Set only by the `AppApiInternal` entrypoint (service binding only, so
+   *  trusted by topology): /api/internal accepts it in place of the
+   *  INTERNAL_API_SECRET bearer. Never set on the public path. */
+  internalTrusted?: boolean;
 };

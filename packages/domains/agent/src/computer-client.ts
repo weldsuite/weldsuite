@@ -1,5 +1,12 @@
 /**
  * HTTP client for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
+ *
+ * Preferred transport: the `AGENT_RUNTIME` service binding to agent-runtime's
+ * `AgentRuntimeInternal` entrypoint (no Authorization header: reachable only
+ * over a binding, so trusted by topology). Fallback, when the binding is absent
+ * or the entrypoint is not deployed yet: the public `AGENT_RUNTIME_URL` with the
+ * `INTERNAL_API_SECRET` bearer. It goes once every env has the binding
+ * (docs/plans/app-api-module-split.md, rollout item 7).
  */
 
 import type { WeldAgentEnv as Env } from './env';
@@ -11,11 +18,25 @@ export class AgentComputerUnavailableError extends Error {
   }
 }
 
+function computerEnabled(env: Env): boolean {
+  return (env.AGENT_COMPUTER_ENABLED ?? 'true').toLowerCase() !== 'false';
+}
+
+/** Public URL of agent-runtime (fallback transport), or null when unset/disabled. */
 function runtimeBase(env: Env): string | null {
-  const enabled = (env.AGENT_COMPUTER_ENABLED ?? 'true').toLowerCase() !== 'false';
-  if (!enabled) return null;
+  if (!computerEnabled(env)) return null;
   const url = env.AGENT_RUNTIME_URL?.trim();
   return url ? url.replace(/\/$/, '') : null;
+}
+
+/** True when a transport (binding or URL) is configured and the computer is enabled. */
+function runtimeReachable(env: Env): boolean {
+  return computerEnabled(env) && (Boolean(env.AGENT_RUNTIME) || runtimeBase(env) != null);
+}
+
+/** A named entrypoint that is not exported (yet) fails the call before any handler runs. */
+function isMissingEntrypoint(err: unknown): boolean {
+  return err instanceof Error && /entrypoint/i.test(err.message);
 }
 
 async function runtimeFetch(
@@ -23,10 +44,32 @@ async function runtimeFetch(
   path: string,
   init: RequestInit & { workspaceId?: string } = {},
 ): Promise<Response> {
+  if (!runtimeReachable(env)) {
+    throw new AgentComputerUnavailableError(
+      'Agent computer is not configured (bind AGENT_RUNTIME or set AGENT_RUNTIME_URL, and AGENT_COMPUTER_ENABLED).',
+    );
+  }
+
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  // Preferred: the AgentRuntimeInternal entrypoint over the service binding.
+  // No secret; only a missing entrypoint falls back, so a call never runs twice.
+  if (computerEnabled(env) && env.AGENT_RUNTIME) {
+    try {
+      return await env.AGENT_RUNTIME.fetch(`https://agent-runtime${path}`, { ...init, headers });
+    } catch (err) {
+      if (!isMissingEntrypoint(err)) throw err;
+      console.warn('[agent-computer] AGENT_RUNTIME entrypoint unavailable, falling back to URL:', err);
+    }
+  }
+
   const base = runtimeBase(env);
   if (!base) {
     throw new AgentComputerUnavailableError(
-      'Agent computer is not configured (set AGENT_RUNTIME_URL and AGENT_COMPUTER_ENABLED).',
+      'Agent computer is not configured (bind AGENT_RUNTIME or set AGENT_RUNTIME_URL, and AGENT_COMPUTER_ENABLED).',
     );
   }
   const secret = env.INTERNAL_API_SECRET?.trim();
@@ -34,14 +77,8 @@ async function runtimeFetch(
     throw new AgentComputerUnavailableError('INTERNAL_API_SECRET is not configured');
   }
 
-  const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${secret}`);
-  if (init.body && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  const res = await fetch(`${base}${path}`, { ...init, headers });
-  return res;
+  return fetch(`${base}${path}`, { ...init, headers });
 }
 
 async function jsonOrThrow(res: Response): Promise<unknown> {
@@ -54,8 +91,7 @@ async function jsonOrThrow(res: Response): Promise<unknown> {
 }
 
 export async function computerStatus(env: Env, workspaceId: string) {
-  const base = runtimeBase(env);
-  if (!base) return { enabled: false as const, reason: 'not_configured' };
+  if (!runtimeReachable(env)) return { enabled: false as const, reason: 'not_configured' };
   const res = await runtimeFetch(
     env,
     `/v1/computer/status?workspaceId=${encodeURIComponent(workspaceId)}`,
@@ -173,5 +209,6 @@ export async function browserClose(
 }
 
 export function isAgentComputerConfigured(env: Env): boolean {
-  return runtimeBase(env) != null && Boolean(env.INTERNAL_API_SECRET?.trim());
+  if (!computerEnabled(env)) return false;
+  return Boolean(env.AGENT_RUNTIME) || (runtimeBase(env) != null && Boolean(env.INTERNAL_API_SECRET?.trim()));
 }

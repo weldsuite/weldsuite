@@ -9,8 +9,11 @@
 # Secrets (scripts/secrets/manifest.ts → "call-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY,
-#   INTERNAL_API_SECRET (verifier side of /api/internal/telephony, billing-worker's
-#     phone-number fulfilment bearer; the SAME value as app-api and billing-worker)
+#   INTERNAL_API_SECRET (verifier side of the PUBLIC /api/internal/telephony mount,
+#     billing-worker's phone-number fulfilment bearer; the SAME value as app-api and
+#     billing-worker. billing-worker now calls the `CallInternal` entrypoint
+#     (src/index.ts, bound as CALL_INTERNAL; no secret) and keeps the bearer as a
+#     fallback until every env has the binding)
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns

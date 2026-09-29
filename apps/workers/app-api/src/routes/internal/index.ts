@@ -3,12 +3,15 @@
  * `/api/internal/*` surface (apps/api-worker/src/routes/internal/index.ts;
  * W3 of the legacy-worker phase-out plan).
  *
- * PUBLIC mount (must be registered BEFORE the global /api/* Clerk guard in
- * src/index.ts) — auth is enforced in-route via a shared-secret bearer:
- * `Authorization: Bearer <INTERNAL_API_SECRET>`. Caller: workflow-worker's
- * send_email action
- * (apps/workers/workflow-worker/src/engine/actions/communication.ts).
- * The caller's INTERNAL_API_SECRET must match this worker's (ops contract).
+ * Caller: workflow-worker's send_email action
+ * (apps/workers/workflow-worker/src/engine/actions/communication.ts), over its
+ * `APP_API_INTERNAL` binding to the `AppApiInternal` entrypoint (no secret).
+ *
+ * The PUBLIC mount (registered BEFORE the global /api/* Clerk guard in
+ * src/index.ts) stays until every caller uses the entrypoint; it authenticates
+ * in-route via a shared-secret bearer:
+ * `Authorization: Bearer <INTERNAL_API_SECRET>`. The caller's
+ * INTERNAL_API_SECRET must match this worker's (ops contract).
  *
  * Deliberately NOT ported from the legacy surface: the workspace-database
  * delete endpoint and the AI endpoints (both dead — zero callers).
@@ -23,21 +26,28 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import type { Env } from '../../types';
+import type { Env, Variables } from '../../types';
 import {
   sendInternalEmail,
   sendInternalTransactionalEmail,
 } from '../../services/internal-email';
 
-export const internalRoutes = new Hono<{ Bindings: Env }>();
+export const internalRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ---------------------------------------------------------------------------
-// Auth — shared INTERNAL_API_SECRET bearer on every route. (The legacy
-// api-worker m2mAuth also accepted Clerk M2M tokens; that fallback had no
-// remaining callers and is intentionally dropped here.)
+// Auth — requests through the `AppApiInternal` entrypoint (service binding
+// only) are trusted by topology; the public mount keeps the shared
+// INTERNAL_API_SECRET bearer on every route until workflow-worker uses the
+// entrypoint. (The legacy api-worker m2mAuth also accepted Clerk M2M tokens;
+// that fallback had no remaining callers and is intentionally dropped here.)
 // ---------------------------------------------------------------------------
 
 internalRoutes.use('*', async (c, next) => {
+  if (c.get('internalTrusted') === true) {
+    await next();
+    return;
+  }
+
   const secret = c.env.INTERNAL_API_SECRET;
   if (!secret) {
     console.error('[Internal API] INTERNAL_API_SECRET is not configured');

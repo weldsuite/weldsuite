@@ -60,6 +60,14 @@ export interface SendMessageRequest {
     transcript?: { status: 'pending' | 'processing' | 'completed' | 'failed' };
   }>;
   mentions?: string[];
+  /**
+   * Discord-style inline reply: the message this one answers. Unlike
+   * `parentId` it doesn't open a thread — the reply stays where it was written
+   * and the server stores a quote of the target in `metadata.replyTo`.
+   */
+  replyToId?: string;
+  /** Ping the author of `replyToId` (server default: true). */
+  replyMention?: boolean;
 }
 
 export interface CreateDmRequest {

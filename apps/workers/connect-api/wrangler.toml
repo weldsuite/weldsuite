@@ -13,11 +13,17 @@
 #   connector and workflow-integration credentials)
 #   GITHUB_APP_ID + GITHUB_APP_SLUG + GITHUB_APP_PRIVATE_KEY (GitHub App install
 #     flow, /api/weldconnect/github callback, repos / Projects v2 API)
-#   INTERNAL_API_SECRET (verifier side of the internal /api/integrations router
-#     (X-Internal-Secret from integration-sync-worker / integration-webhook-worker)
-#     and of /api/internal/workflow-actions (workflow-worker's create_customer
-#     bearer); also the WooCommerce connect HMAC key. The SAME value as app-api,
-#     commerce-api and those callers in the same env)
+#   INTERNAL_API_SECRET (verifier side of the PUBLIC internal mounts:
+#     /api/integrations (X-Internal-Secret from integration-sync-worker /
+#     integration-webhook-worker) and /api/internal/workflow-actions
+#     (workflow-worker's create_customer bearer); also the WooCommerce connect
+#     HMAC key. Those callers now use the ConnectInternal entrypoint (no secret);
+#     the public mounts stay until all of them do. The SAME value as app-api,
+#     commerce-api and the callers in the same env)
+#
+# Entrypoint: `ConnectInternal` (src/index.ts) is bound as CONNECT_INTERNAL by
+# integration-sync-worker, integration-webhook-worker and workflow-worker. It is
+# reachable only over a service binding, so it needs no secret.
 #   MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
 #     connector OAuth)
 #   CLOUDFLARE_API_TOKEN (the @weldsuite/ai token fallback for
