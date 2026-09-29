@@ -138,6 +138,9 @@ export const weldchat = {
       cancel: 'Cancel',
       uploading: 'Uploading…',
       uploadFailed: 'Could not upload {fileName}',
+      threadSuggestion: 'Looks like a conversation. Continue it in a thread?',
+      createThread: 'Create thread',
+      dismissThreadSuggestion: 'Dismiss',
     },
     channelEmptyState: {
       channelCreated: 'created this channel',

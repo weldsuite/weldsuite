@@ -19,6 +19,10 @@ export interface ReplyTo {
    * composer that owns that thread reacts. Omit for a channel-level message.
    */
   parentId?: string | null;
+  /** Chain depth of the quoted message itself (0 for a plain message). */
+  depth?: number;
+  /** Message that started the quoted message's reply chain. */
+  rootId?: string;
 }
 
 export interface EditingMessage {

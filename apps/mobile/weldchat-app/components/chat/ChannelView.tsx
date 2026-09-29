@@ -258,10 +258,10 @@ function Waveform({ active, color, level }: Readonly<{ active: boolean; color: s
 }
 
 /**
- * Wraps a message row to add Discord-style swipe-left-to-reply.
+ * Wraps a message row to add WhatsApp-style drag-right-to-reply.
  * Composes a LongPress (existing action sheet) with a Pan that activates
- * only on horizontal left motion, vertical motion yields to FlatList scroll,
- * right motion yields to the stack's swipe-back gesture.
+ * only on horizontal right motion; vertical motion yields to FlatList scroll
+ * and left motion is ignored.
  */
 function SwipeableMessage({
   onLongPress,
@@ -300,11 +300,11 @@ function SwipeableMessage({
     });
 
   const pan = Gesture.Pan()
-    .activeOffsetX([-15, 9999])
+    .activeOffsetX([-9999, 15])
     .failOffsetY([-12, 12])
     .onUpdate((e) => {
-      const next = Math.max(-MAX, Math.min(0, e.translationX));
-      const past = next <= -TRIGGER;
+      const next = Math.max(0, Math.min(MAX, e.translationX));
+      const past = next >= TRIGGER;
       if (past && !crossedThreshold.value) {
         crossedThreshold.value = true;
         runOnJS(fireHaptic)();
@@ -336,11 +336,12 @@ function SwipeableMessage({
       [0, 1],
       Extrapolation.CLAMP,
     );
-    const past = translateX.value <= -TRIGGER ? 1 : 0;
+    const past = translateX.value >= TRIGGER ? 1 : 0;
     return {
       opacity: progress,
       transform: [
-        { translateX: Math.max(-MAX, translateX.value) },
+        // The icon trails the message in from the left edge.
+        { translateX: Math.min(MAX, translateX.value) - 44 },
         { scale: 0.5 + progress * 0.5 + past * 0.1 },
       ],
     };
@@ -377,7 +378,7 @@ const swipeReplyStyles = StyleSheet.create({
   },
   iconWrap: {
     position: 'absolute',
-    right: 16,
+    left: 0,
     top: 0,
     bottom: 0,
     justifyContent: 'center',

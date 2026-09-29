@@ -138,6 +138,9 @@ export const weldchat = {
       cancel: 'Annuleren',
       uploading: 'Uploaden…',
       uploadFailed: '{fileName} kon niet worden geüpload',
+      threadSuggestion: 'Dit lijkt een gesprek. Verder in een thread?',
+      createThread: 'Thread starten',
+      dismissThreadSuggestion: 'Sluiten',
     },
     channelEmptyState: {
       channelCreated: 'heeft dit kanaal aangemaakt',
