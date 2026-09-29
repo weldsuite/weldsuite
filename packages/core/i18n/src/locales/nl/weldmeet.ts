@@ -171,6 +171,8 @@ export const weldmeet = {
     failedToCreate: 'Vergadering aanmaken mislukt',
     failedToCreateHint: 'Probeer het opnieuw.',
     meetingLinkCopied: 'Vergaderlink gekopieerd',
+    meetingLinkUnavailable: 'Vergaderlink kon niet worden aangemaakt',
+    meetingLinkUnavailableHint: 'De vergadering is aangemaakt, maar heeft nog geen deelnamelink. Probeer het opnieuw.',
     addPeople: 'Mensen toevoegen',
     searchByNameOrEmail: 'Zoek op naam of e-mail...',
     noMembersFound: 'Geen leden gevonden',
