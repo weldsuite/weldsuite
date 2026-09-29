@@ -77,7 +77,7 @@ binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
 [[env.test.workflows]]
-name = "conversation-workflow"
+name = "conversation-workflow-test"
 binding = "CONVERSATION_WORKFLOW"
 class_name = "ConversationWorkflow"
 

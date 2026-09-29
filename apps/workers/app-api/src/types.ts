@@ -175,8 +175,7 @@ export interface Env {
   // (CONNECTOR_SYNC_INDEX and EXECUTE_WORKFLOW moved to connect-api with
   // WeldConnect.)
   /** CF Workflow that purges trashed drive files after 30 days. Hosted in
-   *  app-api itself under the `trash-cleanup-v2*` workflow names —
-   *  api-worker's old names keep draining until W7. */
+   *  app-api itself under the `trash-cleanup-v2*` workflow names. */
   TRASH_CLEANUP?: Workflow<{
     workspaceId: string;
     fileId: string;
@@ -184,9 +183,7 @@ export interface Env {
     deletedAt: string;
     purgeAt: string;
   }>;
-  // (UNPIN_EXPIRED_MESSAGE moved to chat-api with WeldChat; the
-  // unpin-expired-message-v2* [[workflows]] blocks stay only while their
-  // in-flight instances drain.)
+  // (UNPIN_EXPIRED_MESSAGE moved to chat-api with WeldChat.)
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window, then sends only if they are still away and the
    *  notification is still unread. Hosted in app-api itself under the
@@ -202,18 +199,12 @@ export interface Env {
     sendAfter: string;
     template?: { id: string; variables: Record<string, string | number | boolean> };
   }>;
-  // (SEND_DIGEST and IMPORT_TASKS moved to flow-api with WeldFlow; the
-  // send-digest-v2* / import-tasks-v2* [[workflows]] blocks stay only while
-  // their in-flight instances drain.)
-  // (SEND_SCHEDULED_EMAIL moved to mail-api with WeldMail; the
-  // send-scheduled-email-v2* [[workflows]] blocks stay only while their
-  // in-flight instances drain.)
-  // (WELDAGENT_JOB moved to agent-api with WeldAgent; the weldagent-job*
-  // [[workflows]] blocks stay only while their in-flight instances drain.)
+  // (SEND_DIGEST and IMPORT_TASKS moved to flow-api, SEND_SCHEDULED_EMAIL to
+  // mail-api and WELDAGENT_JOB to agent-api with their modules.)
   /** Shared secret for internal service-to-service auth. Consumed by
-   *  /api/internal (workflow-worker send_email bearer) and the WeldAgent cloud
-   *  computer (agent-runtime). Must be SET with the same value those callers
-   *  send. (The internal /api/integrations router moved to connect-api.) */
+   *  /api/internal (workflow-worker send_email bearer). Must be SET with the
+   *  same value those callers send. (The internal /api/integrations router
+   *  moved to connect-api, the agent-runtime calls to agent-api.) */
   INTERNAL_API_SECRET?: string;
   // (CONNECTOR_WEBHOOK_BASE_URL moved to connect-api with the connectors.)
 
@@ -233,11 +224,7 @@ export interface Env {
   /** Resend API key — used by the email channel and internal email.
    *  Optional locally. */
   RESEND_API_KEY?: string;
-  /** AssemblyAI API key — used by TranscribeRecordingWorkflow (meeting/call
-   *  recording transcription). New transcriptions run in meet-api; app-api
-   *  still needs it while its draining `transcribe-recording-v2*` instances
-   *  finish. Optional locally. */
-  ASSEMBLYAI_API_KEY?: string;
+  // (ASSEMBLYAI_API_KEY moved to meet-api with the transcription workflow.)
   /** Resend template id for the task-assignment email. When unset, the
    *  helper falls back to a plain-text email. */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;
@@ -275,16 +262,7 @@ export interface Env {
   // (Telephony's TELNYX_* moved to call-api.)
 
   // (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
-  /**
-   * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
-   * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
-   * WeldAgent moved to agent-api; app-api still needs it (and
-   * AGENT_COMPUTER_ENABLED) while its draining `weldagent-job*` instances
-   * finish.
-   */
-  AGENT_RUNTIME_URL?: string;
-  /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
-  AGENT_COMPUTER_ENABLED?: string;
+  // (AGENT_RUNTIME_URL / AGENT_COMPUTER_ENABLED moved to agent-api with WeldAgent.)
 
   // (The integration OAuth apps — ATTIO_*, HUBSPOT_*, MONEYBIRD_*,
   // GOOGLE_CALENDAR_* — and the CRM_SYNC workflow binding moved to connect-api

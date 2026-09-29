@@ -87,7 +87,7 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
 [[env.test.workflows]]
-name = "welddata-enrich-v2"
+name = "welddata-enrich-v2-test"
 binding = "WELDDATA_ENRICH"
 class_name = "WelddataEnrichWorkflow"
 

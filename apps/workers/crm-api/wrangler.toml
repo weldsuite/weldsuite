@@ -117,7 +117,7 @@ bucket_name = "weldsuite-storage-test"
 name = "SEND_EMAIL"
 
 [[env.test.workflows]]
-name = "execute-sequence-v3"
+name = "execute-sequence-v3-test"
 binding = "EXECUTE_SEQUENCE"
 class_name = "ExecuteSequenceWorkflow"
 

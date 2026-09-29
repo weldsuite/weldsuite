@@ -145,21 +145,21 @@ service = "weldsuite-realtime-test"
 
 # WeldConnect run engine — ExecuteWorkflowWorkflow hosted by workflow-worker.
 [[env.test.workflows]]
-name = "execute-workflow"
+name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 script_name = "weldsuite-workflow-test"
 
 # GitHub Projects v2 sync — class hosted in integration-webhook-worker.
 [[env.test.workflows]]
-name = "github-project-sync-int"
+name = "github-project-sync-int-test"
 binding = "GITHUB_PROJECT_SYNC"
 class_name = "GithubProjectSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"
 
 # CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
 [[env.test.workflows]]
-name = "crm-sync-int"
+name = "crm-sync-int-test"
 binding = "CRM_SYNC"
 class_name = "CrmSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"

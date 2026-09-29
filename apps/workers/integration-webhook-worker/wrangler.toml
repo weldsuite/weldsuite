@@ -120,6 +120,28 @@ max_retries = 3
 max_concurrency = 4
 dead_letter_queue = "entity-webhooks-dlq-test"
 
+# Workflow names are unique per Cloudflare account: test gets its own (-test).
+[[env.test.workflows]]
+name = "crm-sync-int-test"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+
+[[env.test.workflows]]
+name = "github-project-sync-int-test"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+
+[[env.test.workflows]]
+name = "github-project-outbound-int-test"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+
+[[env.test.workflows]]
+name = "execute-workflow-test"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-test"
+
 [env.test.triggers]
 crons = ["*/10 * * * *"]
 
