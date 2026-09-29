@@ -6,12 +6,16 @@
  * `/api/internal/telephony` prefix (longest prefix wins over core's
  * `/api/internal`), so app-api's forwarder hands these calls to this worker.
  *
- * PUBLIC mount (must be registered BEFORE the global /api/* Clerk guard in
- * src/index.ts) — auth is enforced in-route via a shared-secret bearer:
+ * Caller: billing-worker's paid phone-number fulfilment
+ * (apps/workers/billing-worker/src/lib/phone-fulfill.ts), over its
+ * `CALL_INTERNAL` binding to the `CallInternal` entrypoint (no secret).
+ *
+ * The PUBLIC mount (registered BEFORE the global /api/* Clerk guard in
+ * src/index.ts, reached through app-api's forwarder) stays until every caller
+ * uses the entrypoint; it authenticates in-route via a shared-secret bearer:
  * `Authorization: Bearer <INTERNAL_API_SECRET>`, identical to app-api's
- * internal router. Caller: billing-worker's paid phone-number fulfilment
- * (apps/workers/billing-worker/src/lib/phone-fulfill.ts). The caller's
- * INTERNAL_API_SECRET must match this worker's (ops contract).
+ * internal router. The caller's INTERNAL_API_SECRET must match this worker's
+ * (ops contract) while it does.
  *
  * Response shapes intentionally preserve the LEGACY internal contract
  * ({ success, ... } / { success:false, error }) rather than the app-api
@@ -22,16 +26,23 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import type { Env } from '../../types';
+import type { Env, Variables } from '../../types';
 
-export const internalTelephonyRoutes = new Hono<{ Bindings: Env }>();
+export const internalTelephonyRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ---------------------------------------------------------------------------
-// Auth — shared INTERNAL_API_SECRET bearer on every route (same check as
+// Auth — requests through the `CallInternal` entrypoint (service binding only)
+// are trusted by topology; the public mount keeps the shared INTERNAL_API_SECRET
+// bearer on every route until all callers use the entrypoint (same check as
 // app-api's routes/internal/index.ts).
 // ---------------------------------------------------------------------------
 
 internalTelephonyRoutes.use('*', async (c, next) => {
+  if (c.get('internalTrusted') === true) {
+    await next();
+    return;
+  }
+
   const secret = c.env.INTERNAL_API_SECRET;
   if (!secret) {
     console.error('[Internal API] INTERNAL_API_SECRET is not configured');
