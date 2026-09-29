@@ -37,6 +37,218 @@ function isOfficial(app: StoreUserApp): boolean {
   return app.publisherType === 'weldsuite';
 }
 
+function BusyLabel({ isBusy, label }: Readonly<{ isBusy: boolean; label: string }>) {
+  return isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{label}</>;
+}
+
+function UserAppBadges({ app }: Readonly<{ app: StoreUserApp }>) {
+  const { t, format } = useI18n();
+  const wa = t.weldapps;
+  const showPrice = app.pricingType === 'subscription' && app.priceMonthly;
+  return (
+    <>
+      {isOfficial(app) ? (
+        <Badge className="shrink-0 bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
+          {wa.store.badgeOfficial}
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="shrink-0">
+          {app.visibility === 'public' ? wa.store.badgeCommunity : wa.store.badgePrivate}
+        </Badge>
+      )}
+      {showPrice ? (
+        <Badge variant="secondary" className="shrink-0">
+          {format(wa.store.priceMonthly, { price: `${app.currency ?? 'USD'} ${app.priceMonthly}` })}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
+function UserAppLinks({ app }: Readonly<{ app: StoreUserApp }>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  if (!app.websiteUrl && !app.privacyUrl) return null;
+  return (
+    <p className="text-xs text-muted-foreground flex gap-3">
+      {app.websiteUrl ? (
+        <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+          {wa.store.website}
+        </a>
+      ) : null}
+      {app.privacyUrl ? (
+        <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+          {wa.store.privacy}
+        </a>
+      ) : null}
+    </p>
+  );
+}
+
+function UserAppScreenshots({ screenshots }: Readonly<{ screenshots: string[] }>) {
+  if (screenshots.length === 0) return null;
+  return (
+    <div className="flex gap-2 overflow-x-auto">
+      {screenshots.slice(0, 3).map((src) => (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          className="h-16 w-24 object-cover rounded-md border border-border shrink-0"
+        />
+      ))}
+    </div>
+  );
+}
+
+function InstalledAppActions({
+  app,
+  isBusy,
+  canManage,
+  needsApproval,
+  onApproveUpdate,
+  onUninstall,
+}: Readonly<{
+  app: StoreUserApp;
+  isBusy: boolean;
+  canManage: boolean;
+  needsApproval: boolean;
+  onApproveUpdate: (app: StoreUserApp) => void;
+  onUninstall: (app: StoreUserApp) => void;
+}>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  return (
+    <>
+      <Button asChild variant="outline" size="sm" className="h-7 text-xs px-2.5">
+        <Link href={`/apps/${app.code}`}>{wa.store.open}</Link>
+      </Button>
+      {canManage && needsApproval && (
+        <Button
+          size="sm"
+          className="h-7 text-xs px-2.5"
+          disabled={isBusy}
+          onClick={() => onApproveUpdate(app)}
+        >
+          <BusyLabel isBusy={isBusy} label={wa.store.updateNeedsApproval} />
+        </Button>
+      )}
+      {canManage && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs px-2.5"
+          disabled={isBusy}
+          onClick={() => onUninstall(app)}
+        >
+          <BusyLabel isBusy={isBusy} label={wa.store.uninstall} />
+        </Button>
+      )}
+    </>
+  );
+}
+
+function UserAppActions({
+  app,
+  isBusy,
+  canManage,
+  onInstall,
+  onApproveUpdate,
+  onUninstall,
+}: Readonly<{
+  app: StoreUserApp;
+  isBusy: boolean;
+  canManage: boolean;
+  onInstall: (app: StoreUserApp) => void;
+  onApproveUpdate: (app: StoreUserApp) => void;
+  onUninstall: (app: StoreUserApp) => void;
+}>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  const installed = isInstalled(app);
+  const needsApproval = installed && (app.pendingScopes?.length ?? 0) > 0;
+
+  return (
+    <div className="flex items-center gap-2 mt-auto pt-1">
+      {needsApproval && (
+        <Badge className="bg-amber-100 text-amber-700 border-transparent dark:bg-amber-950 dark:text-amber-400">
+          {wa.store.updateNeedsApproval}
+        </Badge>
+      )}
+      <div className="flex-1" />
+      {installed ? (
+        <InstalledAppActions
+          app={app}
+          isBusy={isBusy}
+          canManage={canManage}
+          needsApproval={needsApproval}
+          onApproveUpdate={onApproveUpdate}
+          onUninstall={onUninstall}
+        />
+      ) : (
+        canManage && (
+          <Button
+            size="sm"
+            className="h-7 text-xs px-2.5"
+            disabled={isBusy}
+            onClick={() => onInstall(app)}
+          >
+            <BusyLabel isBusy={isBusy} label={wa.store.install} />
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
+
+function UserAppCard({
+  app,
+  isBusy,
+  canManage,
+  onInstall,
+  onApproveUpdate,
+  onUninstall,
+}: Readonly<{
+  app: StoreUserApp;
+  isBusy: boolean;
+  canManage: boolean;
+  onInstall: (app: StoreUserApp) => void;
+  onApproveUpdate: (app: StoreUserApp) => void;
+  onUninstall: (app: StoreUserApp) => void;
+}>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  const screenshots = app.screenshots?.filter(Boolean) ?? [];
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 relative flex flex-col gap-3">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-[0.625rem] bg-white dark:bg-background border border-gray-200 dark:border-border flex items-center justify-center shrink-0">
+          <CustomAppIcon icon={app.icon} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 mb-px flex-wrap">
+            <h3 className="text-[0.9375rem] font-semibold text-foreground m-0 truncate">{app.name}</h3>
+            <UserAppBadges app={app} />
+          </div>
+          <p className="text-xs text-muted-foreground m-0">{app.category || wa.breadcrumb.title}</p>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground m-0 leading-[1.4] line-clamp-2">{app.description}</p>
+      <UserAppLinks app={app} />
+      <UserAppScreenshots screenshots={screenshots} />
+      <UserAppActions
+        app={app}
+        isBusy={isBusy}
+        canManage={canManage}
+        onInstall={onInstall}
+        onApproveUpdate={onApproveUpdate}
+        onUninstall={onUninstall}
+      />
+    </div>
+  );
+}
+
 function UserAppStoreGrid({
   apps,
   heading,
@@ -142,120 +354,17 @@ function UserAppStoreGrid({
         ) : null
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {apps.map((app) => {
-            const isBusy = loadingCode === app.code;
-            const installed = isInstalled(app);
-            const needsApproval = installed && (app.pendingScopes?.length ?? 0) > 0;
-            const official = isOfficial(app);
-            const screenshots = app.screenshots?.filter(Boolean) ?? [];
-            return (
-              <div
-                key={app.code}
-                className="bg-card border border-border rounded-xl p-4 relative flex flex-col gap-3"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-[0.625rem] bg-white dark:bg-background border border-gray-200 dark:border-border flex items-center justify-center shrink-0">
-                    <CustomAppIcon icon={app.icon} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 mb-px flex-wrap">
-                      <h3 className="text-[0.9375rem] font-semibold text-foreground m-0 truncate">{app.name}</h3>
-                      {official ? (
-                        <Badge className="shrink-0 bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
-                          {wa.store.badgeOfficial}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="shrink-0">
-                          {app.visibility === 'public' ? wa.store.badgeCommunity : wa.store.badgePrivate}
-                        </Badge>
-                      )}
-                      {app.pricingType === 'subscription' && app.priceMonthly ? (
-                        <Badge variant="secondary" className="shrink-0">
-                          {format(wa.store.priceMonthly, { price: `${app.currency ?? 'USD'} ${app.priceMonthly}` })}
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <p className="text-xs text-muted-foreground m-0">{app.category || wa.breadcrumb.title}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground m-0 leading-[1.4] line-clamp-2">{app.description}</p>
-                {(app.websiteUrl || app.privacyUrl) && (
-                  <p className="text-xs text-muted-foreground flex gap-3">
-                    {app.websiteUrl ? (
-                      <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                        {wa.store.website}
-                      </a>
-                    ) : null}
-                    {app.privacyUrl ? (
-                      <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                        {wa.store.privacy}
-                      </a>
-                    ) : null}
-                  </p>
-                )}
-                {screenshots.length > 0 ? (
-                  <div className="flex gap-2 overflow-x-auto">
-                    {screenshots.slice(0, 3).map((src) => (
-                      <img
-                        key={src}
-                        src={src}
-                        alt=""
-                        className="h-16 w-24 object-cover rounded-md border border-border shrink-0"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="flex items-center gap-2 mt-auto pt-1">
-                  {needsApproval && (
-                    <Badge className="bg-amber-100 text-amber-700 border-transparent dark:bg-amber-950 dark:text-amber-400">
-                      {wa.store.updateNeedsApproval}
-                    </Badge>
-                  )}
-                  <div className="flex-1" />
-                  {installed ? (
-                    <>
-                      <Button asChild variant="outline" size="sm" className="h-7 text-xs px-2.5">
-                        <Link href={`/apps/${app.code}`}>{wa.store.open}</Link>
-                      </Button>
-                      {canManageWeldApps && needsApproval && (
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs px-2.5"
-                          disabled={isBusy}
-                          onClick={() => setUpdateTarget(app)}
-                        >
-                          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : wa.store.updateNeedsApproval}
-                        </Button>
-                      )}
-                      {canManageWeldApps && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs px-2.5"
-                          disabled={isBusy}
-                          onClick={() => setUninstallTarget(app)}
-                        >
-                          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : wa.store.uninstall}
-                        </Button>
-                      )}
-                    </>
-                  ) : (
-                    canManageWeldApps && (
-                      <Button
-                        size="sm"
-                        className="h-7 text-xs px-2.5"
-                        disabled={isBusy}
-                        onClick={() => setInstallTarget(app)}
-                      >
-                        {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : wa.store.install}
-                      </Button>
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {apps.map((app) => (
+            <UserAppCard
+              key={app.code}
+              app={app}
+              isBusy={loadingCode === app.code}
+              canManage={canManageWeldApps}
+              onInstall={setInstallTarget}
+              onApproveUpdate={setUpdateTarget}
+              onUninstall={setUninstallTarget}
+            />
+          ))}
         </div>
       )}
 
