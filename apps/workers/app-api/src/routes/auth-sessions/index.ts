@@ -23,7 +23,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

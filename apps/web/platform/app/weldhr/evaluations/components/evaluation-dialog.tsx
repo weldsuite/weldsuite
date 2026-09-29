@@ -2,7 +2,7 @@
  * Score an evaluation — create (pick employee + form) or edit (employee and
  * form locked, criteria are the ones snapshotted on the evaluation). The
  * overall-score preview mirrors the server formula in
- * `apps/workers/app-api/src/services/weldhr/performance.ts` (`overallScore`):
+ * `apps/workers/hr-api/src/services/weldhr/performance.ts` (`overallScore`):
  * weighted mean of score/maxScore, 0–100, skipping unscored criteria.
  */
 

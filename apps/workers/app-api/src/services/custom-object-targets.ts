@@ -22,8 +22,8 @@ import { inArray, sql } from 'drizzle-orm';
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
 import { customObjectSlugFromEntityKey } from '@weldsuite/entity-events';
 import { customObjectPermission } from '@weldsuite/permissions/custom-objects';
-import { schema } from '../db';
-import type { Database } from '../db';
+import { schema } from '@weldsuite/worker-kit/db';
+import type { Database } from '@weldsuite/worker-kit/db';
 
 export interface ResolvedTarget {
   id: string;

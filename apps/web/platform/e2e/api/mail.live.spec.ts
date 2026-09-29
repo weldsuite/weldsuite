@@ -6,7 +6,7 @@
  *
  * It is NOT part of the normal `api` run's assertions about correctness — the
  * hermetic transmit wiring is covered by
- * `apps/workers/app-api/src/lib/cloudflare-email.test.ts`, and persistence by
+ * `packages/core/worker-email/src/index.test.ts`, and persistence by
  * `e2e/api/mail.spec.ts` (dry-run). This spec exists to prove a real send
  * reaches Cloudflare and is accepted in a deployed environment.
  *

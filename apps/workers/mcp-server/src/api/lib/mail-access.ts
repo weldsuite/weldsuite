@@ -1,7 +1,7 @@
 /**
  * Mail account access control.
  *
- * Ported from `apps/workers/app-api/src/services/mail/access.ts` so the MCP
+ * Ported from `packages/domains/mail/src/access.ts` so the MCP
  * surface can never be broader than the UI's. Mail is the one object group
  * where a workspace-level permission is not the whole story: `messages:read`
  * says the caller may read mail, but *which* mailboxes is decided per account.

@@ -19,10 +19,10 @@ export interface Env extends KitEnv {
    *  bearer). Must be SET with the same value the caller sends. */
   INTERNAL_API_SECRET?: string;
 
-  /** Optional override for app-api's public base URL — the host of the Telnyx
-   *  AI assistant's lookup_crm tool URL (getHelpdeskWorkerUrl,
-   *  @weldsuite/desk-domain). Defaults to the per-environment app-api
-   *  hostname when unset; app-api's forwarder hands that path to call-api. */
+  /** Optional override for app-api's public base URL (e.g. a dev tunnel). The
+   *  Telnyx AI assistant's lookup_crm tool URL (lib/desk-phone-tools
+   *  `lookupCrmUrl`) maps the per-environment app-api host to call-api's own
+   *  host; an override it cannot map is used as is and app-api forwards. */
   APP_API_PUBLIC_URL?: string;
 
   // --- Telephony (Telnyx) — /api/telephony, /api/porting, Telnyx webhook ---

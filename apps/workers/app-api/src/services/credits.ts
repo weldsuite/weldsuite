@@ -13,9 +13,9 @@
 import { grantCredits, getOrCreateWorkspaceCredits, type CreditsDb } from '@weldsuite/credits';
 import type { CreditTopupCheckoutInput } from '@weldsuite/app-api-client/schemas/credits';
 import { eq } from 'drizzle-orm';
-import { masterSchema } from '../db';
+import { masterSchema } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
-import { fetchBillingWorker } from '../lib/billing-worker';
+import { fetchBillingWorker } from '@weldsuite/worker-kit/billing-worker';
 
 const { workspaceCredits } = masterSchema;
 

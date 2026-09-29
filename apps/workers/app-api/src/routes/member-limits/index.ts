@@ -20,7 +20,7 @@
 import { Hono } from 'hono';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 import { getWorkspaceSeatLimit } from '../../services/seat-limits';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

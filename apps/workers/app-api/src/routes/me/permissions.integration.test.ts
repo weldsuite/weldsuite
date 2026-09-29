@@ -8,9 +8,9 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { meRoutes } from './index';
-import { createTestApp } from '../../test/harness';
-import { createPgliteDb } from '../../test/pglite';
-import { schema, type Database } from '../../db';
+import { createTestApp } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 

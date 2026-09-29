@@ -793,7 +793,7 @@ function ConditionForm({
 // ============================================================================
 // Statuses offered for a workflow-created customer — a subset of the CRM
 // company statuses. The server defaults to `active` when none is chosen
-// (apps/workers/app-api/src/services/workflow-actions.ts).
+// (apps/workers/connect-api/src/services/workflow-actions.ts).
 const CUSTOMER_STATUS_OPTIONS = ['active', 'prospect', 'inactive'] as const;
 
 function CreateCustomerForm({

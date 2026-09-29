@@ -22,13 +22,13 @@
  */
 
 import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
-import type { Database } from '../../db';
-import { schema } from '../../db';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { schema } from '@weldsuite/worker-kit/db';
 import type { IndexableDocument, DocumentPage } from './documents';
-import { getValuesForEntities } from '../custom-field-values';
-import { getCustomObjectByEntityKey, type CustomObjectRow } from '../custom-objects';
-import { getDefinitionsForEntityType } from '../custom-field-values';
-import { isMissingTable } from '../../lib/pg-errors';
+import { getValuesForEntities } from '@weldsuite/core-domain/custom-field-values';
+import { getCustomObjectByEntityKey, type CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
+import { getDefinitionsForEntityType } from '@weldsuite/core-domain/custom-field-values';
+import { isMissingTable } from '@weldsuite/worker-kit/pg-errors';
 
 const records = schema.customObjectRecords;
 

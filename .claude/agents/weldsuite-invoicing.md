@@ -18,7 +18,7 @@ This agent owns the **glue** between them: turning Stripe events into accounting
 
 - **Stripe webhooks → accounting.** When a Stripe invoice is paid, a journal entry + invoice record must be created in the workspace's accounting DB. Idempotent, Stripe retries webhooks.
 - **Upgrade internal server error.** Past bug: upgrading a plan returned 500. The flow must validate current subscription state before calling Stripe, and handle "no payment method on file" gracefully.
-- **Credits.** `apps/api-worker/src/routes/credits/`, credits for WeldAgent and similar AI usage. Credits are purchased, granted on plan, or awarded. Deduct before work, refund on failure.
+- **Credits.** `apps/workers/app-api/src/routes/credits/` (core), metering in `@weldsuite/core-domain/ai-billing`, credits for WeldAgent and similar AI usage. Credits are purchased, granted on plan, or awarded. Deduct before work, refund on failure.
 - **Team member limits** per plan, enforced at invite time, with the limit returned from billing-worker. Past bug: everyone got 0 credits due to default plan misconfig.
 - **Enterprise pricing**, `$0` shown means "contact sales", not free. Display "Custom" in the UI.
 - **Invoice generation.** When a workspace-owner wants a tax invoice for their WeldSuite subscription, the platform generates a WeldBooks-formatted invoice (PDF + line items) from the Stripe charge. Must include the workspace's own accounting entity as the recipient, WeldCorporation as the issuer, and the correct VAT treatment based on the customer's country.
@@ -28,8 +28,10 @@ This agent owns the **glue** between them: turning Stripe events into accounting
 ## Code locations
 
 - Stripe worker: `apps/workers/billing-worker`
-- Platform integration: `apps/web/platform/lib/stripe/*`
-- Credits legacy routes: `apps/api-worker/src/routes/credits/`
+- Stripe helpers package: `packages/core/stripe` (`@weldsuite/stripe`)
+- Core billing + credits routes: `apps/workers/app-api/src/routes/billing/`, `apps/workers/app-api/src/routes/credits/`, `apps/workers/app-api/src/routes/prepaid-seats/`, `apps/workers/app-api/src/routes/member-limits/`
+- AI credit metering: `packages/domains/core/src/ai-billing.ts` (`@weldsuite/core-domain/ai-billing`)
+- Platform UI: `apps/web/platform/app/settings/billing/`, `apps/web/platform/app/settings/plans/`
 - Accounting side: see `weldbooks-accounting`
 
 ## Rules
@@ -44,4 +46,5 @@ This agent owns the **glue** between them: turning Stripe events into accounting
 - Accounting integrity → `weldbooks-accounting`
 - Country VAT treatment → `accounting-<cc>` agent
 - Worker changes → `backend-workers` (billing-worker)
+- app-api billing/credits endpoints → `backend-app-api`
 - UI → `frontend-platform`

@@ -84,7 +84,7 @@ If any check fails, STOP the loop and report the failure. Do NOT auto-retry, do 
 
 Confirm (automatically, no user prompt):
 - Every Drizzle query touched has `workspaceId` scoping
-- Every new/changed route has a `weld*` permission check
+- Every new/changed route has a `requirePermission('<object>:<action>')` check
 - Any new user-visible string has `en` AND `nl` translations
 - No new `console.log`, `any`, `@ts-ignore`
 

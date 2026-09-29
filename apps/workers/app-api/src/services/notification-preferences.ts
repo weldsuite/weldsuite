@@ -26,9 +26,9 @@
 
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Database } from '../db';
-import { schema } from '../db';
-import { generateId } from '../lib/id';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 const t = schema.notificationPreferences;
 

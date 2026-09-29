@@ -17,7 +17,7 @@
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
-import { getTenantDbForWorkspace, schema } from '../db';
+import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 
 export interface TrashCleanupParams {
   workspaceId: string;

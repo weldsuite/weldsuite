@@ -18,7 +18,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { listAllFilesQuery } from '@weldsuite/core-api-client/schemas/drive';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 import {
   aggregateAllFiles,
   aggregateStats,
@@ -27,7 +27,7 @@ import {
   queryArray,
   type UnifiedFile,
 } from '../../services/drive-aggregation';
-import * as filesService from '../../services/files';
+import * as filesService from '@weldsuite/core-domain/files';
 import * as foldersService from '../../services/folders';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

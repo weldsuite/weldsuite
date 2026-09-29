@@ -16,8 +16,8 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { masterSchema, type MasterDatabase } from '../db';
-import { generateId } from '../lib/id';
+import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 /** Key material returned by {@link generateApiKey}. */
 export interface GeneratedApiKey {

@@ -14,7 +14,7 @@ import {
   creditTopupCheckoutSchema,
   isAllowedPlatformCheckoutUrl,
 } from '@weldsuite/app-api-client/schemas/credits';
-import { createTestApp, permissions } from '../test/harness';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { billingRoutes } from './billing';
 import { creditsRoutes } from './credits';
 

@@ -10,9 +10,9 @@
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { isSafeAppLifecycleWebhookUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { UserApp, UserAppManifest, UserAppVersion } from '@weldsuite/db/schema/master';
-import { masterSchema, schema, getTenantDbForWorkspace, type Database, type MasterDatabase } from '../db';
+import { masterSchema, schema, getTenantDbForWorkspace, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
-import { generateId } from '../lib/id';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 export { isSafeAppLifecycleWebhookUrl };
 

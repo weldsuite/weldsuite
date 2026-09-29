@@ -28,15 +28,15 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and, isNull, or, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
-import { clerkMiddleware } from '../../middleware/clerk';
-import { schema, getMasterDb, masterSchema, getTenantDbForWorkspace } from '../../db';
-import { success, error } from '../../lib/response';
-import { autoJoinUserToPublicChannels } from '../../services/weldchat-auto-join';
-import { applyRoleChangeToChannels } from '../../services/weldchat-role-links';
+import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
+import { schema, getMasterDb, masterSchema, getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import { success, error } from '@weldsuite/worker-kit/response';
+import { autoJoinUserToPublicChannels } from '@weldsuite/chat-domain/weldchat-auto-join';
+import { applyRoleChangeToChannels } from '@weldsuite/chat-domain/weldchat-role-links';
 import {
   publishChatMemberJoined,
   publishChatUserChannelNew,
-} from '../../services/realtime/weldchat-publisher';
+} from '@weldsuite/chat-domain/realtime/weldchat-publisher';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

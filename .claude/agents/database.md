@@ -18,7 +18,7 @@ You are the Database specialist for WeldSuite.
 
 - **Master DB**, workspaces, billing, users, cross-tenant data.
 - **Tenant DB (per workspace)**, CRM, helpdesk, accounting, mail, projects, commerce, WMS, etc. Each workspace = its own Neon DB.
-- Workers resolve tenant DB via `workspaceDbMiddleware()`. In core-api services, `db` arg is pre-scoped.
+- API workers resolve the tenant DB via `workspaceDbMiddleware()` (part of `apiAuth()` in `@weldsuite/worker-kit`) and read it with `c.get('tenantDb')`. Services take that `db` as an argument, already scoped to the workspace.
 - **Never cross the streams.** Tenant queries must not hit master tables except through a designed cross-tenant path.
 
 ## Schema conventions

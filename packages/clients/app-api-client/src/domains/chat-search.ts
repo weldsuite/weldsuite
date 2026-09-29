@@ -2,7 +2,7 @@
  * App-API chat-search domain client — flat `/api/chat-search/*`.
  *
  * Full-text search across chat messages the caller can see. Mirrors
- * apps/workers/app-api/src/routes/chat-search/index.ts.
+ * apps/workers/chat-api/src/routes/chat-search/index.ts.
  */
 
 import type { ClientApi, DataResponse } from '../types';

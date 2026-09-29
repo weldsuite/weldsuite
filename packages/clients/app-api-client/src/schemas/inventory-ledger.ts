@@ -8,7 +8,7 @@ import { z } from 'zod';
 // change lands in `stock_adjustments`, which is what `GET /api/inventory/ledger`
 // reads back.
 //
-// Backed by apps/workers/app-api/src/services/inventory-ledger.ts.
+// Backed by apps/workers/stash-api/src/services/inventory-ledger.ts.
 // Permission prefix: `inventory:*`.
 // ============================================================================
 

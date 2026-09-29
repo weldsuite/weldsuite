@@ -14,8 +14,8 @@ import {
   listTrashedFolders,
   listFolders,
 } from './folders';
-import { createPgliteDb } from '../test/pglite';
-import type { Database } from '../db';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 

@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 import {
   getSelfProfile,
   updateSelfAvatar,

@@ -55,13 +55,12 @@ Read the enrichment's **Stack layers touched** + **Suggested specialist chain**.
 |---|---|---|
 | `apps/web/platform` (web SPA) | `frontend-platform` | vitest + Playwright e2e |
 | `apps/mobile/<app>` | `mobile-expo` | Jest |
-| New API endpoint | `backend-app-api` | `pnpm type-check` (app-api is the blocking gate) |
-| Legacy route bugfix | `backend-api-worker-legacy` / `backend-core-api` | **port to app-api instead** when feasible |
-| Non-API workers (billing, workspace, realtime, integration…) | `backend-workers` | worker's own tests |
+| API endpoint, new or bugfix (`app-api` core or a `<module>-api` worker) | `backend-app-api` | the worker's vitest (incl. `_sweeps.test.ts`) + `pnpm --filter <worker> type-check` |
+| Non-API workers (billing, workspace, realtime, integration, external-api, helpdesk-widget-api, personal-api…) | `backend-workers` | worker's own tests |
 | Schema / migration | `database` | **ask before any migration file** |
-| Domain logic | `weldchat-module`, `weldcrm`, `weldmail`, `weldbooks-accounting`, … | per-domain |
+| Domain logic | `weldcrm`, `weldmail`, `weldbooks-accounting`, `weldflow-projects`, … | per-domain |
 
-> **New backend routes go in `apps/workers/app-api`.** `core-api` and `api-worker` are obsolete, if the closest code lives there, port the route rather than patching in place.
+> **API routes go in the owning worker.** Module routes live in `apps/workers/<module>-api` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass); core platform routes in `apps/workers/app-api`. The owner of a path is its prefix in `packages/core/api-modules/src/index.ts`; a new prefix must be registered there. `core-api`, `api-worker` and `mobile-api-worker` are deleted.
 
 ---
 
@@ -76,7 +75,7 @@ For bugs, run `bug-triage` BEFORE writing code: reproduce (or document why you c
 The specialist codes the triage plan, nothing more, nothing less. Match the surrounding code's idioms. While coding, keep the DoD in mind so you don't backfill it later:
 
 - **Tenant scoping:** every Drizzle query you touch keeps its `workspaceId` filter.
-- **Permissions:** any new/changed route has a `weld*` permission check (`requirePermission()`).
+- **Permissions:** any new/changed route has a `requirePermission('<object>:<action>')` check (`@weldsuite/permissions/server`).
 - **Validation:** Zod **v3** on both request and response (never upgrade imports to v4).
 - **Entity events:** every mutation route publishes an entity event (`publishEntityEvent`).
 - **Strings:** any new user-visible string goes through i18n, no hardcoded copy (see DoD §Translations).
@@ -106,9 +105,9 @@ Locales live in **`packages/core/i18n/src/locales/`**, `en` (source of truth), `
 | Workspace | Command | Notes |
 |---|---|---|
 | `apps/web/platform` (unit) | `pnpm test` | vitest |
-| `apps/web/platform` (e2e) | `pnpm test:e2e` | Playwright, Chromium only; needs platform on :3000, `app-api` running, `.env.test` with `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`. Single spec: `pnpm exec playwright test e2e/specs/<area>/<file>.spec.ts` |
+| `apps/web/platform` (e2e) | `pnpm test:e2e` | Playwright, Chromium only; needs platform on :3000, the API running (`pnpm dev:api`: app-api + module workers), `.env.test` with `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`. Single spec: `pnpm exec playwright test e2e/specs/<area>/<file>.spec.ts` |
 | `apps/mobile/<app>` | `pnpm test` | Jest |
-| Workers | `pnpm test` (where present) | per-worker vitest |
+| Workers | `pnpm test` (where present) | per-worker vitest; API workers use the pglite harness from `@weldsuite/worker-kit/testing` and a `src/routes/_sweeps.test.ts` |
 
 Add or update a test for the behavior you changed. A bug fix should ship with a test that **fails before, passes after**. If e2e infra isn't runnable locally, say so explicitly in the PR, don't claim a green run you didn't do.
 
@@ -122,7 +121,7 @@ No new `console.log`, `any`, or `@ts-ignore` introduced.
 
 ### Type-check
 
-- **`app-api`** is the blocking gate and is clean, `pnpm --filter app-api type-check` must pass.
+- **API workers** are the blocking gate and are clean. The CI job `Type Check · app-api` checks `app-api`, the worker packages (`api-modules`, `worker-*`, `packages/domains/*`) and every `<module>-api` worker; run `pnpm --filter <worker> type-check` for each one you touched.
 - **`apps/web/platform`** `tsc --noEmit` OOMs at the default 4 GB (needs `NODE_OPTIONS=--max-old-space-size=8192`) and carries ~1100 pre-existing errors, it is **not** a green gate. Only verify the files you touched are error-free; don't try to drive the whole project to zero.
 
 ### Build
@@ -180,8 +179,8 @@ gh pr create --base develop \
 ## Hard stops, pause and ask the user
 
 1. **Any database migration file.** Edit schema freely; never generate/commit a migration without approval.
-2. **New work landing in `api-worker` or `core-api`.** Both are obsolete, port to `app-api`.
-3. **Anthropic SDK calls outside `agent-worker`.** Proxy via the `AGENT_WORKER` binding.
+2. **Module routes landing in `app-api` instead of the module's `<module>-api` worker, or one API worker importing another's folder.** Share code through `packages/domains/<module>` or `@weldsuite/worker-kit`.
+3. **Direct Anthropic SDK calls.** AI goes through `@weldsuite/ai` (metered via `@weldsuite/core-domain/ai-billing`); there is no `AGENT_WORKER` binding.
 4. **A bug you can't reproduce.** Request info on the issue; don't ship a speculative fix.
 5. **Scope creep.** Found a nearby bug? File a separate issue (`gh issue create`) and link it, don't bundle.
 

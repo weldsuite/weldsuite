@@ -84,7 +84,7 @@ export type FlagContext = FlagEvaluator;
 
 /**
  * Resolve a flag evaluator for the current request. The middleware in
- * `apps/workers/app-api/src/middleware/feature-flags.ts` calls this once per request
+ * `packages/core/worker-kit/src/middleware/feature-flags.ts` calls this once per request
  * and stashes the result on `c.set('flags', evaluator)`.
  *
  * Evaluation is async — Flagship's binding returns promises — so callers do

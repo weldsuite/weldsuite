@@ -2,6 +2,20 @@
  * Telnyx AI Assistant tool definitions for WeldDesk inbound phone.
  */
 
+import { originForPathFrom } from '@weldsuite/api-modules';
+import { getHelpdeskWorkerUrl, type HelpdeskUrlEnv } from '@weldsuite/desk-domain/helpdesk-integrations';
+
+const LOOKUP_CRM_PATH = '/public/webhooks/telnyx/tools/lookup_crm';
+
+/**
+ * The URL Telnyx calls for the lookup_crm tool. It is sent with every call, so
+ * it goes straight to this worker's host instead of through app-api's
+ * forwarder (an APP_API_PUBLIC_URL tunnel is kept as is).
+ */
+export function lookupCrmUrl(env: HelpdeskUrlEnv): string {
+  return `${originForPathFrom(getHelpdeskWorkerUrl(env), LOOKUP_CRM_PATH)}${LOOKUP_CRM_PATH}`;
+}
+
 export function lookupCrmWebhookTool(args: {
   lookupCrmUrl: string;
   toolAuthHeader: string;

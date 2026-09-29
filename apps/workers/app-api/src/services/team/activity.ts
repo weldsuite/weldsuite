@@ -8,7 +8,7 @@
  */
 
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { schema, type Database } from '../../db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 export interface MemberActivityItem {
   id: string;

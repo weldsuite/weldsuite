@@ -8,9 +8,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { rolesRoutes } from './index';
-import { createTestApp, permissions } from '../../test/harness';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 
-vi.mock('../../services/custom-objects', () => ({
+vi.mock('@weldsuite/core-domain/custom-objects', () => ({
   listCustomObjects: vi.fn(async () => [{ slug: 'machine', labelPlural: 'Machines' }]),
 }));
 

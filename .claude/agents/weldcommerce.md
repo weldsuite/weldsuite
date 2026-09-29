@@ -19,9 +19,10 @@ You are the WeldCommerce specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldcommerce/*`, admin surface.
-- Builder: `apps/web/platform/app/(builder)/` and `app/(preview)/`, WYSIWYG editor.
+- Builder: the platform has no builder route today (no `_builder/` under `apps/web/platform/src/routes/`, only `preview/`); verify before assuming one.
 - Customer-facing websites: `apps/web/sites` (Next.js), renders the pages.
-- API (legacy): `apps/api-worker/src/routes/commerce/*`.
+- API: the `commerce-api` worker, `apps/workers/commerce-api/src/routes/`, e.g. `products/`, `categories/`, `orders/`, `shipments/`, `returns/`, plus the buyer portal (`commerce-portal/`, `public-commerce-portal/`). Owned prefixes: the `commerce` entry in `packages/core/api-modules/src/index.ts`. No first-party websites/discounts routes exist in the API workers today.
+- Shared commerce logic: `packages/domains/commerce` (`@weldsuite/commerce-domain`, portal slug + tokens, also used by hr-api).
 - Site components library: `packages/design/site-components` (Next 16, Framer Motion).
 - Integrations: `apps/workers/integration-sync-worker`, `apps/workers/integration-webhook-worker`, Shopify, WooCommerce sync.
 
@@ -37,6 +38,7 @@ You are the WeldCommerce specialist for WeldSuite.
 ## Delegate
 
 - Admin UI → `frontend-platform`
+- Endpoints → `backend-app-api` (commerce-api)
 - Public site rendering → `frontend-nextjs`
 - Integrations → `backend-workers`
 - Inventory → `weldsuite-wms`

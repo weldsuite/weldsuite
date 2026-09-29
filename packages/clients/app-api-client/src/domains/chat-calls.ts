@@ -2,7 +2,7 @@
  * App-API chat-calls domain client — flat `/api/chat-calls/*`.
  *
  * Voice/video call lifecycle via Cloudflare RealtimeKit. Mirrors
- * apps/workers/app-api/src/routes/chat-calls/index.ts.
+ * apps/workers/chat-api/src/routes/chat-calls/index.ts.
  */
 
 import type { ClientApi, DataResponse } from '../types';

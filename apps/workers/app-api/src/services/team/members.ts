@@ -15,7 +15,7 @@
  */
 
 import { eq, and, desc, isNull, like, or, sql } from 'drizzle-orm';
-import { schema, type Database } from '../../db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 // ============================================================================
 // Types

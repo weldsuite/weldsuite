@@ -1,7 +1,7 @@
 /**
  * App-API chat-messages domain client — flat `/api/chat-messages/*`.
  *
- * Backed by `chatMessages`. Mirrors apps/workers/app-api/src/routes/chat-messages/index.ts.
+ * Backed by `chatMessages`. Mirrors apps/workers/chat-api/src/routes/chat-messages/index.ts.
  *
  * NOTE on `upload`: the file upload endpoint is `multipart/form-data`. The
  * shared `ClientApi` exposes a dedicated `postForm` method for multipart

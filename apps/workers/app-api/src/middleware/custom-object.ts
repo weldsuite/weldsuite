@@ -31,9 +31,9 @@ import {
   customObjectScopeAllPermission,
   type CustomObjectPermissionAction,
 } from '@weldsuite/permissions/custom-objects';
-import { getCustomObjectBySlug, type CustomObjectRow } from '../services/custom-objects';
+import { getCustomObjectBySlug, type CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import { targetReadPermission } from '../services/custom-object-targets';
-import { error } from '../lib/response';
+import { error } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../types';
 
 /**

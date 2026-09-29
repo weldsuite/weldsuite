@@ -15,19 +15,20 @@ You are the Social media specialist for WeldSuite.
 
 ## Where the code lives
 
-- Platform UI: under the platform app (check `apps/web/platform/app/`, no dedicated `weldsocial` folder currently; may live under commerce/marketing area).
-- API (legacy): `apps/api-worker/src/routes/social/*`.
+- Platform UI: `apps/web/platform/app/social/` (route wrappers in `src/routes/social/`). Mobile: `apps/mobile/weldsocial-app`.
+- API: the `social-api` worker, `apps/workers/social-api/src/routes/`, e.g. `social-accounts/`, `social-posts/`, `social-campaigns/`, `social-analytics/`, `social-approvals/`, plus the PostPeer webhook (`public-postpeer-webhook.ts`). Owned prefixes: the `social` entry in `packages/core/api-modules/src/index.ts`.
+- Client domain: `packages/clients/app-api-client/src/domains/social.ts`.
 
 ## Rules
 
 - **OAuth tokens** per platform provider, refreshed on use.
-- **Rate limits** per provider, respect them and backoff. Queue scheduled posts through Trigger.dev so bursts don't hammer the provider.
+- **Rate limits** per provider, respect them and backoff. Scheduled posts are handed to PostPeer with their `scheduledAt` (social-api), which publishes them and reports back through the webhook, so bursts don't hammer the provider.
 - **Media uploads** to R2 first, then passed to the provider as a URL or multipart.
 - **Deleted posts**, record the deletion in local history, don't hard-delete the record.
-- **Engagement metrics** pulled on a schedule (Trigger.dev), not per-request.
+- **Engagement metrics** are stored (`socialAnalytics`) and served as aggregates by `/api/social-analytics`; never call the provider per request.
 
 ## Delegate
 
 - UI → `frontend-platform`
-- New endpoint → `backend-core-api`
-- Scheduling jobs → `backend-workers` (Trigger.dev integration)
+- Endpoints and webhooks (new or bugfix) → `backend-app-api` (social-api)
+- Scheduling jobs in other workers → `backend-workers`

@@ -1,7 +1,7 @@
 /**
  * App-API chat-agent domain client — `/api/chat-agent/*`.
  *
- * Mirrors apps/workers/app-api/src/routes/chat-agent/index.ts. `ask` proxies a
+ * Mirrors apps/workers/agent-api/src/routes/chat-agent/index.ts. `ask` proxies a
  * WeldAgent question for a chat channel; the answer is persisted as a bot
  * message and the channel preview/counters are bumped server-side.
  */

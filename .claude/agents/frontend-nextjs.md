@@ -28,7 +28,7 @@ You are the Next.js Apps specialist for WeldSuite.
 
 - Customer-facing portals → `external-api` worker.
 - helpdesk-widget → `helpdesk-widget-api` (@weldsuite/realtime real-time).
-- parcel portals → `api-worker` parcel routes.
+- parcel portals → parcel/return data lives in the `commerce-api` worker (`apps/workers/commerce-api/src/routes/parcels/`, `returns/`, `parcel-*`). The portals make no API calls of their own today; verify before wiring one.
 
 ## Definition of done
 

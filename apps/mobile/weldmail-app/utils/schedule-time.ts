@@ -3,11 +3,11 @@
  *
  * Kept out of the screen so the window rules are unit-testable — app-api
  * rejects anything outside them (`SCHEDULE_IN_PAST` / `SCHEDULE_TOO_FAR` in
- * apps/workers/app-api/src/services/mail/scheduled.ts), so enforcing the same bounds
+ * apps/workers/mail-api/src/services/mail/scheduled.ts), so enforcing the same bounds
  * here turns a 400 into a disabled button.
  */
 
-/** Mirrors MAX_SCHEDULE_DAYS in apps/workers/app-api/src/services/mail/scheduled.ts. */
+/** Mirrors MAX_SCHEDULE_DAYS in apps/workers/mail-api/src/services/mail/scheduled.ts. */
 export const MAX_SCHEDULE_DAYS = 7;
 
 export type SendTimeIcon = 'clock' | 'sun' | 'coffee' | 'calendar';

@@ -48,10 +48,9 @@ Layout groups: `_dashboard/`, `_builder/`, `_preview/`, `auth/`, `settings/`.
 
 ## API calls, preferred order
 
-1. `useCoreApi()` from `@/lib/api/use-core-api` → for endpoints migrated to `core-api`. Direction of travel.
-2. `useApiClient()` from `@/lib/api/api-provider` → for legacy api-worker endpoints.
-3. `useWorkerApi()` → standalone legacy fallback.
-4. Domain API modules in `lib/api/domains/*.ts` → typed wrappers.
+1. `useAppApi()` from `@/lib/api/use-app-api` (or `appApi` from `@/lib/api/app-api-browser-client` outside React) → typed domain APIs from `@weldsuite/app-api-client` / `@weldsuite/core-api-client`. The client picks the host per path: module prefixes (`packages/core/api-modules`) go straight to their `<module>-api` worker, everything else to app-api.
+2. Query hooks in `hooks/queries/use-<entity>-queries.ts` wrap those calls; add new ones there.
+3. Domain modules in `lib/api/domains/*.ts` → older typed wrappers, still in use.
 
 Mutations wrapped in `useMutation` with query invalidation on success.
 
@@ -59,8 +58,8 @@ Mutations wrapped in `useMutation` with query invalidation on success.
 
 - **Forms:** `react-hook-form` + `zodResolver(schema)` + shadcn `<Form>` primitives. Errors via form context.
 - **Loading/empty/error states** are mandatory for every data-driven screen.
-- **Permissions:** `@weldsuite/permissions`, `usePermissions()` + `weld*` prefixes. Never hard-code role checks.
-- **i18n:** `@/lib/i18n` `getTranslations('namespace')`. Add new strings to both `en` and `nl` in `apps/web/platform/lib/i18n/locales/`.
+- **Permissions:** `@weldsuite/permissions`, `usePermissions()` with `object:action` keys (`leads:read`, `weldagent:use`). Never hard-code role checks.
+- **i18n:** `@/lib/i18n` `getTranslations('namespace')`. Add new strings to both `en` and `nl` in `packages/core/i18n/src/locales/<locale>/` (TypeScript modules).
 - **Dark mode + responsive:** Every new screen works in both modes + mobile breakpoints.
 - **Confirm modals:** Reuse the shared confirm component, no per-feature dialogs.
 
@@ -70,7 +69,7 @@ E2E: Playwright specs under `apps/web/platform/e2e/specs/<module>/`. Run `pnpm t
 
 ## When to delegate
 
-- Need a new endpoint → `backend-core-api`
+- Need a new endpoint → `backend-app-api`
 - Schema change → `database`
 - Touching a business domain → consult matching domain agent first (`weldcrm`, `welddesk`, `weldbooks-accounting`, `weldflow-projects`, etc.)
 

@@ -11,7 +11,7 @@
  */
 
 import { and, eq, isNull, inArray, or, sql, desc } from 'drizzle-orm';
-import { schema, type Database } from '../../db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type {
   CommonChannel,
   CommonProject,

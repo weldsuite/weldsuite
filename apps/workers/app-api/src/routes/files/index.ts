@@ -16,8 +16,8 @@ import {
   moveFileSchema,
 } from '@weldsuite/core-api-client/schemas/files';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
-import * as filesService from '../../services/files';
+import { error, success } from '@weldsuite/worker-kit/response';
+import * as filesService from '@weldsuite/core-domain/files';
 import { normalizeGenericFiles, queryArray, type UnifiedFile } from '../../services/drive-aggregation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

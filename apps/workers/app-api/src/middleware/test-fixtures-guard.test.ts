@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { testFixturesGuard } from './test-fixtures-guard';
 
-vi.mock('../db', () => ({
+vi.mock('@weldsuite/worker-kit/db', () => ({
   getTenantDbForWorkspace: vi.fn(async () => ({ /* mock db */ })),
 }));
 

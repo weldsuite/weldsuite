@@ -10,7 +10,7 @@ sign-in, server-side `app/api/*` route handlers that proxy to `app-api` and
 keep the session token in an httpOnly cookie, Tailwind v4, `@weldsuite/ui`.
 
 The backend contract lives at
-`apps/workers/app-api/src/routes/public-hr-portal/index.ts`, mounted at
+`apps/workers/hr-api/src/routes/public-hr-portal/index.ts`, mounted at
 `/public/hr-portal/*` on `app-api` (unauthenticated mount — the workspace is
 resolved from `?slug=` / `X-Workspace-Slug`, sessions are bearer tokens this
 app stores as an httpOnly `hrportal_session` cookie).
@@ -111,7 +111,7 @@ the releaser.
 
 `HR_PORTAL_DEFAULT_HOSTS` is `team.weldsuite.org,team-test.weldsuite.org` in
 every environment. These hostnames match what `app-api` puts in invite emails
-(`hrPortalOrigin()` in `apps/workers/app-api/src/services/weldhr/portal-mail.ts`).
+(`hrPortalOrigin()` in `apps/workers/hr-api/src/services/weldhr/portal-mail.ts`).
 
 DNS: both hostnames are CNAMEs to `cname.vercel-dns.com`.
 

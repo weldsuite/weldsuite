@@ -47,7 +47,7 @@ If the body already contains `## Enriched analysis`, STOP, don't re-enrich. Prin
 Use the project title + issue title to identify the WeldSuite domain and the keyword map in `.claude/agents/weldsuite-dispatcher.md` to identify stack layers. This determines which interview questions are relevant.
 
 Examples:
-- Project `WeldChat`, title about "channels aanmaken" → `weldchat-module` + `mobile-expo`/`frontend-platform` + `backend-app-api`
+- Project `WeldChat`, title about "channels aanmaken" → `mobile-expo`/`frontend-platform` + `backend-app-api` (chat-api; there is no WeldChat domain agent)
 - "invoices VAT wrong in Belgium" → `weldbooks-accounting` + `accounting-be`
 - "push notification missing on mobile" → `mobile-expo` + `backend-app-api`
 
@@ -58,7 +58,7 @@ Do a FIRST-PASS exploration to understand WHAT EXISTS before interviewing. You'r
 Use `Grep` and `Read` directly (not a sub-agent). For each identified layer:
 
 - **Frontend (apps/web/platform):** `apps/web/platform/app/<weldmodule>/` for similar features; route patterns in `apps/web/platform/src/routes/`.
-- **Backend:** new work goes in `apps/workers/app-api/src/routes/<weldmodule>/`. `core-api` and `api-worker` are obsolete, if the closest existing code lives there, note it and flag "legacy, port to app-api".
+- **Backend:** find the owning worker for the module in `packages/core/api-modules/src/index.ts`, then search `apps/workers/<module>-api/src/routes/<object>/` (e.g. `apps/workers/chat-api/src/routes/channels/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in `apps/workers/app-api/src/routes/<object>/`.
 - **Mobile:** `apps/mobile/<app>/` (e.g., `apps/mobile/weldchat-app/`) for the closest existing screens/hooks.
 - **Database:** `packages/core/db/src/schema/`, find related tables.
 - **Workers / webhooks:** identify the closest existing files.

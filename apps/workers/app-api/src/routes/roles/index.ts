@@ -23,14 +23,14 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { listCustomObjects } from '../../services/custom-objects';
+import { listCustomObjects } from '@weldsuite/core-domain/custom-objects';
 import { createRoleSchema, updateRoleSchema } from '@weldsuite/app-api-client/schemas/roles';
 import type { Env, Variables } from '../../types';
-import { error, noContent, success } from '../../lib/response';
-import { schema } from '../../db';
+import { error, noContent, success } from '@weldsuite/worker-kit/response';
+import { schema } from '@weldsuite/worker-kit/db';
 import * as rolesService from '../../services/roles';
-import { cleanupRoleLinksOnRoleDelete } from '../../services/weldchat-role-links';
-import { publishChatMemberLeft } from '../../services/realtime/weldchat-publisher';
+import { cleanupRoleLinksOnRoleDelete } from '@weldsuite/chat-domain/weldchat-role-links';
+import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
