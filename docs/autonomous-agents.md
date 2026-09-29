@@ -87,8 +87,8 @@ The chatting user being Owner does **not** widen what the agent can do.
 
 ## Runtime
 
-- Executor: `apps/workers/app-api/src/services/weldagent/executor.ts` (`generateText` / `streamText` + `stopWhen: stepCountIs(n)`)
-- Tools: `…/services/weldagent/tools.ts` (people, tickets, tasks, chat, computer, browser)
+- Executor: `packages/domains/agent/src/executor.ts` (`generateText` / `streamText` + `stopWhen: stepCountIs(n)`)
+- Tools: `packages/domains/agent/src/tools.ts` (people, tickets, tasks, chat, computer, browser)
 - Computer: `apps/workers/agent-runtime` (Sandbox + Browser Run)
 - Event dispatch: `registerWeldAgentEventRunner` in `@weldsuite/entity-events` → `dispatchWeldAgentsForEvent`
 - Room dispatch: `services/chat/agent-mention-dispatch.ts`

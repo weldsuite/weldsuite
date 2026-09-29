@@ -3,7 +3,7 @@
  * (app-subscription installs, developer payout accounts).
  *
  * Mirrors the local `generateId(prefix)` helper used elsewhere in the repo
- * (e.g. packages/core/db/src/lib/admin.ts, apps/workers/app-api/src/lib/id.ts) — not a
+ * (e.g. packages/core/db/src/lib/admin.ts, packages/core/worker-kit/src/id.ts) — not a
  * shared package export, just the same simple timestamp+random scheme kept
  * consistent across workers.
  */

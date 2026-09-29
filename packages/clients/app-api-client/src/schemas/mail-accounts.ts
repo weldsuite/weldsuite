@@ -1,7 +1,7 @@
 /**
  * `/api/mail-accounts` — backed by `mail_accounts`.
  *
- * Mirrors `apps/workers/app-api/src/routes/mail-accounts/index.ts`. The router
+ * Mirrors `apps/workers/mail-api/src/routes/mail-accounts/index.ts`. The router
  * also owns `POST /:id/send` (compose) and `PATCH /:id/assign-users` —
  * see the matching `sendEmailSchema` and `assignUsersSchema` below.
  */

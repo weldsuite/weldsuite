@@ -28,7 +28,7 @@ You are the WeldAgent (AI Agents) specialist for WeldSuite.
 
 ## Rules
 
-- **No computer-use / virtual PC** — agents only call platform tools.
+- **Computer / browser tools** run in `apps/workers/agent-runtime` (Cloudflare Sandbox + Browser Run), reached over HTTP via `packages/domains/agent/src/computer-client.ts` (`AGENT_RUNTIME_URL`; off when `AGENT_COMPUTER_ENABLED=false`). Never run them inside an API worker.
 - **Agent grants, not user RBAC** — tool allow-list is derived from the agent's `permissions[]`, even if the chatting user is Owner.
 - **Tool args validated with Zod** before execute.
 - **Human RBAC** — `weldagent:manage` to configure; `weldagent:use` to chat/run.

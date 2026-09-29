@@ -2,7 +2,7 @@
  * App-API chat-dm domain client — flat `/api/chat-dm/*`.
  *
  * Backed by `chatChannels` (type = 'dm') + `chatChannelMembers`. Mirrors
- * apps/workers/app-api/src/routes/chat-dm/index.ts.
+ * apps/workers/chat-api/src/routes/chat-dm/index.ts.
  */
 
 import type { ClientApi, DataResponse } from '../types';

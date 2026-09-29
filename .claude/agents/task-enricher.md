@@ -39,9 +39,9 @@ If the task is already enriched (description contains `## Enriched analysis`), S
 Use the keyword map in `.claude/agents/weldsuite-dispatcher.md` to identify which WeldSuite domain and stack layers the task touches. This determines what questions are relevant to ask in the interview.
 
 Examples:
-- "GitHub connection in WeldFlow" → `weldflow-projects` + `backend-core-api` + `frontend-platform` → interview should cover integration auth, sync direction, UX placement, data model
+- "GitHub connection in WeldFlow" → `weldflow-projects` + `backend-app-api` + `frontend-platform` → interview should cover integration auth, sync direction, UX placement, data model
 - "invoices VAT wrong in Belgium" → `weldbooks-accounting` + `accounting-be` → interview should cover exact VAT calculation, affected invoice types, backfill for historical data
-- "push notification missing on mobile" → `mobile-expo` + `backend-core-api` → interview should cover trigger events, delivery guarantees, opt-out
+- "push notification missing on mobile" → `mobile-expo` + `backend-app-api` → interview should cover trigger events, delivery guarantees, opt-out
 
 ### 3. Explore the codebase (lightly)
 
@@ -50,7 +50,7 @@ Do a FIRST-PASS exploration to understand WHAT EXISTS before interviewing. You'r
 Use `Grep` and `Read` (not the general-purpose agent, you have direct tools). For each identified layer:
 
 - **Frontend (apps/web/platform):** look at `apps/web/platform/app/<weldmodule>/` for similar features; note route patterns in `apps/web/platform/src/routes/`.
-- **Backend:** search `apps/core-api/src/routes/<weldmodule>/` for the closest existing endpoints. If the work falls in legacy territory, note `apps/api-worker/src/routes/<weldmodule>/` and flag "legacy, new routes go in core-api".
+- **Backend:** find the owning worker for the module in `packages/core/api-modules/src/index.ts`, then search `apps/workers/<module>-api/src/routes/<object>/` (e.g. `apps/workers/flow-api/src/routes/tasks/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in `apps/workers/app-api/src/routes/<object>/`.
 - **Database:** `ls packages/core/db/src/schema/` (via Glob). Find related tables. Note per-vendor patterns if it's an integration (e.g., `shopify-connections.ts`, `woocommerce-connections.ts`).
 - **Mobile, workers, webhooks:** identify the closest existing files.
 
@@ -124,7 +124,7 @@ Use this structure. It's denser than the old template because it now carries the
 _Added by task-enricher on <YYYY-MM-DD>. Original request preserved above._
 
 **Domain:** <weldflow | weldcrm | ...>
-**Stack layers touched:** <frontend-platform, backend-core-api, database, ...>
+**Stack layers touched:** <frontend-platform, backend-app-api, database, ...>
 **Suggested specialist chain:** <comma-separated agent names, in dependency order>
 
 ### What the user is actually asking for

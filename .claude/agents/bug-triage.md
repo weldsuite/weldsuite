@@ -23,17 +23,17 @@ Work these steps in order. Do not skip.
 ### 3. Trace to root cause
 For each layer the bug likely touches:
 
-**Frontend (apps/web/platform, apps/*-site, apps/*-helpcenter):**
+**Frontend (apps/web/platform, apps/web/sites, apps/web/helpcenter):**
 - Find the component by UI text: `grep -r "button label" apps/web/platform/app`
 - Inspect the handler, mutation? query? form? what does it POST?
 - Check TanStack Query invalidation if the symptom is "data doesn't update"
 - Check Jotai atoms if the symptom is "state doesn't persist"
 - Check the Zod schema if the symptom is "form won't submit"
 
-**Backend (apps/core-api, apps/api-worker):**
-- Find the route by path/name: `grep -r "POST /xxx" apps/*/src/routes`
+**Backend (apps/workers/app-api core, apps/workers/<module>-api module workers):**
+- Find the owning worker by path prefix in `packages/core/api-modules/src/index.ts`, then the mount in that worker's `src/index.ts` and the handler in `src/routes/<object>/index.ts` (`grep -rn "/api/leads" apps/workers/*/src/index.ts`)
 - Trace through Drizzle queries, watch for missing `workspaceId` / tenant scoping (common source of bugs)
-- Check Clerk auth middleware, is the right `weld*` permission being enforced?
+- Check the route's `requirePermission('<object>:<action>')` (from `@weldsuite/permissions/server`), is the right key being enforced?
 - Check for missing `await` on async calls (has bitten us before)
 
 **Database:**
@@ -61,7 +61,7 @@ Output this exact structure, the specialist will consume it verbatim:
 ### Root cause
 <2-3 sentences naming the file, function, and line range that's wrong, AND why it's wrong. Not "probably in X", actually read the file and cite it.>
 
-**File(s):** `apps/web/platform/app/weldcrm/leads/page.tsx:123-145`, `apps/core-api/src/routes/weldcrm/leads.ts:78`
+**File(s):** `apps/web/platform/app/weldcrm/people/page.tsx:123-145`, `apps/workers/crm-api/src/routes/people/index.ts:78`
 
 ### Fix plan
 1. <Change 1: concrete edit, not "refactor the thing">
@@ -96,5 +96,5 @@ After the fix plan is written, explicitly name the specialist(s) to invoke next.
 - Clerk session → internal user id mapping: sometimes breaks on new signups if the user isn't bootstrapped into the master DB yet.
 - Hyperdrive cache: if a "stale data" bug, check that mutations invalidate Hyperdrive, not just the React Query cache.
 - i18n fallback: strings showing as `t('some.key')` mean the key is missing from `en.json` / `nl.json`, not a code bug.
-- Permission name: all permissions start with `weld*`, missing permission = 403 that looks like "button doesn't work".
+- Permission name: keys are `object:action` (`leads:read`, `weldagent:use`, catalog in `packages/core/permissions/src/catalog.ts`), missing permission = 403 that looks like "button doesn't work".
 - Credits system: most weldagent features require credits, "nothing happens when I click generate" may be a 402-not-shown-to-user.

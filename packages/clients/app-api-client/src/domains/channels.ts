@@ -2,7 +2,7 @@
  * App-API channels domain client — flat `/api/channels/*`.
  *
  * Backed by `chatChannels` + `chatChannelMembers`. Mirrors
- * apps/workers/app-api/src/routes/channels/index.ts.
+ * apps/workers/chat-api/src/routes/channels/index.ts.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';

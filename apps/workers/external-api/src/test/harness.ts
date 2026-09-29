@@ -17,7 +17,7 @@
  * route's `publishEntityEvent(...)` calls cleanly no-op (they only touch
  * `executionCtx.waitUntil` inside `if (env.<QUEUE>)` guards).
  *
- * Mirrors apps/workers/app-api/src/test/harness.ts.
+ * Mirrors packages/core/worker-kit/src/testing/harness.ts.
  */
 
 import { Hono } from 'hono';

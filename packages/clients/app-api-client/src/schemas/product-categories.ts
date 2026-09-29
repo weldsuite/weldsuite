@@ -10,7 +10,7 @@ import { z } from 'zod';
 // This folds Shopify's flat manual/smart *collections* into the repo's existing
 // hierarchical `categories` table. See .claude/weldcommerce-plan.md for why.
 //
-// Backed by apps/workers/app-api/src/services/product-categories.ts.
+// Backed by apps/workers/commerce-api/src/services/product-categories.ts.
 // Permission prefix: `categories:*`.
 // ============================================================================
 

@@ -16,8 +16,9 @@ You are the WMS (Warehouse Management) specialist for WeldSuite.
 
 ## Where the code lives
 
-- Platform UI: `apps/web/platform/app/weldcommerce/` (WMS historically overlaps commerce admin) or a dedicated wms sub-area, verify in code.
-- API (legacy): `apps/api-worker/src/routes/commerce/*` contains the WMS routes per the architecture notes.
+- Platform UI: `apps/web/platform/app/weldstash/` (WeldStash: `warehouses/`, `stock/`, `pick-lists/`, `packing/`, `products/`, `suppliers/`).
+- API: the `stash-api` worker, `apps/workers/stash-api/src/routes/`, e.g. `warehouses/`, `inventory/`, `pick-lists/`, `stock-adjustments/`, `cycle-counts/`, `purchase-orders/`, `putaway/`. Services: `src/services/inventory-ledger.ts`, `src/services/pick-lists.ts`. Owned prefixes: the `stash` entry in `packages/core/api-modules/src/index.ts`.
+- Client domains: `packages/clients/app-api-client/src/domains/warehouses.ts`, `inventory.ts`, `pick-lists.ts`, `wms-suppliers.ts`.
 
 ## Rules
 
@@ -26,10 +27,11 @@ You are the WMS (Warehouse Management) specialist for WeldSuite.
 - **Adjustment audit**, every adjustment carries a reason code + user id. Append-only audit.
 - **Pick list confirmation** atomically decrements inventory and marks the order line as picked.
 - **Cycle count variance**, over a threshold must trigger an approval workflow before auto-adjusting.
-- **Playwright specs** exist under `apps/web/platform/e2e/specs/wms/products.spec.ts`, run them when changing WMS code.
+- **Playwright specs** exist under `apps/web/platform/e2e/specs/weldstash/` (plus `specs/smoke/weldstash.smoke.spec.ts`), run them when changing WMS code.
 
 ## Delegate
 
 - UI → `frontend-platform`
+- Endpoints (new or bugfix) → `backend-app-api` (stash-api)
 - Order/product side → `weldcommerce`
 - Accounting (inventory valuation) → `weldbooks-accounting`

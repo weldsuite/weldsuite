@@ -23,7 +23,7 @@
  *     ignores them because the exact migration was marked applied;
  *     pglite sees them all in order).
  *
- * Mirrors apps/workers/app-api/src/test/pglite.ts.
+ * Mirrors packages/core/worker-kit/src/testing/pglite.ts.
  */
 
 import type { Database } from '../db';

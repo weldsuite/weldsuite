@@ -4,7 +4,7 @@
  * Workers (agent-service, helpdesk-workflow-worker, integration sync, trigger
  * jobs, …) routinely need to attach an incoming email to a Person identity row.
  * Before this helper existed, each runtime either duplicated the logic
- * (`apps/core-api/src/lib/participant-resolver.ts`, `apps/workers/app-api/src/services/people.ts:findOrCreatePersonByEmail`)
+ * (`apps/core-api/src/lib/participant-resolver.ts`, `packages/domains/crm/src/people.ts:findOrCreatePersonByEmail`)
  * or — worse — queried the soon-to-be-retired `contacts` table directly.
  *
  * Style mirrors `mail-contacts.ts`: loose `AnyDb` type so each caller's drizzle

@@ -5,7 +5,7 @@
  * with Drizzle's pglite adapter, and applies the WeldSuite tenant migrations so
  * engine + action tests can run against a REAL DB.
  *
- * Copied from apps/workers/app-api/src/test/pglite.ts — keep them in sync.
+ * Copied from packages/core/worker-kit/src/testing/pglite.ts — keep them in sync.
  *
  *   const { db, close } = await createPgliteDb();
  *   try { ...test work... } finally { await close(); }

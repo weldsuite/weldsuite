@@ -1,7 +1,7 @@
 /**
  * Task numbering — workspace-wide sequential numbers displayed as TASK-<number>.
  *
- * Mirrors `apps/workers/app-api/src/services/task-numbering.ts`. Tasks created
+ * Mirrors `packages/domains/flow/src/task-numbering.ts`. Tasks created
  * through MCP tools must get a number too, otherwise a row created here is
  * the only one in the workspace a user cannot refer to as TASK-<n>.
  *

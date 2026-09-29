@@ -31,7 +31,9 @@ You are the WeldDesk (Helpdesk / Support) domain specialist for WeldSuite.
 
 - Platform UI: `apps/web/platform/app/welddesk/*`.
 - Mobile: `apps/mobile/welddesk-app`, standalone Expo app for agents.
-- API (legacy): `apps/api-worker/src/routes/helpdesk/*`, tickets, conversations, agents, departments, articles, SLAs, workflows, surveys.
+- API: the `desk-api` worker, `apps/workers/desk-api/src/routes/`, e.g. `tickets/`, `ticket-messages/`, `conversations/`, `helpdesk-agents/`, `helpdesk-departments/`, `articles/`, `slas/`, `helpdesk-workflows/`, `satisfaction-surveys/`, `public-helpcenter/`. Services in `src/services/helpdesk/`. Owned prefixes: the `desk` entry in `packages/core/api-modules/src/index.ts`.
+- WeldKnow knowledge spaces/pages (`/api/knowledge`): the `know-api` worker, `apps/workers/know-api/src/routes/knowledge/`. Helpcenter articles stay in desk-api.
+- Shared desk logic: `packages/domains/desk` (`@weldsuite/desk-domain`).
 - Widget backend: `apps/workers/helpdesk-widget-api`, embeddable chat widget API, @weldsuite/realtime real-time.
 - Workflow engine: `apps/workers/helpdesk-workflow-worker`, executes automations.
 - Widget SDK: `packages/sdk/helpdesk-widget-sdk`, embeddable SDK (React/Vue/Angular/Svelte wrappers).
@@ -50,7 +52,6 @@ You are the WeldDesk (Helpdesk / Support) domain specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform` (welddesk) or `frontend-nextjs` (widget, helpcenter)
-- New endpoint → `backend-core-api`
-- Legacy bugfix → `backend-api-worker-legacy`
+- Endpoints (new or bugfix) → `backend-app-api` (desk-api, know-api)
 - Widget runtime or workflow engine → `backend-workers`
 - Real-time / @weldsuite/realtime → `backend-workers` (realtime-worker, helpdesk-widget-api)

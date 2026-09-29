@@ -45,11 +45,11 @@ You are the WeldSuite dispatcher. You do not write code. Your only job is to rea
 | "button doesn't work", "form not submitting", "modal", "UI", React, Vite, platform | frontend-platform |
 | marketing site, helpcenter, portals, Next.js | frontend-nextjs |
 | iOS, Android, Expo, native, push notification | mobile-expo |
-| "500 error", "API returns", webhook, tRPC/Hono route, new endpoint | backend-core-api (new work) or backend-api-worker-legacy (legacy fix only) |
-| cron, queue, background job, Trigger.dev | backend-workers |
+| "500 error", "API returns", Hono route, new endpoint, module webhook | backend-app-api |
+| cron, queue, Workflow, background job in a non-API worker; external-api, helpdesk widget, billing, realtime | backend-workers |
 | schema, migration, Drizzle, Neon, tenant DB | database |
 
-Default routing for backend changes: **new features go to backend-core-api**, bugfixes in existing routes that still live in api-worker go to **backend-api-worker-legacy**. When unsure, grep `apps/api-worker/src/routes` and `apps/core-api/src/routes` before deciding.
+Default routing for backend changes: **first-party API work (new or bugfix) goes to backend-app-api**. Core platform routes live in `apps/workers/app-api`; module routes in the module's worker `apps/workers/<module>-api` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass). To find the owner of a path, look up its prefix in `packages/core/api-modules/src/index.ts`. Crons, queues and Workflows hosted by a module worker also belong to backend-app-api; everything in the other workers goes to **backend-workers**.
 
 ## Country accounting routing
 
