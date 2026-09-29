@@ -1,6 +1,6 @@
 /**
  * Response shapes served by `/public/hr-portal/*` (see
- * `apps/workers/app-api/src/routes/public-hr-portal/index.ts` and the
+ * `apps/workers/hr-api/src/routes/public-hr-portal/index.ts` and the
  * services it calls under `apps/workers/app-api/src/services/weldhr/`).
  * Kept as plain local types so the portal carries no dependency on the
  * platform's API client. `HrClientView` mirrors the type of the same name in

@@ -13,8 +13,8 @@
  */
 
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { Database } from '../db';
-import { schema } from '../db';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { schema } from '@weldsuite/worker-kit/db';
 import {
   type SearchEntityType,
   type SearchResultGroup,

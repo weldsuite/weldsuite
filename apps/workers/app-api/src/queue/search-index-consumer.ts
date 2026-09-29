@@ -20,7 +20,7 @@
 
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 import type { Env } from '../types';
-import { getTenantDbForWorkspace } from '../db';
+import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { createEmbedder, indexEntity } from '../services/search/indexer';
 import { resolveIndexedType } from '../services/search/documents';
 import type { SearchEntityType } from '@weldsuite/app-api-client/schemas/search';

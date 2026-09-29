@@ -23,5 +23,5 @@ Run the standard agent pipeline:
 
 Stop and ask before:
 - Creating any database migration file
-- Touching `apps/api-worker` for something that looks like new work (belongs in `apps/core-api`)
+- Putting a module route in `apps/workers/app-api` instead of the module's `apps/workers/<module>-api` worker (owner by path prefix in `packages/core/api-modules/src/index.ts`)
 - Changing anything in another specialist's domain beyond the scope of the triage plan

@@ -19,9 +19,9 @@
 
 import { eq, isNull } from 'drizzle-orm';
 import type { UpdateWorkspaceSettingsInput } from '@weldsuite/app-api-client/schemas/workspace-settings';
-import { masterSchema, schema, type Database, type MasterDatabase } from '../db';
-import { generateId } from '../lib/id';
-import { updateStripeCustomer } from '../lib/stripe';
+import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { updateStripeCustomer } from '@weldsuite/stripe';
 
 const { workspaceSettings } = schema;
 

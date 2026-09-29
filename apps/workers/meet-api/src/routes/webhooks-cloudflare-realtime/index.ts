@@ -41,6 +41,9 @@ import {
 import { verifyWebhookToken } from '@weldsuite/worker-kit/webhook-token';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { registerWebhook } from '@weldsuite/cloudflare-realtime';
+import { originForPathFrom } from '@weldsuite/api-modules';
+
+const WEBHOOK_PATH = '/api/webhooks/cloudflare-realtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -112,20 +115,20 @@ app.post('/setup', async (c) => {
     return c.json({ error: 'Missing CF_ACCOUNT_ID, CF_REALTIME_APP_ID, or CF_REALTIME_APP_SECRET' }, 400);
   }
 
-  // Determine the webhook URL based on environment.
-  // app-api hostnames (api-worker's map replaced): preview has no custom
-  // domain, so it borrows the test hostname.
+  // Register this worker's own host (meet-api), not app-api's: forwarding
+  // is meant to go away. Preview has no custom domain, so it borrows test.
   const environment = env.ENVIRONMENT ?? 'development';
-  const baseUrlMap: Record<string, string> = {
+  const coreUrlMap: Record<string, string> = {
     production: 'https://app-api.weldsuite.org',
     preview: 'https://app-api-test.weldsuite.org',
     test: 'https://app-api-test.weldsuite.org',
   };
-  const baseUrl = baseUrlMap[environment] ?? c.req.url.replace(/\/api\/webhooks\/cloudflare-realtime\/setup$/, '');
+  const coreUrl = coreUrlMap[environment];
+  const baseUrl = coreUrl ? originForPathFrom(coreUrl, WEBHOOK_PATH) : new URL(c.req.url).origin;
   // Register the receiver URL with the shared token when configured, so RTK
   // echoes it back on every event and forged (tokenless) calls are rejected.
   const token = env.CF_REALTIME_WEBHOOK_TOKEN;
-  const webhookUrl = `${baseUrl}/api/webhooks/cloudflare-realtime${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  const webhookUrl = `${baseUrl}${WEBHOOK_PATH}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
   let result: { id?: string };
   try {

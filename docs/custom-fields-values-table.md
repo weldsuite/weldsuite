@@ -66,7 +66,7 @@ No `workspaceId`, tenant DBs are per-workspace (matches
 2. **Shared validation**, `packages/clients/app-api-client/src/schemas/custom-fields.ts`:
    `setCustomFieldValuesSchema`, `fieldTypeToValueColumn()`, and
    `validateCustomFieldValue()` (per-`fieldType` coerce + option checks). ✅ Phase 0.
-3. **Service**, `apps/workers/app-api/src/services/custom-field-values.ts`:
+3. **Service**, `packages/domains/core/src/custom-field-values.ts`:
    `getValuesForEntities` (batch, avoids N+1), `getValuesForEntity`, `setValues`
    (validated upsert; `null` clears), `deleteValuesForEntity`,
    `getDefinitionsForEntityType`. Exposed as a `{ [slug]: value }` map so the
@@ -104,7 +104,7 @@ No `workspaceId`, tenant DBs are per-workspace (matches
     Includes a **migration-window blob fallback**, an entity with zero value
     rows keeps serving its blob, so this is safe to deploy into an environment
     that has not been backfilled yet. Remove the fallback at Phase 4.
-  - ✅ Sort/filter SQL in `apps/workers/app-api/src/services/custom-field-query.ts`,
+  - ✅ Sort/filter SQL in `packages/domains/core/src/custom-field-query.ts`,
     wired into `listCompanies` + `exportCompanies` via `sort=custom:<slug>`,
     `sortDir`, and `customFilter=<slug>:<value>`. Verified against a live tenant.
   - ⚠️ **Custom-field sort uses OFFSET paging.** The default keyset cursor is

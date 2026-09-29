@@ -4,7 +4,7 @@
  * sequences), but WeldConnect only exposes what's production-ready.
  *
  * Keep in sync with the server-side activation gate in
- * apps/workers/app-api/src/services/weldconnect-mvp.ts, which rejects
+ * apps/workers/connect-api/src/services/weldconnect-mvp.ts, which rejects
  * activating a workflow that uses anything else.
  */
 

@@ -64,9 +64,9 @@ app-api and cannot be imported from another worker. Move it (with `git mv`) to:
    on first use: copy `packages/core/worker-email`'s package.json/tsconfig/vitest layout.
 
 In every case:
-- Leave a one-line re-export shim at the old app-api path when app-api still imports it:
-  `// Moved to <pkg>; this re-export keeps existing imports working.` +
-  `export * from '<pkg>/<subpath>';`
+- Point app-api's remaining imports (and `vi.mock` / `vi.importActual` paths in its
+  tests) at `<pkg>/<subpath>` directly. Don't leave a re-export shim at the old path:
+  the ones the split left behind were removed on 2026-09-29.
 - A function that takes app-api's `env: Env` must take a small structural type naming
   only the keys it reads (see `WorkerEmailEnv` in `@weldsuite/worker-email`).
 - Move the file's tests with it.

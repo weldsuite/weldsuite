@@ -21,16 +21,17 @@ You are the WeldMail (Email) domain specialist for WeldSuite.
 
 - Platform UI: `apps/web/platform/app/weldmail/*`.
 - Mobile: `apps/mobile/weldmail-app`, standalone Expo app for email.
-- Core API (new): `apps/core-api/src/routes/weldmail/`, target for new endpoints.
-- Core API client: `packages/clients/core-api-client/src/domains/weldmail.ts`.
-- Services: `apps/web/platform/lib/mail/*`, provider adapters (Gmail, Outlook, Mailcow).
-- Legacy API: `apps/api-worker/src/routes/mail/*`.
+- API: the `mail-api` worker, `apps/workers/mail-api/src/routes/`, e.g. `mail-accounts/`, `mail-messages/`, `mail-threads/`, `mail-drafts/`, `mail-templates/`, `mail-rules/`, `mail-campaigns/`, `mail-domains/`, `mail-sync/`. Owned prefixes: the `mail` entry in `packages/core/api-modules/src/index.ts`.
+- Services: `apps/workers/mail-api/src/services/mail/` (accounts, sync, messages, threads, ...), provider access for Gmail/Outlook/Mailcow.
+- Shared mail logic: `packages/domains/mail` (`@weldsuite/mail-domain`: send, recipient validation, contacts, sanitize).
+- Client domains: `packages/clients/app-api-client/src/domains/mail-*.ts`.
+- Personal (consumer) WeldMail: `apps/workers/personal-api` (not workspace-scoped, owned by `backend-workers`).
 - Inbound worker: `apps/workers/mail-inbound-worker`, Svix webhooks, `postal-mime` parsing.
 
 ## Rules
 
 - **Contact auto-creation.** Typing a new address in "To" auto-creates a contact (see `weldcrm` for the exact rule). Past bug: it wasn't persisting.
-- **Provider abstraction.** `apps/web/platform/lib/mail/*` exposes a common interface over Gmail/Outlook/Mailcow. Never call provider SDKs from UI code; always go through the abstraction.
+- **Provider abstraction.** `apps/workers/mail-api/src/services/mail/` exposes a common interface over Gmail/Outlook/Mailcow. Never call provider SDKs from UI code; always go through the abstraction.
 - **Token refresh.** OAuth tokens expire, refresh on every request path that hits the provider. Failing silently is a top source of bugs.
 - **Attachments** stored in R2, not inline. Max size enforced in `mail-inbound-worker`.
 - **DKIM/SPF/DMARC**, when a user adds a sending domain, the platform displays the records and periodically re-checks via DNS. If checks fail, outbound sending is blocked for that domain.
@@ -41,6 +42,6 @@ You are the WeldMail (Email) domain specialist for WeldSuite.
 
 - UI → `frontend-platform`
 - Mobile → `mobile-expo`
-- New endpoint → `backend-core-api`
+- Endpoints (new or bugfix) → `backend-app-api` (mail-api)
 - Inbound processing bugs → `backend-workers` (mail-inbound-worker)
 - Schema change → `database`

@@ -378,6 +378,11 @@ export function getApiModule(id: ApiModuleId): ApiModule {
 /** Every module except core, i.e. the ones that get their own worker. */
 export const MODULE_WORKERS: readonly ApiModule[] = API_MODULES.filter((m) => m.id !== 'core');
 
+const CORE_DEV_PORT = getApiModule('core').devPort;
+
+/** `<worker>[-env].<domain>` for any API worker, app-api included. */
+const WORKER_HOST = new RegExp(`^(${API_MODULES.map((m) => m.worker).join('|')})(-[a-z0-9]+)?\\.(.+)$`);
+
 function ownsPath(prefix: string, path: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`);
 }
@@ -399,16 +404,25 @@ export function findModuleForPath(path: string): ApiModule {
 }
 
 /**
- * Parse a comma-separated module list (`VITE_API_MODULES=pass,host`). Unknown
- * ids and `core` are dropped, so a typo can never send traffic nowhere.
+ * Parse a comma-separated module list (`VITE_API_MODULES=pass,host`). `all`
+ * means every module worker and `-<id>` takes one back out (`all,-connect`).
+ * Unknown ids and `core` are dropped, so a typo can never send traffic nowhere.
  */
 export function parseModuleList(value: string | undefined | null): Set<ApiModuleId> {
   const out = new Set<ApiModuleId>();
   if (!value) return out;
+  const excluded = new Set<string>();
   for (const raw of value.split(',')) {
-    const id = raw.trim() as ApiModuleId;
-    if (id && id !== 'core' && BY_ID.has(id)) out.add(id);
+    const token = raw.trim();
+    if (token === 'all') {
+      for (const m of MODULE_WORKERS) out.add(m.id);
+    } else if (token.startsWith('-')) {
+      excluded.add(token.slice(1).trim());
+    } else if (token && token !== 'core' && BY_ID.has(token as ApiModuleId)) {
+      out.add(token as ApiModuleId);
+    }
   }
+  for (const id of excluded) out.delete(id as ApiModuleId);
   return out;
 }
 
@@ -438,6 +452,41 @@ export function moduleOriginFrom(coreOrigin: string, module: ApiModule): string 
   if (!match) return coreOrigin;
   url.hostname = `${module.worker}${match[1] ?? ''}.${match[2]}`;
   return url.origin;
+}
+
+/**
+ * The inverse of `moduleOriginFrom`: the app-api origin behind any API
+ * worker's origin.
+ *
+ *   https://crm-api-test.weldsuite.org  → https://app-api-test.weldsuite.org
+ *   http://localhost:8801               → http://localhost:8789
+ *
+ * Unmappable origins are returned unchanged.
+ */
+export function coreOriginFrom(workerOrigin: string): string {
+  let url: URL;
+  try {
+    url = new URL(workerOrigin);
+  } catch {
+    return workerOrigin;
+  }
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.port = String(CORE_DEV_PORT);
+    return url.origin;
+  }
+  const match = WORKER_HOST.exec(url.hostname);
+  if (!match) return workerOrigin;
+  url.hostname = `app-api${match[2] ?? ''}.${match[3]}`;
+  return url.origin;
+}
+
+/**
+ * Origin of the worker that owns `path`, seen from a request that reached any
+ * API worker. Use it for URLs a third party calls back on (OAuth redirects,
+ * webhook callbacks): a module worker's own origin only serves its own paths.
+ */
+export function originForPathFrom(requestOrigin: string, path: string): string {
+  return moduleOriginFrom(coreOriginFrom(requestOrigin), findModuleForPath(path));
 }
 
 export interface ApiOriginResolverOptions {

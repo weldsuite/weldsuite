@@ -1,7 +1,7 @@
 /**
  * App-API chat-sections domain client — flat `/api/chat-sections/*`.
  *
- * Backed by `chatSections`. Mirrors apps/workers/app-api/src/routes/chat-sections/index.ts.
+ * Backed by `chatSections`. Mirrors apps/workers/chat-api/src/routes/chat-sections/index.ts.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';

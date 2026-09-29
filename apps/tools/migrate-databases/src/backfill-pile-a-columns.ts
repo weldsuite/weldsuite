@@ -265,7 +265,7 @@ async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boo
           // never be auto-resolved: a non-null value may be a genuine post-cutover
           // write OR a migration-time default, and the two are indistinguishable
           // (auto_scheduled is DEFAULT false, yet pinRescheduledSource() also
-          // writes false on purpose — apps/workers/app-api/src/services/calendar-events.ts).
+          // writes false on purpose — apps/workers/calendar-api/src/services/calendar-events.ts).
           // Overwriting could clobber a real value; stripping could drop real
           // legacy data. So touch nothing — leave the key and flag it for manual
           // reconciliation.

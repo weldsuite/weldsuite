@@ -9,9 +9,9 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { SYSTEM_ROLES } from '@weldsuite/permissions';
 import { teamMembersRoutes } from './index';
-import { createTestApp, permissions } from '../../test/harness';
-import { createPgliteDb } from '../../test/pglite';
-import { schema, type Database } from '../../db';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(

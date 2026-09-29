@@ -295,7 +295,7 @@ exactly as before (all 1,428 app-api tests pass on the kit).
 |---|---|---|
 | Module manifest | `packages/core/api-modules` | Prefixes, workers, bindings, dev ports (8801–8820), `findModuleForPath`, `createApiOriginResolver`. Its tests fail when an app-api mount has no owner, a module worker mounts another module's prefix, or an API worker imports from another worker folder. |
 | Worker kit | `packages/core/worker-kit` | `createModuleApi` (request id, logger, CORS with a 1-day preflight cache, X-Weld-App, `/robots.txt`, `/health`, JSON notFound/onError, permission queries), `apiAuth()` (Clerk → tenant DB → flags), `db`, `response`, `id`, `log-safe`, `forward`, `testing` (the `createTestApp` harness), and the Workers bundling `shims/`. |
-| app-api on the kit | `apps/workers/app-api` | `src/index.ts` uses `createModuleApi` + `apiAuth`; the old `lib/`, `middleware/`, `db/` and `test/harness.ts` files are re-exports, so the ~500 existing imports did not change. |
+| app-api on the kit | `apps/workers/app-api` | `src/index.ts` uses `createModuleApi` + `apiAuth`; the old `lib/`, `middleware/`, `db/` and `test/harness.ts` files were re-exports, so the ~500 existing imports did not change. They and the module-service shims were removed on 2026-09-29 (imports now name the kit / domain package). |
 | Forwarder | `@weldsuite/worker-kit/forward` | First middleware in app-api. Forwards a path when its module is in `API_FORWARD_MODULES` **and** the `<MODULE>_API` service binding exists; otherwise app-api keeps serving it. |
 | Client routing | `@weldsuite/api-client`, platform `lib/api/public-env.ts`, 11 mobile apps | `baseUrl` can be a per-path function. Platform: `VITE_API_MODULES` (+ optional `VITE_<MODULE>_API_URL`), `apiUrl()` / `getApiOriginForPath()` used by every direct `fetch`; the X-Weld-App header covers every API origin. Mobile: `EXPO_PUBLIC_API_MODULES`. |
 | Scaffolder | `pnpm create:module-api <module>` | Generates the worker (wrangler config with custom domains, shared KV/queue/realtime/Flagship, smoke test) and its secrets-manifest entry. An empty worker bundles to ~1.2 MB raw / ~250 KB gzipped. |
@@ -491,16 +491,31 @@ Server callers:
    AssemblyAI (prd), Telnyx ids and keys, Slack, Vercel, Attio, HubSpot, Google OAuth.
 2. Merge to `develop` → module workers deploy first, then app-api starts forwarding.
    Smoke-test each module on app-test.
-3. Direct client calls: add modules to `VITE_API_MODULES` (platform Pages build) and
-   `EXPO_PUBLIC_API_MODULES` (mobile) one at a time. **Connect first needs a fix**: the
-   WooCommerce connect callback is built from the request origin, so a direct call would
-   send WooCommerce to connect-api's host at `/webhooks/woocommerce` (owned by commerce).
-   Check other OAuth/webhook URLs built from the request origin the same way.
+3. Direct client calls: **done (2026-09-29)**. `VITE_API_MODULES` (platform Pages build) and
+   `EXPO_PUBLIC_API_MODULES` (mobile OTA in deploy.yml + every `eas.json` profile) are `all`;
+   `parseModuleList` expands that to every module worker, and `all,-<module>` sends one
+   module back through app-api if it misbehaves. All traffic already ran on the module
+   workers via forwarding, so going direct only drops the app-api hop. The WooCommerce
+   connect callback was the one URL built from the request origin; it now uses
+   `originForPathFrom` (`@weldsuite/api-modules`), which points it at commerce-api, the
+   owner of `/webhooks/woocommerce`. OAuth redirects use the SPA URL, an env value or a
+   client-supplied URI, never the worker's own host.
 4. Production: same order via `main`.
 5. Clean-up, when the time in each row of the table below has passed: remove the draining
    workflow blocks/re-exports from app-api, then secrets only those used (`ASSEMBLYAI_API_KEY`,
    `AGENT_RUNTIME_URL`, `CF_REALTIME_*`, `R2_SQL_*`, the hand-set module secrets). Stop
-   forwarding a module in production once no client calls app-api for it.
+   forwarding a module in production once no client calls app-api for it **and** no
+   third party calls back on app-api's host for it. Callback status:
+
+   | Callback | Owner | Status |
+   |---|---|---|
+   | WooCommerce connect (`/webhooks/woocommerce/auth`) | commerce | built per request → commerce-api host (2026-09-29) |
+   | Telnyx AI `lookup_crm` tool | call | sent per call → call-api host (`lookupCrmUrl`, 2026-09-29) |
+   | Cloudflare Realtime webhook | meet | `POST /api/webhooks/cloudflare-realtime/setup` now registers meet-api's host; re-run it per env, then delete the old app-api registration (running both delivers every event twice) |
+   | Helpdesk Slack / Discord OAuth `redirect_uri` | desk | still app-api (`helpdeskOAuthRedirectUri`): add the desk-api URL to both provider apps first, then switch `getHelpdeskWorkerUrl` |
+   | Telnyx call-control webhook | call | Telnyx portal (connection settings) |
+   | PostPeer webhook | social | PostPeer dashboard |
+   | Realtime Register webhook | host | Realtime Register dashboard |
 6. **App-scoped permissions**: every API worker applies them (the kit sets the
    X-Weld-App context; `requirePermission` / the resolver are the same package code).
    Enforcement (`PERMISSIONS_APP_ENFORCE="true"`) must be switched on in app-api **and

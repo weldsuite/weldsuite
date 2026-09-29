@@ -17,7 +17,8 @@
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
         "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID": "283341122724-77fit3q2nsv4ld0t2rfmglr1t6jembmm.apps.googleusercontent.com",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_MODULES": "all"
       }
     },
     "preview": {
@@ -32,7 +33,8 @@
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
         "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID": "283341122724-77fit3q2nsv4ld0t2rfmglr1t6jembmm.apps.googleusercontent.com",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_MODULES": "all"
       }
     },
     "production": {
@@ -47,7 +49,8 @@
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
         "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID": "283341122724-77fit3q2nsv4ld0t2rfmglr1t6jembmm.apps.googleusercontent.com",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_MODULES": "all"
       }
     }
   },

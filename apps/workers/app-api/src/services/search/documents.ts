@@ -18,8 +18,8 @@
  */
 
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
-import type { Database } from '../../db';
-import { schema } from '../../db';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { schema } from '@weldsuite/worker-kit/db';
 import type { SearchEntityType } from '@weldsuite/app-api-client/schemas/search';
 import { buildResultUrl } from '../search';
 

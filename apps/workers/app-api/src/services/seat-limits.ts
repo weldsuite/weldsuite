@@ -14,7 +14,7 @@
 
 import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
-import { getMasterDb, masterSchema } from '../db';
+import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { getAccurateMemberCount } from './member-count';
 
 export interface SeatLimit {

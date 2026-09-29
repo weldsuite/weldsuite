@@ -17,8 +17,8 @@
  */
 
 import { and, eq, isNull, max } from 'drizzle-orm';
-import { schema, masterSchema, type Database, type MasterDatabase } from '../db';
-import { generateId } from '../lib/id';
+import { schema, masterSchema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 const { workspaceInstalledApps } = schema;
 const { appCatalog } = masterSchema;

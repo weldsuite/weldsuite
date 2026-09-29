@@ -11,7 +11,7 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { masterSchema, schema, type Database, type MasterDatabase } from '../db';
+import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 import { mintAppToken } from './user-apps';
 

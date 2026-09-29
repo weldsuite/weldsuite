@@ -12,8 +12,8 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { listEndpointResult, type ListSweepCase } from '@weldsuite/worker-kit/testing/sweeps';
-import { createPgliteDb } from '../test/pglite';
-import type { Database, } from '../db';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database, } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../types';
 
 import { customFieldsRoutes } from './custom-fields';

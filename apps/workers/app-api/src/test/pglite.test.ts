@@ -9,9 +9,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createPgliteDb } from './pglite';
-import type { Database } from '../db';
-import { createCompany, getCompany } from '../services/companies';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { createCompany, getCompany } from '@weldsuite/crm-domain/companies';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -40,7 +40,7 @@ describe('pglite harness', () => {
   it('soft-deleted rows are invisible to getCompany', async () => {
     const created = await createCompany(db, { name: 'Disappearing Co.' });
     // Tagging deletedAt directly — soft delete contract.
-    const { schema } = await import('../db');
+    const { schema } = await import('@weldsuite/worker-kit/db');
     const { eq } = await import('drizzle-orm');
     await db
       .update(schema.companies)

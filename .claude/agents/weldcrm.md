@@ -21,10 +21,11 @@ You are the WeldCRM domain specialist for WeldSuite.
 
 ## Where the code lives
 
-- Platform UI: `apps/web/platform/app/weldcrm/*`, plus contacts in `apps/web/platform/app/contact/`.
-- Core API (new): `apps/core-api/src/routes/weldcrm/`, the target for all new CRM endpoints.
-- Core API client: `packages/clients/core-api-client/src/domains/weldcrm.ts`.
-- Legacy API: `apps/api-worker/src/routes/crm/*`, `apps/api-worker/src/routes/customers/*`.
+- Platform UI: `apps/web/platform/app/weldcrm/*`.
+- API: the `crm-api` worker, `apps/workers/crm-api/src/routes/`, e.g. `people/`, `companies/`, `leads/`, `opportunities/`, `pipelines/`, `pipeline-stages/`, `activities/`, `sequences/`. Owned prefixes: the `crm` entry in `packages/core/api-modules/src/index.ts`.
+- Shared CRM logic: `packages/domains/crm` (`@weldsuite/crm-domain`: `people.ts`, `companies.ts`, the execute-sequence workflow).
+- Call intelligence: `apps/workers/call-api/src/routes/call-intelligence/`. Transcriptions: `apps/workers/meet-api/src/routes/transcriptions/`.
+- Schemas: `@weldsuite/core-api-client/schemas/*` (e.g. `schemas/leads`) and `@weldsuite/app-api-client/schemas/*`.
 
 ## Rules
 
@@ -35,14 +36,9 @@ You are the WeldCRM domain specialist for WeldSuite.
 - **Call intelligence / transcriptions** are PII-sensitive. Only return transcript text to users with explicit permission.
 - **Activities feed** is the audit trail for a contact, every touch should create an activity (email, call, meeting, note).
 
-## Migration status
-
-WeldCRM is one of the first modules moved to core-api. New endpoints MUST go to `apps/core-api/src/routes/weldcrm/`. Only bugfix legacy routes in `apps/api-worker/src/routes/crm/`.
-
 ## Delegate
 
 - UI → `frontend-platform`
-- New endpoint → `backend-core-api`
-- Legacy bugfix → `backend-api-worker-legacy`
+- Endpoints (new or bugfix) → `backend-app-api` (crm-api)
 - Schema change → `database`
 - Accounting-relevant changes (tax, invoice counterparty) → consult the matching country `accounting-<cc>` agent

@@ -1,7 +1,7 @@
 /**
  * Shared response envelope types for the app-api client.
  *
- * Kept aligned 1-to-1 with `apps/workers/app-api/src/lib/response.ts`. Changes to
+ * Kept aligned 1-to-1 with `packages/core/worker-kit/src/response.ts`. Changes to
  * the wire format must be made in both places.
  */
 

@@ -64,7 +64,7 @@ export function getAppApiUrl(): string {
 // ── Per-module API hosts ────────────────────────────────────────────────────
 // app-api is being split into one worker per module
 // (docs/plans/app-api-module-split.md). Paths stay the same; only the host
-// changes. `VITE_API_MODULES` (e.g. `pass,host`) lists the modules the SPA
+// changes. `VITE_API_MODULES` (e.g. `pass,host`, or `all` / `all,-crm`) lists the modules the SPA
 // calls directly on `<module>-api(-test).weldsuite.org`. Everything else keeps
 // going to app-api, which forwards moved modules, so an empty list behaves
 // exactly like the single-worker setup. `VITE_<MODULE>_API_URL` overrides one

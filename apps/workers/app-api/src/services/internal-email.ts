@@ -16,7 +16,7 @@
  * If the dependency is ever added, this can be swapped for the package import.
  */
 
-import { sendEmail as sendViaCloudflare } from '../lib/cloudflare-email';
+import { sendEmail as sendViaCloudflare } from '@weldsuite/worker-email';
 import type { Env } from '../types';
 
 export interface InternalEmailParams {

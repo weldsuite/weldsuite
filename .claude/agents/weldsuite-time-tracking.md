@@ -13,11 +13,12 @@ You are the Time Tracking / Timesheets specialist for WeldSuite.
 - **Rate card**, hourly rates per user or per project or per role. Rates cascade project → user → role → workspace default.
 - **Approval**, manager review of a timesheet before it becomes billable.
 
-## Where the code lives (existing + likely)
+## Where the code lives
 
-- Platform UI: typically under `apps/web/platform/app/weldflow/` (time tracking is a sub-area of projects) or a dedicated time-tracking module. Verify actual location before editing.
+- Platform UI: `apps/web/platform/app/weldflow/project/[projectId]/timesheet/` (`page.tsx`, `team-timesheet-view.tsx`), time tracking is a sub-area of WeldFlow projects.
 - Task fields `estimatedHours` and `actualHours` exist on tasks, `actualHours` is derived from aggregated time entries.
-- API: legacy routes under `apps/api-worker/src/routes/projects/` or a dedicated timesheet route. New endpoints go to `apps/core-api`.
+- API: the `flow-api` worker, `apps/workers/flow-api/src/routes/time-entries/` (`/api/time-entries`, permissions `time:read|create|update|delete`); per-member time in `apps/workers/flow-api/src/routes/project-members/`. Third-party API: `apps/workers/external-api/src/routes/v1/time-entries/`.
+- Schema: `packages/core/db/src/schema/time-entries.ts`, `active-timers.ts`.
 
 ## Rules
 
@@ -36,6 +37,7 @@ You are the Time Tracking / Timesheets specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform` (web timer) or `mobile-expo` (mobile timer)
+- Endpoints (new or bugfix) → `backend-app-api` (flow-api); external-api v1 routes → `backend-workers`
 - Task side (linking time to tasks) → `weldflow-projects`
 - Invoice conversion → `weldbooks-accounting` + `weldsuite-invoicing`
 - Schema change → `database`

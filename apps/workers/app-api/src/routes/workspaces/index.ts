@@ -11,9 +11,9 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { success } from '../../lib/response';
-import { getMasterDb } from '../../db';
-import { listUserWorkspaces } from '../../services/workspaces';
+import { success } from '@weldsuite/worker-kit/response';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
+import { listUserWorkspaces } from '@weldsuite/core-domain/workspaces';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

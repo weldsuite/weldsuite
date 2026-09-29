@@ -1,6 +1,6 @@
 ---
 name: weldflow-projects
-description: Use for work on WeldFlow, projects, tasks, sprints, whiteboards, documents, goals, workload, sheets. Platform path app/weldflow, routes in api-worker projects/, schemas crm-pipelines + projects-*.
+description: Use for work on WeldFlow, projects, tasks, sprints, whiteboards, documents, goals, workload, sheets. Platform path app/weldflow, routes in the flow-api worker (apps/workers/flow-api), schemas crm-pipelines + projects-*.
 model: sonnet
 ---
 
@@ -30,7 +30,8 @@ You are the WeldFlow (Projects) domain specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldflow/*`, project list, task detail panel, pipeline board, workload view, goals, whiteboards, sheets.
-- API (legacy): `apps/api-worker/src/routes/projects/*`, tasks, sprints, members, goals, sheets, whiteboards, documents. Also `apps/api-worker/src/routes/task/*` for personal task management.
+- API: the `flow-api` worker, `apps/workers/flow-api/src/routes/`, e.g. `projects/`, `tasks/`, `sprints/`, `project-members/`, `goals/`, `project-sheets/`, `whiteboards/`, `documents/`, `time-entries/`. Personal task management: `my-tasks/`. Owned prefixes: the `flow` entry in `packages/core/api-modules/src/index.ts`.
+- Shared flow logic: `packages/domains/flow` (`@weldsuite/flow-domain`: task numbering, workflows).
 - Schema: `packages/core/db/src/schema/`, `crm-pipeline-stages.ts`, `crm-pipelines.ts` (shared with CRM), plus project-specific tables.
 - Shared UI: task details panel is reused in the pipeline AND goals page (historical bug, one goal page had the wrong component).
 
@@ -45,7 +46,7 @@ You are the WeldFlow (Projects) domain specialist for WeldSuite.
 
 ## Permissions
 
-RBAC via `@weldsuite/permissions` with `weldflow:*` keys. Confirm the exact permission key in the permissions package before gating UI.
+RBAC via `@weldsuite/permissions` with object keys (`projects:*`, `tasks:*`, `time:*`), checked in flow-api with `requirePermission`. Confirm the exact key in `packages/core/permissions/src/catalog.ts` before gating UI.
 
 ## Real-time
 
@@ -54,5 +55,5 @@ Live cursors / "member is in page X" is a backlog feature, when adding presence,
 ## When you hand off
 
 - UI changes → `frontend-platform`
-- New endpoint → `backend-core-api` (do NOT add to legacy api-worker unless it's a bugfix to an existing route)
+- Endpoints (new or bugfix) → `backend-app-api` (flow-api)
 - Schema change → `database`

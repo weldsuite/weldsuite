@@ -18,9 +18,9 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema } from '../../db';
+import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { schema } from '@weldsuite/worker-kit/db';
 import {
   moduleChannelPreferencesSchema,
   moduleNameSchema,

@@ -16,8 +16,9 @@ You are the WeldHost (Domains) specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldhost/*`.
-- API (legacy): `apps/api-worker/src/routes/host/*`, domains, DNS, forwards, transfers.
-- Services: `apps/web/platform/lib/host/*`.
+- API: the `host-api` worker, `apps/workers/host-api/src/routes/`, e.g. `domains/`, `dns-records/`, `dns-zones/`, `email-forwards/`, `domain-transfers/`, plus the Realtime Register webhook. Services in `src/services/`; domain auto-renew cron in `src/cron/` (04:00, `wrangler.toml`). Owned prefixes: the `host` entry in `packages/core/api-modules/src/index.ts`.
+- Shared host logic: `packages/domains/host` (`@weldsuite/host-domain`, registrar + checkout, also imported by app-api).
+- Platform client helper: `apps/web/platform/lib/host/domain-purchase-client.ts`.
 - Availability checks: there's an MCP tool `check_domain_availability_and_price`, verify feature expectations against it before building UI flows.
 
 ## Rules
@@ -32,5 +33,5 @@ You are the WeldHost (Domains) specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform`
-- Backend → `backend-core-api` for new endpoints; `backend-api-worker-legacy` for bugfixes
+- Endpoints (new or bugfix) → `backend-app-api` (host-api); domain purchase fulfilment in billing-worker → `backend-workers`
 - Email sending domain verification → `weldmail`

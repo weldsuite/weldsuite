@@ -25,9 +25,8 @@ import {
   encodeClientState,
   type TelnyxEnv,
 } from '../../lib/telnyx';
-import { getHelpdeskWorkerUrl } from '@weldsuite/desk-domain/helpdesk-integrations';
 import { signDeskPhoneToolToken } from '../../lib/desk-phone-tool-auth';
-import { lookupCrmWebhookTool } from '../../lib/desk-phone-tools';
+import { lookupCrmUrl, lookupCrmWebhookTool } from '../../lib/desk-phone-tools';
 
 const app = new Hono<{ Bindings: Env & TelnyxEnv; Variables: Variables }>();
 
@@ -39,7 +38,7 @@ async function crmLookupExtraTools(
   const token = await signDeskPhoneToolToken(env.TELNYX_API_KEY, claims);
   return [
     lookupCrmWebhookTool({
-      lookupCrmUrl: `${getHelpdeskWorkerUrl(env)}/public/webhooks/telnyx/tools/lookup_crm`,
+      lookupCrmUrl: lookupCrmUrl(env),
       toolAuthHeader: `Bearer ${token}`,
     }),
   ];

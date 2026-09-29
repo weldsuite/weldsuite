@@ -42,8 +42,7 @@ import {
   verifyDeskPhoneToolToken,
   signDeskPhoneToolToken,
 } from '../../lib/desk-phone-tool-auth';
-import { buildDeskPhoneAssistantTools, callerContextInstructions } from '../../lib/desk-phone-tools';
-import { getHelpdeskWorkerUrl } from '@weldsuite/desk-domain/helpdesk-integrations';
+import { buildDeskPhoneAssistantTools, callerContextInstructions, lookupCrmUrl } from '../../lib/desk-phone-tools';
 
 // ============================================================================
 // Types
@@ -386,7 +385,7 @@ async function handleInboundInitiated(
         });
         tools = buildDeskPhoneAssistantTools({
           transferToE164: agent.forwardToE164,
-          lookupCrmUrl: `${getHelpdeskWorkerUrl(env)}/public/webhooks/telnyx/tools/lookup_crm`,
+          lookupCrmUrl: lookupCrmUrl(env),
           toolAuthHeader: `Bearer ${token}`,
         });
       }

@@ -6,7 +6,7 @@
  * - Categories: /categories (hierarchical; manual + automated, see .claude/weldcommerce-plan.md)
  * - Orders:     /orders
  *
- * Customers are NOT here on purpose. Per `apps/workers/app-api/src/routes/companies/index.ts`,
+ * Customers are NOT here on purpose. Per `apps/workers/crm-api/src/routes/companies/index.ts`,
  * "the customer surface is a status-flag projection on top of companies, not a separate
  * object" — so the customers tab reuses `useCompanies` & co. from
  * `@/components/objects/company/use-company-data`, and the existing `company`

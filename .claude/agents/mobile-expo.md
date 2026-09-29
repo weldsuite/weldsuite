@@ -18,7 +18,7 @@ You are the Mobile (Expo / React Native) specialist for WeldSuite.
 - Expo 54 / React Native 0.81
 - Shared UI from `packages/design/mobile-ui` where applicable
 - Auth: Clerk Expo SDK (client-side, matches platform)
-- API: dedicated **`mobile-api-worker`** with Clerk M2M auth, `/api/mobile/v1/*` surface. Never hit the web api-worker directly.
+- API: the same first-party API as the platform, through each app's `services/app-api.ts` (Clerk session token). Paths of modules listed in `EXPO_PUBLIC_API_MODULES` go straight to their `<module>-api` worker, everything else to app-api (`EXPO_PUBLIC_APP_API_URL`), which forwards. The old `mobile-api-worker` is deleted; new endpoints are `backend-app-api`'s.
 - Push: APNs + FCM. Suppress notifications for threads the user is actively viewing (known bug area).
 - Testing: Jest (`pnpm test`, `pnpm test:watch`, `pnpm test:coverage`).
 

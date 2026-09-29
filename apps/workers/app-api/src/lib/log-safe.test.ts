@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { logSafe } from './log-safe';
+import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 describe('logSafe', () => {
   it('replaces line breaks so a value cannot forge log entries', () => {

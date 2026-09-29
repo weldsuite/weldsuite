@@ -26,8 +26,8 @@ import { createClerkClient } from '@clerk/backend';
 import { zValidator } from '@hono/zod-validator';
 import { createDesktopTicketInput } from '@weldsuite/app-api-client/schemas/auth-desktop';
 import type { Env, Variables } from '../../types';
-import { clerkMiddleware } from '../../middleware/clerk';
-import { error } from '../../lib/response';
+import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
+import { error } from '@weldsuite/worker-kit/response';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

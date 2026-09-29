@@ -711,6 +711,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
           EXPO_PUBLIC_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://personal-api.weldsuite.org' }}
         with:
           app-dir: apps/mobile/weldmail-app
@@ -738,6 +739,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
         with:
           app-dir: apps/mobile/weldchat-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
@@ -764,6 +766,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         with:
           app-dir: apps/mobile/weldbooks-app
@@ -791,6 +794,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         with:
           app-dir: apps/mobile/weldflow-app
@@ -818,6 +822,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           EXPO_PUBLIC_EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
           EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
@@ -847,6 +852,7 @@ jobs:
         uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
           EXPO_PUBLIC_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://personal-api.weldsuite.org' }}
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           EXPO_PUBLIC_EAS_PROJECT_ID: 65953f2a-f287-47d0-9ad2-a48dc8206991
@@ -876,8 +882,9 @@ jobs:
           VITE_REALTIME_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
           # Modules the SPA calls directly on <module>-api(-test).weldsuite.org
           # (docs/plans/app-api-module-split.md); everything else goes through
-          # app-api's forwarder.
-          VITE_API_MODULES: commerce
+          # app-api's forwarder. `all` = every module worker; `all,-crm` sends one
+          # module back through app-api.
+          VITE_API_MODULES: all
           VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           VITE_BOOKING_PORTAL_URL: ${{ secrets.VITE_BOOKING_PORTAL_URL }}

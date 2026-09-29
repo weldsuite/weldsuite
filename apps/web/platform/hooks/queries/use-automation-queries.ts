@@ -539,7 +539,7 @@ export function useUpdateWorkflowStatus(apiBasePath: string = WELDCONNECT_API.wo
 }
 
 // 4b. Generate Workflow with AI — single-shot draft, nothing persisted.
-// See apps/workers/app-api/src/routes/workflows/generate.ts. WeldConnect workflows only;
+// See apps/workers/connect-api/src/routes/workflows/generate.ts. WeldConnect workflows only;
 // `/helpdesk-workflows` has no AI generation endpoint.
 export interface GeneratedWorkflowTrigger {
   id: string;

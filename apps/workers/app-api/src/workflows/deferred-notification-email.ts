@@ -24,7 +24,7 @@ import {
   type DeferredEmailParams,
 } from '@weldsuite/notifications';
 import type { Env } from '../types';
-import { getTenantDbForWorkspace, schema } from '../db';
+import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 
 export type DeferredNotificationEmailParams = DeferredEmailParams;
 
