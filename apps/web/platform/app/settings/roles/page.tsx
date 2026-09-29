@@ -28,6 +28,26 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 
+function matchesRoleFilter(role: Role, filter: ActiveFilter): boolean {
+  if (!filter.value || filter.field !== 'kind') return true;
+  if (filter.value === 'system') return Boolean(role.isSystemRole);
+  if (filter.value === 'custom') return !role.isSystemRole;
+  return true;
+}
+
+function matchesRoleSearch(role: Role, query: string): boolean {
+  if (!query) return true;
+  const haystack = [role.name, role.description].filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(query);
+}
+
+function applyRoleFilters(list: Role[], filters: ActiveFilter[], searchQuery: string): Role[] {
+  const q = searchQuery.trim().toLowerCase();
+  return list.filter(
+    (role) => filters.every((filter) => matchesRoleFilter(role, filter)) && matchesRoleSearch(role, q),
+  );
+}
+
 export default function RolesSettingsPage() {
   const t = useTranslations();
   const router = useRouter();
@@ -56,23 +76,10 @@ export default function RolesSettingsPage() {
     },
   ], [t]);
 
-  const filterRoles = React.useCallback((list: Role[]) => {
-    const q = searchQuery.trim().toLowerCase();
-    return list.filter((r) => {
-      for (const f of activeFilters) {
-        if (!f.value) continue;
-        if (f.field === 'kind') {
-          if (f.value === 'system' && !r.isSystemRole) return false;
-          if (f.value === 'custom' && r.isSystemRole) return false;
-        }
-      }
-      if (q) {
-        const haystack = [r.name, r.description].filter(Boolean).join(' ').toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [activeFilters, searchQuery]);
+  const filterRoles = React.useCallback(
+    (list: Role[]) => applyRoleFilters(list, activeFilters, searchQuery),
+    [activeFilters, searchQuery],
+  );
 
   const loadRoles = React.useCallback(async () => {
     try {
