@@ -12,6 +12,8 @@ import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 
+const increment = (n: number) => n + 1;
+
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = (seconds % 60).toString().padStart(2, '0');
@@ -123,7 +125,7 @@ export default function CallRoomPage() {
 
         m.self.on('roomJoined', () => {
           setStatus('connected');
-          durationRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+          durationRef.current = setInterval(() => setDuration(increment), 1000);
         });
 
         m.self.on('roomLeft', () => {
@@ -131,10 +133,10 @@ export default function CallRoomPage() {
           if (durationRef.current) clearInterval(durationRef.current);
         });
 
-        m.participants.joined.on('participantJoined', () => forceUpdate((n) => n + 1));
-        m.participants.joined.on('participantLeft', () => forceUpdate((n) => n + 1));
-        m.self.on('audioUpdate', () => forceUpdate((n) => n + 1));
-        m.self.on('videoUpdate', () => forceUpdate((n) => n + 1));
+        m.participants.joined.on('participantJoined', () => forceUpdate(increment));
+        m.participants.joined.on('participantLeft', () => forceUpdate(increment));
+        m.self.on('audioUpdate', () => forceUpdate(increment));
+        m.self.on('videoUpdate', () => forceUpdate(increment));
 
         await m.join();
         setMeeting(m);

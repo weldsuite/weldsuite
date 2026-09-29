@@ -59,6 +59,37 @@ export function PiPCallWidget() {
   return <PiPCallWidgetInner />;
 }
 
+/**
+ * Whether the user is currently viewing the call's own conversation.
+ * The URL param differs by route shape, so we can't just compare it to channelId:
+ *   • 1:1 DM    → /weldchat/dm/$userId          (param is the OTHER user's id)
+ *   • group DM  → /weldchat/dm/group/$channelId (param is the channel id)
+ *   • channel   → /weldchat/$channelId          (param is the channel id)
+ */
+function isOnCallConversation(
+  pathname: string | null | undefined,
+  channelId: string | null | undefined,
+  otherMemberUserId: string | null | undefined,
+): boolean {
+  const groupMatch = pathname?.match(/\/weldchat\/dm\/group\/([^/]+)/);
+  if (groupMatch) return groupMatch[1] === channelId;
+  const dmMatch = pathname?.match(/\/weldchat\/dm\/([^/]+)/);
+  if (dmMatch) return !!otherMemberUserId && dmMatch[1] === otherMemberUserId;
+  const channelMatch = pathname?.match(/\/weldchat\/([^/]+)/);
+  return !!channelMatch && channelMatch[1] === channelId;
+}
+
+/** Video source for the widget — prefer the first remote participant, fall back to self. */
+function pickVideoSource(remote: RTKParticipant | undefined, self: RTKSelf | undefined) {
+  if (remote?.videoEnabled && remote.videoTrack) {
+    return { videoTrack: remote.videoTrack, hasRemoteVideo: true };
+  }
+  if (self?.videoEnabled && self.videoTrack) {
+    return { videoTrack: self.videoTrack, hasRemoteVideo: false };
+  }
+  return { videoTrack: null, hasRemoteVideo: false };
+}
+
 function PiPCallWidgetInner() {
   const { t } = useI18n();
   const {
@@ -92,18 +123,7 @@ function PiPCallWidgetInner() {
     : channel?.name || t.weldchat.pipCallWidget.call;
 
   // Determine whether the user is currently viewing the call's own conversation.
-  // The URL param differs by route shape, so we can't just compare it to channelId:
-  //   • 1:1 DM    → /weldchat/dm/$userId          (param is the OTHER user's id)
-  //   • group DM  → /weldchat/dm/group/$channelId (param is the channel id)
-  //   • channel   → /weldchat/$channelId          (param is the channel id)
-  const groupMatch = pathname?.match(/\/weldchat\/dm\/group\/([^/]+)/);
-  const dmMatch = pathname?.match(/\/weldchat\/dm\/([^/]+)/);
-  const channelMatch = pathname?.match(/\/weldchat\/([^/]+)/);
-  const isOnCallPage = groupMatch
-    ? groupMatch[1] === channelId
-    : dmMatch
-      ? !!otherMember?.userId && dmMatch[1] === otherMember.userId
-      : !!channelMatch && channelMatch[1] === channelId;
+  const isOnCallPage = isOnCallConversation(pathname, channelId, otherMember?.userId);
 
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
@@ -130,9 +150,7 @@ function PiPCallWidgetInner() {
   // Get video source — prefer remote participant, fall back to self
   const remoteParticipants = meeting?.participants?.joined?.toArray() || [];
   const firstRemote = remoteParticipants[0];
-  const hasRemoteVideo = firstRemote?.videoEnabled && firstRemote?.videoTrack;
-  const hasSelfVideo = meeting?.self?.videoEnabled && meeting?.self?.videoTrack;
-  const videoTrack = hasRemoteVideo ? firstRemote.videoTrack : hasSelfVideo ? meeting.self.videoTrack : null;
+  const { videoTrack, hasRemoteVideo } = pickVideoSource(firstRemote, meeting?.self);
 
   const enterNativePiP = useCallback(async () => {
     const video = pipVideoRef.current;
