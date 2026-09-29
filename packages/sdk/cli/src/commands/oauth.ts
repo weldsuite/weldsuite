@@ -1,4 +1,4 @@
-import { apiRequest, ApiError, loadConfig, resolveAppId } from '../api.js';
+import { apiRequest, ApiError, loadConfig, resolveAppId, type CliConfig } from '../api.js';
 import { flagBool, flagString, type ParsedArgs } from '../args.js';
 import { bold, cyan, info, success, warn } from '../log.js';
 import { loadManifest } from '../manifest.js';
@@ -28,6 +28,24 @@ interface OauthClientSecret {
   clientSecret?: string;
 }
 
+/** `--show`: print the existing client's id (the secret is never returned again). */
+async function showClient(config: CliConfig, path: string, code: string): Promise<void> {
+  try {
+    const client = await apiRequest<OauthClientMeta>(config, 'GET', path);
+    info(`${bold('Client ID')}  ${client.clientId ?? '-'}`);
+    if (client.createdAt) {
+      info(`${bold('Created')}    ${client.createdAt}`);
+    }
+    info(cyan('Secret is only shown at create/rotate time.'));
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) {
+      info(`No OAuth client yet for ${bold(code)}. Run ${cyan('weld app oauth --create')}.`);
+      return;
+    }
+    throw cause;
+  }
+}
+
 export async function run(args: ParsedArgs): Promise<void> {
   const config = loadConfig();
   const codeFlag = flagString(args.flags, 'code');
@@ -39,20 +57,7 @@ export async function run(args: ParsedArgs): Promise<void> {
   const forceWrite = flagBool(args.flags, 'create') || flagBool(args.flags, 'rotate');
 
   if (showOnly && !forceWrite) {
-    try {
-      const client = await apiRequest<OauthClientMeta>(config, 'GET', path);
-      info(`${bold('Client ID')}  ${client.clientId ?? '-'}`);
-      if (client.createdAt) {
-        info(`${bold('Created')}    ${client.createdAt}`);
-      }
-      info(cyan('Secret is only shown at create/rotate time.'));
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 404) {
-        info(`No OAuth client yet for ${bold(code)}. Run ${cyan('weld app oauth --create')}.`);
-        return;
-      }
-      throw cause;
-    }
+    await showClient(config, path, code);
     return;
   }
 
