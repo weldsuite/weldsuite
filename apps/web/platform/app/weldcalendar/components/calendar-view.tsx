@@ -41,6 +41,8 @@ import { Separator } from '@weldsuite/ui/components/separator';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { LocationAutocomplete } from './location-autocomplete';
+import { MonthEventChip, MonthMoreButton, MONTH_CHIP_CLASS } from './month-event-chip';
+import { monthCellCapacity, splitMonthCellEvents, MONTH_DEFAULT_CAPACITY } from '../lib/month-layout';
 import {
   Select,
   SelectContent,
@@ -463,10 +465,14 @@ export function CalendarView() {
         // Find last event button to align Y with where preview will appear
         const eventBtns = cell.querySelectorAll('button');
         const lastBtn = eventBtns.length > 0 ? eventBtns[eventBtns.length - 1] : null;
+        // Left bound = the calendar grid's left edge, NOT viewport 0, so the
+        // popover never slides over the sidebar.
+        const calBody = document.querySelector('[data-calendar-body]') as HTMLElement | null;
+        const leftBound = calBody ? calBody.getBoundingClientRect().left + 4 : 4;
         let x = rect.left - 364;
         let y = lastBtn ? lastBtn.getBoundingClientRect().bottom + 2 : rect.top + 28;
-        if (x < 0) x = rect.right + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(10, rect.left);
+        if (x < leftBound) x = rect.right + 4;
+        if (x + 370 > window.innerWidth) x = Math.max(leftBound, rect.left);
         if (y + 310 > window.innerHeight) y = Math.max(10, window.innerHeight - 320);
         setQuickCreatePos({ x, y, cardBottomY: null });
       } else if (cell) {
@@ -535,8 +541,8 @@ export function CalendarView() {
         const rect = monthCell.getBoundingClientRect();
         let x = rect.left - 364;
         let y = rect.top + 28;
-        if (x < 0) x = rect.right + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(10, rect.left);
+        if (x < leftBound) x = rect.right + 4;
+        if (x + 370 > window.innerWidth) x = Math.max(leftBound, rect.left);
         if (y + 310 > window.innerHeight) y = Math.max(10, window.innerHeight - 320);
         setQuickCreatePos({ x, y, cardBottomY: null });
       } else {
@@ -1034,6 +1040,10 @@ export function CalendarView() {
               events={filteredEvents}
               calendarColorMap={calendarColorMap}
               onSelectEvent={handleSelectEvent}
+              onShowDay={(day) => {
+                setCurrentDate(day);
+                setCurrentView('day');
+              }}
               selectedEventId={eventPreviewOpen ? selectedEvent?.id : undefined}
               onSelectSlot={(start, end, e, wasDrag) => {
                 handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag);
@@ -2034,12 +2044,15 @@ function MonthView({
   selectedColor,
   selectedEventId,
   onEventDrop,
+  onShowDay,
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
   onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
+  /** Opens the given day's own view; used by the "+N more" affordance. */
+  onShowDay: (day: Date) => void;
   selectedDate?: Date;
   // Accepted for parity with the timed views (week/day), which render a
   // start–end preview block. Month-view slot selection is always same-day
@@ -2067,6 +2080,25 @@ function MonthView({
     }
     weeks.push(week);
   }
+
+  // Week rows are equal and fixed-height (they fill the available space and
+  // never grow with their content), so how many chips fit in a day cell is
+  // derived from the measured row height. Anything beyond that collapses into
+  // a "+N more" line.
+  const weeksRef = useRef<HTMLDivElement>(null);
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  const weekCount = weeks.length;
+  useLayoutEffect(() => {
+    const el = weeksRef.current;
+    if (!el) return;
+    const measure = () => setRowHeight(el.clientHeight / weekCount);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [weekCount]);
+  const chipCapacity = rowHeight === null ? MONTH_DEFAULT_CAPACITY : monthCellCapacity(rowHeight);
 
   // Group events by day
   const eventsByDay = useMemo(() => {
@@ -2181,9 +2213,15 @@ function MonthView({
       </div>
 
       {/* Weeks */}
-      <div className="grid flex-1" style={{ gridTemplateRows: `repeat(${weeks.length}, 1fr)` }}>
+      {/* minmax(0, 1fr): a bare `1fr` has an implicit `auto` minimum, which lets
+          a row grow to fit its chips and pushes the last week out of view. */}
+      <div
+        ref={weeksRef}
+        className="grid flex-1 min-h-0 overflow-hidden"
+        style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
+      >
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 border-b last:border-b-0 overflow-hidden">
+          <div key={wi} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
             {week.map((day) => {
               const key = format(day, 'yyyy-MM-dd');
               const dayEvents = eventsByDay[key] || [];
@@ -2200,7 +2238,7 @@ function MonthView({
                   data-calendar-cell
                   data-date={key}
                   className={cn(
-                    'border-r last:border-r-0 p-1 cursor-pointer transition-colors hover:bg-accent/30',
+                    'min-h-0 overflow-hidden border-r last:border-r-0 p-1 cursor-pointer transition-colors hover:bg-accent/30',
                     !isCurrentMonth && 'bg-muted/50',
                     today && 'bg-primary/[0.01]',
                     isSelected && 'bg-primary/5',
@@ -2222,40 +2260,41 @@ function MonthView({
                   </div>
                   <div className="space-y-0.5 overflow-hidden">
                     {(() => {
-                      const max = isSelected ? 6 : 7;
-                      const showMore = dayEvents.length > max;
-                      const visible = showMore ? max - 1 : dayEvents.length;
-                      const remaining = dayEvents.length - visible;
+                      // The quick-create preview / drag ghost occupies a slot too.
+                      const reserved = (isSelected && !dragEvent) || isDragOver ? 1 : 0;
+                      const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
                       return (
                         <>
                           {dayEvents.slice(0, visible).map((evt, ei) => {
                             const isEventSelected = selectedEventId === evt.id;
                             const isDragging = dragEvent?.id === evt.id;
-                            const eventColor = getEventColor(evt, calendarColorMap);
                             return (
-                            <Button
-                              variant="ghost"
-                              key={evt.id || ei}
-                              className={cn(
-                                "w-full text-left text-[11px] leading-tight px-1.5 pt-[6px] pb-[5px] rounded-[6px] truncate text-white font-medium border-0 transition-all",
-                                isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
-                                isDragging && "opacity-40 pointer-events-none",
-                              )}
-                              style={{ backgroundColor: eventColor, cursor: 'grab' }}
-                              onMouseDown={(e) => handleEventDragStart(evt, e)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
-                              }}
-                            >
-                              {evt.allDay ? evt.title : `${format(new Date(evt.startTime), 'h:mm')} ${evt.title}`}
-                            </Button>
+                              <MonthEventChip
+                                key={evt.id || ei}
+                                color={getEventColor(evt, calendarColorMap)}
+                                time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
+                                title={evt.title}
+                                className={cn(
+                                  isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
+                                  isDragging && "opacity-40 pointer-events-none",
+                                )}
+                                style={{ cursor: 'grab' }}
+                                onMouseDown={(e) => handleEventDragStart(evt, e)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
+                                }}
+                              />
                             );
                           })}
-                          {showMore && (
-                            <p className="text-[11px] text-muted-foreground pl-1.5 font-medium mt-[3px]">
-                              {t.misc.moreEvents.replace('{count}', String(remaining))}
-                            </p>
+                          {hidden > 0 && (
+                            <MonthMoreButton
+                              label={t.misc.moreEvents.replace('{count}', String(hidden))}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onShowDay(day);
+                              }}
+                            />
                           )}
                         </>
                       );
@@ -2263,7 +2302,7 @@ function MonthView({
                     {/* Ghost preview on drag target */}
                     {isDragOver && dragEvent && (
                       <div
-                        className="w-full text-left text-[11px] leading-tight px-1.5 pt-[6px] pb-[5px] rounded-[6px] truncate text-white font-medium opacity-60"
+                        className="h-5 w-full flex items-center px-1.5 rounded-[6px] truncate text-left text-[11px] leading-none text-white font-medium opacity-60"
                         style={{ backgroundColor: getEventColor(dragEvent, calendarColorMap) }}
                       >
                         {dragEvent.title}
@@ -2274,7 +2313,7 @@ function MonthView({
                       <Button
                         variant="ghost"
                         data-preview
-                        className="w-full text-left text-[11px] leading-tight px-1.5 pt-[6px] pb-[5px] rounded-[6px] truncate text-white font-medium border-0 animate-in fade-in-50"
+                        className={cn(MONTH_CHIP_CLASS, 'animate-in fade-in-50')}
                         style={{ backgroundColor: previewColor }}
                         onClick={(e) => e.stopPropagation()}
                       >
