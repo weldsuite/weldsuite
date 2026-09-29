@@ -135,6 +135,17 @@ function generateFieldKey(label: string): string {
     .replace(/^_|_$/g, '');
 }
 
+function removeStateAt(
+  groups: TicketTypeStateGroup[],
+  groupIndex: number,
+  stateIndex: number
+): TicketTypeStateGroup[] {
+  return groups.map((g, gi) => {
+    if (gi !== groupIndex) return g;
+    return { ...g, states: g.states.filter((_, si) => si !== stateIndex) };
+  });
+}
+
 // Section header component for the collapsible sections
 function SectionHeader({
   title,
@@ -487,10 +498,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                                 if (editingState?.groupIndex === groupIndex && editingState?.stateIndex === stateIndex) {
                                   setEditingState(null);
                                 }
-                                setStates(states.map((g, gi) => {
-                                  if (gi !== groupIndex) return g;
-                                  return { ...g, states: g.states.filter((_, si) => si !== stateIndex) };
-                                }));
+                                setStates(removeStateAt(states, groupIndex, stateIndex));
                               }}
                             >
                               <X className="h-3 w-3" />

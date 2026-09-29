@@ -33,6 +33,65 @@ interface NewsViewerProps {
   article: NewsArticle;
 }
 
+type ListType = 'bullet' | 'numbered';
+
+const NUMBERED_PREFIX = /^\d+\. /;
+
+function parseListLine(line: string): { type: ListType; text: string } | null {
+  if (line.startsWith('- ')) return { type: 'bullet', text: line.substring(2) };
+  if (NUMBERED_PREFIX.test(line)) return { type: 'numbered', text: line.replace(NUMBERED_PREFIX, '') };
+  return null;
+}
+
+function renderInlineMarkdown(line: string): string {
+  return line
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
+}
+
+// Headings, blockquotes and paragraphs (every non-list, non-blank, non-code line)
+function renderTextBlock(line: string, key: number): ReactElement {
+  if (line.startsWith('# ')) {
+    return (
+      <h1 key={key} className="text-4xl font-bold mb-4 mt-8">
+        {line.substring(2)}
+      </h1>
+    );
+  }
+  if (line.startsWith('## ')) {
+    return (
+      <h2 key={key} className="text-3xl font-bold mb-3 mt-6">
+        {line.substring(3)}
+      </h2>
+    );
+  }
+  if (line.startsWith('### ')) {
+    return (
+      <h3 key={key} className="text-2xl font-semibold mb-3 mt-4">
+        {line.substring(4)}
+      </h3>
+    );
+  }
+  if (line.startsWith('> ')) {
+    return (
+      <blockquote
+        key={key}
+        className="border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground mb-4"
+      >
+        {line.substring(2)}
+      </blockquote>
+    );
+  }
+  return (
+    <p
+      key={key}
+      className="mb-4 leading-relaxed"
+      dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line) }}
+    />
+  );
+}
+
 export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
   const router = useRouter();
   const { t } = useI18n();
@@ -55,7 +114,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
     const lines = content.split('\n');
     const elements: ReactElement[] = [];
     let listItems: string[] = [];
-    let listType: 'bullet' | 'numbered' | null = null;
+    let listType: ListType | null = null;
     let codeBlock: string[] = [];
     let inCodeBlock = false;
 
@@ -105,73 +164,26 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
         return;
       }
 
-      if (line.startsWith('# ')) {
-        flushList();
-        elements.push(
-          <h1 key={elements.length} className="text-4xl font-bold mb-4 mt-8">
-            {line.substring(2)}
-          </h1>
-        );
-      } else if (line.startsWith('## ')) {
-        flushList();
-        elements.push(
-          <h2 key={elements.length} className="text-3xl font-bold mb-3 mt-6">
-            {line.substring(3)}
-          </h2>
-        );
-      } else if (line.startsWith('### ')) {
-        flushList();
-        elements.push(
-          <h3 key={elements.length} className="text-2xl font-semibold mb-3 mt-4">
-            {line.substring(4)}
-          </h3>
-        );
-      } else if (line.startsWith('- ')) {
-        if (listType !== 'bullet') {
+      const listLine = parseListLine(line);
+      if (listLine) {
+        if (listType !== listLine.type) {
           flushList();
-          listType = 'bullet';
+          listType = listLine.type;
         }
-        listItems.push(line.substring(2));
-      } else if (line.match(/^\d+\. /)) {
-        if (listType !== 'numbered') {
-          flushList();
-          listType = 'numbered';
-        }
-        listItems.push(line.replace(/^\d+\. /, ''));
-      } else if (line.startsWith('> ')) {
-        flushList();
-        elements.push(
-          <blockquote
-            key={elements.length}
-            className="border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground mb-4"
-          >
-            {line.substring(2)}
-          </blockquote>
-        );
-      } else if (line.trim() === '') {
-        flushList();
+        listItems.push(listLine.text);
+        return;
+      }
+
+      flushList();
+
+      if (line.trim() === '') {
         if (elements.length > 0 && elements[elements.length - 1].type !== 'br') {
           elements.push(<br key={elements.length} />);
         }
-      } else {
-        flushList();
-        // Parse inline markdown
-        let content = line;
-        // Bold
-        content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // Italic
-        content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        // Inline code
-        content = content.replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
-
-        elements.push(
-          <p
-            key={elements.length}
-            className="mb-4 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: content }}
-          />
-        );
+        return;
       }
+
+      elements.push(renderTextBlock(line, elements.length));
     });
 
     flushList();
