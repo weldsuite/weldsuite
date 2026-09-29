@@ -560,8 +560,8 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
     deleteCommentMutation.mutate(commentId);
   }, [deleteCommentMutation]);
 
-  const handleCreateSubtask = useCallback(async () => {
-    createSubtaskMutation.mutate({ title: t('sweep.entities.newSubtaskTitle'), status: 'todo' }, {
+  const handleCreateSubtask = useCallback((title: string) => {
+    createSubtaskMutation.mutate({ title, status: 'todo' }, {
       onError: (err) => toast.error(err?.message || t('sweep.entities.createSubtaskFailed')),
     });
   }, [createSubtaskMutation, t]);

@@ -71,6 +71,7 @@ import { EmojiPicker } from '@/app/weldchat/components/emoji-picker';
 import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/components/mention-autocomplete';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
+import { InlineSubtaskInput } from './inline-subtask-input';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -320,7 +321,7 @@ export interface TaskDetailContentProps {
   currentUserId?: string;
   // Subtasks
   subtasks?: SubtaskItem[];
-  onCreateSubtask?: () => void;
+  onCreateSubtask?: (title: string) => void;
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
   parentTask?: { id: string; title: string; status?: string } | null;
@@ -1430,7 +1431,7 @@ export function TaskDetailContent({
   );
 }
 
-function SubtasksSection({
+export function SubtasksSection({
   subtasks,
   parentTask,
   currentTaskId,
@@ -1449,12 +1450,13 @@ function SubtasksSection({
    *  back to their ACTUAL parent instead of to the `parentTask` breadcrumb
    *  (which is the grandparent of those children). */
   rootTask?: { id: string; title: string; status?: string };
-  onCreateSubtask: () => void;
+  onCreateSubtask: (title: string) => void;
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
 }) {
   const t = useTranslations();
   const [collapsed, setCollapsed] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const completedCount = subtasks.filter(s => s.status === 'done').length;
   const totalCount = subtasks.length;
@@ -1465,6 +1467,13 @@ function SubtasksSection({
   // reads as "parent → selected → selected's children". Top-level tasks
   // (no parent) keep the previous shape: selected as root, children below.
   const effectiveRoot = parentTask ?? rootTask;
+
+  // "Add subtask" only reveals an inline title field; the subtask is created
+  // when the user submits a title (see InlineSubtaskInput).
+  const startAdding = () => {
+    setCollapsed(false);
+    setIsAdding(true);
+  };
   const effectiveSubtasks: SubtaskItem[] = parentTask && rootTask
     ? [
         { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: 0 },
@@ -1488,7 +1497,7 @@ function SubtasksSection({
           <Button
             variant="ghost"
             size="icon"
-            onClick={onCreateSubtask}
+            onClick={startAdding}
             className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover/subtasks-section:opacity-100"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -1736,11 +1745,24 @@ function SubtasksSection({
             );
           })()}
 
-      {subtasks.length === 0 && (
+      {isAdding && (
+        <div className="py-1">
+          <InlineSubtaskInput
+            placeholder={t('sweep.shared.subtaskTitlePlaceholder')}
+            onSubmit={(title) => {
+              setIsAdding(false);
+              onCreateSubtask(title);
+            }}
+            onCancel={() => setIsAdding(false)}
+          />
+        </div>
+      )}
+
+      {subtasks.length === 0 && !isAdding && (
         <Button
           variant="ghost"
           type="button"
-          onClick={onCreateSubtask}
+          onClick={startAdding}
           className="inline-flex items-center gap-1.5 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <Plus className="h-3.5 w-3.5" />
