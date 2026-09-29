@@ -170,6 +170,8 @@ export const weldmeet = {
     failedToCreate: 'No se pudo crear la reunión',
     failedToCreateHint: 'Por favor, inténtalo de nuevo.',
     meetingLinkCopied: 'Enlace de reunión copiado',
+    meetingLinkUnavailable: 'No se pudo crear el enlace de la reunión',
+    meetingLinkUnavailableHint: 'La reunión se creó pero aún no tiene enlace de acceso. Inténtalo de nuevo.',
     addPeople: 'Añadir personas',
     searchByNameOrEmail: 'Buscar por nombre o correo...',
     noMembersFound: 'No se encontraron miembros',

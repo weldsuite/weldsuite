@@ -29,6 +29,7 @@ import {
   type HostControlsValue,
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 
 // ============================================================================
 // Platform-specific bits the shared component takes as slots
@@ -353,8 +354,7 @@ function MeetingRoomAdapter() {
   }, [participantLinks, openObjectPanel]);
 
   const joinCode = meetingData?.joinCode ?? '';
-  const meetingPortalUrl = import.meta.env.VITE_MEETING_PORTAL_URL || window.location.origin;
-  const shareUrl = joinCode ? `${meetingPortalUrl}/${workspaceId}/${joinCode}` : '';
+  const shareUrl = buildMeetingShareUrl(workspaceId, joinCode) ?? '';
   const displayTitle = meetingData?.title || meetingTitle;
 
   useEffect(() => {

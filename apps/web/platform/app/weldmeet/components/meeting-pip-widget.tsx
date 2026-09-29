@@ -9,6 +9,7 @@ import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, 
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import type { RTKParticipant } from '@cloudflare/realtimekit';
 import { ParticipantAvatar, getPersonTheme, getInitials } from '@weldsuite/weldmeet-ui';
 import { Button } from '@weldsuite/ui/components/button';
@@ -129,8 +130,7 @@ export function MeetingPiPWidget() {
   const { data: meetingData } = useMeeting(meetingId ?? '');
   const handleCopyJoiningInfo = useCallback(() => {
     const joinCode = meetingData?.joinCode ?? '';
-    const portalUrl = import.meta.env.VITE_MEETING_PORTAL_URL || window.location.origin;
-    const shareUrl = joinCode ? `${portalUrl}/${workspaceId}/${joinCode}` : '';
+    const shareUrl = buildMeetingShareUrl(workspaceId, joinCode) ?? '';
     const text = [
       t.pipWidget.joiningInfoTitle,
       shareUrl ? `${t.pipWidget.joiningInfoJoin}: ${shareUrl}` : null,
