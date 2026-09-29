@@ -140,6 +140,22 @@ export function buildResponsiveEmailCss(opts: {
 }
 
 /**
+ * Carry the safe `<body>` attributes (bgcolor, style) over to a wrapper div.
+ * Returns the wrapper's open/close tags, or empty strings when there are none.
+ */
+function bodyAttrWrapper(attrs: string): [string, string] {
+  const styleAttr = attrs.match(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i);
+  const bgAttr = attrs.match(/\sbgcolor\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i);
+  if (!styleAttr && !bgAttr) return ['', ''];
+  const open =
+    `<div` +
+    (bgAttr ? ` bgcolor=${bgAttr[1]}` : '') +
+    (styleAttr ? ` style=${styleAttr[1]}` : '') +
+    `>`;
+  return [open, '</div>'];
+}
+
+/**
  * If the stored payload is a full HTML document, keep its `<style>` blocks and
  * body markup (plus safe body bgcolor/style) so ESP head CSS is not dropped
  * when we re-wrap it in our CSP shell.
@@ -158,21 +174,7 @@ export function unwrapEmailHtml(html: string): string {
   }
 
   let body = bodyMatch ? bodyMatch[2] : html;
-  let wrapperOpen = '';
-  let wrapperClose = '';
-  if (bodyMatch) {
-    const attrs = bodyMatch[1] ?? '';
-    const styleAttr = attrs.match(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i);
-    const bgAttr = attrs.match(/\sbgcolor\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i);
-    if (styleAttr || bgAttr) {
-      wrapperOpen =
-        `<div` +
-        (bgAttr ? ` bgcolor=${bgAttr[1]}` : '') +
-        (styleAttr ? ` style=${styleAttr[1]}` : '') +
-        `>`;
-      wrapperClose = '</div>';
-    }
-  }
+  const [wrapperOpen, wrapperClose] = bodyMatch ? bodyAttrWrapper(bodyMatch[1] ?? '') : ['', ''];
 
   return `${styles.join('')}${wrapperOpen}${body}${wrapperClose}`;
 }
