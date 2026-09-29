@@ -196,10 +196,14 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     }
   }, [isEntitySheetOpen]);
 
+  // The thread pane is a fixed 480px column. Opened next to the channel details
+  // panel it squeezes the timeline to ~110px on a 1440px screen, so opening a
+  // thread collapses the details panel (the user can reopen it afterwards).
   const openThread = useCallback((messageId: string) => {
+    closeAllObjectPanels();
     setThreadMessageId(messageId);
     setRightPanel('thread');
-  }, []);
+  }, [closeAllObjectPanels]);
   const closeThread = useCallback(() => {
     setThreadMessageId(null);
     setRightPanel(null);

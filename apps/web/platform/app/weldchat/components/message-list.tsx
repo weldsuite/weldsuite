@@ -4,6 +4,7 @@ import { getTranslations } from '@/lib/i18n';
 import {
   useMessages,
   useThreadMessages,
+  useChatMessage,
   useWorkspaceMembers,
   useChannelMembers,
   useBookmarks,
@@ -14,7 +15,7 @@ import {
 import { ChannelEmptyState } from './channel-empty-state';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQuery } from '@tanstack/react-query';
-import { MessageItem } from './message-item';
+import { MessageItem, type MessageItemMessage } from './message-item';
 import { MessageSkeleton } from './message-skeleton';
 import { Button } from '@weldsuite/ui/components/button';
 import { Loader2 } from 'lucide-react';
@@ -142,18 +143,24 @@ export function MessageList({
 
   const { filters } = useChatContext();
 
-  // API returns newest-first; reverse to chronological (oldest first, newest at bottom)
+  // Channel pages arrive newest-first; reverse them to chronological (oldest
+  // first, newest at bottom). Thread replies are already sorted oldest-first by
+  // `useThreadMessages`, so they must not be reversed again.
   const allMessages = useMemo((): ListMessage[] => {
-    const raw =
-      data?.pages?.flatMap((page) => {
-        const d = page.data;
-        return Array.isArray(d) ? d : (d?.messages ?? []);
-      }) ?? data?.data ?? [];
-    return [...raw].reverse().map((m) => ({
+    const paged = data?.pages?.flatMap((page) => {
+      const d = page.data;
+      return Array.isArray(d) ? d : (d?.messages ?? []);
+    });
+    const chronological = paged ? [...paged].reverse() : [...(data?.data ?? [])];
+    return chronological.map((m) => ({
       ...m,
       isBookmarked: bookmarkedIds.has(m.id),
     }));
   }, [data, bookmarkedIds]);
+
+  // Thread view: the message the thread hangs off, shown above the replies.
+  const { data: threadParentData } = useChatMessage(parentId ?? '');
+  const threadParent = parentId ? (threadParentData?.data as MessageItemMessage | undefined) : undefined;
 
   // Apply client-side filters
   const messages = useMemo(() => {
@@ -282,6 +289,16 @@ export function MessageList({
         )}
         {!parentId && !hasNextPage && messages.length === 0 && channel && (
           <ChannelEmptyState channel={channel} />
+        )}
+        {threadParent && (
+          <div data-testid="chat-thread-parent" className="border-b pb-3 mb-2">
+            <MessageItem
+              message={threadParent}
+              channelId={channelId}
+              membersMap={membersMap}
+              isDm={isDm}
+            />
+          </div>
         )}
         {messages.map((message, index) => {
           const prevMessage = messages[index - 1];

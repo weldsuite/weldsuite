@@ -75,6 +75,7 @@ export interface ChatMessage {
   mentions?: string[];
   reactions?: Record<string, string[]>;
   threadReplyCount?: number;
+  threadLastReplyAt?: string | null;
   lastReplyAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -181,6 +182,7 @@ export const weldchatKeys = {
   channelDetail: (id: string) => [...weldchatKeys.channels(), id] as const,
   messages: (channelId: string) => [...weldchatKeys.all, 'messages', channelId] as const,
   threadMessages: (channelId: string, parentId: string) => [...weldchatKeys.all, 'thread', channelId, parentId] as const,
+  message: (messageId: string) => [...weldchatKeys.all, 'message', messageId] as const,
   pinnedMessages: (channelId: string) => [...weldchatKeys.all, 'pinned', channelId] as const,
   members: (channelId: string) => [...weldchatKeys.all, 'members', channelId] as const,
   dms: () => [...weldchatKeys.all, 'dms'] as const,
@@ -200,15 +202,120 @@ export const weldchatKeys = {
 // Real-Time Cache Merge Utilities
 // ============================================================================
 
+/** Cache shape of `useThreadMessages()` — replies, oldest first. */
+interface ThreadCache {
+  data?: ChatMessage[];
+  [key: string]: unknown;
+}
+
+/**
+ * Thread-reply ids already counted into a parent's `threadReplyCount`.
+ *
+ * A reply reaches the cache twice for its sender — once from the send
+ * mutation's `onSuccess`, once from the realtime echo — and only one of those
+ * may bump the count. Bounded so a long session can't grow it without limit.
+ */
+const countedThreadReplyIds = new Set<string>();
+const MAX_COUNTED_REPLY_IDS = 500;
+
+function markThreadReplyCounted(replyId: string): boolean {
+  if (countedThreadReplyIds.has(replyId)) return false;
+  countedThreadReplyIds.add(replyId);
+  if (countedThreadReplyIds.size > MAX_COUNTED_REPLY_IDS) {
+    const oldest = countedThreadReplyIds.values().next().value;
+    if (oldest !== undefined) countedThreadReplyIds.delete(oldest);
+  }
+  return true;
+}
+
+/** Test seam: forget which thread replies were already counted. */
+export function resetThreadReplyCountTracking() {
+  countedThreadReplyIds.clear();
+}
+
+/**
+ * True when the message is a reply inside a thread. The channel timeline
+ * (`GET /channels/:id/messages`) only ever holds top-level messages — the server
+ * filters `parent_id IS NULL` — so a reply must never be written into it.
+ */
+export function isThreadReply(message: Pick<ChatMessage, 'parentId'>): boolean {
+  return !!message.parentId;
+}
+
+/**
+ * Add a thread reply to the thread's cache (when that thread has been loaded)
+ * and bump the parent's reply count in the channel timeline (when the parent is
+ * cached). Deduplicates by id and swaps out the matching optimistic row,
+ * mirroring what `mergeMessageIntoCache` does for top-level messages.
+ */
+function mergeThreadReplyIntoCache(
+  queryClient: QueryClient,
+  channelId: string,
+  reply: ChatMessage,
+) {
+  const parentId = reply.parentId;
+  if (!parentId) return;
+
+  queryClient.setQueryData<ThreadCache>(weldchatKeys.threadMessages(channelId, parentId), (old) => {
+    // Thread never opened/loaded: nothing to keep in sync, the first load
+    // fetches the replies from the server.
+    if (!old?.data) return old;
+
+    if (old.data.some((m) => m.id === reply.id)) {
+      return {
+        ...old,
+        data: old.data.map((m) => (m.id === reply.id ? { ...m, ...reply, _optimistic: undefined } : m)),
+      };
+    }
+    const withoutOptimistic = old.data.filter((m) => !m._optimistic || m.content !== reply.content);
+    return { ...old, data: [...withoutOptimistic, reply] };
+  });
+
+  const messagesKey = weldchatKeys.messages(channelId);
+  const cached = queryClient.getQueryData<MessagesCache>(messagesKey);
+  const parentCached = cached?.pages?.some((p) => p?.data?.messages?.some((m) => m.id === parentId));
+  if (!parentCached || !markThreadReplyCounted(reply.id)) return;
+
+  queryClient.setQueryData<MessagesCache>(messagesKey, (old) => {
+    if (!old?.pages) return old;
+    return {
+      ...old,
+      pages: old.pages.map((p) => ({
+        ...p,
+        data: {
+          ...p.data,
+          messages: p.data?.messages?.map((m) =>
+            m.id === parentId
+              ? {
+                  ...m,
+                  threadReplyCount: (m.threadReplyCount ?? 0) + 1,
+                  threadLastReplyAt: reply.createdAt ?? m.threadLastReplyAt,
+                }
+              : m,
+          ),
+        },
+      })),
+    };
+  });
+}
+
 /**
  * Insert a new real-time message into the infinite query cache.
  * Deduplicates by id (replaces optimistic messages).
+ *
+ * Thread replies (`parentId` set) are NOT inserted into the channel timeline:
+ * they go to the thread's own cache and bump the parent's `threadReplyCount`.
  */
 export function mergeMessageIntoCache(
   queryClient: QueryClient,
   channelId: string,
   message: ChatMessage,
 ) {
+  if (isThreadReply(message)) {
+    mergeThreadReplyIntoCache(queryClient, channelId, message);
+    return;
+  }
+
   queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
     if (!old?.pages) return old;
 
@@ -481,6 +588,19 @@ export function useThreadMessages(channelId: string, parentId: string) {
   });
 }
 
+/** A single message by id — used to show a thread's parent at the top of the thread pane. */
+export function useChatMessage(messageId: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldchatKeys.message(messageId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: ChatMessage }>(`/chat-messages/${messageId}`);
+    },
+    enabled: !!messageId,
+  });
+}
+
 export function usePinnedMessages(channelId: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -508,7 +628,10 @@ export function useSendMessage() {
       const { channelId, _optimisticId } = variables;
       if (!_optimisticId || !userId) return;
 
-      await queryClient.cancelQueries({ queryKey: weldchatKeys.messages(channelId) });
+      const threadKey = variables.parentId
+        ? weldchatKeys.threadMessages(channelId, variables.parentId)
+        : null;
+      await queryClient.cancelQueries({ queryKey: threadKey ?? weldchatKeys.messages(channelId) });
 
       const optimisticMessage: ChatMessage = {
         id: _optimisticId,
@@ -527,6 +650,15 @@ export function useSendMessage() {
         updatedAt: new Date().toISOString(),
         _optimistic: true,
       };
+
+      // A thread reply belongs to the thread pane, never the channel timeline.
+      if (threadKey) {
+        queryClient.setQueryData<ThreadCache>(threadKey, (old) => {
+          if (!old?.data) return old;
+          return { ...old, data: [...old.data, optimisticMessage] };
+        });
+        return;
+      }
 
       queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
         if (!old?.pages) return old;
@@ -551,11 +683,23 @@ export function useSendMessage() {
       // content (and dedupes by id if the echo does arrive later).
       const message = response?.data;
       if (message?.id) {
-        mergeMessageIntoCache(queryClient, variables.channelId, message);
+        // Trust what we sent if the server row somehow omits the parent, so a
+        // thread reply can never fall through into the channel timeline.
+        const reconciled =
+          variables.parentId && !message.parentId ? { ...message, parentId: variables.parentId } : message;
+        mergeMessageIntoCache(queryClient, variables.channelId, reconciled);
       }
     },
     onError: (_error, variables) => {
-      if (variables._optimisticId) {
+      if (variables._optimisticId && variables.parentId) {
+        queryClient.setQueryData<ThreadCache>(
+          weldchatKeys.threadMessages(variables.channelId, variables.parentId),
+          (old) => {
+            if (!old?.data) return old;
+            return { ...old, data: old.data.filter((m) => m.id !== variables._optimisticId) };
+          },
+        );
+      } else if (variables._optimisticId) {
         queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(variables.channelId), (old) => {
           if (!old?.pages) return old;
           return {
@@ -575,6 +719,7 @@ export function useSendMessage() {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       if (variables.parentId) {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.threadMessages(variables.channelId, variables.parentId) });
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.message(variables.parentId) });
       }
     },
   });
