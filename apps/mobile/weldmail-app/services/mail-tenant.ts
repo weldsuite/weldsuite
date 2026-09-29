@@ -157,6 +157,40 @@ interface SourcePage {
   hasMore: boolean;
 }
 
+/** One inbox page for a single (personal or workspace) account. */
+async function listSingleAccountPage(
+  selected: TenantMailAccount,
+  params: { label?: string; search?: string; limit: number; cursor: InboxCursor },
+): Promise<InboxPage> {
+  const { label, search, limit, cursor } = params;
+
+  if (isPersonalAccount(selected)) {
+    const { data, pagination } = await personalApi.mailMessages.list({
+      accountId: selected.id,
+      label,
+      search,
+      limit,
+      cursor: cursor.personal,
+    });
+    return {
+      items: data.map(normalizePersonalMessage),
+      cursor: pagination?.hasMore && pagination.cursor ? { personal: pagination.cursor } : null,
+    };
+  }
+
+  const { data, pagination } = await appApi.mailMessages.list({
+    accountId: selected.id,
+    label,
+    search,
+    limit,
+    cursor: cursor.workspace,
+  });
+  return {
+    items: data as EmailListItem[],
+    cursor: pagination?.hasMore && pagination.cursor ? { workspace: pagination.cursor } : null,
+  };
+}
+
 /**
  * One page of the inbox, newest first. Search runs server-side on both
  * backends, so it covers the whole mailbox rather than the loaded rows.
@@ -174,32 +208,8 @@ export async function listInboxMessagesPage(opts: {
   const search = opts.search?.trim() || undefined;
   const cursor = opts.cursor ?? {};
 
-  if (!opts.isUnified && opts.selected && isPersonalAccount(opts.selected)) {
-    const { data, pagination } = await personalApi.mailMessages.list({
-      accountId: opts.selected.id,
-      label,
-      search,
-      limit,
-      cursor: cursor.personal,
-    });
-    return {
-      items: data.map(normalizePersonalMessage),
-      cursor: pagination?.hasMore && pagination.cursor ? { personal: pagination.cursor } : null,
-    };
-  }
-
   if (!opts.isUnified && opts.selected) {
-    const { data, pagination } = await appApi.mailMessages.list({
-      accountId: opts.selected.id,
-      label,
-      search,
-      limit,
-      cursor: cursor.workspace,
-    });
-    return {
-      items: data as EmailListItem[],
-      cursor: pagination?.hasMore && pagination.cursor ? { workspace: pagination.cursor } : null,
-    };
+    return listSingleAccountPage(opts.selected, { label, search, limit, cursor });
   }
 
   // Unified: current workspace (if the JWT has an org) + personal.
