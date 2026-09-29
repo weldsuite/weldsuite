@@ -1,4 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useBlocker } from '@tanstack/react-router';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -72,6 +73,228 @@ const DAY_NAMES: (keyof WeeklyAvailability)[] = [
   'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
 ];
 
+type RepeatMode = 'none' | 'weekly' | 'custom';
+type RepeatUnit = 'weeks' | 'months';
+type RepeatEndType = 'never' | 'date';
+
+interface SpecificDate {
+  date: string;
+  ranges: TimeRange[];
+}
+
+type BookingPageDestination =
+  | { to: '/weldcalendar/scheduling/$id'; params: { id: string } }
+  | { to: '/weldcalendar/scheduling/$id/view'; params: { id: string } }
+  | { to: '/weldcalendar' };
+
+const DATE_KEY_FORMAT = 'yyyy-MM-dd';
+const DEFAULT_BOOKING_NAME = 'New Booking Page';
+
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const resolveBookingName = (title: string) => title.trim() || DEFAULT_BOOKING_NAME;
+const bookingSlug = (name: string) => slugify(name) || 'booking';
+const currentTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const defaultRange = (): TimeRange => ({ start: '09:00', end: '17:00' });
+
+// End time for a new range that starts at `start`: one hour later, capped at 23:00.
+function nextRangeEnd(start: string): string {
+  const [h] = start.split(':').map(Number);
+  return `${String(Math.min(h + 1, 23)).padStart(2, '0')}:00`;
+}
+
+const parseDateValue = (value: string): Date | undefined => (value ? new Date(value) : undefined);
+const formatDateValue = (date: Date | undefined): string => (date ? format(date, DATE_KEY_FORMAT) : '');
+
+function resolveInitialValues(
+  initialData: BookingPageEditorProps['initialData'],
+  isEdit: boolean,
+  defaultTitle: string,
+) {
+  return {
+    title: initialData?.title ?? (isEdit ? '' : defaultTitle),
+    duration: initialData?.duration || 120,
+    availability: initialData?.availability || DEFAULT_AVAILABILITY,
+    bufferBefore: initialData?.bufferBefore || 0,
+    bufferAfter: initialData?.bufferAfter || 0,
+  };
+}
+
+function hasUnsavedBookingChanges(
+  isEdit: boolean,
+  initialData: BookingPageEditorProps['initialData'],
+  form: { title: string; duration: number; bufferBefore: number; bufferAfter: number },
+): boolean {
+  if (isEdit && initialData) {
+    return form.title !== initialData.title || form.duration !== initialData.duration || form.bufferBefore !== initialData.bufferBefore || form.bufferAfter !== initialData.bufferAfter;
+  }
+  return form.title.trim() !== '' || form.duration !== 120 || form.bufferBefore !== 0 || form.bufferAfter !== 0;
+}
+
+// Header label mirrors the main calendar / viewer: "May 2026" when the
+// visible week is inside one month, "Apr – May 2026" when it spans two.
+function formatWeekHeaderLabel(weekStart: Date): string {
+  const weekEnd = addDays(weekStart, 6);
+  if (weekStart.getMonth() === weekEnd.getMonth() && weekStart.getFullYear() === weekEnd.getFullYear()) {
+    return format(weekStart, 'MMMM yyyy');
+  }
+  const yearLabel = weekStart.getFullYear() === weekEnd.getFullYear()
+    ? format(weekEnd, 'yyyy')
+    : `${format(weekStart, 'yyyy')} – ${format(weekEnd, 'yyyy')}`;
+  return `${format(weekStart, 'MMM')} – ${format(weekEnd, 'MMM')} ${yearLabel}`;
+}
+
+function isCurrentWeek(weekStart: Date): boolean {
+  const now = new Date();
+  return now >= weekStart && now < addDays(weekStart, 7);
+}
+
+// Convert availability to visual blocks for the week view
+function getAvailabilityBlocks(
+  dayDate: Date,
+  repeatMode: RepeatMode,
+  specificDates: SpecificDate[],
+  availability: WeeklyAvailability,
+): TimeRange[] {
+  if (repeatMode === 'none') {
+    const dateStr = format(dayDate, DATE_KEY_FORMAT);
+    const sd = specificDates.find((d) => d.date === dateStr);
+    return sd?.ranges || [];
+  }
+  const dayName = format(dayDate, 'EEEE').toLowerCase() as keyof WeeklyAvailability;
+  return availability[dayName] || [];
+}
+
+function destinationForNewPage(newId: string | null | undefined): BookingPageDestination {
+  return newId
+    ? { to: '/weldcalendar/scheduling/$id/view', params: { id: newId } }
+    : { to: '/weldcalendar' };
+}
+
+function continueButtonLabel(
+  isSaving: boolean,
+  isEdit: boolean,
+  labels: { saving: string; creating: string; next: string; continueLabel: string },
+): string {
+  if (isSaving) return isEdit ? labels.saving : labels.creating;
+  return isEdit ? labels.next : labels.continueLabel;
+}
+
+function repeatSummaryLabel(
+  mode: RepeatMode,
+  every: number,
+  unit: RepeatUnit,
+  labels: { weeks: string; months: string; doesNotRepeat: string; repeatWeekly: string },
+): string {
+  if (mode === 'custom') return `${every} ${unit === 'weeks' ? labels.weeks : labels.months}`;
+  return mode === 'none' ? labels.doesNotRepeat : labels.repeatWeekly;
+}
+
+// Immutable helpers for the specific-dates list.
+function patchSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number, patch: Partial<TimeRange>): SpecificDate[] {
+  return dates.map((sd, i) =>
+    i === sdIdx
+      ? { ...sd, ranges: sd.ranges.map((range, j) => (j === rIdx ? { ...range, ...patch } : range)) }
+      : sd,
+  );
+}
+
+function appendSpecificRange(dates: SpecificDate[], sdIdx: number): SpecificDate[] {
+  return dates.map((sd, i) => {
+    if (i !== sdIdx) return sd;
+    const lastRange = sd.ranges[sd.ranges.length - 1];
+    return { ...sd, ranges: [...sd.ranges, { start: lastRange.end, end: nextRangeEnd(lastRange.end) }] };
+  });
+}
+
+function removeSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number): SpecificDate[] {
+  const updated = dates.map((sd, i) =>
+    i === sdIdx ? { ...sd, ranges: sd.ranges.filter((_, j) => j !== rIdx) } : sd,
+  );
+  return updated[sdIdx]?.ranges.length === 0 ? updated.filter((_, i) => i !== sdIdx) : updated;
+}
+
+const sortByDate = (dates: SpecificDate[]): SpecificDate[] => dates.sort((a, b) => a.date.localeCompare(b.date));
+
+function useSpecificDates() {
+  const [dates, setDates] = useState<SpecificDate[]>([]);
+
+  const addDate = (date: Date | undefined) => {
+    if (!date) return;
+    const dateStr = format(date, DATE_KEY_FORMAT);
+    if (dates.some((sd) => sd.date === dateStr)) return;
+    setDates((prev) => sortByDate([...prev, { date: dateStr, ranges: [defaultRange()] }]));
+  };
+
+  const changeDate = (sdIdx: number, date: Date | undefined) => {
+    if (!date) return;
+    setDates((prev) =>
+      sortByDate(prev.map((sd, i) => (i === sdIdx ? { ...sd, date: format(date, DATE_KEY_FORMAT) } : sd))),
+    );
+  };
+
+  const updateRange = (sdIdx: number, rIdx: number, patch: Partial<TimeRange>) =>
+    setDates((prev) => patchSpecificRange(prev, sdIdx, rIdx, patch));
+  const addRange = (sdIdx: number) => setDates((prev) => appendSpecificRange(prev, sdIdx));
+  const removeRange = (sdIdx: number, rIdx: number) =>
+    setDates((prev) => removeSpecificRange(prev, sdIdx, rIdx));
+
+  return { dates, addDate, changeDate, updateRange, addRange, removeRange };
+}
+
+type SpecificDatesApi = ReturnType<typeof useSpecificDates>;
+
+function useCustomRepeat() {
+  const [open, setOpen] = useState(false);
+  const [every, setEvery] = useState(2);
+  const [unit, setUnit] = useState<RepeatUnit>('weeks');
+  const [start, setStart] = useState(() => format(new Date(), DATE_KEY_FORMAT));
+  const [endType, setEndType] = useState<RepeatEndType>('never');
+  const [endDate, setEndDate] = useState('');
+  return { open, setOpen, every, setEvery, unit, setUnit, start, setStart, endType, setEndType, endDate, setEndDate };
+}
+
+type CustomRepeatState = ReturnType<typeof useCustomRepeat>;
+
+// Keeps the draft title atom in sync while creating a booking page. Cleared on
+// unmount unless the returned `continuing` ref was set (the user continued to
+// the draft Details page, where the Details page itself keeps the atom in sync).
+function useDraftTitleSync(isEdit: boolean, title: string) {
+  const setDraftTitle = useSetAtom(draftBookingPageTitleAtom);
+  const continuing = useRef({ active: false }).current;
+  useEffect(() => {
+    if (isEdit) return;
+    setDraftTitle(title);
+  }, [isEdit, title, setDraftTitle]);
+  useEffect(() => {
+    if (isEdit) return;
+    return () => {
+      if (!continuing.active) setDraftTitle(null);
+    };
+  }, [isEdit, setDraftTitle, continuing]);
+  return continuing;
+}
+
+// Dynamic per-hour row height — keeps 24 hours filling the visible scroll
+// area exactly (matches the main calendar's WeekView). Without this the
+// grid stretches to 100% but the static 48px cells don't, leaving an empty
+// "phantom" row below 11 PM when the viewport is taller than 1152px.
+function usePreviewHourHeight() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hourHeight, setHourHeight] = useState(DEFAULT_HOUR_HEIGHT);
+  useEffect(() => {
+    const update = () => {
+      if (!containerRef.current) return;
+      const available = containerRef.current.clientHeight;
+      setHourHeight(Math.max(DEFAULT_HOUR_HEIGHT, Math.floor(available / 24)));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+  return { containerRef, hourHeight };
+}
 
 export default function NewBookingPage() {
   return <BookingPageEditor mode="create" />;
@@ -85,69 +308,41 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   const VIEW_OPTIONS = [
     { label: t.calendarView.viewWeek, value: 'week' as const },
   ];
-  const DAY_SHORT: Record<keyof WeeklyAvailability, string> = {
-    sunday: t.bookingEditorDays.sun,
-    monday: t.bookingEditorDays.mon,
-    tuesday: t.bookingEditorDays.tue,
-    wednesday: t.bookingEditorDays.wed,
-    thursday: t.bookingEditorDays.thu,
-    friday: t.bookingEditorDays.fri,
-    saturday: t.bookingEditorDays.sat,
-  };
   const navigate = useNavigate();
   const createBookingPage = useCreateBookingPage();
   const { data: calendarsData } = useUserCalendars();
   const calendars = calendarsData?.data || [];
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>('');
   const isEdit = mode === 'edit';
+  // Id of the booking page being edited (undefined when creating a new one).
+  const editingId = isEdit ? bookingPageId : undefined;
 
   const savedRef = useRef(false);
 
-  const hasUnsavedChanges = () => {
-    if (isEdit && initialData) {
-      return title !== initialData.title || duration !== initialData.duration || bufferBefore !== initialData.bufferBefore || bufferAfter !== initialData.bufferAfter;
-    }
-    return title.trim() !== '' || duration !== 120 || bufferBefore !== 0 || bufferAfter !== 0;
-  };
-
-  const handleNavigateAway = () => {
-    if (isEdit && bookingPageId) {
-      navigate({ to: '/weldcalendar/scheduling/$id/view', params: { id: bookingPageId } });
-    } else {
-      navigate({ to: '/weldcalendar' });
-    }
-  };
-
-  const [title, setTitle] = useState(initialData?.title ?? (isEdit ? '' : t.bookingPagesSidebar.defaultTitle));
-  const setDraftTitle = useSetAtom(draftBookingPageTitleAtom);
-  const continuingRef = useRef(false);
-  useEffect(() => {
-    if (isEdit) return;
-    setDraftTitle(title);
-  }, [isEdit, title, setDraftTitle]);
-  // Unmount-only cleanup: clear the atom unless the user continued to the
-  // draft Details page (where the Details page itself keeps the atom in sync).
-  useEffect(() => {
-    if (isEdit) return;
-    return () => {
-      if (!continuingRef.current) setDraftTitle(null);
-    };
-  }, [isEdit, setDraftTitle]);
-  const [duration, setDuration] = useState(initialData?.duration || 120);
+  const initial = resolveInitialValues(initialData, isEdit, t.bookingPagesSidebar.defaultTitle);
+  const [title, setTitle] = useState(initial.title);
+  // Set when the user continues to the draft Details page (see handleContinue).
+  const continuing = useDraftTitleSync(isEdit, title);
+  const [duration, setDuration] = useState(initial.duration);
   const [customDuration, setCustomDuration] = useState(false);
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
-  const [availability, setAvailability] = useState<WeeklyAvailability>(initialData?.availability || DEFAULT_AVAILABILITY);
-  const [repeatMode, setRepeatMode] = useState<'none' | 'weekly' | 'custom'>('weekly');
-  const [customRepeatInterval, setCustomRepeatInterval] = useState(2);
-  const [customRepeatUnit, setCustomRepeatUnit] = useState<'weeks' | 'months'>('weeks');
-  const [customRepeatStart, setCustomRepeatStart] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  const [customRepeatEndType, setCustomRepeatEndType] = useState<'never' | 'date'>('never');
-  const [customRepeatEndDate, setCustomRepeatEndDate] = useState('');
-  const [customRepeatDialogOpen, setCustomRepeatDialogOpen] = useState(false);
-  const [specificDates, setSpecificDates] = useState<{ date: string; ranges: TimeRange[] }[]>([]);
-  const [bufferBefore, setBufferBefore] = useState(initialData?.bufferBefore || 0);
-  const [bufferAfter, setBufferAfter] = useState(initialData?.bufferAfter || 0);
+  const [availability, setAvailability] = useState<WeeklyAvailability>(initial.availability);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('weekly');
+  const specific = useSpecificDates();
+  const [bufferBefore, setBufferBefore] = useState(initial.bufferBefore);
+  const [bufferAfter, setBufferAfter] = useState(initial.bufferAfter);
   const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
+
+  const hasUnsavedChanges = () =>
+    hasUnsavedBookingChanges(isEdit, initialData, { title, duration, bufferBefore, bufferAfter });
+
+  const handleNavigateAway = () => {
+    if (editingId) {
+      navigate({ to: '/weldcalendar/scheduling/$id/view', params: { id: editingId } });
+      return;
+    }
+    navigate({ to: '/weldcalendar' });
+  };
 
   const weekDays = useMemo(() =>
     Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i)),
@@ -163,108 +358,31 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   const [currentView, setCurrentView] = useState<'week'>('week');
   const filterConfigs: FilterConfig[] = useMemo(() => [], []);
 
-  // Header label mirrors the main calendar / viewer: "May 2026" when the
-  // visible week is inside one month, "Apr – May 2026" when it spans two.
-  const headerLabel = (() => {
-    const ws = currentWeekStart;
-    const we = addDays(ws, 6);
-    if (ws.getMonth() === we.getMonth() && ws.getFullYear() === we.getFullYear()) {
-      return format(ws, 'MMMM yyyy');
-    }
-    const yearLabel = ws.getFullYear() === we.getFullYear()
-      ? format(we, 'yyyy')
-      : `${format(ws, 'yyyy')} – ${format(we, 'yyyy')}`;
-    return `${format(ws, 'MMM')} – ${format(we, 'MMM')} ${yearLabel}`;
-  })();
-
-  const isTodayInWeek = (() => {
-    const now = new Date();
-    return now >= currentWeekStart && now < addDays(currentWeekStart, 7);
-  })();
-
-  // Dynamic per-hour row height — keeps 24 hours filling the visible scroll
-  // area exactly (matches the main calendar's WeekView). Without this the
-  // grid stretches to 100% but the static 48px cells don't, leaving an empty
-  // "phantom" row below 11 PM when the viewport is taller than 1152px.
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewHourHeight, setPreviewHourHeight] = useState(DEFAULT_HOUR_HEIGHT);
-  useEffect(() => {
-    const update = () => {
-      if (!previewContainerRef.current) return;
-      const available = previewContainerRef.current.clientHeight;
-      setPreviewHourHeight(Math.max(DEFAULT_HOUR_HEIGHT, Math.floor(available / 24)));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    if (previewContainerRef.current) observer.observe(previewContainerRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  const updateDay = (day: keyof WeeklyAvailability, ranges: TimeRange[]) => {
-    setAvailability((prev) => ({ ...prev, [day]: ranges }));
-  };
-
-  const toggleDay = (day: keyof WeeklyAvailability) => {
-    if (availability[day].length > 0) {
-      updateDay(day, []);
-    } else {
-      updateDay(day, [{ start: '09:00', end: '17:00' }]);
-    }
-  };
-
-  const addRange = (day: keyof WeeklyAvailability) => {
-    const ranges = [...availability[day]];
-    const lastRange = ranges[ranges.length - 1];
-    const newStart = lastRange ? lastRange.end : '09:00';
-    const [h] = newStart.split(':').map(Number);
-    const newEnd = `${String(Math.min(h + 1, 23)).padStart(2, '0')}:00`;
-    ranges.push({ start: newStart, end: newEnd });
-    updateDay(day, ranges);
-  };
-
-  const removeRange = (day: keyof WeeklyAvailability, index: number) => {
-    updateDay(day, availability[day].filter((_, i) => i !== index));
-  };
-
-  const updateRange = (day: keyof WeeklyAvailability, index: number, field: 'start' | 'end', value: string) => {
-    const ranges = [...availability[day]];
-    ranges[index] = { ...ranges[index], [field]: value };
-    updateDay(day, ranges);
-  };
+  const headerLabel = formatWeekHeaderLabel(currentWeekStart);
+  const isTodayInWeek = isCurrentWeek(currentWeekStart);
 
   // Persists the booking page (API mutate in create mode, sessionStorage in
   // edit mode) and returns the destination route the normal Save flow should
   // navigate to. Does NOT navigate — callers decide.
-  const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
-  type BookingPageDestination =
-    | { to: '/weldcalendar/scheduling/$id'; params: { id: string } }
-    | { to: '/weldcalendar/scheduling/$id/view'; params: { id: string } }
-    | { to: '/weldcalendar' };
-
   const persistBookingPage = async (): Promise<BookingPageDestination> => {
-    const name = title.trim() || 'New Booking Page';
-    const slug = slugify(name) || 'booking';
+    const name = resolveBookingName(title);
 
-    if (isEdit && bookingPageId) {
-      sessionStorage.setItem(`booking-edit-${bookingPageId}`, JSON.stringify({
+    if (editingId) {
+      sessionStorage.setItem(`booking-edit-${editingId}`, JSON.stringify({
         name, duration, availability, bufferBefore, bufferAfter,
       }));
-      return { to: '/weldcalendar/scheduling/$id', params: { id: bookingPageId } };
+      return { to: '/weldcalendar/scheduling/$id', params: { id: editingId } };
     }
     const result = await createBookingPage.mutateAsync({
       name,
-      slug,
+      slug: bookingSlug(name),
       duration,
       availability,
       bufferBefore,
       bufferAfter,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone: currentTimezone(),
     });
-    const newId = result?.data?.id;
-    return newId
-      ? { to: '/weldcalendar/scheduling/$id/view', params: { id: newId } }
-      : { to: '/weldcalendar' };
+    return destinationForNewPage(result?.data?.id);
   };
 
   // In edit mode, behaves like the old "Next" — persist to sessionStorage and
@@ -273,26 +391,26 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // and navigate to the Details page in draft mode (where the Create button
   // actually fires the API).
   const handleContinue = () => {
-    const name = title.trim() || 'New Booking Page';
-    if (isEdit && bookingPageId) {
-      sessionStorage.setItem(`booking-edit-${bookingPageId}`, JSON.stringify({
+    const name = resolveBookingName(title);
+    if (editingId) {
+      sessionStorage.setItem(`booking-edit-${editingId}`, JSON.stringify({
         name, duration, availability, bufferBefore, bufferAfter,
       }));
       savedRef.current = true;
-      navigate({ to: '/weldcalendar/scheduling/$id', params: { id: bookingPageId } });
+      navigate({ to: '/weldcalendar/scheduling/$id', params: { id: editingId } });
       return;
     }
     sessionStorage.setItem('booking-new-draft', JSON.stringify({
       name,
-      slug: slugify(name) || 'booking',
+      slug: bookingSlug(name),
       duration,
       availability,
       bufferBefore,
       bufferAfter,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone: currentTimezone(),
     }));
     savedRef.current = true;
-    continuingRef.current = true;
+    continuing.active = true;
     navigate({ to: '/weldcalendar/scheduling/$id', params: { id: '__draft__' } });
   };
 
@@ -315,110 +433,16 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
     }
   };
 
-  // Convert availability to visual blocks for the week view
-  const getAvailabilityBlocks = (dayDate: Date) => {
-    if (repeatMode === 'none') {
-      const dateStr = format(dayDate, 'yyyy-MM-dd');
-      const sd = specificDates.find((d) => d.date === dateStr);
-      return sd?.ranges || [];
-    }
-    const dayName = format(dayDate, 'EEEE').toLowerCase() as keyof WeeklyAvailability;
-    return availability[dayName] || [];
-  };
-
   const weekPreview = (
     // Uses the shared <WeekDayHeader> + time-grid primitives so the booking
     // editor's preview stays visually identical to the main calendar page.
-    <div className="flex-1 flex flex-col min-h-0">
-      <WeekDayHeader days={weekDays} />
-      <TimeGridScroll ref={previewContainerRef}>
-        <TimeGridInner days={weekDays}>
-          <TimeLabelColumn hourHeight={previewHourHeight} />
-          {weekDays.map((day) => {
-            const blocks = getAvailabilityBlocks(day);
-            return (
-              <div key={day.toISOString()} className="border-r border-border last:border-r-0 relative">
-                {SHARED_HOURS.map((hour) => (
-                  <div key={hour} className="border-b border-border" style={{ height: previewHourHeight }} />
-                ))}
-                {blocks.map((block, bi) => {
-                  const [startH, startM] = block.start.split(':').map(Number);
-                  const [endH, endM] = block.end.split(':').map(Number);
-                  const blockStartMin = startH * 60 + startM;
-                  const blockEndMin = endH * 60 + endM;
-                  const totalMin = blockEndMin - blockStartMin;
-                  const slotWithBuffer = duration + bufferBefore + bufferAfter;
-                  const slotCount = Math.floor(totalMin / slotWithBuffer);
-                  const startHourVal = startH + startM / 60;
-                  const topPx = startHourVal * previewHourHeight;
-                  const blockHeightPx = (totalMin / 60) * previewHourHeight;
-                  const slotWithBufferPx = (slotWithBuffer / 60) * previewHourHeight;
-                  const bufferBeforePx = (bufferBefore / 60) * previewHourHeight;
-                  const bufferAfterPx = (bufferAfter / 60) * previewHourHeight;
-                  const durationPx = (duration / 60) * previewHourHeight;
-
-                  return (
-                    <div
-                      key={bi}
-                      className="absolute left-[2px] right-[2px] rounded-md overflow-hidden border border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/20"
-                      style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
-                    >
-                      {/* Individual slot blocks with buffer */}
-                      {Array.from({ length: slotCount }, (_, i) => {
-                        const slotTop = i * slotWithBufferPx;
-                        return (
-                          <div key={i}>
-                            {/* Buffer before */}
-                            {bufferBefore > 0 && (
-                              <div
-                                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                                style={{ top: `${slotTop + 1}px`, height: `${bufferBeforePx - 2}px` }}
-                              />
-                            )}
-                            {/* Appointment slot */}
-                            <div
-                              className="absolute left-[3px] right-[3px] bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded-[4px]"
-                              style={{
-                                top: `${slotTop + bufferBeforePx + 1}px`,
-                                height: `${durationPx - 2}px`,
-                              }}
-                            >
-                              {i === 0 && (
-                                <CalendarClock className="h-3 w-3 text-sky-500 absolute top-1 left-1" />
-                              )}
-                            </div>
-                            {/* Buffer after */}
-                            {bufferAfter > 0 && (
-                              <div
-                                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                                style={{ top: `${slotTop + bufferBeforePx + durationPx + 1}px`, height: `${bufferAfterPx - 2}px` }}
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-                {isToday(day) && (() => {
-                  const now = new Date();
-                  const h = now.getHours() + now.getMinutes() / 60;
-                  const topPx = h * previewHourHeight;
-                  return (
-                    <div className="absolute left-0 right-0 z-[3] pointer-events-none" style={{ top: `${topPx}px` }}>
-                      <div className="flex items-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-[5px]" />
-                        <div className="flex-1 h-[2px] bg-red-500" />
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })}
-        </TimeGridInner>
-      </TimeGridScroll>
-    </div>
+    <WeekPreview
+      weekDays={weekDays}
+      getBlocks={(day) => getAvailabilityBlocks(day, repeatMode, specific.dates, availability)}
+      duration={duration}
+      bufferBefore={bufferBefore}
+      bufferAfter={bufferAfter}
+    />
   );
 
   return (
@@ -461,40 +485,12 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative flex items-center">
-              <div className={cn(
-                'flex items-center transition-all duration-200 ease-out',
-                searchOpen ? 'w-48' : 'w-8',
-              )}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    'h-8 w-8 p-0 flex-shrink-0 shadow-none transition-opacity duration-200',
-                    searchOpen && 'opacity-0 pointer-events-none absolute',
-                  )}
-                  onClick={() => setSearchOpen(true)}
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
-                <div className={cn(
-                  'relative transition-all duration-200 ease-out',
-                  searchOpen ? 'opacity-100 w-48' : 'opacity-0 w-0 pointer-events-none',
-                )}>
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder={t.bookingEditor.searchAvailabilityPlaceholder}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onBlur={() => !searchQuery && setSearchOpen(false)}
-                    onKeyDown={(e) => { if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); } }}
-                    ref={(el) => { if (el && searchOpen) el.focus(); }}
-                    className="h-8 w-full pl-8 pr-3 text-sm border border-gray-200 dark:border-border rounded-md bg-white dark:bg-background focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
+            <ToolbarSearch
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+            />
             <Select value={currentView} onValueChange={(v) => setCurrentView(v as 'week')}>
               <SelectTrigger size="sm" className="w-[130px] shadow-none">
                 <SelectValue />
@@ -561,558 +557,75 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
           {/* Sections */}
           <div className="divide-y">
             {/* Appointment duration */}
-            <div className="px-5 py-4">
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{t.bookingEditor.appointmentDuration}</p>
-                      <p className="text-xs text-muted-foreground">{t.bookingEditor.appointmentDurationHint}</p>
-                    </div>
-                    <Select
-                      value={customDuration ? 'custom' : String(duration)}
-                      onValueChange={(v) => {
-                        if (v === 'custom') {
-                          setCustomDuration(true);
-                          setCustomDialogOpen(true);
-                        } else {
-                          setCustomDuration(false);
-                          setDuration(Number(v));
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-[160px] shadow-none">
-                        <SelectValue>
-                          {customDuration ? `${duration} ${t.bookingEditor.minutes}` : undefined}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DURATION_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                        ))}
-                        <SelectItem
-                          value="custom"
-                          onPointerUp={() => {
-                            if (customDuration) {
-                              setTimeout(() => setCustomDialogOpen(true), 100);
-                            }
-                          }}
-                        >
-                          {t.bookingEditor.customRepeat}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Custom duration dialog */}
-                  <Dialog open={customDialogOpen} onOpenChange={(open) => { setCustomDialogOpen(open); if (!open && !duration) setCustomDuration(false); }}>
-                    <DialogContent className="sm:max-w-[340px]">
-                      <DialogHeader>
-                        <DialogTitle>{t.bookingEditor.customDuration}</DialogTitle>
-                        <DialogDescription>{t.bookingEditor.customDurationDescription}</DialogDescription>
-                      </DialogHeader>
-                      <div className="flex items-center gap-2 py-2">
-                        <Input
-                          type="number"
-                          min={5}
-                          value={duration}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            if (val >= 1) setDuration(val);
-                          }}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') setCustomDialogOpen(false);
-                          }}
-                        />
-                        <span className="text-sm text-muted-foreground shrink-0">{t.bookingEditor.minutes}</span>
-                      </div>
-                      <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => { setCustomDialogOpen(false); setCustomDuration(false); }}>{t.bookingEditor.cancel}</Button>
-                        <Button type="button" onClick={() => setCustomDialogOpen(false)}>{t.bookingEditor.done}</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-            </div>
+            <DurationSection
+              duration={duration}
+              onDurationChange={setDuration}
+              customDuration={customDuration}
+              onCustomDurationChange={setCustomDuration}
+              customDialogOpen={customDialogOpen}
+              onCustomDialogOpenChange={setCustomDialogOpen}
+            />
 
             {/* General availability */}
-            <div className="px-5 py-4">
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-sm font-medium">{t.bookingEditor.generalAvailability}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {repeatMode === 'none'
-                        ? t.bookingEditor.generalAvailabilityHintSpecific
-                        : t.bookingEditor.generalAvailabilityHintRegular}
-                    </p>
-                  </div>
-
-                  {/* Repeat select */}
-                  <Select
-                    value={repeatMode === 'custom' ? 'custom' : repeatMode}
-                    onValueChange={(v) => {
-                      if (v === 'custom') {
-                        setRepeatMode('custom');
-                        setCustomRepeatDialogOpen(true);
-                      } else if (v === 'none') {
-                        setRepeatMode('none');
-                      } else {
-                        setRepeatMode('weekly');
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-[200px] shadow-none">
-                      <SelectValue>
-                        {repeatMode === 'custom'
-                          ? `${customRepeatInterval} ${customRepeatUnit === 'weeks' ? t.bookingEditor.weeks : t.bookingEditor.months}`
-                          : repeatMode === 'none'
-                          ? t.bookingEditor.doesNotRepeat
-                          : t.bookingEditor.repeatWeekly}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t.bookingEditor.doesNotRepeat}</SelectItem>
-                      <SelectItem value="weekly">{t.bookingEditor.repeatWeekly}</SelectItem>
-                      <SelectItem
-                        value="custom"
-                        onPointerUp={() => {
-                          if (repeatMode === 'custom') {
-                            setTimeout(() => setCustomRepeatDialogOpen(true), 100);
-                          }
-                        }}
-                      >
-                        {t.bookingEditor.customRepeat}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Custom repeat dialog */}
-                  <Dialog open={customRepeatDialogOpen} onOpenChange={(open) => { setCustomRepeatDialogOpen(open); if (!open && repeatMode !== 'custom') setRepeatMode('weekly'); }}>
-                    <DialogContent className="sm:max-w-[380px]">
-                      <DialogHeader>
-                        <DialogTitle>{t.bookingEditor.customRepeatTitle}</DialogTitle>
-                        <DialogDescription className="sr-only">{t.bookingEditor.customRepeatTitle}</DialogDescription>
-                      </DialogHeader>
-
-                      <div className="space-y-4 py-2">
-                        {/* Repeat every */}
-                        <div className="space-y-2">
-                          <Label>{t.bookingEditor.repeatEvery}</Label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              min={1}
-                              value={customRepeatInterval}
-                              onChange={(e) => setCustomRepeatInterval(Math.max(1, Number(e.target.value)))}
-                              className="w-[70px]"
-                              autoFocus
-                            />
-                            <Select value={customRepeatUnit} onValueChange={(v) => setCustomRepeatUnit(v as 'weeks' | 'months')}>
-                              <SelectTrigger className="w-[110px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="weeks">{t.bookingEditor.weeks}</SelectItem>
-                                <SelectItem value="months">{t.bookingEditor.months}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <Separator />
-
-                        {/* Starts */}
-                        <div className="space-y-2">
-                          <Label>{t.bookingEditor.starts}</Label>
-                          <DatePickerInput
-                            value={customRepeatStart ? new Date(customRepeatStart) : undefined}
-                            onChange={(d) => setCustomRepeatStart(d ? format(d, 'yyyy-MM-dd') : '')}
-                          />
-                        </div>
-
-                        {/* Ends */}
-                        <div className="space-y-2">
-                          <Label>{t.bookingEditor.ends}</Label>
-                          <div className="flex items-center gap-2">
-                            <Select value={customRepeatEndType} onValueChange={(v) => setCustomRepeatEndType(v as 'never' | 'date')}>
-                              <SelectTrigger className="w-[120px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="never">{t.bookingEditor.endNever}</SelectItem>
-                                <SelectItem value="date">{t.bookingEditor.endOnDate}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {customRepeatEndType === 'date' && (
-                              <DatePickerInput
-                                value={customRepeatEndDate ? new Date(customRepeatEndDate) : undefined}
-                                onChange={(d) => setCustomRepeatEndDate(d ? format(d, 'yyyy-MM-dd') : '')}
-                                fullWidth={false}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => { setCustomRepeatDialogOpen(false); setRepeatMode('weekly'); }}>{t.bookingEditor.cancel}</Button>
-                        <Button
-                          type="button"
-                          onClick={() => setCustomRepeatDialogOpen(false)}
-                          className="inline-flex items-center justify-center rounded-md bg-primary px-4 h-9 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-                        >
-                          {t.bookingEditor.done}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-
-                  {/* Day rows — only show when repeat mode is not 'none' */}
-                  {repeatMode !== 'none' && (
-                  <div className="divide-y">
-                    {DAY_NAMES.map((day) => {
-                      const ranges = availability[day];
-                      const isEnabled = ranges.length > 0;
-
-                      return (
-                        <div key={day} className="flex items-start py-3 group/day min-h-[44px]">
-                          <span className={cn('text-sm w-10 shrink-0 h-9 flex items-center', isEnabled ? 'font-medium' : 'text-muted-foreground')}>
-                            {DAY_SHORT[day]}
-                          </span>
-                          {isEnabled ? (
-                            <div className="flex-1 space-y-2">
-                              {ranges.map((range, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                  <Input
-                                    type="time"
-                                    value={range.start}
-                                    onChange={(e) => updateRange(day, idx, 'start', e.target.value)}
-                                    className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                  />
-                                  <span className="text-muted-foreground text-sm">–</span>
-                                  <Input
-                                    type="time"
-                                    value={range.end}
-                                    onChange={(e) => updateRange(day, idx, 'end', e.target.value)}
-                                    className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                  />
-                                  <div className="flex items-center gap-0.5 ml-auto">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
-                                      onClick={() => removeRange(day, idx)}
-                                      title={t.bookingPagesSidebar.delete}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 rounded-[11px]"
-                                      onClick={() => addRange(day)}
-                                      title={t.availabilityEditor.addTimeRange}
-                                    >
-                                      <Plus className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 rounded-[11px]"
-                                      onClick={() => {
-                                        // Copy this day's schedule to all other enabled days
-                                        const newAvail = { ...availability };
-                                        DAY_NAMES.forEach((d) => {
-                                          if (d !== day && availability[d].length > 0) {
-                                            newAvail[d] = [...ranges];
-                                          }
-                                        });
-                                        setAvailability(newAvail);
-                                      }}
-                                      title={t.bookingEditor.copyToAllDays}
-                                    >
-                                      <Copy className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground flex-1 h-9 flex items-center">{t.bookingEditor.unavailable}</span>
-                          )}
-                          {!isEnabled && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 ml-auto rounded-[11px]"
-                              onClick={() => toggleDay(day)}
-                              title={t.bookingEditor.addAvailability}
-                            >
-                              <Plus className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  )}
-
-                  {repeatMode === 'none' && (
-                    <div className="space-y-2">
-
-                      {/* Specific dates list */}
-                      <div className="divide-y">
-                        {specificDates.map((sd, sdIdx) => (
-                          <div key={sdIdx} className="flex items-start py-3 group/sd min-h-[44px]">
-                            <span className="text-sm font-medium w-[90px] shrink-0 h-9 flex items-center">
-                              {new Date(sd.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                            <div className="flex-1 space-y-2">
-                              {sd.ranges.map((range, rIdx) => (
-                                <div key={rIdx} className="flex items-center gap-2">
-                                  <Input
-                                    type="time"
-                                    value={range.start}
-                                    onChange={(e) => {
-                                      const updated = [...specificDates];
-                                      updated[sdIdx].ranges[rIdx] = { ...range, start: e.target.value };
-                                      setSpecificDates(updated);
-                                    }}
-                                    className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                  />
-                                  <span className="text-muted-foreground text-sm">–</span>
-                                  <Input
-                                    type="time"
-                                    value={range.end}
-                                    onChange={(e) => {
-                                      const updated = [...specificDates];
-                                      updated[sdIdx].ranges[rIdx] = { ...range, end: e.target.value };
-                                      setSpecificDates(updated);
-                                    }}
-                                    className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                  />
-                                  <div className="flex items-center gap-0.5 ml-auto">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 rounded-[11px]"
-                                      onClick={() => {
-                                        const updated = [...specificDates];
-                                        const lastRange = updated[sdIdx].ranges[updated[sdIdx].ranges.length - 1];
-                                        const [h] = lastRange.end.split(':').map(Number);
-                                        updated[sdIdx].ranges.push({ start: lastRange.end, end: `${String(Math.min(h + 1, 23)).padStart(2, '0')}:00` });
-                                        setSpecificDates(updated);
-                                      }}
-                                    >
-                                      <Plus className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
-                                      onClick={() => {
-                                        const updated = [...specificDates];
-                                        updated[sdIdx].ranges = updated[sdIdx].ranges.filter((_, i) => i !== rIdx);
-                                        if (updated[sdIdx].ranges.length === 0) {
-                                          setSpecificDates(updated.filter((_, i) => i !== sdIdx));
-                                        } else {
-                                          setSpecificDates(updated);
-                                        }
-                                      }}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Add date button */}
-                      <DatePickerInput
-                        placeholder={t.bookingEditor.addDate}
-                        fullWidth={false}
-                        showIcon={false}
-                        showPlusIcon
-                        onChange={(date) => {
-                          if (date) {
-                            const dateStr = format(date, 'yyyy-MM-dd');
-                            if (!specificDates.some((sd) => sd.date === dateStr)) {
-                              setSpecificDates((prev) => [...prev, { date: dateStr, ranges: [{ start: '09:00', end: '17:00' }] }].sort((a, b) => a.date.localeCompare(b.date)));
-                            }
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-            </div>
+            <AvailabilitySection
+              repeatMode={repeatMode}
+              onRepeatModeChange={setRepeatMode}
+              availability={availability}
+              onAvailabilityChange={setAvailability}
+              specific={specific}
+            />
 
             {/* Adjusted availability */}
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-3 px-5 py-4 w-full text-left hover:bg-accent/30 transition-colors group">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{t.bookingEditor.adjustedAvailability}</p>
-                  <p className="text-xs text-muted-foreground">{t.bookingEditor.adjustedAvailabilityHint}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-5 pb-4 space-y-3">
-                  <p className="text-xs text-muted-foreground">{t.bookingEditor.adjustedAvailabilityOverrideHint}</p>
-
-                  {/* Adjusted dates list */}
-                  {specificDates.length > 0 && (
-                    <div className="divide-y">
-                      {specificDates.map((sd, sdIdx) => (
-                        <div key={sdIdx} className="py-2.5 group/adj space-y-1.5">
-                            {sd.ranges.map((range, rIdx) => (
-                              <div key={rIdx} className="flex items-center gap-2">
-                                {rIdx === 0 && (
-                                  <DatePickerInput
-                                    value={new Date(sd.date)}
-                                    onChange={(d) => {
-                                      if (d) {
-                                        const updated = [...specificDates];
-                                        updated[sdIdx] = { ...updated[sdIdx], date: format(d, 'yyyy-MM-dd') };
-                                        setSpecificDates(updated.sort((a, b) => a.date.localeCompare(b.date)));
-                                      }
-                                    }}
-                                    fullWidth={false}
-                                    showIcon={false}
-                                  />
-                                )}
-                                {rIdx > 0 && <div className="w-[115px] shrink-0" />}
-                                <Input
-                                  type="time"
-                                  value={range.start}
-                                  onChange={(e) => {
-                                    const updated = [...specificDates];
-                                    updated[sdIdx].ranges[rIdx] = { ...range, start: e.target.value };
-                                    setSpecificDates(updated);
-                                  }}
-                                  className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                />
-                                <span className="text-muted-foreground text-sm">–</span>
-                                <Input
-                                  type="time"
-                                  value={range.end}
-                                  onChange={(e) => {
-                                    const updated = [...specificDates];
-                                    updated[sdIdx].ranges[rIdx] = { ...range, end: e.target.value };
-                                    setSpecificDates(updated);
-                                  }}
-                                  className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 rounded-[11px] hover:bg-destructive/10 hover:text-destructive ml-auto"
-                                  onClick={() => {
-                                    const updated = [...specificDates];
-                                    updated[sdIdx].ranges = updated[sdIdx].ranges.filter((_, i) => i !== rIdx);
-                                    if (updated[sdIdx].ranges.length === 0) {
-                                      setSpecificDates(updated.filter((_, i) => i !== sdIdx));
-                                    } else {
-                                      setSpecificDates(updated);
-                                    }
-                                  }}
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <DatePickerInput
-                    placeholder={t.bookingEditor.changeDateAvailability}
-                    fullWidth={false}
-                    showPlusIcon
-                    showIcon={false}
-                    onChange={(date) => {
-                      if (date) {
-                        const dateStr = format(date, 'yyyy-MM-dd');
-                        if (!specificDates.some((sd) => sd.date === dateStr)) {
-                          setSpecificDates((prev) => [...prev, { date: dateStr, ranges: [{ start: '09:00', end: '17:00' }] }].sort((a, b) => a.date.localeCompare(b.date)));
-                        }
-                      }
-                    }}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
+            <AdjustedAvailabilitySection specific={specific} />
 
             {/* Scheduling window */}
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-3 px-5 py-4 w-full text-left hover:bg-accent/30 transition-colors group">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{t.bookingEditor.schedulingWindow}</p>
-                  <p className="text-xs text-muted-foreground">{t.bookingEditor.schedulingWindowSummary}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-5 pb-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label>{t.bookingEditor.minimumNotice}</Label>
-                    <div className="flex items-center gap-2">
-                      <Input type="number" defaultValue={4} min={0} className="w-[80px]" />
-                      <span className="text-sm text-muted-foreground">{t.bookingEditor.hours}</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t.bookingEditor.maximumAdvanceBooking}</Label>
-                    <div className="flex items-center gap-2">
-                      <Input type="number" defaultValue={60} min={1} className="w-[80px]" />
-                      <span className="text-sm text-muted-foreground">{t.bookingEditor.days}</span>
-                    </div>
+            <CollapsibleSection title={t.bookingEditor.schedulingWindow} summary={t.bookingEditor.schedulingWindowSummary}>
+              <div className="px-5 pb-4 space-y-4">
+                <div className="space-y-2">
+                  <Label>{t.bookingEditor.minimumNotice}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" defaultValue={4} min={0} className="w-[80px]" />
+                    <span className="text-sm text-muted-foreground">{t.bookingEditor.hours}</span>
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+                <div className="space-y-2">
+                  <Label>{t.bookingEditor.maximumAdvanceBooking}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" defaultValue={60} min={1} className="w-[80px]" />
+                    <span className="text-sm text-muted-foreground">{t.bookingEditor.days}</span>
+                  </div>
+                </div>
+              </div>
+            </CollapsibleSection>
 
             {/* Buffer settings */}
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-3 px-5 py-4 w-full text-left hover:bg-accent/30 transition-colors group">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{t.bookingEditor.bookedAppointmentSettings}</p>
-                  <p className="text-xs text-muted-foreground">{t.bookingEditor.bookedAppointmentSummary}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-5 pb-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>{t.bookingEditor.bufferBefore}</Label>
-                      <div className="flex items-center gap-2">
-                        <Input type="number" value={bufferBefore} onChange={(e) => setBufferBefore(Math.max(0, Number(e.target.value)))} min={0} className="w-[80px]" />
-                        <span className="text-sm text-muted-foreground">{t.bookingEditor.bufferMin}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t.bookingEditor.bufferAfter}</Label>
-                      <div className="flex items-center gap-2">
-                        <Input type="number" value={bufferAfter} onChange={(e) => setBufferAfter(Math.max(0, Number(e.target.value)))} min={0} className="w-[80px]" />
-                        <span className="text-sm text-muted-foreground">{t.bookingEditor.bufferMin}</span>
-                      </div>
+            <CollapsibleSection title={t.bookingEditor.bookedAppointmentSettings} summary={t.bookingEditor.bookedAppointmentSummary}>
+              <div className="px-5 pb-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t.bookingEditor.bufferBefore}</Label>
+                    <div className="flex items-center gap-2">
+                      <Input type="number" value={bufferBefore} onChange={(e) => setBufferBefore(Math.max(0, Number(e.target.value)))} min={0} className="w-[80px]" />
+                      <span className="text-sm text-muted-foreground">{t.bookingEditor.bufferMin}</span>
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>{t.bookingEditor.maxBookingsPerDay}</Label>
+                    <Label>{t.bookingEditor.bufferAfter}</Label>
                     <div className="flex items-center gap-2">
-                      <Input type="number" defaultValue={0} min={0} placeholder="0" className="w-[80px]" />
-                      <span className="text-sm text-muted-foreground">{t.bookingEditor.maxBookingsUnlimited}</span>
+                      <Input type="number" value={bufferAfter} onChange={(e) => setBufferAfter(Math.max(0, Number(e.target.value)))} min={0} className="w-[80px]" />
+                      <span className="text-sm text-muted-foreground">{t.bookingEditor.bufferMin}</span>
                     </div>
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+                <div className="space-y-2">
+                  <Label>{t.bookingEditor.maxBookingsPerDay}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" defaultValue={0} min={0} placeholder="0" className="w-[80px]" />
+                    <span className="text-sm text-muted-foreground">{t.bookingEditor.maxBookingsUnlimited}</span>
+                  </div>
+                </div>
+              </div>
+            </CollapsibleSection>
 
             {/* Calendar selection */}
             <div className="px-5 py-4">
@@ -1150,7 +663,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
             {t.bookingEditor.cancel}
           </Button>
           <Button onClick={handleContinue} disabled={isSaving}>
-            {isSaving ? (isEdit ? t.bookingEditor.saving : t.bookingEditor.creating) : isEdit ? t.bookingEditor.next : t.bookingEditor.continueLabel}
+            {continueButtonLabel(isSaving, isEdit, t.bookingEditor)}
           </Button>
         </div>
       </div>
@@ -1159,7 +672,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
       <Dialog
         open={blocked}
         onOpenChange={(open) => {
-          if (!open && reset) reset();
+          if (!open) reset?.();
         }}
       >
         <DialogContent className="sm:max-w-[400px]">
@@ -1180,6 +693,807 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function ToolbarSearch({
+  open,
+  onOpenChange,
+  query,
+  onQueryChange,
+}: Readonly<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
+}>) {
+  const t = getTranslations('weldcalendar');
+
+  return (
+    <div className="relative flex items-center">
+      <div className={cn(
+        'flex items-center transition-all duration-200 ease-out',
+        open ? 'w-48' : 'w-8',
+      )}>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            'h-8 w-8 p-0 flex-shrink-0 shadow-none transition-opacity duration-200',
+            open && 'opacity-0 pointer-events-none absolute',
+          )}
+          onClick={() => onOpenChange(true)}
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+        <div className={cn(
+          'relative transition-all duration-200 ease-out',
+          open ? 'opacity-100 w-48' : 'opacity-0 w-0 pointer-events-none',
+        )}>
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder={t.bookingEditor.searchAvailabilityPlaceholder}
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onBlur={() => !query && onOpenChange(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { onQueryChange(''); onOpenChange(false); } }}
+            ref={(el) => { if (el && open) el.focus(); }}
+            className="h-8 w-full pl-8 pr-3 text-sm border border-gray-200 dark:border-border rounded-md bg-white dark:bg-background focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NowIndicator({ hourHeight }: Readonly<{ hourHeight: number }>) {
+  const now = new Date();
+  const h = now.getHours() + now.getMinutes() / 60;
+  const topPx = h * hourHeight;
+  return (
+    <div className="absolute left-0 right-0 z-[3] pointer-events-none" style={{ top: `${topPx}px` }}>
+      <div className="flex items-center">
+        <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-[5px]" />
+        <div className="flex-1 h-[2px] bg-red-500" />
+      </div>
+    </div>
+  );
+}
+
+function AvailabilityBlock({
+  block,
+  hourHeight,
+  duration,
+  bufferBefore,
+  bufferAfter,
+}: Readonly<{
+  block: TimeRange;
+  hourHeight: number;
+  duration: number;
+  bufferBefore: number;
+  bufferAfter: number;
+}>) {
+  const [startH, startM] = block.start.split(':').map(Number);
+  const [endH, endM] = block.end.split(':').map(Number);
+  const blockStartMin = startH * 60 + startM;
+  const blockEndMin = endH * 60 + endM;
+  const totalMin = blockEndMin - blockStartMin;
+  const slotWithBuffer = duration + bufferBefore + bufferAfter;
+  const slotCount = Math.floor(totalMin / slotWithBuffer);
+  const startHourVal = startH + startM / 60;
+  const topPx = startHourVal * hourHeight;
+  const blockHeightPx = (totalMin / 60) * hourHeight;
+  const slotWithBufferPx = (slotWithBuffer / 60) * hourHeight;
+  const bufferBeforePx = (bufferBefore / 60) * hourHeight;
+  const bufferAfterPx = (bufferAfter / 60) * hourHeight;
+  const durationPx = (duration / 60) * hourHeight;
+
+  return (
+    <div
+      className="absolute left-[2px] right-[2px] rounded-md overflow-hidden border border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/20"
+      style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
+    >
+      {/* Individual slot blocks with buffer */}
+      {Array.from({ length: slotCount }, (_, i) => {
+        const slotTop = i * slotWithBufferPx;
+        return (
+          <div key={i}>
+            {/* Buffer before */}
+            {bufferBefore > 0 && (
+              <div
+                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
+                style={{ top: `${slotTop + 1}px`, height: `${bufferBeforePx - 2}px` }}
+              />
+            )}
+            {/* Appointment slot */}
+            <div
+              className="absolute left-[3px] right-[3px] bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded-[4px]"
+              style={{
+                top: `${slotTop + bufferBeforePx + 1}px`,
+                height: `${durationPx - 2}px`,
+              }}
+            >
+              {i === 0 && (
+                <CalendarClock className="h-3 w-3 text-sky-500 absolute top-1 left-1" />
+              )}
+            </div>
+            {/* Buffer after */}
+            {bufferAfter > 0 && (
+              <div
+                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
+                style={{ top: `${slotTop + bufferBeforePx + durationPx + 1}px`, height: `${bufferAfterPx - 2}px` }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WeekPreview({
+  weekDays,
+  getBlocks,
+  duration,
+  bufferBefore,
+  bufferAfter,
+}: Readonly<{
+  weekDays: Date[];
+  getBlocks: (day: Date) => TimeRange[];
+  duration: number;
+  bufferBefore: number;
+  bufferAfter: number;
+}>) {
+  const { containerRef, hourHeight } = usePreviewHourHeight();
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <WeekDayHeader days={weekDays} />
+      <TimeGridScroll ref={containerRef}>
+        <TimeGridInner days={weekDays}>
+          <TimeLabelColumn hourHeight={hourHeight} />
+          {weekDays.map((day) => (
+            <div key={day.toISOString()} className="border-r border-border last:border-r-0 relative">
+              {SHARED_HOURS.map((hour) => (
+                <div key={hour} className="border-b border-border" style={{ height: hourHeight }} />
+              ))}
+              {getBlocks(day).map((block, bi) => (
+                <AvailabilityBlock
+                  key={bi}
+                  block={block}
+                  hourHeight={hourHeight}
+                  duration={duration}
+                  bufferBefore={bufferBefore}
+                  bufferAfter={bufferAfter}
+                />
+              ))}
+              {isToday(day) && <NowIndicator hourHeight={hourHeight} />}
+            </div>
+          ))}
+        </TimeGridInner>
+      </TimeGridScroll>
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  summary,
+  children,
+}: Readonly<{ title: string; summary: string; children: ReactNode }>) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="flex items-center gap-3 px-5 py-4 w-full text-left hover:bg-accent/30 transition-colors group">
+        <div className="flex-1">
+          <p className="text-sm font-medium">{title}</p>
+          <p className="text-xs text-muted-foreground">{summary}</p>
+        </div>
+        <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function TimeRangeInputs({
+  range,
+  onStartChange,
+  onEndChange,
+}: Readonly<{
+  range: TimeRange;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
+}>) {
+  return (
+    <>
+      <Input
+        type="time"
+        value={range.start}
+        onChange={(e) => onStartChange(e.target.value)}
+        className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
+      />
+      <span className="text-muted-foreground text-sm">–</span>
+      <Input
+        type="time"
+        value={range.end}
+        onChange={(e) => onEndChange(e.target.value)}
+        className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
+      />
+    </>
+  );
+}
+
+function DurationSection({
+  duration,
+  onDurationChange,
+  customDuration,
+  onCustomDurationChange,
+  customDialogOpen,
+  onCustomDialogOpenChange,
+}: Readonly<{
+  duration: number;
+  onDurationChange: (duration: number) => void;
+  customDuration: boolean;
+  onCustomDurationChange: (custom: boolean) => void;
+  customDialogOpen: boolean;
+  onCustomDialogOpenChange: (open: boolean) => void;
+}>) {
+  const t = getTranslations('weldcalendar');
+
+  const handleValueChange = (value: string) => {
+    if (value === 'custom') {
+      onCustomDurationChange(true);
+      onCustomDialogOpenChange(true);
+      return;
+    }
+    onCustomDurationChange(false);
+    onDurationChange(Number(value));
+  };
+
+  return (
+    <div className="px-5 py-4">
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">{t.bookingEditor.appointmentDuration}</p>
+            <p className="text-xs text-muted-foreground">{t.bookingEditor.appointmentDurationHint}</p>
+          </div>
+          <Select
+            value={customDuration ? 'custom' : String(duration)}
+            onValueChange={handleValueChange}
+          >
+            <SelectTrigger className="w-[160px] shadow-none">
+              <SelectValue>
+                {customDuration ? `${duration} ${t.bookingEditor.minutes}` : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {DURATION_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+              ))}
+              <SelectItem
+                value="custom"
+                onPointerUp={() => {
+                  if (customDuration) {
+                    setTimeout(() => onCustomDialogOpenChange(true), 100);
+                  }
+                }}
+              >
+                {t.bookingEditor.customRepeat}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <CustomDurationDialog
+          open={customDialogOpen}
+          onOpenChange={onCustomDialogOpenChange}
+          duration={duration}
+          onDurationChange={onDurationChange}
+          onCustomDurationChange={onCustomDurationChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CustomDurationDialog({
+  open,
+  onOpenChange,
+  duration,
+  onDurationChange,
+  onCustomDurationChange,
+}: Readonly<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  duration: number;
+  onDurationChange: (duration: number) => void;
+  onCustomDurationChange: (custom: boolean) => void;
+}>) {
+  const t = getTranslations('weldcalendar');
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next && !duration) onCustomDurationChange(false); }}>
+      <DialogContent className="sm:max-w-[340px]">
+        <DialogHeader>
+          <DialogTitle>{t.bookingEditor.customDuration}</DialogTitle>
+          <DialogDescription>{t.bookingEditor.customDurationDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-2 py-2">
+          <Input
+            type="number"
+            min={5}
+            value={duration}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              if (val >= 1) onDurationChange(val);
+            }}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onOpenChange(false);
+            }}
+          />
+          <span className="text-sm text-muted-foreground shrink-0">{t.bookingEditor.minutes}</span>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => { onOpenChange(false); onCustomDurationChange(false); }}>{t.bookingEditor.cancel}</Button>
+          <Button type="button" onClick={() => onOpenChange(false)}>{t.bookingEditor.done}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AvailabilitySection({
+  repeatMode,
+  onRepeatModeChange,
+  availability,
+  onAvailabilityChange,
+  specific,
+}: Readonly<{
+  repeatMode: RepeatMode;
+  onRepeatModeChange: (mode: RepeatMode) => void;
+  availability: WeeklyAvailability;
+  onAvailabilityChange: Dispatch<SetStateAction<WeeklyAvailability>>;
+  specific: SpecificDatesApi;
+}>) {
+  const t = getTranslations('weldcalendar');
+  const customRepeat = useCustomRepeat();
+
+  const handleRepeatSelect = (value: string) => {
+    if (value === 'custom') {
+      onRepeatModeChange('custom');
+      customRepeat.setOpen(true);
+      return;
+    }
+    onRepeatModeChange(value === 'none' ? 'none' : 'weekly');
+  };
+
+  return (
+    <div className="px-5 py-4">
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-medium">{t.bookingEditor.generalAvailability}</p>
+          <p className="text-xs text-muted-foreground">
+            {repeatMode === 'none'
+              ? t.bookingEditor.generalAvailabilityHintSpecific
+              : t.bookingEditor.generalAvailabilityHintRegular}
+          </p>
+        </div>
+
+        {/* Repeat select */}
+        <Select value={repeatMode} onValueChange={handleRepeatSelect}>
+          <SelectTrigger className="w-[200px] shadow-none">
+            <SelectValue>
+              {repeatSummaryLabel(repeatMode, customRepeat.every, customRepeat.unit, t.bookingEditor)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{t.bookingEditor.doesNotRepeat}</SelectItem>
+            <SelectItem value="weekly">{t.bookingEditor.repeatWeekly}</SelectItem>
+            <SelectItem
+              value="custom"
+              onPointerUp={() => {
+                if (repeatMode === 'custom') {
+                  setTimeout(() => customRepeat.setOpen(true), 100);
+                }
+              }}
+            >
+              {t.bookingEditor.customRepeat}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
+        <CustomRepeatDialog
+          state={customRepeat}
+          repeatMode={repeatMode}
+          onRepeatModeChange={onRepeatModeChange}
+        />
+
+        {/* Day rows for regular availability, or a date list for one-off dates */}
+        {repeatMode === 'none' ? (
+          <SpecificDatesEditor specific={specific} />
+        ) : (
+          <WeeklyAvailabilityEditor availability={availability} onChange={onAvailabilityChange} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CustomRepeatDialog({
+  state,
+  repeatMode,
+  onRepeatModeChange,
+}: Readonly<{
+  state: CustomRepeatState;
+  repeatMode: RepeatMode;
+  onRepeatModeChange: (mode: RepeatMode) => void;
+}>) {
+  const t = getTranslations('weldcalendar');
+
+  const handleOpenChange = (open: boolean) => {
+    state.setOpen(open);
+    if (!open && repeatMode !== 'custom') onRepeatModeChange('weekly');
+  };
+
+  const handleCancel = () => {
+    state.setOpen(false);
+    onRepeatModeChange('weekly');
+  };
+
+  return (
+    <Dialog open={state.open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[380px]">
+        <DialogHeader>
+          <DialogTitle>{t.bookingEditor.customRepeatTitle}</DialogTitle>
+          <DialogDescription className="sr-only">{t.bookingEditor.customRepeatTitle}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Repeat every */}
+          <div className="space-y-2">
+            <Label>{t.bookingEditor.repeatEvery}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={state.every}
+                onChange={(e) => state.setEvery(Math.max(1, Number(e.target.value)))}
+                className="w-[70px]"
+                autoFocus
+              />
+              <Select value={state.unit} onValueChange={(v) => state.setUnit(v as RepeatUnit)}>
+                <SelectTrigger className="w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weeks">{t.bookingEditor.weeks}</SelectItem>
+                  <SelectItem value="months">{t.bookingEditor.months}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Starts */}
+          <div className="space-y-2">
+            <Label>{t.bookingEditor.starts}</Label>
+            <DatePickerInput
+              value={parseDateValue(state.start)}
+              onChange={(d) => state.setStart(formatDateValue(d))}
+            />
+          </div>
+
+          {/* Ends */}
+          <div className="space-y-2">
+            <Label>{t.bookingEditor.ends}</Label>
+            <div className="flex items-center gap-2">
+              <Select value={state.endType} onValueChange={(v) => state.setEndType(v as RepeatEndType)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">{t.bookingEditor.endNever}</SelectItem>
+                  <SelectItem value="date">{t.bookingEditor.endOnDate}</SelectItem>
+                </SelectContent>
+              </Select>
+              {state.endType === 'date' && (
+                <DatePickerInput
+                  value={parseDateValue(state.endDate)}
+                  onChange={(d) => state.setEndDate(formatDateValue(d))}
+                  fullWidth={false}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={handleCancel}>{t.bookingEditor.cancel}</Button>
+          <Button
+            type="button"
+            onClick={() => state.setOpen(false)}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 h-9 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            {t.bookingEditor.done}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WeeklyAvailabilityEditor({
+  availability,
+  onChange,
+}: Readonly<{
+  availability: WeeklyAvailability;
+  onChange: Dispatch<SetStateAction<WeeklyAvailability>>;
+}>) {
+  const t = getTranslations('weldcalendar');
+  const dayShort: Record<keyof WeeklyAvailability, string> = {
+    sunday: t.bookingEditorDays.sun,
+    monday: t.bookingEditorDays.mon,
+    tuesday: t.bookingEditorDays.tue,
+    wednesday: t.bookingEditorDays.wed,
+    thursday: t.bookingEditorDays.thu,
+    friday: t.bookingEditorDays.fri,
+    saturday: t.bookingEditorDays.sat,
+  };
+
+  const updateDay = (day: keyof WeeklyAvailability, ranges: TimeRange[]) => {
+    onChange((prev) => ({ ...prev, [day]: ranges }));
+  };
+
+  const enableDay = (day: keyof WeeklyAvailability) => {
+    updateDay(day, [defaultRange()]);
+  };
+
+  const addRange = (day: keyof WeeklyAvailability) => {
+    const ranges = [...availability[day]];
+    const lastRange = ranges[ranges.length - 1];
+    const newStart = lastRange ? lastRange.end : '09:00';
+    ranges.push({ start: newStart, end: nextRangeEnd(newStart) });
+    updateDay(day, ranges);
+  };
+
+  const removeRange = (day: keyof WeeklyAvailability, index: number) => {
+    updateDay(day, availability[day].filter((_, i) => i !== index));
+  };
+
+  const updateRange = (day: keyof WeeklyAvailability, index: number, patch: Partial<TimeRange>) => {
+    const ranges = [...availability[day]];
+    ranges[index] = { ...ranges[index], ...patch };
+    updateDay(day, ranges);
+  };
+
+  // Copy this day's schedule to all other enabled days
+  const copyToAllDays = (source: keyof WeeklyAvailability, ranges: TimeRange[]) => {
+    const newAvail = { ...availability };
+    DAY_NAMES.forEach((d) => {
+      if (d !== source && availability[d].length > 0) {
+        newAvail[d] = [...ranges];
+      }
+    });
+    onChange(newAvail);
+  };
+
+  return (
+    <div className="divide-y">
+      {DAY_NAMES.map((day) => (
+        <DayAvailabilityRow
+          key={day}
+          label={dayShort[day]}
+          ranges={availability[day]}
+          onEnable={() => enableDay(day)}
+          onAddRange={() => addRange(day)}
+          onRemoveRange={(idx) => removeRange(day, idx)}
+          onUpdateRange={(idx, patch) => updateRange(day, idx, patch)}
+          onCopyToAll={() => copyToAllDays(day, availability[day])}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DayAvailabilityRow({
+  label,
+  ranges,
+  onEnable,
+  onAddRange,
+  onRemoveRange,
+  onUpdateRange,
+  onCopyToAll,
+}: Readonly<{
+  label: string;
+  ranges: TimeRange[];
+  onEnable: () => void;
+  onAddRange: () => void;
+  onRemoveRange: (index: number) => void;
+  onUpdateRange: (index: number, patch: Partial<TimeRange>) => void;
+  onCopyToAll: () => void;
+}>) {
+  const t = getTranslations('weldcalendar');
+  const isEnabled = ranges.length > 0;
+
+  return (
+    <div className="flex items-start py-3 group/day min-h-[44px]">
+      <span className={cn('text-sm w-10 shrink-0 h-9 flex items-center', isEnabled ? 'font-medium' : 'text-muted-foreground')}>
+        {label}
+      </span>
+      {isEnabled ? (
+        <div className="flex-1 space-y-2">
+          {ranges.map((range, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <TimeRangeInputs
+                range={range}
+                onStartChange={(value) => onUpdateRange(idx, { start: value })}
+                onEndChange={(value) => onUpdateRange(idx, { end: value })}
+              />
+              <div className="flex items-center gap-0.5 ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onRemoveRange(idx)}
+                  title={t.bookingPagesSidebar.delete}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-[11px]"
+                  onClick={onAddRange}
+                  title={t.availabilityEditor.addTimeRange}
+                >
+                  <Plus className="h-4 w-4 text-muted-foreground" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-[11px]"
+                  onClick={onCopyToAll}
+                  title={t.bookingEditor.copyToAllDays}
+                >
+                  <Copy className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className="text-sm text-muted-foreground flex-1 h-9 flex items-center">{t.bookingEditor.unavailable}</span>
+      )}
+      {!isEnabled && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 ml-auto rounded-[11px]"
+          onClick={onEnable}
+          title={t.bookingEditor.addAvailability}
+        >
+          <Plus className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SpecificDatesEditor({ specific }: Readonly<{ specific: SpecificDatesApi }>) {
+  const t = getTranslations('weldcalendar');
+
+  return (
+    <div className="space-y-2">
+
+      {/* Specific dates list */}
+      <div className="divide-y">
+        {specific.dates.map((sd, sdIdx) => (
+          <div key={sdIdx} className="flex items-start py-3 group/sd min-h-[44px]">
+            <span className="text-sm font-medium w-[90px] shrink-0 h-9 flex items-center">
+              {new Date(sd.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+            <div className="flex-1 space-y-2">
+              {sd.ranges.map((range, rIdx) => (
+                <div key={rIdx} className="flex items-center gap-2">
+                  <TimeRangeInputs
+                    range={range}
+                    onStartChange={(value) => specific.updateRange(sdIdx, rIdx, { start: value })}
+                    onEndChange={(value) => specific.updateRange(sdIdx, rIdx, { end: value })}
+                  />
+                  <div className="flex items-center gap-0.5 ml-auto">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-[11px]"
+                      onClick={() => specific.addRange(sdIdx)}
+                    >
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => specific.removeRange(sdIdx, rIdx)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add date button */}
+      <DatePickerInput
+        placeholder={t.bookingEditor.addDate}
+        fullWidth={false}
+        showIcon={false}
+        showPlusIcon
+        onChange={specific.addDate}
+      />
+    </div>
+  );
+}
+
+function AdjustedAvailabilitySection({ specific }: Readonly<{ specific: SpecificDatesApi }>) {
+  const t = getTranslations('weldcalendar');
+
+  return (
+    <CollapsibleSection title={t.bookingEditor.adjustedAvailability} summary={t.bookingEditor.adjustedAvailabilityHint}>
+      <div className="px-5 pb-4 space-y-3">
+        <p className="text-xs text-muted-foreground">{t.bookingEditor.adjustedAvailabilityOverrideHint}</p>
+
+        {/* Adjusted dates list */}
+        {specific.dates.length > 0 && (
+          <div className="divide-y">
+            {specific.dates.map((sd, sdIdx) => (
+              <div key={sdIdx} className="py-2.5 group/adj space-y-1.5">
+                {sd.ranges.map((range, rIdx) => (
+                  <div key={rIdx} className="flex items-center gap-2">
+                    {rIdx === 0 && (
+                      <DatePickerInput
+                        value={new Date(sd.date)}
+                        onChange={(d) => specific.changeDate(sdIdx, d)}
+                        fullWidth={false}
+                        showIcon={false}
+                      />
+                    )}
+                    {rIdx > 0 && <div className="w-[115px] shrink-0" />}
+                    <TimeRangeInputs
+                      range={range}
+                      onStartChange={(value) => specific.updateRange(sdIdx, rIdx, { start: value })}
+                      onEndChange={(value) => specific.updateRange(sdIdx, rIdx, { end: value })}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-[11px] hover:bg-destructive/10 hover:text-destructive ml-auto"
+                      onClick={() => specific.removeRange(sdIdx, rIdx)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <DatePickerInput
+          placeholder={t.bookingEditor.changeDateAvailability}
+          fullWidth={false}
+          showPlusIcon
+          showIcon={false}
+          onChange={specific.addDate}
+        />
+      </div>
+    </CollapsibleSection>
   );
 }
 
