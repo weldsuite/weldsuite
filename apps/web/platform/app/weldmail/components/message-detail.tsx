@@ -40,6 +40,7 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -439,6 +440,737 @@ interface ThreadDraft {
   updatedAt: string;
 }
 
+const RECIPIENT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+
+// "jane.doe@example.com" -> "Jane Doe"
+function emailToDisplayName(email: string): string {
+  return email.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+}
+
+// The api-worker mail list / thread routes resolve sender avatars from the
+// shared `contacts` table and project them onto `from.avatarUrl` for every
+// message, so we just read them off the message object — no extra fetch.
+function getSenderAvatarUrl(m: { from?: unknown }): string | undefined {
+  if (typeof m.from === 'object' && m.from !== null) {
+    const url = (m.from as { avatarUrl?: string | null }).avatarUrl;
+    return url ?? undefined;
+  }
+  return undefined;
+}
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1048576) return `${Math.round(size / 1024)} KB`;
+  return `${(size / 1048576).toFixed(1)} MB`;
+}
+
+function readActiveFormats(): Record<string, boolean> {
+  return {
+    bold: document.queryCommandState('bold'),
+    italic: document.queryCommandState('italic'),
+    underline: document.queryCommandState('underline'),
+    insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+    insertOrderedList: document.queryCommandState('insertOrderedList'),
+  };
+}
+
+function isSendShortcut(e: React.KeyboardEvent): boolean {
+  return !(e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey);
+}
+
+const SYSTEM_LABEL_ITEMS = [
+  { name: 'inbox', Icon: Inbox, labelKey: 'labelInbox', activeClassName: 'bg-gray-100' },
+  { name: 'starred', Icon: Star, labelKey: 'labelStarred', activeClassName: 'bg-gray-100' },
+  { name: 'important', Icon: Flag, labelKey: 'labelImportant', activeClassName: 'bg-gray-100' },
+  { name: 'sent', Icon: Send, labelKey: 'labelSent', activeClassName: 'bg-gray-100' },
+  { name: 'archive', Icon: Archive, labelKey: 'labelArchive', activeClassName: 'bg-gray-100' },
+  { name: 'spam', Icon: AlertTriangle, labelKey: 'labelSpam', activeClassName: 'bg-gray-100' },
+  { name: 'trash', Icon: Trash, labelKey: 'labelTrash', activeClassName: 'bg-gray-200' },
+] as const;
+
+function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onClick }: Readonly<{
+  active: boolean;
+  activeClassName: string;
+  Icon: LucideIcon;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}>) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
+        active ? activeClassName : "hover:bg-gray-100"
+      )}
+    >
+      <Icon className={cn("h-4 w-4 flex-shrink-0", active ? "text-gray-600" : "text-gray-500")} />
+      <span className="flex-1 text-left">{label}</span>
+      {active && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
+    </Button>
+  );
+}
+
+function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels, onToggleLabel }: Readonly<{
+  messageLabels: string[];
+  availableLabels: MailTypes.Label[];
+  isUpdatingLabels: boolean;
+  onToggleLabel: (labelName: string) => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <>
+      {/* System Labels */}
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.systemLabels}</div>
+      <div className="space-y-0.5 mb-3">
+        {SYSTEM_LABEL_ITEMS.map(({ name, Icon, labelKey, activeClassName }) => (
+          <SystemLabelButton
+            key={name}
+            active={messageLabels.includes(name)}
+            activeClassName={activeClassName}
+            Icon={Icon}
+            label={t.mail.messageDetail[labelKey]}
+            disabled={isUpdatingLabels}
+            onClick={() => onToggleLabel(name)}
+          />
+        ))}
+      </div>
+
+      {/* User Labels */}
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
+      {availableLabels.length === 0 ? (
+        <div className="text-sm text-gray-400 py-2 px-2">
+          {t.mail.messageDetail.noCustomLabels}
+        </div>
+      ) : (
+        <div className="space-y-0.5">
+          {availableLabels.map((label) => {
+            const isApplied = messageLabels.includes(label.name);
+            const color = getLabelColor(label.name, label);
+            return (
+              <Button
+                variant="ghost"
+                key={label.name}
+                onClick={() => onToggleLabel(label.name)}
+                disabled={isUpdatingLabels}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
+                  isApplied ? "bg-gray-100" : "hover:bg-gray-100"
+                )}
+              >
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="flex-1 text-left truncate">{label.name}</span>
+                {isApplied && (
+                  <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />
+                )}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+function LabelBadge({ labelName, color, onRemove }: Readonly<{
+  labelName: string;
+  color: string;
+  onRemove: (labelName: string) => void;
+}>) {
+  return (
+    <span
+      className="relative px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
+      style={{
+        backgroundColor: `${color}15`,
+        color: color,
+      }}
+    >
+      {labelName}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={(e) => { e.stopPropagation(); onRemove(labelName); }}
+        className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
+      >
+        <X className="h-2.5 w-2.5 text-muted-foreground" />
+      </Button>
+    </span>
+  );
+}
+
+function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
+  messageLabels: string[];
+  availableLabels: MailTypes.Label[];
+  onRemove: (labelName: string) => void;
+}>) {
+  const renderBadge = (labelName: string) => {
+    const labelData = availableLabels.find((l) => l.name === labelName);
+    return (
+      <LabelBadge
+        key={labelName}
+        labelName={labelName}
+        color={getLabelColor(labelName, labelData)}
+        onRemove={onRemove}
+      />
+    );
+  };
+
+  return (
+    <div className="hidden md:flex gap-1.5 ml-2">
+      {messageLabels.slice(0, 8).map(renderBadge)}
+      {messageLabels.length > 8 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" className="px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted rounded transition-colors">
+              +{messageLabels.length - 8}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-2" align="start">
+            <div className="flex flex-col gap-1.5">
+              {messageLabels.slice(8).map(renderBadge)}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
+  );
+}
+
+function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDelete }: Readonly<{
+  draft: ThreadDraft;
+  className: string;
+  deleteButtonClassName: string;
+  onOpen: () => void;
+  onDelete: () => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className={className} onClick={onOpen}>
+      <div className="px-3 md:px-4 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center bg-orange-100 flex-shrink-0">
+            <FileText className="h-3.5 w-3.5 text-orange-600" />
+          </div>
+          <div className="min-w-0 text-left flex items-center gap-2 flex-1">
+            <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 hover:bg-orange-100 flex-shrink-0">{t.mail.messageDetail.draft}</Badge>
+            <span className="text-sm text-muted-foreground truncate">
+              {draft.to.length > 0 ? `${t.mail.messageDetail.toPrefix}: ${draft.to.join(', ')}` : t.mail.messageDetail.noRecipients}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs text-muted-foreground">{format(new Date(draft.updatedAt), 'MMM d, h:mm a')}</span>
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className={deleteButtonClassName}
+            title={t.mail.messageDetail.deleteDraft}
+          >
+            <Trash className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        </div>
+      </div>
+      {(draft.body || draft.htmlBody) && (
+        <div className="px-3 md:px-4 pb-3 pt-0">
+          <div className="text-sm text-muted-foreground truncate">
+            {draft.body?.replace(/<[^>]*>/g, '').substring(0, 150) || draft.htmlBody?.replace(/<[^>]*>/g, '').substring(0, 150)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Readonly<{
+  avatarUrl: string | undefined;
+  sender: string;
+  fallbackChar: string;
+  fallbackClassName: string;
+}>) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={extractName(sender)}
+        className="w-6 h-6 rounded-md object-cover flex-shrink-0"
+      />
+    );
+  }
+  return (
+    <div
+      className={fallbackClassName}
+      style={{ backgroundColor: getAvatarColor(sender) }}
+    >
+      {(sender || fallbackChar).charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Readonly<{
+  allRecipients: { email: string; type: 'To' | 'Cc' }[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (email: string, name: string) => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" className="text-sm text-blue-600 hover:underline">
+          +{allRecipients.length - 1}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-0" align="start">
+        <div className="px-3 py-2 border-b">
+          <p className="text-xs font-medium text-gray-500">{t.mail.messageDetail.recipients.replace('{n}', String(allRecipients.length))}</p>
+        </div>
+        <div className="p-2 space-y-1">
+          {allRecipients.map((recipient, index) => {
+            const name = emailToDisplayName(recipient.email);
+            const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2);
+            return (
+              <Button
+                variant="ghost"
+                key={index}
+                onClick={() => onSelect(recipient.email, name)}
+                className="flex items-center gap-3 w-full text-left hover:bg-gray-100 px-2 py-1.5 rounded-md"
+              >
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="text-xs text-white" style={{ backgroundColor: RECIPIENT_COLORS[index % RECIPIENT_COLORS.length] }}>
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{name}</div>
+                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                    {recipient.email}
+                    {recipient.type === 'Cc' && <span className="text-[10px] px-1 bg-gray-100 rounded">CC</span>}
+                  </div>
+                </div>
+              </Button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function MessageBodyContent({ mainContent, isHtml, bodyHtml, bodyText }: Readonly<{
+  mainContent: string;
+  isHtml: boolean;
+  bodyHtml?: string;
+  bodyText?: string;
+}>) {
+  const { t } = useI18n();
+  if (mainContent) {
+    return isHtml ? (
+      <IsolatedHtmlContent html={mainContent} />
+    ) : (
+      <div className="whitespace-pre-wrap">{mainContent}</div>
+    );
+  }
+  if (bodyHtml) return <IsolatedHtmlContent html={bodyHtml} />;
+  if (bodyText) return <div className="whitespace-pre-wrap">{bodyText}</div>;
+  return <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>;
+}
+
+function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly<{
+  quotedContent: string;
+  isHtml: boolean;
+  showQuoted: boolean;
+  onToggle: () => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Button
+        variant="ghost"
+        type="button"
+        onClick={onToggle}
+        className={cn("mt-2 inline-flex items-center justify-center h-5 w-8 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md hover:bg-muted-foreground/20 transition-all", !showQuoted && "opacity-0 group-hover/email:opacity-100")}
+        title={showQuoted ? t.mail.messageDetail.hideQuotedText : t.mail.messageDetail.showQuotedText}
+      >
+        ···
+      </Button>
+      {showQuoted && (
+        <div className="mt-2">
+          {isHtml ? (
+            <IsolatedHtmlContent html={quotedContent} />
+          ) : (
+            <div className="whitespace-pre-wrap">{quotedContent}</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
+  hasLoadedAttachments: boolean;
+  otherAttachments: { id: string; downloadUrl?: string | null; fileName: string; size: number }[];
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className="mt-4 md:mt-6 space-y-2">
+      {hasLoadedAttachments ? (
+        otherAttachments.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+              <Paperclip className="h-3.5 w-3.5" />
+              <span>{otherAttachments.length !== 1 ? t.mail.messageDetail.attachmentCountPlural.replace('{n}', String(otherAttachments.length)) : t.mail.messageDetail.attachmentCount.replace('{n}', String(otherAttachments.length))}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {otherAttachments.map((att) => (
+                <a
+                  key={att.id}
+                  href={att.downloadUrl ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
+                >
+                  <FileDown className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                  <span className="text-gray-700 truncate max-w-[200px]">{att.fileName}</span>
+                  <span className="text-gray-400 text-xs whitespace-nowrap">
+                    {formatAttachmentSize(att.size)}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </>
+        )
+      ) : (
+        <div className="text-sm text-gray-400">{t.mail.messageDetail.loadingAttachments}</div>
+      )}
+    </div>
+  );
+}
+
+function ThreadMessageCard({
+  threadMsg,
+  isExpanded,
+  canReplyAll,
+  onToggle,
+  onOpenContact,
+  onReply,
+  onReplyAll,
+}: Readonly<{
+  threadMsg: EmailMessage;
+  isExpanded: boolean;
+  canReplyAll: boolean;
+  onToggle: () => void;
+  onOpenContact: (email: string, name: string) => void;
+  onReply: () => void;
+  onReplyAll: () => void;
+}>) {
+  const { t } = useI18n();
+  const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
+  return (
+    <div className="group relative border border-border/50 rounded-lg bg-muted/50">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className="w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const email = threadMsg.fromEmail || extractEmail(fromDisplayString(threadMsg.from));
+              onOpenContact(email, extractName(fromDisplayString(threadMsg.from)));
+            }}
+            className="flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
+            title={t.mail.messageDetail.viewContactDetails}
+          >
+            <SenderAvatar
+              avatarUrl={getSenderAvatarUrl(threadMsg)}
+              sender={fromDisplayString(threadMsg.from)}
+              fallbackChar="U"
+              fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
+            />
+            <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
+              {fromDisplayString(threadMsg.from)}
+            </span>
+          </Button>
+          {isSentMessage && (
+            <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-pink-100 text-pink-700 hover:bg-pink-100 flex-shrink-0">{t.mail.messageDetail.sentBadge}</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="hidden md:inline text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d, yyyy h:mm a')}</span>
+          <span className="md:hidden text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d')}</span>
+          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
+        </div>
+      </div>
+      {isExpanded && (
+        <ThreadMessageContent threadMsg={threadMsg} />
+      )}
+      {/* Hover Actions - only when expanded, hidden on mobile */}
+      <div className={cn("absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex items-center gap-1", !isExpanded && "!hidden")}>
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReply();
+          }}
+          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
+          title={t.mail.compose.reply}
+        >
+          <Reply className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+        {canReplyAll && (
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReplyAll();
+            }}
+            className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
+            title={t.mail.compose.replyAll}
+          >
+            <ReplyAll className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            toast.success(t.mail.messageDetail.forwardComingSoon);
+          }}
+          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
+          title={t.mail.compose.forward}
+        >
+          <Forward className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function FormatButton({ active, title, command, Icon, onCommand }: Readonly<{
+  active: boolean | undefined;
+  title: string;
+  command: string;
+  Icon: LucideIcon;
+  onCommand: (command: string, value?: string) => void;
+}>) {
+  return (
+    <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", active ? "bg-muted" : "hover:bg-muted")} title={title} onMouseDown={(e) => { e.preventDefault(); onCommand(command); }}>
+      <Icon className={cn("h-4 w-4", active ? "text-foreground" : "text-muted-foreground")} />
+    </Button>
+  );
+}
+
+function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi }: Readonly<{
+  activeFormats: Record<string, boolean>;
+  onCommand: (command: string, value?: string) => void;
+  onFilesSelected: (files: File[]) => void;
+  onOpenAi: () => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-center gap-0.5">
+      <FormatButton active={activeFormats.bold} title={t.mail.toolbar.bold} command="bold" Icon={Bold} onCommand={onCommand} />
+      <FormatButton active={activeFormats.italic} title={t.mail.toolbar.italic} command="italic" Icon={Italic} onCommand={onCommand} />
+      <FormatButton active={activeFormats.underline} title={t.mail.toolbar.underline} command="underline" Icon={Underline} onCommand={onCommand} />
+      <div className="w-px h-5 bg-border mx-0.5" />
+      <FormatButton active={activeFormats.insertUnorderedList} title={t.mail.toolbar.bulletList} command="insertUnorderedList" Icon={List} onCommand={onCommand} />
+      <FormatButton active={activeFormats.insertOrderedList} title={t.mail.toolbar.numberedList} command="insertOrderedList" Icon={ListOrdered} onCommand={onCommand} />
+      <div className="w-px h-5 bg-border mx-0.5" />
+      <ComposeAttachButton
+        title={t.mail.toolbar.attachFile}
+        testId="reply-attach-input"
+        className="p-2 hover:bg-muted rounded-md transition-colors"
+        iconClassName="text-muted-foreground"
+        onFilesSelected={onFilesSelected}
+      />
+      <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.insertLink} onMouseDown={(e) => {
+        e.preventDefault();
+        const url = prompt('Enter URL:');
+        if (url) onCommand('createLink', url);
+      }}>
+        <Link className="h-4 w-4 text-muted-foreground" />
+      </Button>
+      <div className="w-px h-5 bg-border mx-0.5" />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="p-2 hover:bg-muted rounded-md transition-colors"
+        title={t.mail.toolbar.aiAssistant}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onOpenAi();
+        }}
+      >
+        <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+function ComposeToRow({ to, autoFocus, onToChange, onMinimize, onExpand }: Readonly<{
+  to: string;
+  autoFocus: boolean;
+  onToChange: (value: string) => void;
+  onMinimize: () => void;
+  onExpand: () => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5">
+      <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
+      <input
+        type="text"
+        className="flex-1 text-sm outline-none bg-transparent min-w-0 text-foreground"
+        value={to}
+        onChange={(e) => onToChange(e.target.value)}
+        autoFocus={autoFocus}
+      />
+      <div className="flex items-center gap-0.5 flex-shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="p-1.5 hover:bg-muted rounded-md transition-colors"
+          title={t.mail.messageDetail.minimizeToPanel}
+          onClick={onMinimize}
+        >
+          <PictureInPicture2 className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="p-1.5 hover:bg-muted rounded-md transition-colors"
+          title={t.mail.messageDetail.expandToFullScreen}
+          onClick={onExpand}
+        >
+          <Maximize className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AttachedFileChips({ files, onRemove }: Readonly<{
+  files: File[];
+  onRemove: (index: number) => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+      {files.map((file, index) => (
+        <div
+          key={`${file.name}-${index}`}
+          className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
+        >
+          <span className="truncate">{file.name}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
+            onClick={() => onRemove(index)}
+            title={t.mail.messageDetail.cancel}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InlineAiBar({
+  isAgentInline,
+  inputRef,
+  prompt,
+  placeholder,
+  isGenerating,
+  onPromptChange,
+  onEnter,
+  onCreate,
+  onEscape,
+  onCancel,
+  onInsert,
+}: Readonly<{
+  isAgentInline: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  prompt: string;
+  placeholder: string;
+  isGenerating: boolean;
+  onPromptChange: (value: string) => void;
+  onEnter: () => void;
+  onCreate: () => void;
+  onEscape: () => void;
+  onCancel: () => void;
+  onInsert: () => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className={cn("flex items-center gap-2 px-3 py-3", isAgentInline && "border-t border-border/50")}>
+      <PenLine className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+      <textarea
+        ref={inputRef}
+        value={prompt}
+        onChange={(e) => {
+          onPromptChange(e.target.value);
+          e.target.style.height = 'auto';
+          e.target.style.height = e.target.scrollHeight + 'px';
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            onEnter();
+          }
+          if (e.key === 'Escape') onEscape();
+        }}
+        placeholder={placeholder}
+        className="flex-1 text-sm outline-none bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
+        rows={1}
+      />
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          {t.mail.messageDetail.cancelButton}
+        </Button>
+        {prompt.trim() ? (
+          <Button
+            size="sm"
+            onClick={onCreate}
+            disabled={isGenerating}
+          >
+            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.mail.messageDetail.createButton}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={onInsert}
+          >
+            {t.mail.messageDetail.insertButton}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface MessageDetailProps {
   message: EmailMessage;
   thread?: EmailMessage[];
@@ -509,13 +1241,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Track active formatting in the editor
   useEffect(() => {
     const updateFormats = () => {
-      setActiveFormats({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-        insertOrderedList: document.queryCommandState('insertOrderedList'),
-      });
+      setActiveFormats(readActiveFormats());
     };
     document.addEventListener('selectionchange', updateFormats);
     return () => document.removeEventListener('selectionchange', updateFormats);
@@ -587,17 +1313,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     [newestMessage, accountEmail],
   );
   const canReplyAll = replyAllRecipients.length > 1;
-
-  // The api-worker mail list / thread routes resolve sender avatars from the
-  // shared `contacts` table and project them onto `from.avatarUrl` for every
-  // message, so we just read them off the message object — no extra fetch.
-  const getSenderAvatarUrl = (m: { from?: unknown }): string | undefined => {
-    if (typeof m.from === 'object' && m.from !== null) {
-      const url = (m.from as { avatarUrl?: string | null }).avatarUrl;
-      return url ?? undefined;
-    }
-    return undefined;
-  };
 
   // Fetch attachments for the newest message
   const { data: attachmentsData } = useMailAttachments(
@@ -992,7 +1707,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     ...addressListToEmails(newestMessage.cc).map((email) => ({ email, type: 'Cc' as const })),
   ];
   const primaryToEmail = addressToEmail(newestMessage.to[0]);
-  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
 
   // Get the RFC messageId for the message being replied to (for inReplyTo header)
   const getReplyToRfcMessageId = (): string | undefined => {
@@ -1002,21 +1716,113 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     return target?.messageId || undefined;
   };
 
+  const cancelCompose = () => {
+    setIsReplying(false);
+    setIsReplyingAll(false);
+    setIsForwarding(false);
+    setReplyToMessageId(null);
+    setComposeData({ to: '', subject: '', body: '' });
+    setAttachedFiles([]);
+    setIsAutoDraft(false);
+    setShowInlineAiInput(false);
+    setInlineAiPrompt('');
+    if (editorRef.current) editorRef.current.innerHTML = '';
+  };
+
+  const closeInlineAi = () => {
+    setIsAutoDraft(false);
+    setIsAgentInline(false);
+    setShowInlineAiInput(false);
+    setInlineAiPrompt('');
+  };
+
+  const openInlineAi = () => {
+    setIsAutoDraft(true);
+    setIsAgentInline(true);
+    setShowInlineAiInput(true);
+    setInlineAiPrompt('');
+    setTimeout(() => inlineAiInputRef.current?.focus(), 0);
+  };
+
+  const insertInlineAi = () => {
+    setIsAutoDraft(false);
+    setShowInlineAiInput(false);
+    setInlineAiPrompt('');
+  };
+
+  const generateInlineAiReply = (getSuccessMessage: (editor: HTMLDivElement) => string, failureMessage: string) => {
+    if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
+    setIsInlineAiGenerating(true);
+    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: replyToMessageId || undefined, accountId })
+      .then((result) => {
+        const editor = editorRef.current;
+        if (result.success && result.body && editor) {
+          editor.innerHTML = formatAiBody(result.body);
+          setIsAgentInline(false);
+          toast.success(getSuccessMessage(editor));
+        } else {
+          toast.error(failureMessage);
+        }
+      })
+      .catch((err) => {
+        if (!handleAiCreditsError(err)) toast.error(failureMessage);
+      })
+      .finally(() => {
+        setIsInlineAiGenerating(false);
+        setInlineAiPrompt('');
+      });
+  };
+
+  const handleEnterInlineAi = () => generateInlineAiReply(
+    () => t.mail.messageDetail.draftUpdated,
+    t.mail.messageDetail.failedToUpdateDraft,
+  );
+
+  const handleCreateInlineAi = () => generateInlineAiReply(
+    (editor) => (editor.textContent?.trim() ? t.mail.messageDetail.draftUpdated : t.mail.messageDetail.aiContentGenerated),
+    t.mail.messageDetail.failedToGenerateContent,
+  );
+
+  const minimizeComposeToPanel = () => {
+    const htmlContent = editorRef.current?.innerHTML || '';
+    const textContent = editorRef.current?.textContent || '';
+    composeContext?.openCompose({
+      to: composeData.to,
+      subject: composeData.subject || message.subject,
+      body: htmlContent || textContent,
+      inReplyTo: isReplying ? getReplyToRfcMessageId() : undefined,
+      accountId,
+      attachedFiles,
+    }, currentMailHref());
+    cancelCompose();
+  };
+
+  const expandComposeToFullScreen = () => {
+    const htmlContent = editorRef.current?.innerHTML || '';
+    const textContent = editorRef.current?.textContent || '';
+    const rfcMessageId = isReplying ? getReplyToRfcMessageId() : undefined;
+    if (composeContext) {
+      composeContext.setPreviousUrl(currentMailHref());
+      composeContext.updateComposeData({
+        to: composeData.to,
+        subject: composeData.subject || message.subject,
+        body: htmlContent || textContent,
+        inReplyTo: rfcMessageId,
+        attachedFiles,
+      });
+    }
+    cancelCompose();
+    // Pass inReplyTo and returnUrl via URL params for reliability
+    const params = new URLSearchParams();
+    if (rfcMessageId) params.set('inReplyTo', rfcMessageId);
+    params.set('returnUrl', currentMailHref());
+    const qs = params.toString();
+    router.push(`/weldmail/${accountId}/${folder}/compose${qs ? `?${qs}` : ''}`);
+  };
+
   const renderComposeBox = (inThread = false) => {
     const isReply = isReplying;
     const placeholder = isReply ? t.mail.messageDetail.replyPlaceholder : t.mail.messageDetail.forwardMessagePlaceholder;
-    const onCancel = () => {
-      setIsReplying(false);
-      setIsReplyingAll(false);
-      setIsForwarding(false);
-      setReplyToMessageId(null);
-      setComposeData({ to: '', subject: '', body: '' });
-      setAttachedFiles([]);
-      setIsAutoDraft(false);
-      setShowInlineAiInput(false);
-      setInlineAiPrompt('');
-      if (editorRef.current) editorRef.current.innerHTML = '';
-    };
     const onSend = isReply ? handleSendReply : handleSendForward;
     const sendDisabled = isSending;
 
@@ -1025,90 +1831,26 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     const execCommand = (command: string, value?: string) => {
       editorRef.current?.focus();
       document.execCommand(command, false, value);
-      setActiveFormats({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-        insertOrderedList: document.queryCommandState('insertOrderedList'),
-      });
+      setActiveFormats(readActiveFormats());
     };
 
     return (
       <div
         className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+          if (!isSendShortcut(e)) return;
           e.preventDefault();
           if (!sendDisabled) onSend();
         }}
       >
         {/* To field */}
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
-          <input
-            type="text"
-            className="flex-1 text-sm outline-none bg-transparent min-w-0 text-foreground"
-            value={composeData.to}
-            onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
-            autoFocus={!isReply}
-          />
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              title={t.mail.messageDetail.minimizeToPanel}
-              onClick={() => {
-                const htmlContent = editorRef.current?.innerHTML || '';
-                const textContent = editorRef.current?.textContent || '';
-                composeContext?.openCompose({
-                  to: composeData.to,
-                  subject: composeData.subject || message.subject,
-                  body: htmlContent || textContent,
-                  inReplyTo: isReply ? getReplyToRfcMessageId() : undefined,
-                  accountId,
-                  attachedFiles,
-                }, currentMailHref());
-                onCancel();
-              }}
-            >
-              <PictureInPicture2 className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              title={t.mail.messageDetail.expandToFullScreen}
-              onClick={() => {
-                const htmlContent = editorRef.current?.innerHTML || '';
-                const textContent = editorRef.current?.textContent || '';
-                const rfcMessageId = isReply ? getReplyToRfcMessageId() : undefined;
-                if (composeContext) {
-                  composeContext.setPreviousUrl(currentMailHref());
-                  composeContext.updateComposeData({
-                    to: composeData.to,
-                    subject: composeData.subject || message.subject,
-                    body: htmlContent || textContent,
-                    inReplyTo: rfcMessageId,
-                    attachedFiles,
-                  });
-                }
-                onCancel();
-                // Pass inReplyTo and returnUrl via URL params for reliability
-                const params = new URLSearchParams();
-                if (rfcMessageId) params.set('inReplyTo', rfcMessageId);
-                    params.set('returnUrl', currentMailHref());
-                const qs = params.toString();
-                router.push(`/weldmail/${accountId}/${folder}/compose${qs ? `?${qs}` : ''}`);
-              }}
-            >
-              <Maximize className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
-          </div>
-        </div>
+        <ComposeToRow
+          to={composeData.to}
+          autoFocus={!isReply}
+          onToChange={(value) => setComposeData(prev => ({ ...prev, to: value }))}
+          onMinimize={minimizeComposeToPanel}
+          onExpand={expandComposeToFullScreen}
+        />
         <div className="mx-3 border-t border-border/50" />
         {/* Message body */}
         <div className={cn("px-3 py-2.5", isAutoDraft && !isAgentInline && "mx-3 mt-2.5 rounded-lg border border-purple-200/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-50/50 via-blue-50/30 to-violet-50/40 dark:from-purple-950/20 dark:via-blue-950/10 dark:to-violet-950/15 px-3 py-3")}>
@@ -1122,184 +1864,36 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           />
         </div>
         {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {attachedFiles.map((file, index) => (
-              <div
-                key={`${file.name}-${index}`}
-                className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
-              >
-                <span className="truncate">{file.name}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
-                  onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
-                  title={t.mail.messageDetail.cancel}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
-          </div>
+          <AttachedFileChips
+            files={attachedFiles}
+            onRemove={(index) => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+          />
         )}
         {/* Actions bar */}
         {isAutoDraft ? (
-          <>
-            <div className={cn("flex items-center gap-2 px-3 py-3", isAgentInline && "border-t border-border/50")}>
-              <PenLine className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              <textarea
-                ref={inlineAiInputRef}
-                value={inlineAiPrompt}
-                onChange={(e) => {
-                  setInlineAiPrompt(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                    e.preventDefault();
-                    if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
-                    setIsInlineAiGenerating(true);
-                    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: replyToMessageId || undefined, accountId })
-                      .then((result) => {
-                        if (result.success && result.body && editorRef.current) {
-                          editorRef.current.innerHTML = formatAiBody(result.body);
-                          setIsAgentInline(false);
-                          toast.success(t.mail.messageDetail.draftUpdated);
-                        } else {
-                          toast.error(t.mail.messageDetail.failedToUpdateDraft);
-                        }
-                      })
-                      .catch((err) => {
-                        if (!handleAiCreditsError(err)) toast.error(t.mail.messageDetail.failedToUpdateDraft);
-                      })
-                      .finally(() => {
-                        setIsInlineAiGenerating(false);
-                        setInlineAiPrompt('');
-                      });
-                  }
-                  if (e.key === 'Escape') {
-                    setIsAutoDraft(false);
-                    setIsAgentInline(false);
-                    setShowInlineAiInput(false);
-                    setInlineAiPrompt('');
-                  }
-                }}
-                placeholder={editorRef.current?.textContent?.trim() ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
-                className="flex-1 text-sm outline-none bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
-                rows={1}
-              />
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <Button variant="outline" size="sm" onClick={() => {
-                  if (isAgentInline) {
-                    setIsAutoDraft(false);
-                    setIsAgentInline(false);
-                    setShowInlineAiInput(false);
-                    setInlineAiPrompt('');
-                  } else {
-                    onCancel();
-                  }
-                }}>
-                  {t.mail.messageDetail.cancelButton}
-                </Button>
-                {inlineAiPrompt.trim() ? (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
-                      setIsInlineAiGenerating(true);
-                      generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: replyToMessageId || undefined, accountId })
-                        .then((result) => {
-                          if (result.success && result.body && editorRef.current) {
-                            editorRef.current.innerHTML = formatAiBody(result.body);
-                            setIsAgentInline(false);
-                            toast.success(editorRef.current.textContent?.trim() ? t.mail.messageDetail.draftUpdated : t.mail.messageDetail.aiContentGenerated);
-                          } else {
-                            toast.error(t.mail.messageDetail.failedToGenerateContent);
-                          }
-                        })
-                        .catch((err) => {
-                          if (!handleAiCreditsError(err)) toast.error(t.mail.messageDetail.failedToGenerateContent);
-                        })
-                        .finally(() => {
-                          setIsInlineAiGenerating(false);
-                          setInlineAiPrompt('');
-                        });
-                    }}
-                    disabled={isInlineAiGenerating}
-                  >
-                    {isInlineAiGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.mail.messageDetail.createButton}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setIsAutoDraft(false);
-                      setShowInlineAiInput(false);
-                      setInlineAiPrompt('');
-                    }}
-                  >
-                    {t.mail.messageDetail.insertButton}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </>
+          <InlineAiBar
+            isAgentInline={isAgentInline}
+            inputRef={inlineAiInputRef}
+            prompt={inlineAiPrompt}
+            placeholder={editorRef.current?.textContent?.trim() ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
+            isGenerating={isInlineAiGenerating}
+            onPromptChange={setInlineAiPrompt}
+            onEnter={handleEnterInlineAi}
+            onCreate={handleCreateInlineAi}
+            onEscape={closeInlineAi}
+            onCancel={isAgentInline ? closeInlineAi : cancelCompose}
+            onInsert={insertInlineAi}
+          />
         ) : (
           <div className="flex items-center justify-between px-3 py-3 border-t border-border/50">
-            <div className="flex items-center gap-0.5">
-              <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", activeFormats.bold ? "bg-muted" : "hover:bg-muted")} title={t.mail.toolbar.bold} onMouseDown={(e) => { e.preventDefault(); execCommand('bold'); }}>
-                <Bold className={cn("h-4 w-4", activeFormats.bold ? "text-foreground" : "text-muted-foreground")} />
-              </Button>
-              <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", activeFormats.italic ? "bg-muted" : "hover:bg-muted")} title={t.mail.toolbar.italic} onMouseDown={(e) => { e.preventDefault(); execCommand('italic'); }}>
-                <Italic className={cn("h-4 w-4", activeFormats.italic ? "text-foreground" : "text-muted-foreground")} />
-              </Button>
-              <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", activeFormats.underline ? "bg-muted" : "hover:bg-muted")} title={t.mail.toolbar.underline} onMouseDown={(e) => { e.preventDefault(); execCommand('underline'); }}>
-                <Underline className={cn("h-4 w-4", activeFormats.underline ? "text-foreground" : "text-muted-foreground")} />
-              </Button>
-              <div className="w-px h-5 bg-border mx-0.5" />
-              <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", activeFormats.insertUnorderedList ? "bg-muted" : "hover:bg-muted")} title={t.mail.toolbar.bulletList} onMouseDown={(e) => { e.preventDefault(); execCommand('insertUnorderedList'); }}>
-                <List className={cn("h-4 w-4", activeFormats.insertUnorderedList ? "text-foreground" : "text-muted-foreground")} />
-              </Button>
-              <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", activeFormats.insertOrderedList ? "bg-muted" : "hover:bg-muted")} title={t.mail.toolbar.numberedList} onMouseDown={(e) => { e.preventDefault(); execCommand('insertOrderedList'); }}>
-                <ListOrdered className={cn("h-4 w-4", activeFormats.insertOrderedList ? "text-foreground" : "text-muted-foreground")} />
-              </Button>
-              <div className="w-px h-5 bg-border mx-0.5" />
-              <ComposeAttachButton
-                title={t.mail.toolbar.attachFile}
-                testId="reply-attach-input"
-                className="p-2 hover:bg-muted rounded-md transition-colors"
-                iconClassName="text-muted-foreground"
-                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
-              />
-              <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.insertLink} onMouseDown={(e) => {
-                e.preventDefault();
-                const url = prompt('Enter URL:');
-                if (url) execCommand('createLink', url);
-              }}>
-                <Link className="h-4 w-4 text-muted-foreground" />
-              </Button>
-              <div className="w-px h-5 bg-border mx-0.5" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-2 hover:bg-muted rounded-md transition-colors"
-                title={t.mail.toolbar.aiAssistant}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setIsAutoDraft(true);
-                  setIsAgentInline(true);
-                  setShowInlineAiInput(true);
-                  setInlineAiPrompt('');
-                  setTimeout(() => inlineAiInputRef.current?.focus(), 0);
-                }}
-              >
-                <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />
-              </Button>
-            </div>
+            <ComposeToolbar
+              activeFormats={activeFormats}
+              onCommand={execCommand}
+              onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+              onOpenAi={openInlineAi}
+            />
             <div className="flex items-center gap-1.5">
-              <Button variant="outline" size="sm" onClick={onCancel}>
+              <Button variant="outline" size="sm" onClick={cancelCompose}>
                 {t.mail.messageDetail.cancelButton}
               </Button>
               <Button size="sm" onClick={onSend} disabled={sendDisabled} title="Ctrl+Enter">
@@ -1310,6 +1904,123 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         )}
       </div>
     );
+  };
+
+  const openDraft = (draft: ThreadDraft) => {
+    router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
+  };
+
+  const deleteDraft = (draftId: string) => {
+    deleteDraftMutation.mutate(draftId, {
+      onSuccess: () => {
+        toast.success(t.mail.messageDetail.draftDeleted);
+      },
+      onError: () => {
+        toast.error(t.mail.messageDetail.failedToDeleteDraft);
+      },
+    });
+  };
+
+  const applyUserLabel = (labelName: string) => {
+    mailApi.messages.update(accountId, message.id, {
+      labels: [...(message.labels || []), labelName],
+    }).then(() => toast.success(t.mail.messageDetail.labelAddedNamed.replace('{label}', labelName)));
+  };
+
+  const applyAutoDraft = (draft: { subject?: string; body?: string }) => {
+    const wasAlreadyReplying = isReplying && replyToMessageId === newestMessage.id;
+    setIsReplying(true);
+    setIsReplyingAll(false);
+    setIsForwarding(false);
+    setReplyToMessageId(newestMessage.id);
+    setComposeData({
+      to: newestMessage.fromEmail || addressToEmail(newestMessage.from),
+      subject: draft.subject || `Re: ${message.subject}`,
+      body: draft.body || '',
+    });
+    setIsAutoDraft(true);
+    setIsAgentInline(false);
+    setShowInlineAiInput(true);
+    setInlineAiPrompt('');
+    // If compose box was already open, update editor immediately
+    if (wasAlreadyReplying && editorRef.current) {
+      editorRef.current.innerHTML = formatAiBody(draft.body || '');
+      inlineAiInputRef.current?.focus();
+    } else {
+      // Wait for compose box to mount
+      setTimeout(() => {
+        if (editorRef.current) {
+          editorRef.current.innerHTML = formatAiBody(draft.body || '');
+        }
+        inlineAiInputRef.current?.focus();
+      }, 150);
+    }
+  };
+
+  const handleAutoDraft = async () => {
+    setIsAutoGenerating(true);
+    try {
+      const result = await generateAutoDraftMutation.mutateAsync({ messageId: newestMessage.id, accountId });
+      if (result.success && result.draft) {
+        applyAutoDraft(result.draft);
+        toast.success(t.mail.messageDetail.draftUpdated);
+      } else {
+        toast.error(t.mail.messageDetail.failedToUpdateDraft);
+      }
+    } catch (err) {
+      if (!handleAiCreditsError(err)) toast.error(t.mail.messageDetail.failedToUpdateDraft);
+    } finally {
+      setIsAutoGenerating(false);
+    }
+  };
+
+  const handleReplyToggle = () => {
+    const wasReplying = isReplying && !isReplyingAll && replyToMessageId === newestMessage.id;
+    setIsReplying(!wasReplying);
+    setIsReplyingAll(false);
+    setIsForwarding(false);
+    setReplyToMessageId(!wasReplying ? newestMessage.id : null);
+    if (!wasReplying) {
+      setComposeData({
+        to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
+        subject: `Re: ${message.subject}`,
+        body: '',
+      });
+    }
+  };
+
+  const handleReplyAllToggle = () => {
+    const wasReplyingAll = isReplying && isReplyingAll && replyToMessageId === newestMessage.id;
+    setIsReplying(!wasReplyingAll);
+    setIsReplyingAll(!wasReplyingAll);
+    setIsForwarding(false);
+    setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
+    if (!wasReplyingAll) {
+      setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
+    }
+  };
+
+  const handleForwardToggle = () => {
+    const wasForwarding = isForwarding && replyToMessageId === newestMessage.id;
+    setIsForwarding(!wasForwarding);
+    setIsReplying(false);
+    setIsReplyingAll(false);
+    setReplyToMessageId(!wasForwarding ? newestMessage.id : null);
+    if (!wasForwarding) {
+      setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
+    }
+  };
+
+  const startThreadReply = (threadMsg: EmailMessage, replyAll: boolean) => {
+    setIsReplying(true);
+    setIsReplyingAll(replyAll);
+    setIsForwarding(false);
+    setReplyToMessageId(threadMsg.id);
+    setComposeData({
+      to: buildReplyRecipients(threadMsg, { all: replyAll, selfEmail: accountEmail }).join(', '),
+      subject: `Re: ${threadMsg.subject || message.subject}`,
+      body: '',
+    });
   };
 
   return (
@@ -1340,69 +2051,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">{message.subject}</h1>
           {/* Label badges - hidden on mobile */}
           {messageLabels.length > 0 && (
-            <div className="hidden md:flex gap-1.5 ml-2">
-              {messageLabels.slice(0, 8).map((labelName) => {
-                const labelData = availableLabels.find((l) => l.name === labelName);
-                const color = getLabelColor(labelName, labelData);
-                return (
-                  <span
-                    key={labelName}
-                    className="relative px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
-                    style={{
-                      backgroundColor: `${color}15`,
-                      color: color,
-                    }}
-                  >
-                    {labelName}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => { e.stopPropagation(); handleToggleLabel(labelName); }}
-                      className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
-                    >
-                      <X className="h-2.5 w-2.5 text-muted-foreground" />
-                    </Button>
-                  </span>
-                );
-              })}
-              {messageLabels.length > 8 && (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="ghost" className="px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted rounded transition-colors">
-                      +{messageLabels.length - 8}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-2" align="start">
-                    <div className="flex flex-col gap-1.5">
-                      {messageLabels.slice(8).map((labelName) => {
-                        const labelData = availableLabels.find((l) => l.name === labelName);
-                        const color = getLabelColor(labelName, labelData);
-                        return (
-                          <span
-                            key={labelName}
-                            className="relative px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
-                            style={{
-                              backgroundColor: `${color}15`,
-                              color: color,
-                            }}
-                          >
-                            {labelName}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => { e.stopPropagation(); handleToggleLabel(labelName); }}
-                              className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
-                            >
-                              <X className="h-2.5 w-2.5 text-muted-foreground" />
-                            </Button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              )}
-            </div>
+            <LabelBadges messageLabels={messageLabels} availableLabels={availableLabels} onRemove={handleToggleLabel} />
           )}
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
@@ -1451,179 +2100,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-64 p-2" align="end">
-              {/* System Labels */}
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.systemLabels}</div>
-              <div className="space-y-0.5 mb-3">
-                {/* Inbox */}
-                {(() => {
-                  const hasInbox = messageLabels.includes('inbox');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('inbox')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasInbox ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Inbox className={cn("h-4 w-4 flex-shrink-0", hasInbox ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelInbox}</span>
-                      {hasInbox && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Starred */}
-                {(() => {
-                  const hasStarred = messageLabels.includes('starred');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('starred')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasStarred ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Star className={cn("h-4 w-4 flex-shrink-0", hasStarred ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelStarred}</span>
-                      {hasStarred && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Important */}
-                {(() => {
-                  const hasImportant = messageLabels.includes('important');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('important')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasImportant ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Flag className={cn("h-4 w-4 flex-shrink-0", hasImportant ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelImportant}</span>
-                      {hasImportant && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Sent */}
-                {(() => {
-                  const hasSent = messageLabels.includes('sent');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('sent')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasSent ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Send className={cn("h-4 w-4 flex-shrink-0", hasSent ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelSent}</span>
-                      {hasSent && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Archive */}
-                {(() => {
-                  const hasArchive = messageLabels.includes('archive');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('archive')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasArchive ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Archive className={cn("h-4 w-4 flex-shrink-0", hasArchive ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelArchive}</span>
-                      {hasArchive && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Spam */}
-                {(() => {
-                  const hasSpam = messageLabels.includes('spam');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('spam')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasSpam ? "bg-gray-100" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <AlertTriangle className={cn("h-4 w-4 flex-shrink-0", hasSpam ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelSpam}</span>
-                      {hasSpam && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-                {/* Trash */}
-                {(() => {
-                  const hasTrash = messageLabels.includes('trash');
-                  return (
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleToggleLabel('trash')}
-                      disabled={isUpdatingLabels}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                        hasTrash ? "bg-gray-200" : "hover:bg-gray-100"
-                      )}
-                    >
-                      <Trash className={cn("h-4 w-4 flex-shrink-0", hasTrash ? "text-gray-600" : "text-gray-500")} />
-                      <span className="flex-1 text-left">{t.mail.messageDetail.labelTrash}</span>
-                      {hasTrash && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
-                    </Button>
-                  );
-                })()}
-              </div>
-
-              {/* User Labels */}
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
-              {availableLabels.length === 0 ? (
-                <div className="text-sm text-gray-400 py-2 px-2">
-                  {t.mail.messageDetail.noCustomLabels}
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {availableLabels.map((label) => {
-                    const isApplied = messageLabels.includes(label.name);
-                    const color = getLabelColor(label.name, label);
-                    return (
-                      <Button
-                        variant="ghost"
-                        key={label.name}
-                        onClick={() => handleToggleLabel(label.name)}
-                        disabled={isUpdatingLabels}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                          isApplied ? "bg-gray-100" : "hover:bg-gray-100"
-                        )}
-                      >
-                        <div
-                          className="w-3 h-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className="flex-1 text-left truncate">{label.name}</span>
-                        {isApplied && (
-                          <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />
-                        )}
-                      </Button>
-                    );
-                  })}
-                </div>
-              )}
+              <LabelsPopoverContent
+                messageLabels={messageLabels}
+                availableLabels={availableLabels}
+                isUpdatingLabels={isUpdatingLabels}
+                onToggleLabel={handleToggleLabel}
+              />
             </PopoverContent>
           </Popover>
           <Button
@@ -1656,78 +2138,26 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
         {/* Draft replies to the newest message - shown above it */}
         {drafts.filter(d => d.inReplyTo === newestMessage.messageId).map((draft) => (
-          <div
+          <DraftReplyCard
             key={draft.id}
+            draft={draft}
             className="mx-3 md:mx-4 mb-3 group relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
-            onClick={() => {
-              router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
-            }}
-          >
-            <div className="px-3 md:px-4 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="w-6 h-6 rounded-md flex items-center justify-center bg-orange-100 flex-shrink-0">
-                  <FileText className="h-3.5 w-3.5 text-orange-600" />
-                </div>
-                <div className="min-w-0 text-left flex items-center gap-2 flex-1">
-                  <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 hover:bg-orange-100 flex-shrink-0">{t.mail.messageDetail.draft}</Badge>
-                  <span className="text-sm text-muted-foreground truncate">
-                    {draft.to.length > 0 ? `${t.mail.messageDetail.toPrefix}: ${draft.to.join(', ')}` : t.mail.messageDetail.noRecipients}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className="text-xs text-muted-foreground">{format(new Date(draft.updatedAt), 'MMM d, h:mm a')}</span>
-                <Button
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteDraftMutation.mutate(draft.id, {
-                      onSuccess: () => {
-                        toast.success(t.mail.messageDetail.draftDeleted);
-                      },
-                      onError: () => {
-                        toast.error(t.mail.messageDetail.failedToDeleteDraft);
-                      },
-                    });
-                  }}
-                  className="p-1 opacity-0 group-hover:opacity-100 hover:bg-orange-100 rounded-md transition-all"
-                  title={t.mail.messageDetail.deleteDraft}
-                >
-                  <Trash className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </div>
-            </div>
-            {(draft.body || draft.htmlBody) && (
-              <div className="px-3 md:px-4 pb-3 pt-0">
-                <div className="text-sm text-muted-foreground truncate">
-                  {draft.body?.replace(/<[^>]*>/g, '').substring(0, 150) || draft.htmlBody?.replace(/<[^>]*>/g, '').substring(0, 150)}
-                </div>
-              </div>
-            )}
-          </div>
+            deleteButtonClassName="p-1 opacity-0 group-hover:opacity-100 hover:bg-orange-100 rounded-md transition-all"
+            onOpen={() => openDraft(draft)}
+            onDelete={() => deleteDraft(draft.id)}
+          />
         ))}
 
         {/* Sender Header */}
         <div className="px-3 md:px-4 py-3 md:py-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
-              {(() => {
-                const avatarUrl = getSenderAvatarUrl(newestMessage);
-                return avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt={extractName(fromDisplayString(newestMessage.from))}
-                    className="w-6 h-6 rounded-md object-cover flex-shrink-0"
-                  />
-                ) : (
-                  <div
-                    className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
-                    style={{ backgroundColor: getAvatarColor(fromDisplayString(newestMessage.from)) }}
-                  >
-                    {(fromDisplayString(newestMessage.from) || '?').charAt(0).toUpperCase()}
-                  </div>
-                );
-              })()}
+              <SenderAvatar
+                avatarUrl={getSenderAvatarUrl(newestMessage)}
+                sender={fromDisplayString(newestMessage.from)}
+                fallbackChar="?"
+                fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
+              />
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button
@@ -1740,57 +2170,21 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
                   <Button
                     variant="ghost"
-                    onClick={() => {
-                      const toName = primaryToEmail.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-                      customerPanel.openPanel(primaryToEmail, toName);
-                    }}
+                    onClick={() => customerPanel.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
                     className="text-[14.5px] text-blue-600 hover:underline focus:outline-none"
                   >
                     {primaryToEmail}
                   </Button>
                   {allRecipients.length > 1 && (
-                    <Popover open={showAllRecipients} onOpenChange={setShowAllRecipients}>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" className="text-sm text-blue-600 hover:underline">
-                          +{allRecipients.length - 1}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-72 p-0" align="start">
-                        <div className="px-3 py-2 border-b">
-                          <p className="text-xs font-medium text-gray-500">{t.mail.messageDetail.recipients.replace('{n}', String(allRecipients.length))}</p>
-                        </div>
-                        <div className="p-2 space-y-1">
-                          {allRecipients.map((recipient, index) => {
-                            const name = recipient.email.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-                            const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2);
-                            return (
-                              <Button
-                                variant="ghost"
-                                key={index}
-                                onClick={() => {
-                                  setShowAllRecipients(false);
-                                  customerPanel.openPanel(recipient.email, name);
-                                }}
-                                className="flex items-center gap-3 w-full text-left hover:bg-gray-100 px-2 py-1.5 rounded-md"
-                              >
-                                <Avatar className="h-7 w-7">
-                                  <AvatarFallback className="text-xs text-white" style={{ backgroundColor: colors[index % colors.length] }}>
-                                    {initials}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{name}</div>
-                                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                                    {recipient.email}
-                                    {recipient.type === 'Cc' && <span className="text-[10px] px-1 bg-gray-100 rounded">CC</span>}
-                                  </div>
-                                </div>
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    <RecipientsPopover
+                      allRecipients={allRecipients}
+                      open={showAllRecipients}
+                      onOpenChange={setShowAllRecipients}
+                      onSelect={(email, name) => {
+                        setShowAllRecipients(false);
+                        customerPanel.openPanel(email, name);
+                      }}
+                    />
                   )}
                 </div>
               </div>
@@ -1847,11 +2241,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         userLabels.map((l) => (
                           <DropdownMenuItem
                             key={l.id}
-                            onClick={() => {
-                              mailApi.messages.update(accountId, message.id, {
-                                labels: [...(message.labels || []), l.name],
-                              }).then(() => toast.success(t.mail.messageDetail.labelAddedNamed.replace('{label}', l.name)));
-                            }}
+                            onClick={() => applyUserLabel(l.name)}
                           >
                             {l.color && (
                               <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: l.color }} />
@@ -1885,40 +2275,19 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         {/* Email Content */}
         <div className="px-3 md:px-4 group/email">
           <div className="text-gray-700 dark:text-foreground text-sm leading-relaxed overflow-x-auto">
-            {mainContent ? (
-              isHtml ? (
-                <IsolatedHtmlContent html={mainContent} />
-              ) : (
-                <div className="whitespace-pre-wrap">{mainContent}</div>
-              )
-            ) : newestMessage.bodyHtml ? (
-              <IsolatedHtmlContent html={newestMessage.bodyHtml} />
-            ) : newestMessage.bodyText ? (
-              <div className="whitespace-pre-wrap">{newestMessage.bodyText}</div>
-            ) : (
-              <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>
-            )}
+            <MessageBodyContent
+              mainContent={mainContent}
+              isHtml={isHtml}
+              bodyHtml={newestMessage.bodyHtml}
+              bodyText={newestMessage.bodyText}
+            />
             {quotedContent && (
-              <>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={() => setShowQuoted(!showQuoted)}
-                  className={cn("mt-2 inline-flex items-center justify-center h-5 w-8 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md hover:bg-muted-foreground/20 transition-all", !showQuoted && "opacity-0 group-hover/email:opacity-100")}
-                  title={showQuoted ? t.mail.messageDetail.hideQuotedText : t.mail.messageDetail.showQuotedText}
-                >
-                  ···
-                </Button>
-                {showQuoted && (
-                  <div className="mt-2">
-                    {isHtml ? (
-                      <IsolatedHtmlContent html={quotedContent} />
-                    ) : (
-                      <div className="whitespace-pre-wrap">{quotedContent}</div>
-                    )}
-                  </div>
-                )}
-              </>
+              <QuotedContent
+                quotedContent={quotedContent}
+                isHtml={isHtml}
+                showQuoted={showQuoted}
+                onToggle={() => setShowQuoted(!showQuoted)}
+              />
             )}
           </div>
 
@@ -1939,85 +2308,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
           {/* Attachments */}
           {newestMessage.hasAttachments && (
-            <div className="mt-4 md:mt-6 space-y-2">
-              {attachments.length > 0 ? (
-                otherAttachments.length > 0 && (
-                  <>
-                    <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      <span>{otherAttachments.length !== 1 ? t.mail.messageDetail.attachmentCountPlural.replace('{n}', String(otherAttachments.length)) : t.mail.messageDetail.attachmentCount.replace('{n}', String(otherAttachments.length))}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {otherAttachments.map((att) => (
-                        <a
-                          key={att.id}
-                          href={att.downloadUrl ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
-                        >
-                          <FileDown className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                          <span className="text-gray-700 truncate max-w-[200px]">{att.fileName}</span>
-                          <span className="text-gray-400 text-xs whitespace-nowrap">
-                            {att.size < 1024 ? `${att.size} B` : att.size < 1048576 ? `${Math.round(att.size / 1024)} KB` : `${(att.size / 1048576).toFixed(1)} MB`}
-                          </span>
-                        </a>
-                      ))}
-                    </div>
-                  </>
-                )
-              ) : (
-                <div className="text-sm text-gray-400">{t.mail.messageDetail.loadingAttachments}</div>
-              )}
-            </div>
+            <AttachmentsSection hasLoadedAttachments={attachments.length > 0} otherAttachments={otherAttachments} />
           )}
 
           {/* Reply, Forward, and Auto Draft Buttons */}
           <div className="flex items-center justify-end gap-2 mt-4 md:mt-6">
             <Button
               variant="ghost"
-              onClick={async () => {
-                setIsAutoGenerating(true);
-                try {
-                  const result = await generateAutoDraftMutation.mutateAsync({ messageId: newestMessage.id, accountId });
-                  if (result.success && result.draft) {
-                    const wasAlreadyReplying = isReplying && replyToMessageId === newestMessage.id;
-                    setIsReplying(true);
-                    setIsReplyingAll(false);
-                    setIsForwarding(false);
-                    setReplyToMessageId(newestMessage.id);
-                    setComposeData({
-                      to: newestMessage.fromEmail || addressToEmail(newestMessage.from),
-                      subject: result.draft.subject || `Re: ${message.subject}`,
-                      body: result.draft.body || '',
-                    });
-                    setIsAutoDraft(true);
-                    setIsAgentInline(false);
-                    setShowInlineAiInput(true);
-                    setInlineAiPrompt('');
-                    // If compose box was already open, update editor immediately
-                    if (wasAlreadyReplying && editorRef.current) {
-                      editorRef.current.innerHTML = formatAiBody(result.draft.body || '');
-                      inlineAiInputRef.current?.focus();
-                    } else {
-                      // Wait for compose box to mount
-                      setTimeout(() => {
-                        if (editorRef.current) {
-                          editorRef.current.innerHTML = formatAiBody(result.draft!.body || '');
-                        }
-                        inlineAiInputRef.current?.focus();
-                      }, 150);
-                    }
-                    toast.success(t.mail.messageDetail.draftUpdated);
-                  } else {
-                    toast.error(t.mail.messageDetail.failedToUpdateDraft);
-                  }
-                } catch (err) {
-                  if (!handleAiCreditsError(err)) toast.error(t.mail.messageDetail.failedToUpdateDraft);
-                } finally {
-                  setIsAutoGenerating(false);
-                }
-              }}
+              onClick={handleAutoDraft}
               disabled={isAutoGenerating}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
@@ -2026,20 +2324,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             </Button>
             <Button
               variant="ghost"
-              onClick={() => {
-                const wasReplying = isReplying && !isReplyingAll && replyToMessageId === newestMessage.id;
-                setIsReplying(!wasReplying);
-                setIsReplyingAll(false);
-                setIsForwarding(false);
-                setReplyToMessageId(!wasReplying ? newestMessage.id : null);
-                if (!wasReplying) {
-                  setComposeData({
-                    to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
-                    subject: `Re: ${message.subject}`,
-                    body: '',
-                  });
-                }
-              }}
+              onClick={handleReplyToggle}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
             >
               <Reply className="h-4 w-4" />
@@ -2048,16 +2333,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             {canReplyAll && (
               <Button
                 variant="ghost"
-                onClick={() => {
-                  const wasReplyingAll = isReplying && isReplyingAll && replyToMessageId === newestMessage.id;
-                  setIsReplying(!wasReplyingAll);
-                  setIsReplyingAll(!wasReplyingAll);
-                  setIsForwarding(false);
-                  setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
-                  if (!wasReplyingAll) {
-                    setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
-                  }
-                }}
+                onClick={handleReplyAllToggle}
                 className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
               >
                 <ReplyAll className="h-4 w-4" />
@@ -2066,16 +2342,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             )}
             <Button
               variant="ghost"
-              onClick={() => {
-                const wasForwarding = isForwarding && replyToMessageId === newestMessage.id;
-                setIsForwarding(!wasForwarding);
-                setIsReplying(false);
-                setIsReplyingAll(false);
-                setReplyToMessageId(!wasForwarding ? newestMessage.id : null);
-                if (!wasForwarding) {
-                  setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
-                }
-              }}
+              onClick={handleForwardToggle}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
             >
               <Forward className="h-4 w-4" />
@@ -2088,183 +2355,32 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         {olderMessages.length > 0 && (
           <div className="px-3 md:px-4 pt-4 mb-4">
             <div className="space-y-4">
-              {olderMessages.map((threadMsg) => {
-                const isExpanded = expandedThreadIds.has(threadMsg.id);
-                const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
-                const threadReplyAllRecipients = buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail });
-                return (
-                  <React.Fragment key={threadMsg.id}>
-                    {/* Reply/Forward compose - above this thread message */}
-                    {(isReplying || isForwarding) && replyToMessageId === threadMsg.id && renderComposeBox(true)}
-                    {/* Draft replies to this thread message */}
-                    {drafts.filter(d => d.inReplyTo === threadMsg.messageId).map((draft) => (
-                      <div
-                        key={draft.id}
-                        className="group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors mb-2"
-                        onClick={() => {
-                          router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
-                        }}
-                      >
-                        <div className="px-3 md:px-4 py-4 flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <div className="w-6 h-6 rounded-md flex items-center justify-center bg-orange-100 flex-shrink-0">
-                              <FileText className="h-3.5 w-3.5 text-orange-600" />
-                            </div>
-                            <div className="min-w-0 text-left flex items-center gap-2 flex-1">
-                              <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 hover:bg-orange-100 flex-shrink-0">{t.mail.messageDetail.draft}</Badge>
-                              <span className="text-sm text-muted-foreground truncate">
-                                {draft.to.length > 0 ? `${t.mail.messageDetail.toPrefix}: ${draft.to.join(', ')}` : t.mail.messageDetail.noRecipients}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className="text-xs text-muted-foreground">{format(new Date(draft.updatedAt), 'MMM d, h:mm a')}</span>
-                            <Button
-                              variant="ghost"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteDraftMutation.mutate(draft.id, {
-                                  onSuccess: () => {
-                                    toast.success(t.mail.messageDetail.draftDeleted);
-                                  },
-                                  onError: () => {
-                                    toast.error(t.mail.messageDetail.failedToDeleteDraft);
-                                  },
-                                });
-                              }}
-                              className="p-1 opacity-0 group-hover/draft:opacity-100 hover:bg-orange-100 rounded-md transition-all"
-                              title={t.mail.messageDetail.deleteDraft}
-                            >
-                              <Trash className="h-3.5 w-3.5 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        </div>
-                        {(draft.body || draft.htmlBody) && (
-                          <div className="px-3 md:px-4 pb-3 pt-0">
-                            <div className="text-sm text-muted-foreground truncate">
-                              {draft.body?.replace(/<[^>]*>/g, '').substring(0, 150) || draft.htmlBody?.replace(/<[^>]*>/g, '').substring(0, 150)}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  <div className="group relative border border-border/50 rounded-lg bg-muted/50">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleThreadExpanded(threadMsg.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          toggleThreadExpanded(threadMsg.id);
-                        }
-                      }}
-                      className="w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const email = threadMsg.fromEmail || extractEmail(fromDisplayString(threadMsg.from));
-                            customerPanel.openPanel(email, extractName(fromDisplayString(threadMsg.from)));
-                          }}
-                          className="flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
-                          title={t.mail.messageDetail.viewContactDetails}
-                        >
-                          {(() => {
-                            const threadAvatarUrl = getSenderAvatarUrl(threadMsg);
-                            return threadAvatarUrl ? (
-                              <img
-                                src={threadAvatarUrl}
-                                alt={extractName(fromDisplayString(threadMsg.from))}
-                                className="w-6 h-6 rounded-md object-cover flex-shrink-0"
-                              />
-                            ) : (
-                              <div
-                                className="w-6 h-6 rounded-md flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
-                                style={{ backgroundColor: getAvatarColor(fromDisplayString(threadMsg.from)) }}
-                              >
-                                {(fromDisplayString(threadMsg.from) || 'U').charAt(0).toUpperCase()}
-                              </div>
-                            );
-                          })()}
-                          <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
-                            {fromDisplayString(threadMsg.from)}
-                          </span>
-                        </Button>
-                        {isSentMessage && (
-                          <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-pink-100 text-pink-700 hover:bg-pink-100 flex-shrink-0">{t.mail.messageDetail.sentBadge}</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="hidden md:inline text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d, yyyy h:mm a')}</span>
-                        <span className="md:hidden text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d')}</span>
-                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
-                      </div>
-                    </div>
-                    {isExpanded && (
-                      <ThreadMessageContent threadMsg={threadMsg} />
-                    )}
-                    {/* Hover Actions - only when expanded, hidden on mobile */}
-                    <div className={cn("absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex items-center gap-1", !isExpanded && "!hidden")}>
-                      <Button
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsReplying(true);
-                          setIsReplyingAll(false);
-                          setIsForwarding(false);
-                          setReplyToMessageId(threadMsg.id);
-                          setComposeData({
-                            to: buildReplyRecipients(threadMsg, { all: false, selfEmail: accountEmail }).join(', '),
-                            subject: `Re: ${threadMsg.subject || message.subject}`,
-                            body: '',
-                          });
-                        }}
-                        className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-                        title={t.mail.compose.reply}
-                      >
-                        <Reply className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                      {threadReplyAllRecipients.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsReplying(true);
-                            setIsReplyingAll(true);
-                            setIsForwarding(false);
-                            setReplyToMessageId(threadMsg.id);
-                            setComposeData({
-                              to: threadReplyAllRecipients.join(', '),
-                              subject: `Re: ${threadMsg.subject || message.subject}`,
-                              body: '',
-                            });
-                          }}
-                          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-                          title={t.mail.compose.replyAll}
-                        >
-                          <ReplyAll className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toast.success(t.mail.messageDetail.forwardComingSoon);
-                        }}
-                        className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-                        title={t.mail.compose.forward}
-                      >
-                        <Forward className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  </div>
-                  </React.Fragment>
-                );
-              })}
+              {olderMessages.map((threadMsg) => (
+                <React.Fragment key={threadMsg.id}>
+                  {/* Reply/Forward compose - above this thread message */}
+                  {(isReplying || isForwarding) && replyToMessageId === threadMsg.id && renderComposeBox(true)}
+                  {/* Draft replies to this thread message */}
+                  {drafts.filter(d => d.inReplyTo === threadMsg.messageId).map((draft) => (
+                    <DraftReplyCard
+                      key={draft.id}
+                      draft={draft}
+                      className="group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors mb-2"
+                      deleteButtonClassName="p-1 opacity-0 group-hover/draft:opacity-100 hover:bg-orange-100 rounded-md transition-all"
+                      onOpen={() => openDraft(draft)}
+                      onDelete={() => deleteDraft(draft.id)}
+                    />
+                  ))}
+                  <ThreadMessageCard
+                    threadMsg={threadMsg}
+                    isExpanded={expandedThreadIds.has(threadMsg.id)}
+                    canReplyAll={buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail }).length > 1}
+                    onToggle={() => toggleThreadExpanded(threadMsg.id)}
+                    onOpenContact={(email, name) => customerPanel.openPanel(email, name)}
+                    onReply={() => startThreadReply(threadMsg, false)}
+                    onReplyAll={() => startThreadReply(threadMsg, true)}
+                  />
+                </React.Fragment>
+              ))}
             </div>
           </div>
         )}
