@@ -32,6 +32,32 @@ async function getDeviceId(): Promise<string> {
   return `device_${Date.now()}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/**
+ * Prefer the server's error.message (e.g. Expo's real rejection reason) over a
+ * bare "HTTP 400 Bad Request" status line.
+ */
+function testPushErrorMessage(err: unknown): string {
+  const fallback = 'Failed to send test push';
+  if (!isRecord(err)) return fallback;
+  const serverError = isRecord(err.body) ? err.body.error : undefined;
+  const nested = isRecord(serverError) ? nonEmptyString(serverError.message) : undefined;
+  return nested ?? nonEmptyString(err.message) ?? fallback;
+}
+
+function testPushResult(sent: number): { ok: boolean; message: string } {
+  if (sent <= 0) return { ok: false, message: 'Expo did not accept the test push.' };
+  const devices = sent === 1 ? 'device' : 'devices';
+  return { ok: true, message: `Test push accepted by Expo (${sent} ${devices}).` };
+}
+
 /** Register the Expo push token with app-api's push-tokens endpoint. */
 async function registerPushToken(token: string): Promise<boolean> {
   const deviceId = await getDeviceId();
@@ -254,35 +280,9 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
       const res = await appApi.pushTokens.test();
       await refreshRegistrationStatus();
-      const sent = res.data?.sent ?? 0;
-      return {
-        ok: sent > 0,
-        message:
-          sent > 0
-            ? `Test push accepted by Expo (${sent} device${sent === 1 ? '' : 's'}).`
-            : 'Expo did not accept the test push.',
-      };
+      return testPushResult(res.data?.sent ?? 0);
     } catch (err) {
-      // Prefer the server's error.message (e.g. Expo's real rejection reason)
-      // over a bare "HTTP 400 Bad Request" status line.
-      let message = 'Failed to send test push';
-      if (err && typeof err === 'object') {
-        const apiBody = 'body' in err ? (err as { body?: unknown }).body : undefined;
-        const nested =
-          apiBody &&
-          typeof apiBody === 'object' &&
-          apiBody !== null &&
-          'error' in apiBody &&
-          typeof (apiBody as { error?: unknown }).error === 'object' &&
-          (apiBody as { error?: { message?: unknown } }).error !== null
-            ? (apiBody as { error: { message?: unknown } }).error.message
-            : undefined;
-        if (typeof nested === 'string' && nested.trim()) {
-          message = nested;
-        } else if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
-          message = err.message;
-        }
-      }
+      const message = testPushErrorMessage(err);
       await refreshRegistrationStatus();
       return { ok: false, message };
     }

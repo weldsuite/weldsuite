@@ -32,28 +32,32 @@ const WORDMARK_PNG = path.join(
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
 
-/** Crop a buffer down to its non-transparent bounding box. */
-async function trim(input, alphaThresh = 12) {
-  const { data, info } = await sharp(input)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { width, height, channels } = info;
+/** Bounding box of the pixels whose alpha exceeds the threshold (maxX < 0 when none). */
+function opaqueBounds(data, { width, height, channels }, alphaThresh) {
   let minX = width;
   let maxX = -1;
   let minY = height;
   let maxY = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const a = data[(y * width + x) * channels + 3];
-      if (a > alphaThresh) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+      if (data[(y * width + x) * channels + 3] > alphaThresh) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
       }
     }
   }
+  return { minX, maxX, minY, maxY };
+}
+
+/** Crop a buffer down to its non-transparent bounding box. */
+async function trim(input, alphaThresh = 12) {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { minX, maxX, minY, maxY } = opaqueBounds(data, info, alphaThresh);
   if (maxX < 0) throw new Error('Empty image');
   return sharp(input)
     .extract({ left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 })

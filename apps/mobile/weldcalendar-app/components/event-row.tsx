@@ -58,17 +58,65 @@ function TimeColumn({ event }: Readonly<{ event: CalendarEvent }>) {
   );
 }
 
+/** Calendar name and location line under the title. */
+function EventSubtitle({
+  event,
+  calendarName,
+}: Readonly<{ event: CalendarEvent; calendarName?: string }>) {
+  const { colors } = useTheme();
+  const subtitleParts = [calendarName, event.location].filter(Boolean) as string[];
+  if (subtitleParts.length === 0) return null;
+
+  return (
+    <View style={styles.subtitleRow}>
+      {event.location ? <MapPin size={12} color={colors.mutedForeground} /> : null}
+      <Text style={[styles.subtitle, { color: colors.mutedForeground }]} numberOfLines={1}>
+        {subtitleParts.join(' · ')}
+      </Text>
+    </View>
+  );
+}
+
+/** "Now" pill, virtual-meeting icon and attendee count. */
+function EventMeta({
+  event,
+  live,
+  accent,
+}: Readonly<{ event: CalendarEvent; live: boolean; accent: string }>) {
+  const { colors } = useTheme();
+  const { t, plural } = useI18n();
+  const attendeeCount = event.attendees?.length ?? 0;
+
+  return (
+    <View style={styles.metaRow}>
+      {live ? (
+        <View style={[styles.nowPill, { backgroundColor: accent }]}>
+          <Text style={styles.nowText}>{t.agenda.now}</Text>
+        </View>
+      ) : null}
+      {event.isVirtual || event.meetingUrl ? (
+        <Video size={13} color={colors.mutedForeground} />
+      ) : null}
+      {attendeeCount > 0 ? (
+        <View style={styles.attendees}>
+          <Users size={13} color={colors.mutedForeground} />
+          <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+            {plural(attendeeCount, t.event.attendeeCount)}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function EventRow({ event, calendarName, onPress }: Readonly<EventRowProps>) {
   const { colors } = useTheme();
-  const { t, intlLocale, plural } = useI18n();
+  const { t, intlLocale } = useI18n();
 
   const accent = eventColor(event.color, event.type);
   const cancelled = event.status === 'cancelled';
   const past = !cancelled && isPastEvent(event.startTime, event.endTime);
   const live = !cancelled && isOngoing(event.startTime, event.endTime);
-  const attendeeCount = event.attendees?.length ?? 0;
-
-  const subtitleParts = [calendarName, event.location].filter(Boolean) as string[];
 
   const body = (
     <View style={[styles.row, { borderBottomColor: colors.border }]}>
@@ -89,36 +137,9 @@ export function EventRow({ event, calendarName, onPress }: Readonly<EventRowProp
           {event.title}
         </Text>
 
-        {subtitleParts.length > 0 ? (
-          <View style={styles.subtitleRow}>
-            {event.location ? <MapPin size={12} color={colors.mutedForeground} /> : null}
-            <Text
-              style={[styles.subtitle, { color: colors.mutedForeground }]}
-              numberOfLines={1}
-            >
-              {subtitleParts.join(' · ')}
-            </Text>
-          </View>
-        ) : null}
+        <EventSubtitle event={event} calendarName={calendarName} />
 
-        <View style={styles.metaRow}>
-          {live ? (
-            <View style={[styles.nowPill, { backgroundColor: accent }]}>
-              <Text style={styles.nowText}>{t.agenda.now}</Text>
-            </View>
-          ) : null}
-          {event.isVirtual || event.meetingUrl ? (
-            <Video size={13} color={colors.mutedForeground} />
-          ) : null}
-          {attendeeCount > 0 ? (
-            <View style={styles.attendees}>
-              <Users size={13} color={colors.mutedForeground} />
-              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-                {plural(attendeeCount, t.event.attendeeCount)}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        <EventMeta event={event} live={live} accent={accent} />
       </View>
     </View>
   );

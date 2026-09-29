@@ -284,31 +284,11 @@ export default function ScanScreen() {
       ) : null}
 
       <View style={styles.reviewBody}>
-        {scanStatus === 'uploading' ? (
-          <Banner variant="info" style={styles.banner}>
-            {t.scan.uploading}
-          </Banner>
-        ) : null}
-        {scanStatus === 'reading' ? (
-          <Banner variant="info" style={styles.banner}>
-            {t.scan.reading}
-          </Banner>
-        ) : null}
-        {scanStatus === 'ready' ? (
-          <Banner variant="success" style={styles.banner}>
-            {prefill ? summarisePrefill(prefill) : t.scan.attached}
-          </Banner>
-        ) : null}
-        {scanStatus === 'failed' ? (
-          <Banner variant="warning" style={styles.banner}>
-            {t.scan.ocrFailed}
-          </Banner>
-        ) : null}
-        {scanStatus === 'offline' ? (
-          <Banner variant="info" style={styles.banner}>
-            {t.scan.offlineBanner}
-          </Banner>
-        ) : null}
+        <ScanStatusBanner
+          status={scanStatus}
+          scan={t.scan}
+          readySummary={prefill ? summarisePrefill(prefill) : t.scan.attached}
+        />
 
         <Button
           title={t.scan.quickExpense}
@@ -327,6 +307,32 @@ export default function ScanScreen() {
         />
       </View>
     </SafeAreaView>
+  );
+}
+
+type BannerVariant = 'info' | 'success' | 'warning';
+
+function ScanStatusBanner({
+  status,
+  scan,
+  readySummary,
+}: {
+  status: ScanStatus;
+  scan: Translations['scan'];
+  readySummary: string;
+}) {
+  const banners: Record<ScanStatus, { variant: BannerVariant; text: string }> = {
+    uploading: { variant: 'info', text: scan.uploading },
+    reading: { variant: 'info', text: scan.reading },
+    ready: { variant: 'success', text: readySummary },
+    failed: { variant: 'warning', text: scan.ocrFailed },
+    offline: { variant: 'info', text: scan.offlineBanner },
+  };
+  const { variant, text } = banners[status];
+  return (
+    <Banner variant={variant} style={styles.banner}>
+      {text}
+    </Banner>
   );
 }
 
