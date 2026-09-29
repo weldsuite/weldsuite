@@ -12,8 +12,6 @@
 #   CLOUDFLARE_API_TOKEN (help center custom domains: DNS records in zones),
 #   DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN (helpdesk
 #     Discord channel OAuth callback + outbound REST: ticket panel, agent replies),
-#   INTERNAL_API_SECRET (bearer on the helpdesk-workflows resume forward to
-#     helpdesk-workflow-worker; the SAME value as app-api)
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
@@ -30,8 +28,8 @@
 #     app-api host in the Discord/Slack OAuth redirect_uri — keep it pointing at
 #     app-api, whose forwarder hands /api/integrations/helpdesk/* to desk-api)
 #
-# CF_ACCOUNT_ID and HELPDESK_WORKFLOW_WORKER_URL are [vars] (values copied
-# from app-api).
+# CF_ACCOUNT_ID is a [vars] value (copied from app-api). helpdesk-workflow-worker
+# is reached over the HELPDESK_WORKFLOW service binding: it has no public host.
 
 name = "weldsuite-desk-api"
 main = "src/index.ts"
@@ -54,8 +52,6 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
-# helpdesk-workflow-worker /respond target for /api/helpdesk-workflows resume.
-HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -69,6 +65,11 @@ queue = "entity-events-dev"
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+# /api/helpdesk-workflows resume → helpdesk-workflow-worker /respond.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 remote = true
 
 # Cloudflare Email Sending binding for desk email replies and email-channel
@@ -87,7 +88,6 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
-HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -104,6 +104,10 @@ queue = "entity-events-test"
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
@@ -123,7 +127,6 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
-HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -140,6 +143,10 @@ queue = "entity-events"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"

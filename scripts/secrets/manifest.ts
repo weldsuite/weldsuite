@@ -100,7 +100,6 @@ export const manifest: Record<string, SecretEntry[]> = {
   "helpdesk-workflow-worker": [
     "DATABASE_URL_MASTER",
     "CF_AIG_TOKEN",
-    "INTERNAL_API_SECRET",
     "NEON_API_KEY",
     "FIREBASE_SERVICE_ACCOUNT",
     "DATABASE_ENCRYPTION_KEY",
@@ -204,6 +203,13 @@ export const manifest: Record<string, SecretEntry[]> = {
   // WeldAgent cloud computer (Sandbox + Browser Run). Auth is Bearer
   // INTERNAL_API_SECRET from app-api — must match the same env's app-api value.
   "agent-runtime": [
+    "INTERNAL_API_SECRET",
+  ],
+
+  // WeldConnect execution engine. Bearer on its calls to app-api's
+  // /api/internal/send-email and connect-api's /api/internal/workflow-actions,
+  // and on its own /internal/schedule-index/rebuild. Same value as app-api.
+  "workflow-worker": [
     "INTERNAL_API_SECRET",
   ],
 
@@ -464,9 +470,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DISCORD_CLIENT_ID",
     "DISCORD_CLIENT_SECRET",
     "DISCORD_BOT_TOKEN",
-    // Bearer on the helpdesk-workflows resume forward to helpdesk-workflow-worker.
-    // Must be the SAME value as app-api / helpdesk-workflow-worker in the same env.
-    "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
