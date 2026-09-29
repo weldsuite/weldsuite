@@ -34,6 +34,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '@weldsuite/worker-kit/db';
 import { getRecordings } from '@weldsuite/cloudflare-realtime';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
+import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -762,8 +763,12 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
   // via the share link land in the lobby and the host admits them. Callers can
   // still opt out by explicitly passing `waitingRoom: false`.
   const waitingRoom = typeof data.waitingRoom === 'boolean' ? data.waitingRoom : true;
+  // Every meeting needs a join code: it is the identifier in the public share
+  // link (`<portal>/<workspace>/<joinCode>`). Generated server-side like the
+  // start-instant path; a client-supplied value is not trusted.
+  const joinCode = generateJoinCode();
   try {
-    await db.insert(t).values({ id, ...data, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({ id, ...data, joinCode, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'meeting',
@@ -771,7 +776,7 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
       action: 'created',
       data: { id, title: data.title, status: data.status, hostId: organizerId },
     });
-    return success(c, { id }, 201);
+    return success(c, { id, joinCode }, 201);
   } catch (err) {
     console.error('[app-api/meetings] create failed:', err);
     return error.internal(c, 'Failed to create meeting');

@@ -227,7 +227,19 @@ export function MessageInput({
   const { t } = useI18n();
   const st = useTranslations();
   const { getClient } = useAppApiClient();
-  const { replyTo, setReplyTo, editingMessage, setEditingMessage } = useChatContext();
+  const {
+    replyTo: contextReplyTo,
+    setReplyTo,
+    editingMessage: contextEditingMessage,
+    setEditingMessage,
+  } = useChatContext();
+  // The channel composer and the thread pane composer are mounted together and
+  // share this context. Only the composer that owns the message's thread reacts
+  // to a reply/edit request (loads the text, takes focus); the other ignores it.
+  const ownsRequest = (requestParentId?: string | null) => (requestParentId ?? null) === (parentId ?? null);
+  const replyTo = contextReplyTo && ownsRequest(contextReplyTo.parentId) ? contextReplyTo : null;
+  const editingMessage =
+    contextEditingMessage && ownsRequest(contextEditingMessage.parentId) ? contextEditingMessage : null;
   const [content, setContent] = useState('');
   const [mentions, setMentions] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);

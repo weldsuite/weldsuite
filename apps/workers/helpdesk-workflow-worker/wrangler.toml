@@ -57,9 +57,10 @@ service = "weldsuite-realtime"
 [env.test]
 logpush = true
 name = "helpdesk-workflow-worker-test"
-routes = [
-  { pattern = "helpdesk-workflow-worker-test.weldsuite.org", custom_domain = true }
-]
+# No public host: /event, /respond, /assign, /release and /sync-agents are
+# unauthenticated, so only service bindings (desk-api, helpdesk-widget-api,
+# discord-bot-worker) may reach them. src/index.ts also refuses public hosts.
+workers_dev = false
 
 [env.test.durable_objects]
 bindings = [
@@ -77,7 +78,7 @@ binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
 [[env.test.workflows]]
-name = "conversation-workflow"
+name = "conversation-workflow-test"
 binding = "CONVERSATION_WORKFLOW"
 class_name = "ConversationWorkflow"
 
@@ -93,9 +94,8 @@ head_sampling_rate = 1
 [env.production]
 logpush = true
 name = "helpdesk-workflow-worker"
-routes = [
-  { pattern = "helpdesk-workflow-worker.weldsuite.org", custom_domain = true }
-]
+# No public host (see env.test).
+workers_dev = false
 
 [env.production.durable_objects]
 bindings = [

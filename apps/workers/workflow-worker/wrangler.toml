@@ -120,7 +120,7 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
 [[env.test.workflows]]
-name = "execute-workflow"
+name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 

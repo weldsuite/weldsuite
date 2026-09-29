@@ -201,16 +201,32 @@ app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', 
       else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
       else update[k] = v;
     }
+    // `stageId` (a crm_pipeline_stages row) is what the board and the deal
+    // panel place a deal by; `stage` is the legacy free-text twin. Moving a
+    // deal by `stageId` alone used to leave `stage` stale, so the two
+    // disagreed. Validate the target and keep `stage` in step unless the
+    // caller sets it explicitly.
+    if (typeof data.stageId === 'string' && data.stageId !== existing.stageId) {
+      const [targetStage] = await db
+        .select({ id: schema.crmPipelineStages.id })
+        .from(schema.crmPipelineStages)
+        .where(and(eq(schema.crmPipelineStages.id, data.stageId), isNull(schema.crmPipelineStages.deletedAt)))
+        .limit(1);
+      if (!targetStage) return error.badRequest(c, 'Unknown pipeline stage');
+      if (data.stage === undefined) update.stage = targetStage.id;
+    }
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     // Phase 1 dual-write: mirror the customFields blob into the typed values table.
     await syncValuesForEntity(db, 'opportunity', id, data.customFields as Record<string, unknown> | null | undefined);
     const newStage = (update.stage as string | undefined) ?? existing.stage;
+    const newStageId = (update.stageId as string | null | undefined) ?? existing.stageId;
     const newStatus = (update.status as string | undefined) ?? existing.status;
     const eventData = {
       id,
       name: (update.name as string | undefined) ?? existing.name,
       amount: (update.amount as string | undefined) ?? existing.amount ?? '0',
       stage: newStage,
+      stageId: newStageId,
       status: newStatus,
       customerId: (update.customerId as string | null | undefined) ?? existing.customerId,
       ownerId: (update.ownerId as string | null | undefined) ?? existing.ownerId,
@@ -222,7 +238,7 @@ app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', 
       action: 'updated',
       data: eventData,
     });
-    if (newStage !== existing.stage) {
+    if (newStage !== existing.stage || newStageId !== existing.stageId) {
       publishEntityEvent({
         c,
         entityType: 'opportunity',

@@ -14,11 +14,21 @@ export interface ReplyTo {
   messageId: string;
   authorName: string;
   content: string;
+  /**
+   * Thread the quoted message lives in (its own `parentId`), so only the
+   * composer that owns that thread reacts. Omit for a channel-level message.
+   */
+  parentId?: string | null;
 }
 
 export interface EditingMessage {
   messageId: string;
   content: string;
+  /**
+   * Thread the edited message lives in (its own `parentId`), so only the
+   * composer that owns that thread loads it. Omit for a channel-level message.
+   */
+  parentId?: string | null;
 }
 
 export interface ChatContextValue {

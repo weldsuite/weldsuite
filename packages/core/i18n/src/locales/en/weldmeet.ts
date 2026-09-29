@@ -170,6 +170,8 @@ export const weldmeet = {
     failedToCreate: 'Failed to create meeting',
     failedToCreateHint: 'Please try again.',
     meetingLinkCopied: 'Meeting link copied',
+    meetingLinkUnavailable: 'Could not create a meeting link',
+    meetingLinkUnavailableHint: 'The meeting was created but has no join link yet. Please try again.',
     addPeople: 'Add people',
     searchByNameOrEmail: 'Search by name or email...',
     noMembersFound: 'No members found',

@@ -28,15 +28,9 @@ import {
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { generateJoinCode } from './join-code';
 import { resolveParticipantLink } from '../../lib/participant-resolver';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
-
-function generateJoinCode(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz';
-  const segment = () =>
-    Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `wm-${segment()}-${segment()}-${segment()}`;
-}
 
 export interface StartInstantMeetingParams {
   userId: string;

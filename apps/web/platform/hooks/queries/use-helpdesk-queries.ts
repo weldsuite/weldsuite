@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';
@@ -635,7 +636,11 @@ export function useCreateTicket() {
 
 export function useCreateArticle() {
   const { getClient } = useAppApiClient();
+  const { user } = useUser();
   const qc = useQueryClient();
+  // desk-api only knows the caller's Clerk user id, not their display name, so
+  // the author name is sent from the signed-in user unless the caller sets one.
+  const currentUserName = user?.fullName || user?.firstName || undefined;
   return useMutation({
     mutationFn: async (data: {
       title: string;
@@ -645,9 +650,13 @@ export function useCreateArticle() {
       status?: string;
       visibility?: string;
       tags?: string[];
+      authorName?: string;
     }) => {
       const client = await getClient();
-      return client.post<{ data: { id: string } }>('/articles', data);
+      return client.post<{ data: { id: string } }>('/articles', {
+        ...data,
+        authorName: data.authorName ?? currentUserName,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskKeys.articles() });

@@ -82,9 +82,52 @@ const createContactSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-const updateContactSchema = createContactSchema.partial();
+/**
+ * The platform contact form posts `name`, `taxNumber` and `kvkNumber`, and
+ * sends untouched optional inputs as "". Map those onto the schema's field
+ * names and drop blank strings, so an empty email doesn't fail `.email()`.
+ */
+function normalizeContactPayload(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === 'string' && value.trim() === '') continue;
+    body[key] = value;
+  }
+  const aliases: Array<[alias: string, field: string]> = [
+    ['name', 'fullName'],
+    ['taxNumber', 'vatNumber'],
+    ['kvkNumber', 'registrationNumber'],
+  ];
+  for (const [alias, field] of aliases) {
+    if (body[field] === undefined && body[alias] !== undefined) body[field] = body[alias];
+    delete body[alias];
+  }
+  return body;
+}
 
-type ContactPayload = z.infer<typeof updateContactSchema>;
+const createContactBody = z.preprocess(normalizeContactPayload, createContactSchema);
+const updateContactBody = z.preprocess(normalizeContactPayload, createContactSchema.partial());
+
+type ContactPayload = z.infer<typeof updateContactBody>;
+
+/** Return validation failures in the standard `{ error: { code, message } }` shape. */
+const contactValidationHook = (
+  result: { success: boolean; error?: { issues: Array<{ path: Array<string | number>; message: string }> } },
+  c: Parameters<typeof error.badRequest>[0],
+) => {
+  if (!result.success) {
+    const message = (result.error?.issues ?? [])
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    return error.badRequest(c, message || 'Invalid request body');
+  }
+};
+
+/** Clients read `name`; the party row stores it as `displayName`. */
+function withName<T extends { displayName?: string | null }>(row: T): T & { name: string } {
+  return { ...row, name: row.displayName ?? '' };
+}
 
 /** Map the legacy contact payload onto the columns that exist on `parties`. */
 function toPartyColumns(data: ContactPayload): Partial<typeof t.$inferInsert> {
@@ -134,7 +177,7 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
       db.select({ count: sql<number>`count(*)::int` }).from(t).where(where),
     ]);
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, rows, cursorPagination(totalCount, page * pageSize < totalCount, null));
+    return list(c, rows.map(withName), cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
     console.error('[app-api/accounting-contacts] list failed:', err);
     return error.internal(c, 'Failed to fetch contacts');
@@ -148,7 +191,7 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
   try {
     const [contact] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!contact) return error.notFound(c, 'Contact', id);
-    return success(c, contact);
+    return success(c, withName(contact));
   } catch (err) {
     console.error('[app-api/accounting-contacts] get failed:', err);
     return error.internal(c, 'Failed to fetch contact');
@@ -230,7 +273,7 @@ app.post('/import-from-crm', requirePermission('invoices:create'), async (c) => 
 });
 
 // POST /
-app.post('/', requirePermission('invoices:create'), zValidator('json', createContactSchema), async (c) => {
+app.post('/', requirePermission('invoices:create'), zValidator('json', createContactBody, contactValidationHook as never), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
 
@@ -252,6 +295,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
     const newContact = {
       id,
       ...data,
+      name: data.fullName,
       role: data.role ?? 'customer',
       outstandingBalance: '0',
       createdAt: now,
@@ -273,7 +317,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
 });
 
 // PUT/PATCH /:id — legacy client uses PUT; app-api convention is PATCH
-app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidator('json', updateContactSchema), async (c) => {
+app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidator('json', updateContactBody, contactValidationHook as never), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json');
@@ -299,7 +343,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     });
     publishEntityEvent({ c, entityType: 'accounting_contact', entityId: id, action: 'updated', data: { ...contact, ...data } as unknown as Record<string, unknown> });
 
-    return success(c, { ...contact, ...data });
+    return success(c, withName({ ...contact, ...data, displayName: data.fullName ?? contact.displayName }));
   } catch (err) {
     console.error('[app-api/accounting-contacts] update failed:', err);
     return error.internal(c, 'Failed to update contact');

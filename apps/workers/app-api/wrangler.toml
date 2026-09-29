@@ -77,14 +77,10 @@ head_sampling_rate = 1
 # - (ATTIO_*, HUBSPOT_*, MONEYBIRD_*, GOOGLE_CALENDAR_* — the integration and
 #   connector OAuth apps — and the GITHUB_APP_* secrets moved to connect-api
 #   with WeldConnect.)
-# - ASSEMBLYAI_API_KEY (W4: TranscribeRecordingWorkflow — meeting/call
-#   recording transcription; copy the value from api-worker per env). New
-#   transcriptions run in meet-api; keep it here while the draining
-#   transcribe-recording-v2* instances finish.
-# - RESEND_API_KEY (notifications + internal email. The task digest it also
-#   fed moved to flow-api, keep it here while the draining send-digest-v2*
-#   instances finish; the calendar attendee mails moved to calendar-api,
-#   together with their RESEND_MEETING_*_TEMPLATE_ID vars.)
+# - (ASSEMBLYAI_API_KEY moved to meet-api with the transcription workflow.)
+# - RESEND_API_KEY (notifications + internal email. The task digest moved to
+#   flow-api and the calendar attendee mails to calendar-api, together with
+#   their RESEND_MEETING_*_TEMPLATE_ID vars.)
 # - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
 #   account billing-worker's webhooks use, since /api/billing/seats relies on
 #   the invoice.paid webhook)
@@ -113,12 +109,7 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
-# WeldAgent cloud computer (agent-runtime worker). Requires matching
-# INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
-# WeldAgent moved to agent-api; keep these here while the draining
-# weldagent-job* instances finish.
-AGENT_RUNTIME_URL = "http://localhost:8795"
-AGENT_COMPUTER_ENABLED = "true"
+# (AGENT_RUNTIME_URL / AGENT_COMPUTER_ENABLED moved to agent-api with WeldAgent.)
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
@@ -326,89 +317,19 @@ service = "weldsuite-know-api"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# WeldData enrichment — DRAINING. New runs go to data-api (welddata-enrich-v2*);
-# this block (class re-exported from @weldsuite/data-domain) only lets
-# in-flight instances finish (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "welddata-enrich-dev"
-binding = "WELDDATA_ENRICH"
-class_name = "WelddataEnrichWorkflow"
-
-# Scheduled email — DRAINING. New sends are scheduled in mail-api
-# (send-scheduled-email-v3*); this block (class re-exported from
-# @weldsuite/mail-domain) only lets in-flight instances finish
-# (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "send-scheduled-email-v2-dev"
-binding = "SEND_SCHEDULED_EMAIL"
-class_name = "SendScheduledEmailWorkflow"
-
-# --- W4 legacy-worker phase-out: workflows re-hosted from api-worker --------
-# All six classes below now live in THIS worker (src/workflows/, exported from
-# src/index.ts) under NEW `-v2` workflow names, following the
-# send-scheduled-email-v2 precedent: api-worker keeps the old names
-# (execute-sequence*, trash-cleanup*, transcribe-recording*,
-# unpin-expired-message*, send-digest*, import-tasks*) only while its
-# in-flight instances drain (W7 deletes them). Self-hosted (no script_name),
-# so they also work under plain `wrangler dev`.
-
-# Draining: CRM sequences run in crm-api as execute-sequence-v3*; this block
-# (class re-exported from @weldsuite/crm-domain) only lets in-flight v2
-# instances finish (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "execute-sequence-v2-dev"
-binding = "EXECUTE_SEQUENCE"
-class_name = "ExecuteSequenceWorkflow"
+# Workflows hosted by this worker (src/workflows/, exported from src/index.ts).
+# Self-hosted (no script_name), so they also work under plain `wrangler dev`.
+# Names are unique per Cloudflare account: -dev here, -test / plain per env.
 
 [[workflows]]
 name = "trash-cleanup-v2-dev"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
 
-# Draining: meeting transcriptions run in meet-api as transcribe-recording-v3*;
-# this block (class re-exported from @weldsuite/meet-domain) only lets in-flight
-# v2 instances finish (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "transcribe-recording-v2-dev"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
-
-# Chat pin auto-expiry — DRAINING. New instances run in chat-api
-# (unpin-expired-message-v3*); this block (class re-exported from
-# @weldsuite/chat-domain) only lets in-flight instances finish
-# (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "unpin-expired-message-v2-dev"
-binding = "UNPIN_EXPIRED_MESSAGE"
-class_name = "UnpinExpiredMessageWorkflow"
-
-# WeldAgent background runs — DRAINING. New instances run in agent-api
-# (weldagent-job-v2*); this block (class re-exported from
-# @weldsuite/agent-domain) only lets in-flight instances finish
-# (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "weldagent-job-dev"
-binding = "WELDAGENT_JOB"
-class_name = "WeldAgentJobWorkflow"
-
 [[workflows]]
 name = "deferred-notification-email-dev"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
-
-# Task digest + bulk task import — DRAINING. New instances run in flow-api
-# (send-digest-v3*, import-tasks-v3*); these blocks (classes re-exported from
-# @weldsuite/flow-domain) only let in-flight instances finish
-# (docs/plans/app-api-module-split.md).
-[[workflows]]
-name = "send-digest-v2-dev"
-binding = "SEND_DIGEST"
-class_name = "SendDigestWorkflow"
-
-[[workflows]]
-name = "import-tasks-v2-dev"
-binding = "IMPORT_TASKS"
-class_name = "ImportTasksWorkflow"
 
 # No cron triggers: the hourly WeldAgent routine sweep moved to agent-api, the
 # hourly task digest sweep to flow-api, the daily 04:00 calendar replan to
@@ -432,12 +353,9 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
-AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
-AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
-
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -569,65 +487,19 @@ name = "SEND_EMAIL"
 # (EXECUTE_WORKFLOW, CRM_SYNC and GITHUB_PROJECT_SYNC moved to connect-api with
 # WeldConnect.)
 
-# Draining — new instances run in crm-api (execute-sequence-v3).
+# Workflow names are unique per Cloudflare account, so test names end in -test:
+# a shared name moves to whichever environment deployed last.
 [[env.test.workflows]]
-name = "execute-sequence-v2"
-binding = "EXECUTE_SEQUENCE"
-class_name = "ExecuteSequenceWorkflow"
-
-[[env.test.workflows]]
-name = "trash-cleanup-v2"
+name = "trash-cleanup-v2-test"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
 
-# Draining — new instances run in mail-api (send-scheduled-email-v3).
 [[env.test.workflows]]
-name = "send-scheduled-email-v2"
-binding = "SEND_SCHEDULED_EMAIL"
-class_name = "SendScheduledEmailWorkflow"
-
-# Draining — new instances run in meet-api (transcribe-recording-v3).
-[[env.test.workflows]]
-name = "transcribe-recording-v2"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
-
-# Draining — new instances run in chat-api (unpin-expired-message-v3).
-[[env.test.workflows]]
-name = "unpin-expired-message-v2"
-binding = "UNPIN_EXPIRED_MESSAGE"
-class_name = "UnpinExpiredMessageWorkflow"
-
-# Draining — new instances run in agent-api (weldagent-job-v2).
-[[env.test.workflows]]
-name = "weldagent-job"
-binding = "WELDAGENT_JOB"
-class_name = "WeldAgentJobWorkflow"
-
-[[env.test.workflows]]
-name = "deferred-notification-email"
+name = "deferred-notification-email-test"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 
-# Draining — new instances run in flow-api (send-digest-v3, import-tasks-v3).
-[[env.test.workflows]]
-name = "send-digest-v2"
-binding = "SEND_DIGEST"
-class_name = "SendDigestWorkflow"
-
-[[env.test.workflows]]
-name = "import-tasks-v2"
-binding = "IMPORT_TASKS"
-class_name = "ImportTasksWorkflow"
-
-
 # (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
-
-# Draining — new instances run in data-api (welddata-enrich-v2).
-[[env.test.workflows]]
-name = "welddata-enrich"
-binding = "WELDDATA_ENRICH"
-class_name = "WelddataEnrichWorkflow"
 
 [env.test.observability]
 enabled = true
@@ -650,8 +522,6 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
-AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
-AGENT_COMPUTER_ENABLED = "true"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
@@ -793,55 +663,11 @@ name = "SEND_EMAIL"
 # (EXECUTE_WORKFLOW, CRM_SYNC and GITHUB_PROJECT_SYNC moved to connect-api with
 # WeldConnect.)
 
-# CRM sequence execution — DRAINING. New instances run in crm-api as
-# execute-sequence-v3; this block (class re-exported from @weldsuite/crm-domain)
-# only lets in-flight v2 instances finish (docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "execute-sequence-v2"
-binding = "EXECUTE_SEQUENCE"
-class_name = "ExecuteSequenceWorkflow"
-
-# Trash purge — hosted in this worker (app-api), no script_name. New name
-# (W4): api-worker's `trash-cleanup` keeps draining (30-day sleeps).
+# Trash purge — hosted in this worker (app-api), no script_name.
 [[env.production.workflows]]
 name = "trash-cleanup-v2"
 binding = "TRASH_CLEANUP"
 class_name = "TrashCleanupWorkflow"
-
-# Scheduled email — DRAINING. New instances run in mail-api as
-# send-scheduled-email-v3; this block (class re-exported from
-# @weldsuite/mail-domain) only lets in-flight v2 instances finish (max 7 days,
-# MAX_SCHEDULE_DAYS; docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "send-scheduled-email-v2"
-binding = "SEND_SCHEDULED_EMAIL"
-class_name = "SendScheduledEmailWorkflow"
-
-# Transcription workflow — DRAINING. New instances run in meet-api as
-# transcribe-recording-v3; this block (class re-exported from
-# @weldsuite/meet-domain) only lets in-flight v2 instances finish
-# (docs/plans/app-api-module-split.md). Needs ASSEMBLYAI_API_KEY until then.
-[[env.production.workflows]]
-name = "transcribe-recording-v2"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
-
-# Chat pin auto-expiry — DRAINING. New instances run in chat-api as
-# unpin-expired-message-v3; this block (class re-exported from
-# @weldsuite/chat-domain) only lets in-flight instances finish (they sleep
-# until the pin expiry; docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "unpin-expired-message-v2"
-binding = "UNPIN_EXPIRED_MESSAGE"
-class_name = "UnpinExpiredMessageWorkflow"
-
-# WeldAgent background runs — DRAINING. New instances run in agent-api as
-# weldagent-job-v2; this block (class re-exported from @weldsuite/agent-domain)
-# only lets in-flight instances finish (docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "weldagent-job"
-binding = "WELDAGENT_JOB"
-class_name = "WeldAgentJobWorkflow"
 
 # Notification email defer window — hosted in this worker. Holds mail back
 # until the recipient has been away for the defer window, so an online user
@@ -851,34 +677,10 @@ name = "deferred-notification-email"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 
-# Daily task digest — DRAINING. New instances run in flow-api as
-# send-digest-v3; this block (class re-exported from @weldsuite/flow-domain)
-# only lets in-flight v2 instances finish (docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "send-digest-v2"
-binding = "SEND_DIGEST"
-class_name = "SendDigestWorkflow"
-
-# Bulk task import — DRAINING. New instances run in flow-api as
-# import-tasks-v3; this block (class re-exported from @weldsuite/flow-domain)
-# only lets in-flight v2 instances finish.
-[[env.production.workflows]]
-name = "import-tasks-v2"
-binding = "IMPORT_TASKS"
-class_name = "ImportTasksWorkflow"
-
 # (No cron triggers left: the hourly WeldAgent routine sweep moved to
 # agent-api, the digest to flow-api, the 04:00 calendar replan to calendar-api.)
 
 # (GITHUB_PROJECT_OUTBOUND moved to flow-api with the WeldFlow task routes.)
-
-# WeldData enrichment — DRAINING. New instances run in data-api as
-# welddata-enrich-v2; this block (class re-exported from @weldsuite/data-domain)
-# only lets in-flight instances finish (docs/plans/app-api-module-split.md).
-[[env.production.workflows]]
-name = "welddata-enrich"
-binding = "WELDDATA_ENRICH"
-class_name = "WelddataEnrichWorkflow"
 
 [env.production.observability]
 enabled = true

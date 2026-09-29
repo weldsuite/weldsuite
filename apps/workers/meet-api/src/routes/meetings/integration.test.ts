@@ -48,6 +48,66 @@ describe('/api/meetings · pglite integration', () => {
     expect(row?.organizerId).toBe('user_mtg_creator');
   });
 
+  // TASK-688: "Create a meeting for later" produced a share link ending in
+  // /null because only the start-instant path generated a joinCode.
+  it('POST / (non-instant) generates a joinCode, returns it and persists it', async () => {
+    const { request } = createTestApp('/api/meetings', meetingsRoutes, {
+      context: {
+        permissions: permissions('meetings:create', 'meetings:read'),
+        userId: 'user_mtg_later',
+        tenantDb: db,
+      },
+    });
+
+    const res = await request('/api/meetings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Meeting',
+        meetingType: 'video',
+        accessType: 'anyone_with_link',
+        waitingRoom: true,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string; joinCode: string | null } };
+    expect(body.data.joinCode).toMatch(/^wm-[a-z]{3}-[a-z]{3}-[a-z]{3}$/);
+
+    const [row] = await db
+      .select()
+      .from(schema.meetings)
+      .where(eq(schema.meetings.id, body.data.id))
+      .limit(1);
+    expect(row?.joinCode).toBe(body.data.joinCode);
+
+    // The join-code lookup used by the guest link resolves the new meeting.
+    const lookup = await request(`/api/meetings/join/${body.data.joinCode}`);
+    expect(lookup.status).toBe(200);
+  });
+
+  it('POST / ignores a client-supplied joinCode and gives each meeting a distinct one', async () => {
+    const { request } = createTestApp('/api/meetings', meetingsRoutes, {
+      context: {
+        permissions: permissions('meetings:create'),
+        userId: 'user_mtg_later',
+        tenantDb: db,
+      },
+    });
+    const create = async () => {
+      const res = await request('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Meeting', joinCode: 'attacker-chosen' }),
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { data: { joinCode: string } }).data.joinCode;
+    };
+    const [a, b] = [await create(), await create()];
+    expect(a).not.toBe('attacker-chosen');
+    expect(a).not.toBe(b);
+  });
+
   it('POST / accepts explicit organizerId override', async () => {
     const { request } = createTestApp('/api/meetings', meetingsRoutes, {
       context: {

@@ -131,6 +131,9 @@ function asWorkflowStep(s: WorkflowStepBag): WorkflowStep {
   };
 }
 
+/** Stable default so `canvasVariableItems` isn't rebuilt on every render. */
+const NO_WORKFLOW_VARIABLES: Array<{ name: string; type?: string }> = [];
+
 /** Fill in `TriggerConfig`'s required fields for `<WorkflowCanvas trigger={...} />`. */
 function asTriggerConfig(t: WorkflowTriggerBag | undefined): TriggerConfig | null {
   if (!t) return null;
@@ -485,7 +488,7 @@ export function WorkflowEditorClient({
   entityEvents,
   emailAccounts = [],
   workspaceMembers = [],
-  workflowVariables = [],
+  workflowVariables = NO_WORKFLOW_VARIABLES,
   workflowsForChaining = [],
   webhookData,
   basePath = '/weldconnect/workflows',
@@ -1326,9 +1329,15 @@ export function WorkflowEditorClient({
     setAddSubAgentForStepId(null);
   }, [addSubAgentForStepId, workflow.steps, handleUpdateConfig]);
 
-  const sortedSteps: WorkflowStep[] = [...workflow.steps]
-    .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
-    .map(asWorkflowStep);
+  // Memoised: WorkflowCanvas re-syncs its nodes whenever `steps`/`trigger` change,
+  // so fresh objects on every render would loop (React #185).
+  const sortedSteps: WorkflowStep[] = useMemo(
+    () => [...workflow.steps]
+      .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
+      .map(asWorkflowStep),
+    [workflow.steps],
+  );
+  const canvasTrigger = useMemo(() => asTriggerConfig(workflow.triggers[0]), [workflow.triggers]);
 
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
@@ -1570,7 +1579,7 @@ export function WorkflowEditorClient({
             />
           ) : (
           <WorkflowCanvas
-            trigger={asTriggerConfig(workflow.triggers[0])}
+            trigger={canvasTrigger}
             steps={sortedSteps}
             onSelectTrigger={handleSelectTrigger}
             onSelectStep={handleSelectStep}

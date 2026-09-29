@@ -257,40 +257,13 @@ app.route('/api/workspaces', workspacesRoutes);
 // paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
-// The *-v2 names re-host api-worker's workflow classes (W4 legacy-worker
-// phase-out); api-worker keeps the old names while in-flight instances drain.
-// Draining: in-flight instances only; remove once no welddata-enrich* instance
-// is running (they finish within minutes). data-api runs new ones as
-// welddata-enrich-v2*.
-export { WelddataEnrichWorkflow } from '@weldsuite/data-domain/workflows/welddata-enrich';
-// Draining: in-flight instances only; remove once no send-scheduled-email-v2*
-// instance is left (scheduled sends are at most MAX_SCHEDULE_DAYS = 7 days
-// out). mail-api runs new ones as send-scheduled-email-v3*.
-export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/send-scheduled-email';
-// Draining: in-flight instances only; remove after the longest sequence
-// schedule has passed (check the dashboard for running execute-sequence-v2*
-// instances). crm-api runs new ones as execute-sequence-v3*.
-export { ExecuteSequenceWorkflow } from '@weldsuite/crm-domain/workflows/execute-sequence';
+// The module workflows that drained here after the split (welddata-enrich,
+// send-scheduled-email-v2, execute-sequence-v2, transcribe-recording-v2,
+// unpin-expired-message-v2, weldagent-job, send-digest-v2, import-tasks-v2)
+// were removed on 2026-09-29 with no instance left in flight; their module
+// workers run them now.
 export { TrashCleanupWorkflow } from './workflows/trash-cleanup';
-// Draining: in-flight instances only; remove once no transcribe-recording-v2*
-// instance is running (they finish within minutes). meet-api runs new ones as
-// transcribe-recording-v3*.
-export { TranscribeRecordingWorkflow } from '@weldsuite/meet-domain/workflows/transcribe-recording';
-// Draining: in-flight instances only; remove after the latest pin expiry set
-// before the chat-api cutover has passed (check the dashboard for running
-// unpin-expired-message-v2* instances). chat-api runs new ones as
-// unpin-expired-message-v3*.
-export { UnpinExpiredMessageWorkflow } from '@weldsuite/chat-domain/workflows/unpin-expired-message';
 export { DeferredNotificationEmailWorkflow } from './workflows/deferred-notification-email';
-// Draining: in-flight instances only; remove once no weldagent-job* instance
-// is running (they finish within minutes: one step, 10-minute timeout).
-// agent-api runs new ones as weldagent-job-v2*.
-export { WeldAgentJobWorkflow } from '@weldsuite/agent-domain/workflows/weldagent-job';
-// Draining: in-flight instances only; remove once no send-digest-v2* or
-// import-tasks-v2* instance is running (they finish within minutes). flow-api
-// runs new ones as send-digest-v3* / import-tasks-v3*.
-export { SendDigestWorkflow } from '@weldsuite/flow-domain/workflows/send-digest';
-export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tasks';
 
 // No cron sweeps left here: the hourly WeldAgent routine sweep moved to
 // agent-api, the hourly task digest to flow-api, the daily calendar replan to

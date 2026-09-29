@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
@@ -82,6 +82,15 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
   const { mutate: markUnread } = useMarkChannelUnread();
   const { mutate: sendMessage } = useSendMessage();
   const { setReplyTo, openThread } = useChatContext();
+  // Radix returns focus to the trigger when the menu closes, which would undo
+  // the composer focus that Reply / Reply in thread just requested. For those
+  // actions, leave focus where the composer put it.
+  const focusComposerOnCloseRef = useRef(false);
+  const handleCloseAutoFocus = (event: Event) => {
+    if (!focusComposerOnCloseRef.current) return;
+    focusComposerOnCloseRef.current = false;
+    event.preventDefault();
+  };
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showForwardDialog, setShowForwardDialog] = useState(false);
@@ -210,6 +219,7 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
               messageId: message.id,
               authorName: message.authorName ?? '',
               content: message.content ?? '',
+              parentId: message.parentId,
             })
           }
         >
@@ -269,7 +279,7 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuContent align="end" className="w-52" onCloseAutoFocus={handleCloseAutoFocus}>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Smile className="h-4 w-4 mr-0.5" />
@@ -296,18 +306,20 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
               {t.weldchat.messageActionsBar.markAsUnread}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() =>
+              onClick={() => {
+                focusComposerOnCloseRef.current = true;
                 setReplyTo({
                   messageId: message.id,
                   authorName: message.authorName ?? '',
                   content: message.content ?? '',
-                })
-              }
+                  parentId: message.parentId,
+                });
+              }}
             >
               <Reply className="h-4 w-4 mr-0.5" />
               {t.weldchat.messageActionsBar.reply}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openThread(message.id)}>
+            <DropdownMenuItem onClick={() => { focusComposerOnCloseRef.current = true; openThread(message.id); }}>
               <MessageSquare className="h-4 w-4 mr-0.5" />
               {t.weldchat.messageActionsBar.replyInThread}
             </DropdownMenuItem>

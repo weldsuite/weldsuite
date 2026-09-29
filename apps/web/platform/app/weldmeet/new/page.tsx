@@ -5,6 +5,7 @@ import { useCreateMeeting, useJoinByCode, useUpcomingMeetings, type Meeting } fr
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { setStartHandoff } from '@/lib/weldmeet/start-handoff';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -97,12 +98,22 @@ export default function NewMeetingPage() {
         accessType: 'anyone_with_link',
         waitingRoom: true,
       });
-      // app-api create returns { id } only — fetch the full meeting to get joinCode
-      const client = await getAppApiClient();
-      const meetingRes = await client.get<{ data: { joinCode: string } }>(`/meetings/${created.id}`);
-      const joinCode = meetingRes.data?.joinCode;
-      const meetingPortalUrl = import.meta.env.VITE_MEETING_PORTAL_URL || window.location.origin;
-      const url = `${meetingPortalUrl}/${workspaceId}/${joinCode}`;
+      // The create response carries the join code; fall back to fetching the
+      // meeting for an API that predates that.
+      let code = created.joinCode;
+      if (!code) {
+        const client = await getAppApiClient();
+        const meetingRes = await client.get<{ data: { joinCode: string | null } }>(`/meetings/${created.id}`);
+        code = meetingRes.data?.joinCode ?? '';
+      }
+      const url = buildMeetingShareUrl(workspaceId, code);
+      if (!url) {
+        // Never show or copy a link that cannot work (e.g. ".../null").
+        toast.error(t.newMeetingPage.meetingLinkUnavailable, {
+          description: t.newMeetingPage.meetingLinkUnavailableHint,
+        });
+        return;
+      }
       setMeetingLink(url);
     } catch (err) {
       toast.error(t.newMeetingPage.failedToCreate, {

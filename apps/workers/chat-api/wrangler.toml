@@ -142,20 +142,20 @@ database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 
 [[env.test.workflows]]
-name = "unpin-expired-message-v3"
+name = "unpin-expired-message-v3-test"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
 # WeldAgent background runs (WeldChat room replies) — class hosted in agent-api.
 [[env.test.workflows]]
-name = "weldagent-job-v2"
+name = "weldagent-job-v2-test"
 binding = "WELDAGENT_JOB"
 class_name = "WeldAgentJobWorkflow"
 script_name = "weldsuite-agent-api-test"
 
 # Notification email defer window — class hosted in app-api.
 [[env.test.workflows]]
-name = "deferred-notification-email"
+name = "deferred-notification-email-test"
 binding = "DEFERRED_NOTIFICATION_EMAIL"
 class_name = "DeferredNotificationEmailWorkflow"
 script_name = "weldsuite-app-api-test"

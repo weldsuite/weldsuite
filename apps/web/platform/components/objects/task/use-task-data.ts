@@ -152,6 +152,24 @@ export function useWorkspaceMembersForTaskPanel() {
   });
 }
 
+/**
+ * Companies the task's "Company" field can link to. Only fetched for tasks
+ * that are not part of a project (CRM / personal tasks), which are the ones
+ * that carry a CRM record link.
+ */
+export function useTaskCompanyOptions(enabled: boolean) {
+  const api = useAppApi();
+  return useQuery({
+    queryKey: [...taskPanelKeys.all, 'company-options'] as const,
+    queryFn: async () => {
+      const res = await api.companies.list({ limit: 100 });
+      return res.data ?? [];
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
 export function useUpdateTask(taskId: string) {
   const api = useAppApi();
   const qc = useQueryClient();

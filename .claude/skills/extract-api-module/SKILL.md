@@ -107,10 +107,14 @@ queue it consumes) are not package material: stop and report them. Workflows: se
      `wrangler.toml` with a **new name**: bump the version suffix (`execute-sequence-v2`
      → `execute-sequence-v3`, dev `-v3-dev`; unversioned `welddata-enrich` →
      `welddata-enrich-v2`), **same binding name and class_name**, in dev/test/production.
+     Names are unique per Cloudflare **account**, not per script, so each environment
+     needs its own: `<name>-dev`, `<name>-test`, `<name>` (production). A name shared by
+     test and production moves to whichever deployed last, and the other environment's
+     instances then run on the wrong worker and database.
      Code that dispatches instances moves with the module and now uses this binding.
   3. app-api keeps its `[[workflows]]` blocks and re-exports the class from the domain
      package, with a comment `// Draining: in-flight instances only; remove after …`
-     so old instances complete. Add a row to the "Workflows draining in app-api" table
+     so old instances complete. Add a row to the "Workflows that drained in app-api" table
      in docs/plans/app-api-module-split.md (class, old name, new name, longest instance
      lifetime).
   4. Other workers that bind the workflow cross-script (`script_name = "weldsuite-app-api…"`):
