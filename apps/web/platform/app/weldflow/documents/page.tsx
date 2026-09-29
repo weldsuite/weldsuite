@@ -79,6 +79,21 @@ const fontSizes = [
   { value: '36', label: '36' },
 ];
 
+/** Force LTR direction on the paragraph that currently holds the caret. */
+function forceLtrOnCaretParagraph() {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return;
+
+  let element = selection.anchorNode as HTMLElement;
+  if (element.nodeType === Node.TEXT_NODE) {
+    element = element.parentElement as HTMLElement;
+  }
+  if (element && element.tagName === 'P') {
+    element.setAttribute('dir', 'ltr');
+    element.style.direction = 'ltr';
+  }
+}
+
 export default function DocumentsPage() {
   const { t } = useI18n();
   const titleRef = useRef<HTMLDivElement>(null);
@@ -245,59 +260,55 @@ export default function DocumentsPage() {
     document.execCommand('insertText', false, text);
   };
 
-  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
+  const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev < filteredCommands.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredCommands.length - 1
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredCommands[selectedCommandIndex]) {
+        filteredCommands[selectedCommandIndex].action();
       }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowCommandMenu(false);
+      setCommandFilter('');
     }
+  };
+
+  const openCommandMenuAtCaret = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const editorRect = contentRef.current?.getBoundingClientRect();
+
+      if (editorRect) {
+        setCommandMenuPosition({
+          top: rect.bottom - editorRect.top + 5,
+          left: rect.left - editorRect.left,
+        });
+      }
+      setShowCommandMenu(true);
+      setCommandFilter('');
+      setSelectedCommandIndex(0);
+    }
+  };
+
+  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    forceLtrOnCaretParagraph();
 
     if (showCommandMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (filteredCommands[selectedCommandIndex]) {
-          filteredCommands[selectedCommandIndex].action();
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowCommandMenu(false);
-        setCommandFilter('');
-      }
+      handleCommandMenuKeyDown(e);
     } else if (e.key === '/') {
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const editorRect = contentRef.current?.getBoundingClientRect();
-
-          if (editorRect) {
-            setCommandMenuPosition({
-              top: rect.bottom - editorRect.top + 5,
-              left: rect.left - editorRect.left,
-            });
-          }
-          setShowCommandMenu(true);
-          setCommandFilter('');
-          setSelectedCommandIndex(0);
-        }
-      }, 0);
+      setTimeout(openCommandMenuAtCaret, 0);
     }
   };
 
