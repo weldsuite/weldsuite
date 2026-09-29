@@ -2015,6 +2015,10 @@ export const accounting = {
       outstandingBalance: 'Outstanding Balance',
       financial: 'Financial',
       company: 'Company',
+      contactCreated: 'Contact created',
+      contactUpdated: 'Contact updated',
+      createFailed: 'Failed to create contact',
+      updateFailed: 'Failed to update contact',
     },
 
     // Invoice detail page
