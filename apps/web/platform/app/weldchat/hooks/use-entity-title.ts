@@ -18,9 +18,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { apiUrl } from '@/lib/api/public-env';
 
 const API_PREFIX = '/api';
 
@@ -102,7 +100,7 @@ export function useEntityTitle(
       if (!config) return { status: 'notfound' } as const;
 
       const token = await getToken();
-      const response = await fetch(`${APP_API_URL}${API_PREFIX}${config.path(id)}`, {
+      const response = await fetch(apiUrl(`${API_PREFIX}${config.path(id)}`), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

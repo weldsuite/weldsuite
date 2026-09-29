@@ -8,6 +8,7 @@ import {
   TextInput,
   Linking,
   Keyboard,
+  Alert,
 } from 'react-native';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -97,9 +98,14 @@ export default function ContactDetailScreen() {
       const idStr = id as string;
       if (idStr.includes('@')) {
         try {
-          const { data: searchData } = await appApiClient.get<{ data: Contact[] }>(`/people?search=${encodeURIComponent(idStr)}&limit=1`);
+          // The search is a substring match over names and emails, so the first
+          // hit for bob@acme.com can be jimbob@acme.com.au. Only an exact email
+          // match is this sender (edits PATCH whatever record is shown).
+          const { data: searchData } = await appApiClient.get<{ data: Contact[] }>(`/people?search=${encodeURIComponent(idStr)}&limit=20`);
           const items: Contact[] = (searchData as any)?.data ?? (Array.isArray(searchData) ? searchData : []);
-          if (items.length > 0) { setContact(items[0]); return; }
+          const wanted = idStr.trim().toLowerCase();
+          const match = items.find((p) => (p.email || '').trim().toLowerCase() === wanted);
+          if (match) { setContact(match); return; }
         } catch {}
         setContact({ id: idStr, email: idStr, firstName: idStr.split('@')[0], lastName: '', status: 'active' } as Contact);
         return;
@@ -136,6 +142,14 @@ export default function ContactDetailScreen() {
     const trimmed = editValue.trim();
     const originalValue = getFieldValue(contact, editingField);
     if (trimmed === (originalValue || '')) { setEditingField(null); setEditValue(''); Keyboard.dismiss(); return; }
+    // A sender with no contact record is shown from a placeholder whose id is
+    // the email address; PATCH /people/<email> can only 404.
+    if (contact.id.includes('@')) {
+      Alert.alert('Not a contact', 'This sender isn’t in your contacts, so their details can’t be edited here.');
+      setEditingField(null);
+      setEditValue('');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -153,7 +167,9 @@ export default function ContactDetailScreen() {
       const { data: updatedData } = await appApiClient.patch<{ data: Contact }>('/people/' + contact.id, updateData);
       const updated: Contact = (updatedData as any)?.data ?? updatedData;
       if (updated) setContact(updated);
-    } catch {} finally {
+    } catch {
+      Alert.alert('Error', 'Could not save the change. Please try again.');
+    } finally {
       setSaving(false);
       setEditingField(null);
       setEditValue('');

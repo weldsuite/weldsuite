@@ -105,6 +105,45 @@ describe('buildComposeParams', () => {
     expect(buildComposeParams({ ...msg, subject: 'Fwd: Hello' }, 'forward').subject).toBe('Fwd: Hello');
   });
 
+  it('reply-all uses addresses (not display names), keeps the original To and skips self', () => {
+    const p = buildComposeParams(
+      {
+        from: { name: 'Ada', email: 'ada@x.com' },
+        to: [{ name: 'Me', email: 'me@x.com' }, { name: 'Bob', email: 'bob@x.com' }],
+        cc: [{ name: 'Doe, Jane', email: 'jane@x.com' }, { email: 'ME@x.com' }, { email: 'bob@x.com' }],
+        subject: 'Hello',
+      },
+      'replyAll',
+      '',
+      ['me@x.com'],
+    );
+    expect(p.replyTo).toBe('ada@x.com, bob@x.com');
+    expect(p.replyCc).toBe('jane@x.com');
+  });
+
+  it('replying to your own sent message goes to its recipients', () => {
+    const p = buildComposeParams(
+      { from: { email: 'me@x.com' }, to: [{ email: 'bob@x.com' }], subject: 's' },
+      'reply',
+      '',
+      ['me@x.com'],
+    );
+    expect(p.replyTo).toBe('bob@x.com');
+  });
+
+  it('threads replies with In-Reply-To and References, but not forwards', () => {
+    const m = { ...msg, messageId: '<b@x>', references: ['<a@x>'] };
+    expect(buildComposeParams(m, 'reply')).toMatchObject({ inReplyTo: '<b@x>', references: '<a@x> <b@x>' });
+    expect(buildComposeParams(m, 'forward')).toMatchObject({ inReplyTo: '', references: '' });
+  });
+
+  it('handles a missing subject and case-insensitive prefixes', () => {
+    expect(buildComposeParams({ ...msg, subject: null }, 'reply').subject).toBe('Re: ');
+    expect(buildComposeParams({ ...msg, subject: undefined }, 'forward').subject).toBe('Fwd: ');
+    expect(buildComposeParams({ ...msg, subject: 'RE: Hello' }, 'reply').subject).toBe('RE: Hello');
+    expect(buildComposeParams({ ...msg, subject: 'FW: Hello' }, 'forward').subject).toBe('FW: Hello');
+  });
+
   it('falls back to the provided account id when the message has none', () => {
     expect(
       buildComposeParams({ from: 'x', subject: 's' }, 'reply', 'fallback_acc').emailAccountId,

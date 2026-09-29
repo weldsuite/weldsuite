@@ -7,7 +7,7 @@
  * tokenPrefix keeps the first 12 chars of the full token for display.
  */
 
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { isSafeAppLifecycleWebhookUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 import type { UserApp, UserAppManifest, UserAppVersion } from '@weldsuite/db/schema/master';
 import { masterSchema, schema, getTenantDbForWorkspace, type Database, type MasterDatabase } from '../db';
@@ -38,6 +38,15 @@ export const RESERVED_APP_CODES: readonly string[] = [
   'settings',
   'apps',
 ];
+
+/**
+ * First-party modules that briefly shipped as hosted WeldApps and are platform
+ * modules again. They are never adopted onto a hosted app, and an install that
+ * was adopted is switched back to the built-in module (see
+ * `adoptOfficialSystemInstallsForTenant`). Keep in sync with
+ * external-api's services/adopt-system-install.ts.
+ */
+export const NATIVE_ONLY_APP_CODES: readonly string[] = ['weldcommerce'];
 
 // ---------------------------------------------------------------------------
 // Crypto helpers
@@ -448,6 +457,7 @@ export async function adoptSystemInstallInTenant(params: {
   const { master, tenantDb, app, workspaceId, installedBy } = params;
   if (app.deletedAt || !app.isActive) return 'none';
   if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return 'none';
+  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return 'none';
   // Official WeldSuite publishers, or reserved first-party codes being migrated
   // from the SPA module into a hosted WeldApp.
   if (app.publisherType !== 'weldsuite' && !RESERVED_APP_CODES.includes(app.code)) {
@@ -587,13 +597,30 @@ export async function adoptOfficialSystemInstallsForTenant(params: {
   const { workspaceInstalledApps } = schema;
 
   const rows = await tenantDb
-    .select({ appCode: workspaceInstalledApps.appCode })
+    .select({ appCode: workspaceInstalledApps.appCode, appType: workspaceInstalledApps.appType })
     .from(workspaceInstalledApps)
     .where(
       and(eq(workspaceInstalledApps.isActive, true), isNull(workspaceInstalledApps.deletedAt)),
     );
 
-  const codes = [...new Set(rows.map((r) => r.appCode))];
+  // A native-again module that was adopted onto its hosted app goes back to
+  // being the built-in (`system`) install, exactly as the catalog creates it.
+  if (rows.some((r) => r.appType === 'user' && NATIVE_ONLY_APP_CODES.includes(r.appCode))) {
+    await tenantDb
+      .update(workspaceInstalledApps)
+      .set({ appType: 'system', userAppId: null, grantedScopes: null, updatedAt: new Date() })
+      .where(
+        and(
+          inArray(workspaceInstalledApps.appCode, [...NATIVE_ONLY_APP_CODES]),
+          eq(workspaceInstalledApps.appType, 'user'),
+          isNull(workspaceInstalledApps.deletedAt),
+        ),
+      );
+  }
+
+  const codes = [...new Set(rows.map((r) => r.appCode))].filter(
+    (code) => !NATIVE_ONLY_APP_CODES.includes(code),
+  );
   const officialApps = await findOfficialAppsForCodes(master, codes);
   let adopted = 0;
   for (const app of officialApps) {
@@ -620,6 +647,7 @@ export async function sweepAdoptSystemInstallsForApp(params: {
   installedBy?: string | null;
 }): Promise<{ adopted: number; failed: number }> {
   const { env, master, app, installedBy } = params;
+  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return { adopted: 0, failed: 0 };
   if (app.publisherType !== 'weldsuite' && !RESERVED_APP_CODES.includes(app.code)) {
     return { adopted: 0, failed: 0 };
   }

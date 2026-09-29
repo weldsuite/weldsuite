@@ -6,6 +6,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
+import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
@@ -17,6 +18,16 @@ import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifi
 
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
 
+/**
+ * Modules served by their own worker (`<module>-api` host), from
+ * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
+ * which forwards moved modules. See docs/plans/app-api-module-split.md.
+ */
+const apiOrigins = createApiOriginResolver({
+  coreOrigin: APP_API_URL,
+  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
+});
+
 let tokenGetter: () => Promise<string | null> = async () => null;
 
 export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) {
@@ -24,7 +35,7 @@ export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) 
 }
 
 const client = createClientApi({
-  baseUrl: APP_API_URL,
+  baseUrl: apiOrigins.originForPath,
   getToken: () => tokenGetter(),
 });
 

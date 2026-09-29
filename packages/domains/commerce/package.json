@@ -1,0 +1,32 @@
+{
+  "name": "@weldsuite/commerce-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./portal-slug": "./src/portal-slug.ts",
+    "./portal-tokens": "./src/portal-tokens.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "hono": "4.12.34",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

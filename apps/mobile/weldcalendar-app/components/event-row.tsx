@@ -28,6 +28,36 @@ export interface EventRowProps {
   onPress?: () => void;
 }
 
+/** Fixed-width gutter: start/end time, or "All day". */
+function TimeColumn({ event }: Readonly<{ event: CalendarEvent }>) {
+  const { colors } = useTheme();
+  const { t, intlLocale } = useI18n();
+
+  return (
+    <View style={styles.timeCol}>
+      {event.allDay ? (
+        <Text
+          style={[styles.allDay, { color: colors.mutedForeground }]}
+          numberOfLines={2}
+        >
+          {t.agenda.allDay}
+        </Text>
+      ) : (
+        <>
+          <Text style={[styles.startTime, { color: colors.text }]} numberOfLines={1}>
+            {formatTime(event.startTime, intlLocale)}
+          </Text>
+          {event.endTime ? (
+            <Text style={[styles.endTime, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {formatTime(event.endTime, intlLocale)}
+            </Text>
+          ) : null}
+        </>
+      )}
+    </View>
+  );
+}
+
 export function EventRow({ event, calendarName, onPress }: Readonly<EventRowProps>) {
   const { colors } = useTheme();
   const { t, intlLocale, plural } = useI18n();
@@ -42,27 +72,7 @@ export function EventRow({ event, calendarName, onPress }: Readonly<EventRowProp
 
   const body = (
     <View style={[styles.row, { borderBottomColor: colors.border }]}>
-      <View style={styles.timeCol}>
-        {event.allDay ? (
-          <Text
-            style={[styles.allDay, { color: colors.mutedForeground }]}
-            numberOfLines={2}
-          >
-            {t.agenda.allDay}
-          </Text>
-        ) : (
-          <>
-            <Text style={[styles.startTime, { color: colors.text }]} numberOfLines={1}>
-              {formatTime(event.startTime, intlLocale)}
-            </Text>
-            {event.endTime ? (
-              <Text style={[styles.endTime, { color: colors.mutedForeground }]} numberOfLines={1}>
-                {formatTime(event.endTime, intlLocale)}
-              </Text>
-            ) : null}
-          </>
-        )}
-      </View>
+      <TimeColumn event={event} />
 
       <View style={[styles.rule, { backgroundColor: accent }, past && styles.dimmed]} />
 

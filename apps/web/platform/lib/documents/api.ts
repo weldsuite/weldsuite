@@ -8,9 +8,7 @@
  * derived/legacy artifact used only for the load fallback + download.
  */
 
-import { getAppApiUrl } from '@/lib/api/public-env';
-
-const APP_API_URL = getAppApiUrl();
+import { apiUrl } from '@/lib/api/public-env';
 
 async function authHeader(): Promise<Record<string, string>> {
   if (typeof window !== 'undefined') {
@@ -23,7 +21,7 @@ async function authHeader(): Promise<Record<string, string>> {
 
 /** Load the document's BlockNote blocks, or `null` if no `docs` row exists. */
 async function fetchDocumentJson(fileId: string): Promise<Record<string, unknown>[] | null> {
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}`, { headers: await authHeader() });
+  const res = await fetch(apiUrl(`/api/documents/${fileId}`), { headers: await authHeader() });
   if (!res.ok) throw new Error(`Failed to load document (${res.status})`);
   const body = (await res.json()) as { data: { content?: Record<string, unknown>[] } | null };
   return body.data?.content ?? null;
@@ -31,7 +29,7 @@ async function fetchDocumentJson(fileId: string): Promise<Record<string, unknown
 
 /** Persist the document's BlockNote blocks. */
 async function putDocumentJson(fileId: string, content: Record<string, unknown>[]): Promise<void> {
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}/content`, {
+  const res = await fetch(apiUrl(`/api/documents/${fileId}/content`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ content }),
@@ -41,7 +39,7 @@ async function putDocumentJson(fileId: string, content: Record<string, unknown>[
 
 /** Legacy DOCX binary (R2) — used only as a load fallback for pre-Phase-1 docs. */
 async function fetchDocumentDocx(fileId: string): Promise<ArrayBuffer | null> {
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}/content`, { headers: await authHeader() });
+  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), { headers: await authHeader() });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to load document (${res.status})`);
   return res.arrayBuffer();
@@ -49,7 +47,7 @@ async function fetchDocumentDocx(fileId: string): Promise<ArrayBuffer | null> {
 
 /** Create a standalone (drive) document. Returns the new file id. */
 export async function createDocument(input: { name: string; folderId?: string | null }): Promise<string> {
-  const res = await fetch(`${APP_API_URL}/api/documents`, {
+  const res = await fetch(apiUrl(`/api/documents`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ name: input.name, folderId: input.folderId ?? null }),

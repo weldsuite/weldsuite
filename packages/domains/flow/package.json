@@ -1,0 +1,32 @@
+{
+  "name": "@weldsuite/flow-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./task-numbering": "./src/task-numbering.ts",
+    "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./workflows/import-tasks": "./src/workflows/import-tasks.ts",
+    "./workflows/send-digest": "./src/workflows/send-digest.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/worker-email": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

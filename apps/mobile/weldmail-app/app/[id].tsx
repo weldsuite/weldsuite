@@ -246,7 +246,7 @@ export default function EmailDetailScreen() {
   const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const { organizationId } = useClerkAuth();
-  const { refreshMail } = useMail();
+  const { refreshMail, accounts } = useMail();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
@@ -505,7 +505,12 @@ export default function EmailDetailScreen() {
 
   const openComposeForMessage = (msg: any, mode: 'reply' | 'replyAll' | 'forward') => {
     openComposeOverlay(
-      buildComposeParams(msg, mode, email?.emailAccountId || email?.accountId || ''),
+      buildComposeParams(
+        msg,
+        mode,
+        email?.emailAccountId || email?.accountId || '',
+        accounts.map((a) => a.emailAddress),
+      ),
     );
   };
 

@@ -30,15 +30,24 @@ export type MessagePatch = Partial<
   Record<'isRead' | 'isStarred' | 'isSpam' | 'isImportant' | 'isFlagged', boolean>
 >;
 
+/**
+ * Every op may record whether it targets the personal tenant, captured when it
+ * is queued. The runner can't reliably work that out at replay time: the
+ * personal account/message id registry is in memory and is empty on a cold
+ * start until the account list loads, so a replayed personal op went to
+ * app-api, got a 404 and was dropped. Absent on ops queued by older builds.
+ */
+type OpBase = { id: string; attempts: number; createdAt: number; personal?: boolean };
+
 export type OutboxOp =
-  | { id: string; kind: 'update'; messageId: string; patch: MessagePatch; attempts: number; createdAt: number }
-  | { id: string; kind: 'delete'; messageId: string; attempts: number; createdAt: number }
-  | { id: string; kind: 'archive'; messageId: string; attempts: number; createdAt: number }
-  | { id: string; kind: 'snooze'; messageId: string; accountId: string; until: string; attempts: number; createdAt: number }
-  | { id: string; kind: 'unsnooze'; messageId: string; accountId: string; attempts: number; createdAt: number }
+  | (OpBase & { kind: 'update'; messageId: string; patch: MessagePatch })
+  | (OpBase & { kind: 'delete'; messageId: string })
+  | (OpBase & { kind: 'archive'; messageId: string })
+  | (OpBase & { kind: 'snooze'; messageId: string; accountId: string; until: string })
+  | (OpBase & { kind: 'unsnooze'; messageId: string; accountId: string })
   // A composed message queued for send. `payload.idempotencyKey` makes replay
   // safe — the backend returns the already-sent message if the key was seen.
-  | { id: string; kind: 'send'; accountId: string; payload: SendMailMessageInput; attempts: number; createdAt: number };
+  | (OpBase & { kind: 'send'; accountId: string; payload: SendMailMessageInput });
 
 function key(orgId: string): string {
   return `${PREFIX}.${VERSION}.${orgId}`;
@@ -58,6 +67,19 @@ export async function loadOutbox(orgId: string): Promise<OutboxOp[]> {
 export async function saveOutbox(orgId: string, ops: OutboxOp[]): Promise<void> {
   try {
     await AsyncStorage.setItem(key(orgId), JSON.stringify(ops));
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Forget every queued op for an org. Called on sign-out so a different user
+ * signing in on the same device never replays the previous user's queued
+ * mutations (or sends) under their own session.
+ */
+export async function clearOutbox(orgId: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(key(orgId));
   } catch {
     // best-effort
   }
@@ -110,11 +132,25 @@ export function collapse(ops: OutboxOp[], incoming: OutboxOp): OutboxOp[] {
   return [...ops, incoming];
 }
 
-export async function enqueueOp(orgId: string, op: OutboxOp): Promise<OutboxOp[]> {
-  const ops = await loadOutbox(orgId);
-  const next = collapse(ops, op);
-  await saveOutbox(orgId, next);
+// Per-org promise chain serialising every read-modify-write of a queue. Without
+// it two quick enqueues (load, load, save, save) or an enqueue landing while a
+// flush is mid-network would each overwrite the other's write and lose an op.
+const locks = new Map<string, Promise<unknown>>();
+
+function withOutboxLock<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(orgId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  locks.set(orgId, next.catch(() => undefined));
   return next;
+}
+
+export async function enqueueOp(orgId: string, op: OutboxOp): Promise<OutboxOp[]> {
+  return withOutboxLock(orgId, async () => {
+    const ops = await loadOutbox(orgId);
+    const next = collapse(ops, op);
+    await saveOutbox(orgId, next);
+    return next;
+  });
 }
 
 /**
@@ -176,39 +212,67 @@ export type OpRunner = (op: OutboxOp) => Promise<void>;
 /**
  * Replay the queue through `run`, removing ops that succeed. On a network error
  * the current op (and everything after it) is kept for the next flush and the
- * pass stops — there's no point hammering a dead connection. A non-network
- * (server) error means the request reached the server and was rejected, so the
- * op is dropped rather than retried forever. Ops that exhaust MAX_ATTEMPTS are
- * also dropped so a permanently-failing op can't wedge the queue.
+ * pass stops — there's no point hammering a dead connection. Network failures
+ * don't count against an op's retry budget: being offline is not the op's fault,
+ * and counting them let a queued send be dropped just because the user touched
+ * a few messages while offline (each touch kicks a flush).
+ *
+ * A server error that `isTransient` recognises (5xx, rate limit, an expired
+ * session on resume) keeps the op and spends one attempt. Any other server error
+ * means the request was rejected, so the op is dropped rather than retried
+ * forever. Ops that exhaust MAX_ATTEMPTS are also dropped so a permanently
+ * failing op can't wedge the queue.
+ *
+ * The network calls run outside the queue lock, so ops can be enqueued while a
+ * flush is in progress. The result is therefore merged back into the *current*
+ * queue: only the ops this pass handled (matched by id and unchanged content, so
+ * an update that was merged mid-flight re-runs with its new patch) are removed.
  */
-export async function flushOutbox(orgId: string, run: OpRunner, isNetErr: (e: unknown) => boolean): Promise<FlushResult> {
+export async function flushOutbox(
+  orgId: string,
+  run: OpRunner,
+  isNetErr: (e: unknown) => boolean,
+  isTransient: (e: unknown) => boolean = () => false,
+): Promise<FlushResult> {
   const ops = await loadOutbox(orgId);
   if (!ops.length) return { remaining: 0, succeeded: 0, dropped: 0 };
 
-  const keep: OutboxOp[] = [];
+  const handled = new Set<string>();
+  const retried = new Map<string, OutboxOp>();
   let succeeded = 0;
   let dropped = 0;
 
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i];
+  for (const op of ops) {
     if (op.attempts >= MAX_ATTEMPTS) {
+      handled.add(JSON.stringify(op));
       dropped++;
       continue;
     }
     try {
       await run(op);
+      handled.add(JSON.stringify(op));
       succeeded++;
     } catch (e) {
-      if (isNetErr(e)) {
-        // Offline mid-flush: preserve this op and all the ones after it, stop.
-        keep.push({ ...op, attempts: op.attempts + 1 }, ...ops.slice(i + 1));
-        await saveOutbox(orgId, keep);
-        return { remaining: keep.length, succeeded, dropped };
+      // Offline mid-flush: keep this op and all the ones after it, stop.
+      if (isNetErr(e)) break;
+      if (isTransient(e)) {
+        retried.set(JSON.stringify(op), { ...op, attempts: op.attempts + 1 });
+        continue;
       }
+      handled.add(JSON.stringify(op));
       dropped++; // server rejected — don't retry
     }
   }
 
-  await saveOutbox(orgId, keep);
-  return { remaining: keep.length, succeeded, dropped };
+  return withOutboxLock(orgId, async () => {
+    const current = await loadOutbox(orgId);
+    const next: OutboxOp[] = [];
+    for (const op of current) {
+      const sig = JSON.stringify(op);
+      if (handled.has(sig)) continue;
+      next.push(retried.get(sig) ?? op);
+    }
+    await saveOutbox(orgId, next);
+    return { remaining: next.length, succeeded, dropped };
+  });
 }

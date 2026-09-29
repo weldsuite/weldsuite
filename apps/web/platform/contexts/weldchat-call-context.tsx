@@ -25,7 +25,7 @@ import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
 import type { PresenceStatus } from '@weldsuite/ui/components/status-dot';
-import { getAppApiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 
 const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
@@ -295,8 +295,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   // Fire-and-forget leave notification for tab close / disconnect scenarios.
   // Uses fetch with keepalive (supports auth headers, survives page unload).
   const fireLeaveRequest = useCallback((cId: string) => {
-    const baseUrl = getAppApiUrl();
-    const url = `${baseUrl}/api/chat-calls/${cId}/leave`;
+    const url = apiUrl(`/api/chat-calls/${cId}/leave`);
     const token = authTokenRef.current;
     if (!token) return;
     // Best effort: a failed leave notification must never block teardown.

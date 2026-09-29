@@ -1,0 +1,33 @@
+{
+  "name": "@weldsuite/host-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./domains": "./src/domains.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/cloudflare-registrar": "workspace:*",
+    "@weldsuite/cloudflare-zones": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/realtime-registrar": "workspace:*",
+    "@weldsuite/stripe": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

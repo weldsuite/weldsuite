@@ -33,6 +33,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@telnyx/webrtc": "^2.23.0",
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/cloudflare-registrar": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",

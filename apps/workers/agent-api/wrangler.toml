@@ -1,0 +1,243 @@
+# WeldSuite agent-api worker — the agent module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   agent-api.weldsuite.org        production
+#   agent-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "agent-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLOUDFLARE_API_TOKEN (the AI token /api/ai and the WeldAgent runtime run on
+#     when AI_GATEWAY_API_TOKEN is unset — same value as app-api)
+#   INTERNAL_API_SECRET (the WeldAgent computer/browser tools' bearer to the
+#     agent-runtime worker; must match agent-runtime's — same value as app-api)
+#   (DATABASE_URL_MASTER also backs the AI credit metering and the one-time
+#   routine-index backfill)
+#
+# Secrets beyond the base set (same values as app-api). The hand-set ones are in
+# scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
+# they are missing:
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/ai and
+#     the WeldAgent runtime (@weldsuite/ai). When unset, @weldsuite/ai uses
+#     CLOUDFLARE_API_TOKEN.
+#   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
+#     agent run / chat reply notification emails (@weldsuite/notifications)
+#
+# CF_ACCOUNT_ID, AGENT_RUNTIME_URL and AGENT_COMPUTER_ENABLED are [vars]
+# (values copied from app-api).
+
+name = "weldsuite-agent-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+# WeldAgent cloud computer (agent-runtime worker). Requires matching
+# INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
+AGENT_RUNTIME_URL = "http://localhost:8795"
+AGENT_COMPUTER_ENABLED = "true"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# WeldAgent eventSubscriptions (hub SUB_WELDAGENT) — consumed here (moved from
+# app-api; a queue has one consumer).
+#   wrangler queues create entity-agents-dev
+#   wrangler queues create entity-agents-dlq-dev
+[[queues.consumers]]
+queue = "entity-agents-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq-dev"
+
+# D1 schedule index — shared with workflow-worker. Holds the WeldAgent routine
+# index the hourly sweep reads (@weldsuite/agent-domain/routine-index). Dev uses
+# the test database.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# WeldAgent background runs (chat replies, routines, WeldChat room replies)
+# beyond the ~30s waitUntil budget — Cloudflare Workflow hosted in THIS worker
+# (class re-exported from src/index.ts, @weldsuite/agent-domain). New name
+# (-v2): app-api keeps `weldagent-job*` while its in-flight instances drain.
+# Self-hosted (no script_name), so it also works under plain `wrangler dev`.
+[[workflows]]
+name = "weldagent-job-v2-dev"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
+
+# DEFERRED_NOTIFICATION_EMAIL (app-api's workflow, used by the agent run / chat
+# reply notifications) is bound cross-script in test/production only, like
+# app-api's other cross-script workflow bindings. Locally it is absent and
+# @weldsuite/notifications sends the email without the defer window.
+
+# Hourly WeldAgent routine sweep (scheduled() in src/index.ts; moved from
+# app-api).
+[triggers]
+crons = ["0 * * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-agent-api-test"
+routes = [
+  { pattern = "agent-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
+AGENT_COMPUTER_ENABLED = "true"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+# WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
+#   wrangler queues create entity-agents-test
+#   wrangler queues create entity-agents-dlq-test
+[[env.test.queues.consumers]]
+queue = "entity-agents-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq-test"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.workflows]]
+name = "weldagent-job-v2"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.test.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api-test"
+
+[env.test.triggers]
+crons = ["0 * * * *"]
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-agent-api"
+routes = [
+  { pattern = "agent-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
+AGENT_COMPUTER_ENABLED = "true"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
+#   wrangler queues create entity-agents
+#   wrangler queues create entity-agents-dlq
+[[env.production.queues.consumers]]
+queue = "entity-agents"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "entity-agents-dlq"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+# WeldAgent background runs — hosted in this worker, no script_name. New name
+# (-v2): app-api's `weldagent-job` keeps draining.
+[[env.production.workflows]]
+name = "weldagent-job-v2"
+binding = "WELDAGENT_JOB"
+class_name = "WeldAgentJobWorkflow"
+
+# Notification email defer window — class hosted in app-api.
+[[env.production.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api"
+
+# Hourly WeldAgent routine sweep (moved from app-api).
+[env.production.triggers]
+crons = ["0 * * * *"]
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -1,0 +1,41 @@
+{
+  "name": "@weldsuite/connect-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./connector-sync-index": "./src/connector-sync-index.ts",
+    "./connectors/auth": "./src/connectors/auth.ts",
+    "./connectors/clients": "./src/connectors/clients.ts",
+    "./connectors/connections": "./src/connectors/connections.ts",
+    "./connectors/field-mapper": "./src/connectors/field-mapper.ts",
+    "./connectors/ingest": "./src/connectors/ingest.ts",
+    "./connectors/mappers": "./src/connectors/mappers.ts",
+    "./connectors/moneybird-attachments": "./src/connectors/moneybird-attachments.ts",
+    "./connectors/sync": "./src/connectors/sync.ts",
+    "./connectors/webhooks": "./src/connectors/webhooks.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/books-domain": "workspace:*",
+    "@weldsuite/connectors": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

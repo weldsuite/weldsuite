@@ -19,7 +19,7 @@
  *   a depth limit of 5 with cycle protection.
  */
 
-import { eq, and, isNull, gte, lte, or, not, inArray, sql } from 'drizzle-orm';
+import { eq, and, isNull, gte, lte, or, not, inArray, notExists, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { WorkingHours, DayHours } from '../schema/helpdesk-agents';
@@ -1070,13 +1070,17 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
  * the past while their source task is still incomplete. Reschedule each so
  * the calendar reflects "what's coming up", not "what should have happened".
  *
+ * Users who set `uiPreferences.autoRescheduleTasks = false` are skipped:
+ * their past slots stay where they were. The opt-out is filtered in SQL so
+ * those events never consume the batch limit.
+ *
  * Intended to be invoked from a daily cron handler (one DB at a time).
  */
 export async function replanStaleAutoScheduledEvents(
   db: Database,
   options: { batchLimit?: number } = {},
 ): Promise<{ scanned: number; rescheduled: number; failed: number }> {
-  const { calendarEvents, tasks } = schema;
+  const { calendarEvents, tasks, userPreferences } = schema;
   const limit = options.batchLimit ?? 200;
   const now = new Date();
 
@@ -1104,6 +1108,16 @@ export async function replanStaleAutoScheduledEvents(
       eq(calendarEvents.status, 'confirmed'),
       lte(calendarEvents.startTime, now),
       isNull(tasks.deletedAt),
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(userPreferences)
+          .where(and(
+            eq(userPreferences.userId, calendarEvents.organizerId),
+            isNull(userPreferences.deletedAt),
+            sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+          )),
+      ),
     ))
     // DB-level sort: highest priority first, then earliest due date, then oldest task.
     // Mirrors the in-memory sort below so pagination respects the same order.

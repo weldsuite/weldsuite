@@ -155,6 +155,11 @@ app.get('/:id', requireScope('social_posts:read'), async (c) => {
   return success(c, row);
 });
 
+/** First argument that is a number, else undefined. */
+function firstNumber(...values: unknown[]): number | undefined {
+  return values.find((v): v is number => typeof v === 'number');
+}
+
 app.post('/', requireScope('social_posts:write'), zValidator('json', createSocialMediaSchema), async (c) => {
   const db = c.get('tenantDb');
   const body = c.req.valid('json') as Record<string, unknown>;
@@ -169,12 +174,7 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
     (typeof body.mimeType === 'string' && body.mimeType) ||
     (typeof body.contentType === 'string' && body.contentType) ||
     guessMime(fileName, mediaType);
-  const fileSize =
-    typeof body.fileSize === 'number'
-      ? body.fileSize
-      : typeof body.size === 'number'
-        ? body.size
-        : 0;
+  const fileSize = firstNumber(body.fileSize, body.size) ?? 0;
   const storagePath =
     (typeof body.storagePath === 'string' && body.storagePath) ||
     (url ? `url:${url}` : `social-media/${id}/${fileName}`);

@@ -54,7 +54,7 @@ queue = "entity-webhooks-dev"
 binding = "SUB_WELDCONNECT"
 queue = "entity-workflows-dev"
 
-# Phase 5: WeldAgent eventSubscriptions → app-api
+# Phase 5: WeldAgent eventSubscriptions → agent-api
 #   wrangler queues create entity-agents-dev
 #   wrangler queues create entity-agents-dlq-dev
 [[queues.producers]]

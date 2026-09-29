@@ -9,6 +9,13 @@ interface Item extends Record<string, unknown> {
 
 type Tab = 'items' | 'people';
 
+function peopleErrorMessage(cause: unknown): string {
+  if (cause instanceof WeldApiError && cause.status === 403) {
+    return 'This workspace has not granted people:read. Reinstall the app to consent.';
+  }
+  return cause instanceof Error ? cause.message : 'Failed to load people';
+}
+
 export default function App() {
   const { theme, locale, user, bridge, api } = useWeldApp();
   const items = useCollection<Item>('items');
@@ -46,12 +53,7 @@ export default function App() {
         if (!cancelled) setPeople(page.data);
       })
       .catch((cause: unknown) => {
-        if (cancelled) return;
-        if (cause instanceof WeldApiError && cause.status === 403) {
-          setPeopleError('This workspace has not granted people:read. Reinstall the app to consent.');
-        } else {
-          setPeopleError(cause instanceof Error ? cause.message : 'Failed to load people');
-        }
+        if (!cancelled) setPeopleError(peopleErrorMessage(cause));
       })
       .finally(() => {
         if (!cancelled) setPeopleLoading(false);

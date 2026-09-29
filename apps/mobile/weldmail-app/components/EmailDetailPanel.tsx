@@ -41,6 +41,7 @@ import { getMessage, markMessageRead, getThread } from '@/services/mail-tenant';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
+import { useMail } from '@/contexts/MailContext';
 import SnoozePickerModal from '@/components/SnoozePickerModal';
 import LabelPickerModal from '@/components/LabelPickerModal';
 import {
@@ -76,7 +77,7 @@ function getInitialColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, _router }: Readonly<{
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router: _router }: Readonly<{
   message: any;
   colors: any;
   isExpanded: boolean;
@@ -206,6 +207,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
   const insets = useSafeAreaInsets();
   const outbox = useMailOutbox();
   const { openCompose: openComposeOverlay } = useComposeOverlay();
+  const { accounts } = useMail();
 
   const [email, setEmail] = useState<any>(null);
   const [threadMessages, setThreadMessages] = useState<any[]>([]);
@@ -230,6 +232,9 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     setLoadOutcome(null);
     setShowEmailDetails(false);
     setExpandedThreadIds(new Set());
+    // Drop the previous email's thread: if this one's thread request fails it
+    // would otherwise keep showing (and replying to) the old messages.
+    setThreadMessages([]);
     let cancelled = false;
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -379,7 +384,12 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
 
   const openComposeForMessage = (msg: any, mode: 'reply' | 'replyAll' | 'forward') => {
     openComposeOverlay(
-      buildComposeParams(msg, mode, email?.emailAccountId || email?.accountId || ''),
+      buildComposeParams(
+        msg,
+        mode,
+        email?.emailAccountId || email?.accountId || '',
+        accounts.map((a) => a.emailAddress),
+      ),
     );
   };
 

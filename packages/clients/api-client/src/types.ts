@@ -4,7 +4,13 @@
 
 export interface ClientApiOptions {
   getToken: () => Promise<string | null>;
-  baseUrl: string;
+  /**
+   * API origin. Either one origin for every request, or a function that picks
+   * the origin per request from the full path (`/api/tickets/123`), which is
+   * how clients route modules that moved to their own worker
+   * (`createApiOriginResolver` in @weldsuite/api-modules).
+   */
+  baseUrl: string | ((path: string) => string);
   apiPrefix?: string;
   /**
    * Extra headers merged into every request after auth. Used by WeldBooks to

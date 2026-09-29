@@ -19,11 +19,9 @@
  */
 
 import type { Mail } from '@/lib/api/types/apps/mail.types';
-import { getAppApiUrl } from '@/lib/api/public-env';
+import { apiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = getAppApiUrl();
-
-const APP_BASE = `${APP_API_URL}/api`;
+const APP_BASE = '/api';
 
 /**
  * Standard response shape every `mailApi.*` method returns. The platform
@@ -69,7 +67,7 @@ async function request<T>(
   const { unwrap = true, ...init } = options;
   try {
     const token = await getAuthToken();
-    const response = await fetch(`${base}${path}`, {
+    const response = await fetch(apiUrl(`${base}${path}`), {
       ...init,
       headers: {
         'Content-Type': 'application/json',

@@ -171,26 +171,84 @@ export const manifest: Record<string, SecretEntry[]> = {
     "INTERNAL_API_SECRET",
   ],
 
-  // app-api: GitHub App secrets for the install flow + callback + Projects API,
-  // plus the WeldHost domain-purchase pair.
+  // app-api. (The GitHub App secrets for the install flow + callback +
+  // Projects API moved to "connect-api" with WeldConnect.)
   "app-api": [
-    // WeldPass vault root key. Wraps every project KEK — losing it makes every
-    // stored secret unrecoverable, so keep a backup outside Doppler as well.
-    "WELDPASS_ROOT_KEY",
-    "GITHUB_APP_ID",
-    "GITHUB_APP_SLUG",
-    "GITHUB_APP_PRIVATE_KEY",
     "DATABASE_ENCRYPTION_KEY",
-    // Verifier side of the X-Internal-Secret handshake above — routes/integrations/
-    // internal.ts fails closed (401) when this is unset, so every internal caller
-    // (integration-sync-worker, integration-webhook-worker) needs the SAME value
-    // in the same env.
+    // Bearer of /api/internal (workflow-worker's send_email action) and of the
+    // WeldAgent cloud computer (agent-runtime). The internal /api/integrations
+    // router it also verified moved to "connect-api", which needs the SAME
+    // value.
     "INTERNAL_API_SECRET",
-    // WeldHost domains. New purchases use Realtime Register (search/check/
-    // checkout + transfers). CLOUDFLARE_* remains for DNS zones and for
-    // mutations on legacy registrar=cloudflare rows. STRIPE_SECRET_KEY is
-    // checked separately by /checkout — app-api creates the Checkout Session
-    // itself, so billing-worker holding the key is not sufficient.
+    // CLOUDFLARE_API_TOKEN: the @weldsuite/ai token fallback (WeldMail's Email
+    // Routing moved to "mail-api", help center custom domains to "desk-api").
+    // CLOUDFLARE_ACCOUNT_ID: accepted by @weldsuite/ai as the CF_ACCOUNT_ID alias.
+    // STRIPE_SECRET_KEY: /api/billing + workspace settings. (The WeldHost
+    // Realtime Register secrets moved to "host-api".)
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "STRIPE_SECRET_KEY",
+    // WeldSocial (PostPeer) secrets moved to "social-api".
+    // WeldAds FACEBOOK_APP_ID / FACEBOOK_APP_SECRET moved to "ads-api".
+    "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+    // WeldDesk Discord OAuth + outbound REST moved to "desk-api".
+    // The Moneybird first-party connector (WeldConnect) moved to "connect-api".
+  ],
+
+  "audit-log-worker": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+  ],
+
+  // WeldAgent cloud computer (Sandbox + Browser Run). Auth is Bearer
+  // INTERNAL_API_SECRET from app-api — must match the same env's app-api value.
+  "agent-runtime": [
+    "INTERNAL_API_SECRET",
+  ],
+
+  // pass-api: the pass module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "pass-api": [
+    // WeldPass vault root key (moved here from app-api). Wraps every project
+    // KEK — losing it makes every stored secret unrecoverable, so keep a
+    // backup outside Doppler as well. Must be the SAME value app-api had:
+    // existing vaults are wrapped with it.
+    "WELDPASS_ROOT_KEY",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // know-api: the know module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "know-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // host-api: the host module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "host-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldHost domains (moved here from app-api). New purchases use Realtime
+    // Register (search/check/checkout + transfers). CLOUDFLARE_* remains for
+    // DNS zones and for mutations on legacy registrar=cloudflare rows.
+    // STRIPE_SECRET_KEY is checked separately by /checkout — host-api creates
+    // the Checkout Session itself (and the auto-renew invoices), so
+    // billing-worker holding the key is not sufficient.
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
     "REALTIME_REGISTER_API_KEY",
@@ -206,38 +264,343 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_CONTACT_BILLING",
     "REALTIME_REGISTER_WEBHOOK_SECRET",
     "STRIPE_SECRET_KEY",
-    // WeldSocial (PostPeer). The API key must hold the SAME value here as on
-    // external-api and mcp-server below — all three publish through
-    // @weldsuite/social-publishing against one WeldSuite-level PostPeer
-    // account. The webhook secret verifies delivery callbacks, which only land
-    // on this worker. POSTPEER_APP_IDS maps platform → BYOK OAuth app id and is
-    // read on the connect flow, which only this worker exposes.
-    "POSTPEER_API_KEY",
-    "POSTPEER_WEBHOOK_SECRET",
-    "POSTPEER_APP_IDS",
-    "FACEBOOK_APP_ID",
-    "FACEBOOK_APP_SECRET",
-    "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
-    // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies).
-    "DISCORD_CLIENT_ID",
-    "DISCORD_CLIENT_SECRET",
-    "DISCORD_BOT_TOKEN",
-    // Moneybird first-party connector (WeldConnect). Test app redirect:
-    // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
-    "MONEYBIRD_CLIENT_ID",
-    "MONEYBIRD_CLIENT_SECRET",
   ],
 
-  "audit-log-worker": [
+  // social-api: the social module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "social-api": [
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldSocial (PostPeer, moved here from app-api). The API key must hold the
+    // SAME value here as on external-api and mcp-server above — all three
+    // publish through @weldsuite/social-publishing against one WeldSuite-level
+    // PostPeer account. The webhook secret verifies delivery callbacks, which
+    // only land on this worker. POSTPEER_APP_IDS maps platform → BYOK OAuth app
+    // id and is read on the connect flow, which only this worker exposes.
+    "POSTPEER_API_KEY",
+    "POSTPEER_WEBHOOK_SECRET",
+    "POSTPEER_APP_IDS",
   ],
 
-  // WeldAgent cloud computer (Sandbox + Browser Run). Auth is Bearer
-  // INTERNAL_API_SECRET from app-api — must match the same env's app-api value.
-  "agent-runtime": [
+  // ads-api: the ads module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "ads-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldAds Meta OAuth (moved here from app-api): /api/ad-connections
+    // authorize + callback. app-api's integration routes still run the ad
+    // sync (@weldsuite/ads-domain) but never read these.
+    "FACEBOOK_APP_ID",
+    "FACEBOOK_APP_SECRET",
+  ],
+
+  // hr-api: the hr module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "hr-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // stash-api: the stash module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "stash-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // commerce-api: the commerce module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "commerce-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WooCommerce /wc-auth/v1 callback (/webhooks/woocommerce): verifies the
+    // HMAC `user_id` that app-api's POST /api/connectors/authorize signs with
+    // this secret, so it must be the SAME value as app-api's in the same env.
     "INTERNAL_API_SECRET",
+  ],
+
+  // crm-api: the crm module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "crm-api": [
+    // AI token for the ExecuteSequence ai_generate / ai_classify steps:
+    // @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the
+    // one app-api has), so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
+  ],
+
+  // data-api: the data module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "data-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldData (moved here from app-api, where they were set by hand).
+    // LEMLIST_API_KEY is the shared WeldSuite Lemlist key behind the lead
+    // database; FINDYMAIL_API_KEY / PROSPEO_API_KEY back the email-finder
+    // enrichment action of WelddataEnrichWorkflow. Each is optional: unset
+    // leaves that search / provider unavailable.
+    "LEMLIST_API_KEY",
+    "FINDYMAIL_API_KEY",
+    "PROSPEO_API_KEY",
+  ],
+
+  // books-api: the books module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "books-api": [
+    // AI token for accounting document OCR: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
+    // so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // calendar-api: the calendar module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "calendar-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "RESEND_API_KEY",
+    "RESEND_MEETING_INVITE_TEMPLATE_ID",
+    "RESEND_MEETING_UPDATE_TEMPLATE_ID",
+    "RESEND_MEETING_CANCEL_TEMPLATE_ID",
+  ],
+
+  // meet-api: the meet module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "meet-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "ASSEMBLYAI_API_KEY",
+    "CF_REALTIME_APP_ID",
+    "CF_REALTIME_APP_SECRET",
+    "CF_REALTIME_WEBHOOK_TOKEN",
+    "MEETINGBAAS_WEBHOOK_TOKEN",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
+  ],
+
+  // call-api: the call module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "call-api": [
+    // Verifier side of /api/internal/telephony/fulfill-number (billing-worker's
+    // bearer; moved here from app-api's internal router). Must be the SAME value
+    // as billing-worker (and app-api) in the same env.
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "TELNYX_API_KEY",
+    "TELNYX_CONNECTION_ID",
+    "TELNYX_SIP_CONNECTION_ID",
+    "TELNYX_PUBLIC_KEY",
+    "TELNYX_WEBHOOK_SECRET",
+  ],
+
+  // desk-api: the desk module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "desk-api": [
+    // Help center custom domains (DNS records in zones), moved here from app-api.
+    "CLOUDFLARE_API_TOKEN",
+    // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies),
+    // moved here from app-api.
+    "DISCORD_CLIENT_ID",
+    "DISCORD_CLIENT_SECRET",
+    "DISCORD_BOT_TOKEN",
+    // Bearer on the helpdesk-workflows resume forward to helpdesk-workflow-worker.
+    // Must be the SAME value as app-api / helpdesk-workflow-worker in the same env.
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
+    "VERCEL_API_TOKEN",
+    "VERCEL_HELPCENTER_PROJECT_ID",
+    "VERCEL_TEAM_ID",
+  ],
+
+  // mail-api: the mail module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "mail-api": [
+    // Mail domain provisioning through Cloudflare Email Routing
+    // (@weldsuite/worker-email; moved here from app-api), and the AI token
+    // /api/mail-ai runs on: @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else
+    // CLOUDFLARE_API_TOKEN (the one app-api has), so carry the same token.
+    "CLOUDFLARE_API_TOKEN",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // flow-api: the flow module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "flow-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "R2_SQL_API_TOKEN",
+    "R2_ANALYTICS_BUCKET",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
+  ],
+
+  // chat-api: the chat module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "chat-api": [
+    // An @-mention of a WeldAgent in a channel runs the agent runtime inline
+    // when the WELDAGENT_JOB binding is absent (local dev): the AI token
+    // (@weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN — the
+    // one app-api has) and the agent-runtime bearer (computer/browser tools).
+    // Same values as app-api / agent-api.
+    "CLOUDFLARE_API_TOKEN",
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "CF_REALTIME_APP_ID",
+    "CF_REALTIME_APP_SECRET",
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
+  ],
+
+  // agent-api: the agent module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "agent-api": [
+    // The AI token /api/ai and the WeldAgent runtime run on: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has), so
+    // carry the same token. INTERNAL_API_SECRET is the bearer the
+    // computer/browser tools send to the agent-runtime worker (must match it).
+    "CLOUDFLARE_API_TOKEN",
+    "INTERNAL_API_SECRET",
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "RESEND_API_KEY",
+    "RESEND_TEMPLATE_TASK_ASSIGNED",
+  ],
+
+  // connect-api: the connect module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "connect-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // GitHub App secrets for the install flow + callback + Projects API
+    // (moved here from app-api).
+    "GITHUB_APP_ID",
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_PRIVATE_KEY",
+    // Verifier side of the X-Internal-Secret handshake (routes/integrations/
+    // internal.ts fails closed (401) when this is unset) and of the
+    // /api/internal/workflow-actions bearer; also the WooCommerce connect HMAC
+    // key. integration-sync-worker, integration-webhook-worker, workflow-worker,
+    // app-api and commerce-api need the SAME value in the same env.
+    "INTERNAL_API_SECRET",
+    // Moneybird first-party connector (moved here from app-api). Test app
+    // redirect: `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
+    "MONEYBIRD_CLIENT_ID",
+    "MONEYBIRD_CLIENT_SECRET",
+    // AI token for /api/workflows/generate: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
+    // so carry the same token app-api runs on.
+    "CLOUDFLARE_API_TOKEN",
+    // Set by hand on app-api before the split (never in this manifest); moved
+    // with the module. `secrets:sync` warns when Doppler does not have one yet.
+    "ATTIO_CLIENT_ID",
+    "ATTIO_CLIENT_SECRET",
+    "HUBSPOT_CLIENT_ID",
+    "HUBSPOT_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
   ],
 };
 

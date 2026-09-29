@@ -5,10 +5,14 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
 import { ProfileSection, type ProfileData } from '@/components/settings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Label } from '@weldsuite/ui/components/label';
+import { Switch } from '@weldsuite/ui/components/switch';
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';
 import {
   useWorkingHours,
   useUpdateWorkingHours,
+  useUserPreferences,
+  useUpdateUserPreferences,
   type WorkingHours,
 } from '@/hooks/queries/use-settings-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -226,9 +230,56 @@ function WorkingHoursCard() {
               onChange={handleChange}
               disabled={!canEditSelf}
             />
+            <AutoRescheduleTasksToggle />
           </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Opt-out for the nightly calendar replan (app-api `cron/calendar-replan.ts`),
+ * which moves unfinished auto-scheduled tasks to the next free slot. Stored in
+ * `uiPreferences.autoRescheduleTasks`; absent means on.
+ */
+function AutoRescheduleTasksToggle() {
+  const t = useTranslations();
+  const { data: preferences } = useUserPreferences();
+  const updatePreferences = useUpdateUserPreferences();
+
+  const [enabled, setEnabled] = React.useState(true);
+
+  React.useEffect(() => {
+    if (preferences) setEnabled(preferences.uiPreferences?.autoRescheduleTasks !== false);
+  }, [preferences]);
+
+  const handleChange = async (next: boolean) => {
+    setEnabled(next);
+    try {
+      await updatePreferences.mutateAsync({ uiPreferences: { autoRescheduleTasks: next } });
+    } catch {
+      setEnabled(!next);
+      toast.error(t('sweep.settings.workingHours.autoRescheduleFailed'));
+    }
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-4 mt-6">
+      <div className="space-y-1">
+        <Label htmlFor="auto-reschedule-tasks">
+          {t('sweep.settings.workingHours.autoRescheduleLabel')}
+        </Label>
+        <p className="text-sm text-muted-foreground">
+          {t('sweep.settings.workingHours.autoRescheduleDescription')}
+        </p>
+      </div>
+      <Switch
+        id="auto-reschedule-tasks"
+        checked={enabled}
+        onCheckedChange={handleChange}
+        disabled={!preferences || updatePreferences.isPending}
+      />
+    </div>
   );
 }

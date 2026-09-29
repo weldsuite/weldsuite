@@ -1,0 +1,115 @@
+# WeldSuite ads-api worker — the ads module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   ads-api.weldsuite.org        production
+#   ads-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "ads-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY (also encrypts
+#   the Meta OAuth tokens), CLERK_SECRET_KEY, CLERK_JWT_KEY,
+#   FACEBOOK_APP_ID / FACEBOOK_APP_SECRET (Meta OAuth for /api/ad-connections)
+#
+# Secrets (not in the manifest yet):
+#   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation),
+#   PUBLIC_APP_URL (optional; base of the Meta OAuth redirect
+#     {PUBLIC_APP_URL}/weldads/connect/callback, defaults to
+#     https://app.weldsuite.org — app-api has no [vars] value for it either)
+
+name = "weldsuite-ads-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-ads-api-test"
+routes = [
+  { pattern = "ads-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-ads-api"
+routes = [
+  { pattern = "ads-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

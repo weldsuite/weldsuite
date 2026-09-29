@@ -6,6 +6,8 @@ import {
   EMAIL_CANVAS_BG,
   EMAIL_CANVAS_TEXT,
   EMAIL_LAYOUT_PROBE,
+  INLINE_BASE_URL,
+  isInlineDocumentLoad,
   type EmailDocumentOptions,
 } from '@/utils/email-html';
 
@@ -28,9 +30,9 @@ interface EmailHtmlViewProps extends EmailDocumentOptions {
  * `source={{ html }}`. A tighter list (`about:*` / `data:*` only) leaves a
  * blank white/black pane because the engine's real bootstrap URL is often
  * `applewebdata://…` (iOS) or `file://…` (Android). Navigation safety is
- * enforced in `onShouldStartLoadWithRequest` instead: http(s) opens in the
- * system browser; javascript:/vbscript: are blocked; only the inline document
- * may render in-frame.
+ * enforced in `onShouldStartLoadWithRequest` instead: http(s), mailto: and
+ * tel: open in the OS; javascript:/vbscript:/data: links are blocked; only the
+ * inline document may render in-frame (see isInlineDocumentLoad).
  *
  * SECURITY MODEL — email bodies are fully attacker-controlled. Guarantees:
  *  - CSP (`default-src 'none'`, no script-src) around the body;
@@ -57,6 +59,9 @@ export default function EmailHtmlView({
   // content-size callback (which can lag or clamp on iOS).
   const hasProbeHeight = useRef(false);
   const webRef = useRef<WebView>(null);
+  // The inline document's own bootstrap may use data:/file:/applewebdata:
+  // URLs; once it has loaded, those schemes only come from links in the mail.
+  const initialLoadDone = useRef(false);
   const documentHtml = buildEmailDocument(html, {
     textColor,
     backgroundColor,
@@ -69,6 +74,7 @@ export default function EmailHtmlView({
   // from a bad early measurement sticks across opens.
   useEffect(() => {
     hasProbeHeight.current = false;
+    initialLoadDone.current = false;
     setHeight(initialHeight);
   }, [html, initialHeight]);
 
@@ -99,7 +105,7 @@ export default function EmailHtmlView({
         // Docs: html sources require originWhitelist=['*']. Navigation is still
         // gated below — this only lets the engine bootstrap the inline doc.
         originWhitelist={['*']}
-        source={{ html: documentHtml, baseUrl: 'https://email.local/' }}
+        source={{ html: documentHtml, baseUrl: INLINE_BASE_URL }}
         style={[style, { height, width: '100%', alignSelf: 'stretch', backgroundColor }]}
         javaScriptEnabled
         injectedJavaScript={EMAIL_LAYOUT_PROBE}
@@ -108,28 +114,29 @@ export default function EmailHtmlView({
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
         // iOS may kill the content process under memory pressure → blank pane.
-        onContentProcessDidTerminate={() => webRef.current?.reload()}
+        onContentProcessDidTerminate={() => {
+          // The reload re-runs the document bootstrap, which must be allowed.
+          initialLoadDone.current = false;
+          webRef.current?.reload();
+        }}
         onShouldStartLoadWithRequest={(req) => {
           const url = req.url || '';
-          // Bootstrap of the inline document (platform-specific schemes).
-          if (
-            !url ||
-            url === 'about:blank' ||
-            url.startsWith('about:') ||
-            url.startsWith('data:') ||
-            url.startsWith('applewebdata:') ||
-            url.startsWith('file:') ||
-            url.startsWith('https://email.local')
-          ) {
-            return true;
-          }
+          if (isInlineDocumentLoad(url, initialLoadDone.current)) return true;
           // Real web links → system browser; never navigate in-frame.
           if (/^https?:\/\//i.test(url)) {
             Linking.openURL(url).catch(() => {});
             return false;
           }
-          // javascript:, vbscript:, custom schemes, etc.
+          // Mail and phone links hand off to the OS (mail app / dialer).
+          if (/^(mailto|tel):/i.test(url)) {
+            Linking.openURL(url).catch(() => {});
+            return false;
+          }
+          // javascript:, vbscript:, data:, custom schemes, etc.
           return false;
+        }}
+        onLoadEnd={() => {
+          initialLoadDone.current = true;
         }}
         onContentSizeChange={(e) => {
           if (hasProbeHeight.current) return;

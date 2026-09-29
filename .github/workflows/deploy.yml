@@ -82,6 +82,7 @@ jobs:
       release_weldagent: ${{ steps.changes.outputs.weldagent }}
       release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
       workers: ${{ steps.matrix.outputs.workers }}
+      module_workers: ${{ steps.modules.outputs.module_workers }}
     steps:
       - name: Resolve deploy context
         id: ctx
@@ -146,6 +147,7 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
             weldmail-web:
               - 'apps/web/weldmail/**'
@@ -164,23 +166,27 @@ jobs:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/realtime/**'
             weldbooks:
               - 'apps/mobile/weldbooks-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
             weldflow:
               - 'apps/mobile/weldflow-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             weldagent:
               - 'apps/mobile/weldagent-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             weldcalendar:
@@ -188,6 +194,7 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
             all_workers:
@@ -203,6 +210,8 @@ jobs:
               - 'packages/clients/api-client/**'
             app-api:
               - 'apps/workers/app-api/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/api-modules/**'
               - 'packages/core/ai/**'
               - 'packages/core/cloudflare-realtime/**'
               - 'packages/core/cloudflare-registrar/**'
@@ -466,6 +475,23 @@ jobs:
           echo "workers=$json" >> "$GITHUB_OUTPUT"
           echo "Deploying workers: $json"
 
+      # Per-module API workers (apps/workers/<module>-api) come from the
+      # @weldsuite/api-modules manifest instead of the hand-written lists above,
+      # so a new module worker deploys without editing this file. They deploy in
+      # their own job BEFORE the other workers (module-workers below).
+      - name: Set up Node (module worker detection)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Add module API workers
+        id: modules
+        env:
+          FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changes.outputs.all_workers }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: node .github/scripts/module-workers.mjs
+
   migrations:
     name: Database Migrations
     needs: prepare
@@ -504,7 +530,9 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
        needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-       needs.prepare.outputs.workers != '[]')
+       needs.prepare.outputs.workers != '[]' ||
+       (needs.prepare.outputs.module_workers != '[]' &&
+        needs.prepare.outputs.module_workers != ''))
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -515,7 +543,9 @@ jobs:
           needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
           contains(needs.prepare.outputs.workers, 'integration-sync-worker') ||
           contains(needs.prepare.outputs.workers, 'integration-webhook-worker') ||
-          contains(needs.prepare.outputs.workers, 'app-api')
+          contains(needs.prepare.outputs.workers, 'app-api') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api') ||
+          contains(needs.prepare.outputs.module_workers, 'commerce-api')
         working-directory: apps/workers/integration-sync-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -529,7 +559,8 @@ jobs:
       - name: Apply schedule index migrations
         if: >-
           needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
-          contains(needs.prepare.outputs.workers, 'workflow-worker')
+          contains(needs.prepare.outputs.workers, 'workflow-worker') ||
+          contains(needs.prepare.outputs.module_workers, 'connect-api')
         working-directory: apps/workers/workflow-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -541,9 +572,46 @@ jobs:
           source ../../../.github/scripts/d1-migrate-retry.sh
           d1_migrate_with_retry "SCHEDULE_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
 
-  workers:
+  # Per-module API workers deploy first: app-api forwards their paths to them
+  # over service bindings (API_FORWARD_MODULES), so a PR that adds a module
+  # worker and switches app-api to forward to it must land the worker first.
+  # A failed module deploy stops the workers job below (needs + !failure()).
+  module-workers:
     name: Deploy ${{ matrix.worker }}
     needs: [prepare, migrations, d1-migrations]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      needs.prepare.outputs.module_workers != '[]' &&
+      needs.prepare.outputs.module_workers != ''
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJson(needs.prepare.outputs.module_workers) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      # A queue has exactly one consumer and app-api deploys AFTER this job: release
+      # any queue this worker takes over from the still-deployed app-api first
+      # (otherwise: "Queue … already has a consumer [code: 11004]").
+      - name: Release queues taken over from app-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node .github/scripts/release-queue-consumers.mjs "${{ matrix.worker }}" "${{ needs.prepare.outputs.cf_env }}"
+      - name: Deploy ${{ matrix.worker }}
+        working-directory: apps/workers/${{ matrix.worker }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TARGET="${{ needs.prepare.outputs.cf_env }}"
+          echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
+          pnpm "deploy:${TARGET}"
+  workers:
+    name: Deploy ${{ matrix.worker }}
+    needs: [prepare, migrations, d1-migrations, module-workers]
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
@@ -790,10 +858,11 @@ jobs:
 
   frontend:
     name: Deploy platform (${{ needs.prepare.outputs.cf_env }} Pages)
-    needs: [prepare, workers]
+    needs: [prepare, workers, module-workers]
     if: >-
       always() && !failure() && !cancelled() &&
-      (needs.workers.result == 'success' || needs.workers.result == 'skipped')
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      (needs['module-workers'].result == 'success' || needs['module-workers'].result == 'skipped')
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -805,6 +874,10 @@ jobs:
           VITE_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           VITE_CORE_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           VITE_REALTIME_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
+          # Modules the SPA calls directly on <module>-api(-test).weldsuite.org
+          # (docs/plans/app-api-module-split.md); everything else goes through
+          # app-api's forwarder.
+          VITE_API_MODULES: commerce
           VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           VITE_BOOKING_PORTAL_URL: ${{ secrets.VITE_BOOKING_PORTAL_URL }}

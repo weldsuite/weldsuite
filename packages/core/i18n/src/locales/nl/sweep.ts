@@ -2294,7 +2294,10 @@ export const sweep = {
       "updateFailed": "Werktijden bijwerken mislukt",
       "title": "Werktijden",
       "description": "Stel uw beschikbaarheid in voor automatische taakplanning. Taken worden ingepland in vrije tijdvakken binnen deze uren.",
-      "locked": "Uw werktijden zijn vergrendeld. Neem contact op met uw werkruimtebeheerder om wijzigingen aan te brengen."
+      "locked": "Uw werktijden zijn vergrendeld. Neem contact op met uw werkruimtebeheerder om wijzigingen aan te brengen.",
+      "autoRescheduleLabel": "Onafgeronde taken automatisch doorschuiven",
+      "autoRescheduleDescription": "Als een automatisch ingeplande taak niet op de geplande dag is afgerond, wordt deze 's nachts naar het volgende vrije tijdvak verplaatst. Zet dit uit om de taak te laten staan.",
+      "autoRescheduleFailed": "Instelling voor taakplanning bijwerken mislukt"
     },
     "portingWizard": {
       "countries": {
