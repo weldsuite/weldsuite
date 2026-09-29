@@ -46,14 +46,22 @@ export interface Env extends KitEnv {
 
   // --- WeldAgent cloud computer (agent-runtime worker) ----------------------
   /**
+   * agent-runtime `AgentRuntimeInternal` entrypoint (service binding). Preferred
+   * path for computer/browser calls (no secret); the URL + bearer below is the
+   * fallback while the binding is unbound or the entrypoint is not deployed.
+   */
+  AGENT_RUNTIME?: Fetcher;
+  /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
-   * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
+   * Fallback path only. Example: http://localhost:8795 or
+   * https://agent-runtime-test.weldsuite.org
    */
   AGENT_RUNTIME_URL?: string;
-  /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
+  /** When "false", computer/browser tools refuse calls. Default enabled if a binding or URL is set. */
   AGENT_COMPUTER_ENABLED?: string;
-  /** Shared secret the agent-runtime worker checks on computer/browser calls
-   *  (must match agent-runtime's INTERNAL_API_SECRET). */
+  /** Fallback path only: shared secret the agent-runtime worker checks on the
+   *  public computer/browser HTTP calls (must match agent-runtime's
+   *  INTERNAL_API_SECRET). */
   INTERNAL_API_SECRET?: string;
 
   // --- Notifications (`@weldsuite/notifications`) ------------------------
