@@ -71,6 +71,195 @@ function getNotePreview(content: string): string {
   return stripHtml(preview).trim();
 }
 
+const DIALOG_SHADOW = '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)';
+
+// Minimized and pinned dialogs dock to the bottom-right corner
+function getDialogPositionClass(isMinimized: boolean, isPinned: boolean): string {
+  if (isMinimized || isPinned) {
+    return "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0";
+  }
+  return "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]";
+}
+
+function getDialogStyle(isMinimized: boolean, isPinned: boolean): React.CSSProperties {
+  if (isMinimized) {
+    return { width: '320px', height: '56px', boxShadow: DIALOG_SHADOW };
+  }
+  if (isPinned) {
+    return { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: DIALOG_SHADOW };
+  }
+  return { width: '860px', maxWidth: '90vw', height: '882px', maxHeight: '90vh', boxShadow: DIALOG_SHADOW };
+}
+
+interface ActiveFormats {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  unorderedList: boolean;
+  orderedList: boolean;
+}
+
+function readActiveFormats(): ActiveFormats {
+  return {
+    bold: document.queryCommandState('bold'),
+    italic: document.queryCommandState('italic'),
+    underline: document.queryCommandState('underline'),
+    unorderedList: document.queryCommandState('insertUnorderedList'),
+    orderedList: document.queryCommandState('insertOrderedList'),
+  };
+}
+
+interface FormatButtonProps {
+  active?: boolean;
+  title: string;
+  onMouseDown: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+}
+
+function FormatButton({ active, title, onMouseDown, children }: FormatButtonProps) {
+  return (
+    <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", active && "bg-muted")} onMouseDown={onMouseDown} title={title}>
+      {children}
+    </Button>
+  );
+}
+
+interface FormatToolbarProps {
+  className: string;
+  activeFormats: ActiveFormats;
+  onBold: (e: React.MouseEvent) => void;
+  onItalic: (e: React.MouseEvent) => void;
+  onUnderline: (e: React.MouseEvent) => void;
+  onUnorderedList: (e: React.MouseEvent) => void;
+  onOrderedList: (e: React.MouseEvent) => void;
+  onLink: (e: React.MouseEvent) => void;
+}
+
+function FormatToolbar({
+  className,
+  activeFormats,
+  onBold,
+  onItalic,
+  onUnderline,
+  onUnorderedList,
+  onOrderedList,
+  onLink,
+}: FormatToolbarProps) {
+  const t = useTranslations();
+  return (
+    <div className={className}>
+      <FormatButton active={activeFormats.bold} onMouseDown={onBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
+        <Bold className="h-3.5 w-3.5" />
+      </FormatButton>
+      <FormatButton active={activeFormats.italic} onMouseDown={onItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
+        <Italic className="h-3.5 w-3.5" />
+      </FormatButton>
+      <FormatButton active={activeFormats.underline} onMouseDown={onUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
+        <Underline className="h-3.5 w-3.5" />
+      </FormatButton>
+      <div className="w-px h-4 bg-border mx-1" />
+      <FormatButton active={activeFormats.unorderedList} onMouseDown={onUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
+        <ListIcon className="h-3.5 w-3.5" />
+      </FormatButton>
+      <FormatButton active={activeFormats.orderedList} onMouseDown={onOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
+        <ListOrdered className="h-3.5 w-3.5" />
+      </FormatButton>
+      <div className="w-px h-4 bg-border mx-1" />
+      <FormatButton onMouseDown={onLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
+        <LinkIcon className="h-3.5 w-3.5" />
+      </FormatButton>
+    </div>
+  );
+}
+
+interface MinimizedNoteBarProps {
+  customerName?: string;
+  title: string;
+  isSaving: boolean;
+}
+
+function MinimizedNoteBar({ customerName, title, isSaving }: MinimizedNoteBarProps) {
+  const t = useTranslations();
+  return (
+    <div className="flex items-center h-full px-4">
+      <DialogTitle className="sr-only">{t('sweep.weldcrm.noteEditorDialog.editNote')}</DialogTitle>
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        {customerName && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
+              {getCompanyIcon(customerName)}
+            </div>
+          </div>
+        )}
+        <span className="text-sm font-medium truncate">{title || t('sweep.weldcrm.globalPinnedNote.untitled')}</span>
+        {isSaving && <span className="text-xs text-muted-foreground">{t('sweep.weldcrm.globalPinnedNote.saving')}</span>}
+      </div>
+    </div>
+  );
+}
+
+function NoteDialogHeader({ customerName }: { customerName?: string }) {
+  const t = useTranslations();
+  return (
+    <DialogHeader className="p-4 pr-32 border-b flex-row items-center justify-between space-y-0 min-h-[44px]">
+      <div className="flex items-center gap-2">
+        <DialogTitle className="sr-only">{t('sweep.weldcrm.noteEditorDialog.editNote')}</DialogTitle>
+        {customerName && (
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-muted rounded-md">
+            <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
+              {getCompanyIcon(customerName)}
+            </div>
+            <span className="text-xs font-medium">{customerName}</span>
+          </div>
+        )}
+      </div>
+    </DialogHeader>
+  );
+}
+
+interface NoteWindowControlsProps {
+  isMinimized: boolean;
+  isPinned: boolean;
+  onToggleMinimize: () => void;
+  onPinClick: () => void;
+  onClose: () => void;
+}
+
+function NoteWindowControls({ isMinimized, isPinned, onToggleMinimize, onPinClick, onClose }: NoteWindowControlsProps) {
+  const t = useTranslations();
+  return (
+    <div className="absolute top-3 right-3 flex items-center gap-1">
+      <Button
+        variant="ghost"
+        onClick={onToggleMinimize}
+        className="rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
+        title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.minimize')}
+      >
+        {isMinimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onPinClick}
+        className={cn(
+          "rounded-md p-2 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary",
+          isPinned ? "text-blue-500" : "text-gray-500"
+        )}
+        title={t('sweep.weldcrm.noteEditorDialog.pinToScreen')}
+      >
+        <PinIcon className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onClose}
+        className="rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
+        title={t('sweep.weldcrm.globalPinnedNote.close')}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
 interface NoteEditorDialogProps {
   note: Note | null;
   open: boolean;
@@ -98,7 +287,7 @@ export function NoteEditorDialog({
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
-  const [activeFormats, setActiveFormats] = useState({
+  const [activeFormats, setActiveFormats] = useState<ActiveFormats>({
     bold: false,
     italic: false,
     underline: false,
@@ -122,13 +311,7 @@ export function NoteEditorDialog({
   // Check active formatting on selection change
   useEffect(() => {
     const checkFormats = () => {
-      setActiveFormats({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-        unorderedList: document.queryCommandState('insertUnorderedList'),
-        orderedList: document.queryCommandState('insertOrderedList'),
-      });
+      setActiveFormats(readActiveFormats());
     };
 
     document.addEventListener('selectionchange', checkFormats);
@@ -251,13 +434,7 @@ export function NoteEditorDialog({
   // Toolbar formatting functions
   const execFormat = useCallback((command: string, value?: string) => {
     document.execCommand(command, false, value);
-    setActiveFormats({
-      bold: document.queryCommandState('bold'),
-      italic: document.queryCommandState('italic'),
-      underline: document.queryCommandState('underline'),
-      unorderedList: document.queryCommandState('insertUnorderedList'),
-      orderedList: document.queryCommandState('insertOrderedList'),
-    });
+    setActiveFormats(readActiveFormats());
     triggerAutoSave();
   }, [triggerAutoSave]);
 
@@ -308,6 +485,34 @@ export function NoteEditorDialog({
     onOpenChange(newOpen);
   };
 
+  const handlePinButtonClick = () => {
+    if (isMinimized) {
+      setIsMinimized(false);
+      handlePinToGlobal();
+      return;
+    }
+    if (isPinned) {
+      setIsPinned(false);
+      return;
+    }
+    handlePinToGlobal();
+  };
+
+  const handleCloseButtonClick = () => {
+    setIsPinned(false);
+    handleOpenChange(false);
+  };
+
+  const toolbarProps = {
+    activeFormats,
+    onBold: handleBold,
+    onItalic: handleItalic,
+    onUnderline: handleUnderline,
+    onUnorderedList: handleUnorderedList,
+    onOrderedList: handleOrderedList,
+    onLink: handleLink,
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPortal>
@@ -316,74 +521,17 @@ export function NoteEditorDialog({
           onInteractOutside={(e) => isPinned && e.preventDefault()}
           className={cn(
             "bg-background fixed z-50 rounded-lg p-0 flex flex-col gap-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 transition-all duration-200",
-            isMinimized
-              ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-              : isPinned
-                ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-                : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]"
+            getDialogPositionClass(isMinimized, isPinned)
           )}
-          style={isMinimized
-            ? { width: '320px', height: '56px', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-            : isPinned
-              ? { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-              : { width: '860px', maxWidth: '90vw', height: '882px', maxHeight: '90vh', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-          }
+          style={getDialogStyle(isMinimized, isPinned)}
         >
         {isMinimized ? (
-          <div className="flex items-center h-full px-4">
-            <DialogTitle className="sr-only">{t('sweep.weldcrm.noteEditorDialog.editNote')}</DialogTitle>
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              {note?.customerName && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
-                    {getCompanyIcon(note.customerName)}
-                  </div>
-                </div>
-              )}
-              <span className="text-sm font-medium truncate">{title || t('sweep.weldcrm.globalPinnedNote.untitled')}</span>
-              {isSaving && <span className="text-xs text-muted-foreground">{t('sweep.weldcrm.globalPinnedNote.saving')}</span>}
-            </div>
-          </div>
+          <MinimizedNoteBar customerName={note?.customerName} title={title} isSaving={isSaving} />
         ) : (
           <>
-            <DialogHeader className="p-4 pr-32 border-b flex-row items-center justify-between space-y-0 min-h-[44px]">
-              <div className="flex items-center gap-2">
-                <DialogTitle className="sr-only">{t('sweep.weldcrm.noteEditorDialog.editNote')}</DialogTitle>
-                {note?.customerName && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-muted rounded-md">
-                    <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
-                      {getCompanyIcon(note.customerName)}
-                    </div>
-                    <span className="text-xs font-medium">{note.customerName}</span>
-                  </div>
-                )}
-              </div>
-            </DialogHeader>
+            <NoteDialogHeader customerName={note?.customerName} />
 
-            {!isPinned && (
-              <div className="px-4 py-2 border-b flex items-center gap-1">
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={handleBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-                  <Bold className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={handleItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-                  <Italic className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={handleUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-                  <Underline className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={handleUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-                  <ListIcon className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={handleOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-                  <ListOrdered className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={handleLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-                  <LinkIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            )}
+            {!isPinned && <FormatToolbar className="px-4 py-2 border-b flex items-center gap-1" {...toolbarProps} />}
 
             <div className="flex-1 overflow-auto p-6">
               <div
@@ -405,74 +553,17 @@ export function NoteEditorDialog({
               />
             </div>
 
-            {isPinned && (
-              <div className="px-4 py-2 border-t flex items-center gap-1">
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={handleBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-                  <Bold className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={handleItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-                  <Italic className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={handleUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-                  <Underline className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={handleUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-                  <ListIcon className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={handleOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-                  <ListOrdered className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={handleLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-                  <LinkIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            )}
+            {isPinned && <FormatToolbar className="px-4 py-2 border-t flex items-center gap-1" {...toolbarProps} />}
           </>
         )}
 
-        <div className="absolute top-3 right-3 flex items-center gap-1">
-          <Button
-            variant="ghost"
-            onClick={() => setIsMinimized(!isMinimized)}
-            className="rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-            title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.minimize')}
-          >
-            {isMinimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (isMinimized) {
-                setIsMinimized(false);
-                handlePinToGlobal();
-              } else if (isPinned) {
-                setIsPinned(false);
-              } else {
-                handlePinToGlobal();
-              }
-            }}
-            className={cn(
-              "rounded-md p-2 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary",
-              isPinned ? "text-blue-500" : "text-gray-500"
-            )}
-            title={t('sweep.weldcrm.noteEditorDialog.pinToScreen')}
-          >
-            <PinIcon className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setIsPinned(false);
-              handleOpenChange(false);
-            }}
-            className="rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-            title={t('sweep.weldcrm.globalPinnedNote.close')}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+        <NoteWindowControls
+          isMinimized={isMinimized}
+          isPinned={isPinned}
+          onToggleMinimize={() => setIsMinimized(!isMinimized)}
+          onPinClick={handlePinButtonClick}
+          onClose={handleCloseButtonClick}
+        />
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
