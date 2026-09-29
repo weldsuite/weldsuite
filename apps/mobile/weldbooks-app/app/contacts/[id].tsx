@@ -28,13 +28,148 @@ import { InvoiceStatusBadge, BillStatusBadge } from '@/components/status-badge';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Bill, Contact, ContactBalance, Invoice } from '@/types/accounting';
 
+function BalanceCard({
+  balance,
+  currency,
+}: Readonly<{ balance: ContactBalance | null; currency: string }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
+  if (!balance) return null;
+  return (
+    <SectionCard title={t.contactDetail.balance}>
+      <DetailRow
+        label={t.contactDetail.receivable}
+        value={formatCurrency(balance.receivable, currency)}
+        valueColor={balance.receivable > 0 ? colors.warning : undefined}
+        strong
+      />
+      <DetailRow
+        label={t.contactDetail.payable}
+        value={formatCurrency(balance.payable, currency)}
+        valueColor={balance.payable > 0 ? colors.warning : undefined}
+        strong
+      />
+    </SectionCard>
+  );
+}
+
+function ContactInfoCard({ contact }: Readonly<{ contact: Contact }>) {
+  const { t } = useI18n();
+  // The card only appears when a primary field is present (a city alone doesn't qualify).
+  if (!contact.email && !contact.phone && !contact.vatNumber) return null;
+  const fields: { label: string; value: string | undefined }[] = [
+    { label: t.contactDetail.email, value: contact.email },
+    { label: t.contactDetail.phone, value: contact.phone },
+    { label: t.contactDetail.vatNumber, value: contact.vatNumber },
+    { label: t.contactDetail.city, value: contact.city },
+  ];
+  return (
+    <SectionCard title={t.contactDetail.details}>
+      {fields.map((field) =>
+        field.value ? <DetailRow key={field.label} label={field.label} value={field.value} /> : null,
+      )}
+    </SectionCard>
+  );
+}
+
+function RelatedInvoices({
+  invoices,
+  currency,
+  onOpen,
+}: Readonly<{ invoices: Invoice[]; currency: string; onOpen: (route: string) => void }>) {
+  const { t } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
+  if (!invoices.length) return null;
+  return (
+    <SectionCard title={t.contactDetail.invoices} padded={false}>
+      <View style={styles.related}>
+        {invoices.slice(0, 5).map((invoice) => (
+          <RecordRow
+            key={invoice.id}
+            leading={<IconTile icon={FileText} color={ACCENTS.vat} size={32} />}
+            title={invoice.invoiceNumber || t.common.draft}
+            subtitle={formatShortDate(invoice.issueDate)}
+            amount={formatCurrency(invoice.total, invoice.currency || currency)}
+            badge={
+              <InvoiceStatusBadge
+                status={invoice.status}
+                dueDate={invoice.dueDate}
+                balanceDue={invoice.balanceDue}
+              />
+            }
+            onPress={() => onOpen(`/invoice/${invoice.id}`)}
+          />
+        ))}
+      </View>
+    </SectionCard>
+  );
+}
+
+function RelatedBills({
+  bills,
+  currency,
+  onOpen,
+}: Readonly<{ bills: Bill[]; currency: string; onOpen: (route: string) => void }>) {
+  const { t } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
+  if (!bills.length) return null;
+  return (
+    <SectionCard title={t.contactDetail.bills} padded={false}>
+      <View style={styles.related}>
+        {bills.slice(0, 5).map((bill) => (
+          <RecordRow
+            key={bill.id}
+            leading={<IconTile icon={Receipt} color={ACCENTS.profitLoss} size={32} />}
+            title={bill.billNumber || t.common.draft}
+            subtitle={formatShortDate(bill.issueDate)}
+            amount={formatCurrency(bill.total, bill.currency || currency)}
+            badge={
+              <BillStatusBadge
+                status={bill.status}
+                dueDate={bill.dueDate}
+                balanceDue={bill.balanceDue}
+              />
+            }
+            onPress={() => onOpen(`/bill/${bill.id}`)}
+          />
+        ))}
+      </View>
+    </SectionCard>
+  );
+}
+
+/** Deletes a contact, then leaves the screen. Errors surface as a toast. */
+function useDeleteContact() {
+  const router = useRouter();
+  const toast = useToast();
+  const { t } = useI18n();
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteContact = useCallback(
+    async (contactId: string) => {
+      setDeleting(true);
+      try {
+        await api.deleteContact(contactId);
+        toast.success(t.contactDetail.deleted);
+        router.back();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t.contactDetail.deleteFailed);
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [router, toast, t],
+  );
+
+  return { deleting, deleteContact };
+}
+
 export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
-  const toast = useToast();
   const { t } = useI18n();
-  const { formatCurrency, formatShortDate } = useLocaleFormatters();
 
   const ROLE_LABELS: Record<string, string> = {
     customer: t.contacts.customer,
@@ -50,7 +185,7 @@ export default function ContactDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const { deleting, deleteContact } = useDeleteContact();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -162,87 +297,10 @@ export default function ContactDetailScreen() {
           </View>
         </SectionCard>
 
-        {balance ? (
-          <SectionCard title={t.contactDetail.balance}>
-            <DetailRow
-              label={t.contactDetail.receivable}
-              value={formatCurrency(balance.receivable, currency)}
-              valueColor={balance.receivable > 0 ? colors.warning : undefined}
-              strong
-            />
-            <DetailRow
-              label={t.contactDetail.payable}
-              value={formatCurrency(balance.payable, currency)}
-              valueColor={balance.payable > 0 ? colors.warning : undefined}
-              strong
-            />
-          </SectionCard>
-        ) : null}
-
-        {contact.email || contact.phone || contact.vatNumber ? (
-          <SectionCard title={t.contactDetail.details}>
-            {contact.email ? (
-              <DetailRow label={t.contactDetail.email} value={contact.email} />
-            ) : null}
-            {contact.phone ? (
-              <DetailRow label={t.contactDetail.phone} value={contact.phone} />
-            ) : null}
-            {contact.vatNumber ? (
-              <DetailRow label={t.contactDetail.vatNumber} value={contact.vatNumber} />
-            ) : null}
-            {contact.city ? (
-              <DetailRow label={t.contactDetail.city} value={contact.city} />
-            ) : null}
-          </SectionCard>
-        ) : null}
-
-        {invoices.length ? (
-          <SectionCard title={t.contactDetail.invoices} padded={false}>
-            <View style={styles.related}>
-              {invoices.slice(0, 5).map((invoice) => (
-                <RecordRow
-                  key={invoice.id}
-                  leading={<IconTile icon={FileText} color={ACCENTS.vat} size={32} />}
-                  title={invoice.invoiceNumber || t.common.draft}
-                  subtitle={formatShortDate(invoice.issueDate)}
-                  amount={formatCurrency(invoice.total, invoice.currency || currency)}
-                  badge={
-                    <InvoiceStatusBadge
-                      status={invoice.status}
-                      dueDate={invoice.dueDate}
-                      balanceDue={invoice.balanceDue}
-                    />
-                  }
-                  onPress={() => open(`/invoice/${invoice.id}`)}
-                />
-              ))}
-            </View>
-          </SectionCard>
-        ) : null}
-
-        {bills.length ? (
-          <SectionCard title={t.contactDetail.bills} padded={false}>
-            <View style={styles.related}>
-              {bills.slice(0, 5).map((bill) => (
-                <RecordRow
-                  key={bill.id}
-                  leading={<IconTile icon={Receipt} color={ACCENTS.profitLoss} size={32} />}
-                  title={bill.billNumber || t.common.draft}
-                  subtitle={formatShortDate(bill.issueDate)}
-                  amount={formatCurrency(bill.total, bill.currency || currency)}
-                  badge={
-                    <BillStatusBadge
-                      status={bill.status}
-                      dueDate={bill.dueDate}
-                      balanceDue={bill.balanceDue}
-                    />
-                  }
-                  onPress={() => open(`/bill/${bill.id}`)}
-                />
-              ))}
-            </View>
-          </SectionCard>
-        ) : null}
+        <BalanceCard balance={balance} currency={currency} />
+        <ContactInfoCard contact={contact} />
+        <RelatedInvoices invoices={invoices} currency={currency} onOpen={open} />
+        <RelatedBills bills={bills} currency={currency} onOpen={open} />
       </ScrollView>
 
       <ConfirmModal
@@ -253,18 +311,9 @@ export default function ContactDetailScreen() {
         variant="destructive"
         loading={deleting}
         onCancel={() => setConfirmDelete(false)}
-        onConfirm={async () => {
+        onConfirm={() => {
           setConfirmDelete(false);
-          setDeleting(true);
-          try {
-            await api.deleteContact(contact.id);
-            toast.success(t.contactDetail.deleted);
-            router.back();
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : t.contactDetail.deleteFailed);
-          } finally {
-            setDeleting(false);
-          }
+          void deleteContact(contact.id);
         }}
       />
     </Screen>

@@ -14,19 +14,24 @@ import * as Haptics from 'expo-haptics';
 import { MoreHorizontal, FileText, Send, CreditCard, Lock } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import api from '@/services/api';
 import { toNumber } from '@/lib/currency';
-import { daysUntil } from '@/lib/date';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import type { Translations } from '@/lib/i18n/locales/en';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
-import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
+import { SectionCard, DetailRow } from '@/components/detail';
+import {
+  DocumentLineItems,
+  DocumentSummaryCard,
+  DocumentTotalsCard,
+  documentCurrency,
+  useDocumentMutations,
+} from '@/components/document-detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
@@ -34,19 +39,106 @@ import type { Invoice } from '@/types/accounting';
 
 type Confirm = 'delete' | 'cancel' | 'creditNote' | null;
 
+type MoreOption = { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void };
+
+function isSettled(status: Invoice['status']): boolean {
+  return status === 'paid' || status === 'cancelled' || status === 'uncollectible';
+}
+
+/** An issued invoice can be credited or cancelled; only a draft can be deleted. */
+function statusOptions(
+  status: Invoice['status'],
+  t: Translations,
+  setConfirm: (confirm: Confirm) => void,
+): MoreOption[] {
+  if (status === 'draft') {
+    return [{ text: t.invoiceDetail.deleteDraft, style: 'destructive', onPress: () => setConfirm('delete') }];
+  }
+  if (status === 'cancelled') return [];
+  return [
+    { text: t.invoiceDetail.createCreditNote, onPress: () => setConfirm('creditNote') },
+    { text: t.invoiceDetail.cancelInvoice, style: 'destructive', onPress: () => setConfirm('cancel') },
+  ];
+}
+
+function InvoiceActions({
+  invoice,
+  balanceDue,
+  busy,
+  onFinalise,
+  onSend,
+  onPay,
+  onViewDocument,
+}: Readonly<{
+  invoice: Invoice;
+  balanceDue: number;
+  busy: boolean;
+  onFinalise: () => void;
+  onSend: () => void;
+  onPay: () => void;
+  onViewDocument: () => void;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const isDraft = invoice.status === 'draft';
+  const canSend = !isDraft && !isSettled(invoice.status);
+  const canPay = balanceDue > 0 && !isDraft && invoice.status !== 'cancelled';
+
+  return (
+    <View style={styles.actions}>
+      {isDraft ? (
+        <Button
+          title={t.invoiceDetail.finalise}
+          leftIcon={<Lock size={18} color={colors.primaryForeground} />}
+          onPress={onFinalise}
+          loading={busy}
+          fullWidth
+        />
+      ) : null}
+
+      {canSend ? (
+        <Button
+          title={t.invoiceDetail.send}
+          variant="outline"
+          leftIcon={<Send size={18} color={colors.text} />}
+          onPress={onSend}
+          loading={busy}
+          fullWidth
+        />
+      ) : null}
+
+      {canPay ? (
+        <Button
+          title={t.invoiceDetail.recordPayment}
+          leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
+          onPress={onPay}
+          disabled={busy}
+          fullWidth
+        />
+      ) : null}
+
+      <Button
+        title={t.invoiceDetail.viewDocument}
+        variant="ghost"
+        leftIcon={<FileText size={18} color={colors.text} />}
+        onPress={onViewDocument}
+        fullWidth
+      />
+    </View>
+  );
+}
+
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
-  const toast = useToast();
-  const { t, format, plural } = useI18n();
-  const { formatCurrency, formatDate } = useLocaleFormatters();
+  const { t } = useI18n();
+  const { formatDate } = useLocaleFormatters();
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
 
@@ -68,29 +160,14 @@ export default function InvoiceDetailScreen() {
     load();
   }, [load]);
 
-  /** Runs a mutation, then refreshes so derived fields (balance, status) are current. */
-  const run = useCallback(
-    async (action: () => Promise<unknown>, successMessage: string) => {
-      setBusy(true);
-      try {
-        await action();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        toast.success(successMessage);
-        await load();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : t.common.actionFailed);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load, toast, t],
-  );
+  /** `run` refreshes after each mutation so derived fields (balance, status) are current. */
+  const { busy, run, remove } = useDocumentMutations(load);
 
   const handleMore = useCallback(() => {
     if (!invoice) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [
+    const options: MoreOption[] = [
       {
         text: t.invoiceDetail.duplicate,
         onPress: () =>
@@ -99,16 +176,9 @@ export default function InvoiceDetailScreen() {
             router.replace(`/invoice/${copy.id}`);
           }, t.invoiceDetail.duplicated),
       },
+      ...statusOptions(invoice.status, t, setConfirm),
+      { text: t.common.dismiss, style: 'cancel' },
     ];
-
-    if (invoice.status !== 'draft' && invoice.status !== 'cancelled') {
-      options.push({ text: t.invoiceDetail.createCreditNote, onPress: () => setConfirm('creditNote') });
-      options.push({ text: t.invoiceDetail.cancelInvoice, style: 'destructive', onPress: () => setConfirm('cancel') });
-    }
-    if (invoice.status === 'draft') {
-      options.push({ text: t.invoiceDetail.deleteDraft, style: 'destructive', onPress: () => setConfirm('delete') });
-    }
-    options.push({ text: t.common.dismiss, style: 'cancel' });
 
     Alert.alert(t.invoiceDetail.actionsTitle, undefined, options);
   }, [invoice, run, router, t]);
@@ -159,12 +229,8 @@ export default function InvoiceDetailScreen() {
     );
   }
 
-  const currency = invoice.currency || 'EUR';
+  const currency = documentCurrency(invoice);
   const balanceDue = toNumber(invoice.balanceDue);
-  const amountPaid = toNumber(invoice.amountPaid);
-  const due = daysUntil(invoice.dueDate);
-  const isSettled =
-    invoice.status === 'paid' || invoice.status === 'cancelled' || invoice.status === 'uncollectible';
 
   return (
     <Screen header={header}>
@@ -181,38 +247,18 @@ export default function InvoiceDetailScreen() {
           />
         }
       >
-        <SectionCard>
-          <View style={styles.summary}>
-            <View>
-              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
-                {balanceDue > 0 ? t.invoiceDetail.balanceDue : t.invoiceDetail.total}
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {formatCurrency(balanceDue > 0 ? balanceDue : invoice.total, currency)}
-              </Text>
-            </View>
+        <DocumentSummaryCard
+          doc={invoice}
+          labels={t.invoiceDetail}
+          badge={
             <InvoiceStatusBadge
               status={invoice.status}
               dueDate={invoice.dueDate}
               balanceDue={invoice.balanceDue}
               size="md"
             />
-          </View>
-          {balanceDue > 0 && due !== null ? (
-            <Text
-              style={[
-                styles.dueHint,
-                { color: due < 0 ? colors.destructive : colors.mutedForeground },
-              ]}
-            >
-              {due < 0
-                ? plural(Math.abs(due), t.invoiceDetail.overdueBy)
-                : due === 0
-                  ? t.invoiceDetail.dueToday
-                  : plural(due, t.invoiceDetail.dueIn)}
-            </Text>
-          ) : null}
-        </SectionCard>
+          }
+        />
 
         <SectionCard title={t.invoiceDetail.details}>
           <DetailRow label={t.invoiceDetail.customer} value={invoice.contactName} />
@@ -222,45 +268,14 @@ export default function InvoiceDetailScreen() {
           {invoice.reference ? <DetailRow label={t.invoiceDetail.reference} value={invoice.reference} /> : null}
         </SectionCard>
 
-        {invoice.items?.length ? (
-          <SectionCard title={t.invoiceDetail.lineItems}>
-            {invoice.items.map((item, index) => (
-              <View key={item.id ?? index}>
-                {index > 0 ? <Divider style={styles.itemDivider} /> : null}
-                <Text style={[styles.itemDescription, { color: colors.text }]}>
-                  {item.description}
-                </Text>
-                <View style={styles.itemMeta}>
-                  <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
-                    {toNumber(item.quantity)} × {formatCurrency(item.unitPrice, currency)}
-                    {toNumber(item.taxRate) > 0
-                      ? `  ·  ${format(t.invoiceDetail.vatRate, { rate: toNumber(item.taxRate) })}`
-                      : ''}
-                  </Text>
-                  <Text style={[styles.itemTotal, { color: colors.text }]}>
-                    {formatCurrency(item.lineTotal, currency)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </SectionCard>
-        ) : null}
+        <DocumentLineItems
+          items={invoice.items}
+          currency={currency}
+          title={t.invoiceDetail.lineItems}
+          vatRateLabel={t.invoiceDetail.vatRate}
+        />
 
-        <SectionCard title={t.invoiceDetail.totals}>
-          <TotalsBlock
-            rows={[
-              { label: t.invoiceDetail.subtotal, value: formatCurrency(invoice.subtotal, currency) },
-              { label: t.invoiceDetail.vat, value: formatCurrency(invoice.taxTotal, currency) },
-              ...(amountPaid > 0
-                ? [{ label: t.invoiceDetail.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
-                : []),
-            ]}
-            total={{
-              label: balanceDue > 0 && amountPaid > 0 ? t.invoiceDetail.balanceDue : t.invoiceDetail.total,
-              value: formatCurrency(balanceDue > 0 && amountPaid > 0 ? balanceDue : invoice.total, currency),
-            }}
-          />
-        </SectionCard>
+        <DocumentTotalsCard doc={invoice} labels={t.invoiceDetail} />
 
         {invoice.notes ? (
           <SectionCard title={t.invoiceDetail.notes}>
@@ -268,46 +283,15 @@ export default function InvoiceDetailScreen() {
           </SectionCard>
         ) : null}
 
-        <View style={styles.actions}>
-          {invoice.status === 'draft' ? (
-            <Button
-              title={t.invoiceDetail.finalise}
-              leftIcon={<Lock size={18} color={colors.primaryForeground} />}
-              onPress={() => run(() => api.finalizeInvoice(invoice.id), t.invoiceDetail.finalised)}
-              loading={busy}
-              fullWidth
-            />
-          ) : null}
-
-          {invoice.status !== 'draft' && !isSettled ? (
-            <Button
-              title={t.invoiceDetail.send}
-              variant="outline"
-              leftIcon={<Send size={18} color={colors.text} />}
-              onPress={() => run(() => api.sendInvoice(invoice.id), t.invoiceDetail.sent)}
-              loading={busy}
-              fullWidth
-            />
-          ) : null}
-
-          {balanceDue > 0 && invoice.status !== 'draft' && invoice.status !== 'cancelled' ? (
-            <Button
-              title={t.invoiceDetail.recordPayment}
-              leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
-              onPress={() => setPaymentOpen(true)}
-              disabled={busy}
-              fullWidth
-            />
-          ) : null}
-
-          <Button
-            title={t.invoiceDetail.viewDocument}
-            variant="ghost"
-            leftIcon={<FileText size={18} color={colors.text} />}
-            onPress={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
-            fullWidth
-          />
-        </View>
+        <InvoiceActions
+          invoice={invoice}
+          balanceDue={balanceDue}
+          busy={busy}
+          onFinalise={() => run(() => api.finalizeInvoice(invoice.id), t.invoiceDetail.finalised)}
+          onSend={() => run(() => api.sendInvoice(invoice.id), t.invoiceDetail.sent)}
+          onPay={() => setPaymentOpen(true)}
+          onViewDocument={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
+        />
       </ScrollView>
 
       <RecordPaymentSheet
@@ -333,18 +317,9 @@ export default function InvoiceDetailScreen() {
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
-        onConfirm={async () => {
+        onConfirm={() => {
           setConfirm(null);
-          setBusy(true);
-          try {
-            await api.deleteInvoice(invoice.id);
-            toast.success(t.invoiceDetail.deleted);
-            router.back();
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : t.invoiceDetail.deleteFailed);
-          } finally {
-            setBusy(false);
-          }
+          remove(() => api.deleteInvoice(invoice.id), t.invoiceDetail.deleted, t.invoiceDetail.deleteFailed);
         }}
       />
 
@@ -384,21 +359,6 @@ export default function InvoiceDetailScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 40, paddingTop: 4 },
-  summary: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  summaryLabel: { fontSize: 13, fontWeight: '500' },
-  summaryValue: { fontSize: 30, fontWeight: '700', marginTop: 2, letterSpacing: -0.8 },
-  dueHint: { fontSize: 13, marginTop: 8 },
-  itemDivider: { marginVertical: 12 },
-  itemDescription: { fontSize: 14, fontWeight: '500' },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    gap: 12,
-  },
-  itemQty: { fontSize: 13, flexShrink: 1 },
-  itemTotal: { fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 14, lineHeight: 20 },
   actions: { padding: 12, paddingTop: 20, gap: 8 },
 });

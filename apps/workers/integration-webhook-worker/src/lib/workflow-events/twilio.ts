@@ -13,7 +13,7 @@ export async function verifyTwilioSignature(
 ): Promise<boolean> {
   if (!authToken || !signature) return false;
   let data = url;
-  for (const key of Object.keys(params).sort()) data += key + params[key];
+  for (const key of Object.keys(params).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) data += key + params[key];
   const expected = bytesToBase64(await hmac('SHA-1', authToken, data));
   return timingSafeEqual(expected, signature);
 }

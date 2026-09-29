@@ -22,6 +22,39 @@ import appApi from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import type { WeldAgentMessageRow } from '@weldsuite/app-api-client/schemas/weldagent';
 
+const POLL_TIMEOUT_MS = 90_000;
+const POLL_INTERVAL_MS = 1200;
+
+/** Poll until an assistant reply appears after the user's message (or the timeout elapses). */
+async function pollForAssistantReply(
+  conversationId: string,
+  userMessageId: string,
+  onMessages: (list: WeldAgentMessageRow[]) => void,
+): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < POLL_TIMEOUT_MS) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const msgs = await appApi.weldagent.listMessages(conversationId, { limit: 200 });
+    const list = msgs.data ?? [];
+    onMessages(list);
+    const idx = list.findIndex((m) => m.id === userMessageId);
+    if (idx >= 0 && list.slice(idx + 1).some((m) => m.role === 'assistant')) return;
+  }
+}
+
+function appendIfMissing(prev: WeldAgentMessageRow[], msg: WeldAgentMessageRow): WeldAgentMessageRow[] {
+  return prev.some((m) => m.id === msg.id) ? prev : [...prev, msg];
+}
+
+async function autoTitle(
+  conversationId: string,
+  firstUserMessage: string,
+  onTitle: (name: string) => void,
+): Promise<void> {
+  const r = await appApi.weldagent.autoTitleConversation(conversationId, { firstUserMessage });
+  if (r.data?.name) onTitle(r.data.name);
+}
+
 export default function ChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -30,7 +63,7 @@ export default function ChatThreadScreen() {
   const { t } = useI18n();
   const scrollRef = useRef<ScrollView>(null);
 
-  const [title, setTitle] = useState(t.chat.title);
+  const [title, setTitle] = useState<string>(t.chat.title);
   const [messages, setMessages] = useState<WeldAgentMessageRow[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -73,39 +106,24 @@ export default function ChatThreadScreen() {
     try {
       const res = await appApi.weldagent.completeTurn(id, { content });
       const userMsg = res.data.userMessage;
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === userMsg.id)) return prev;
-        return [...prev, userMsg];
-      });
+      setMessages((prev) => appendIfMissing(prev, userMsg));
 
-      if (res.data.pending || !res.data.assistantMessage) {
+      const assistantMessage = res.data.assistantMessage;
+      if (res.data.pending || !assistantMessage) {
         // Cloud is generating — poll until the assistant reply appears.
-        const started = Date.now();
-        while (Date.now() - started < 90_000) {
-          await new Promise((r) => setTimeout(r, 1200));
-          const msgs = await appApi.weldagent.listMessages(id, { limit: 200 });
-          const list = msgs.data ?? [];
-          setMessages(list);
-          const idx = list.findIndex((m) => m.id === userMsg.id);
-          if (idx >= 0 && list.slice(idx + 1).some((m) => m.role === 'assistant')) break;
-        }
+        await pollForAssistantReply(id, userMsg.id, setMessages);
       } else {
-        setMessages((prev) => [...prev, res.data.assistantMessage!]);
+        setMessages((prev) => [...prev, assistantMessage]);
       }
 
-      if (messages.length === 0) {
-        void appApi.weldagent.autoTitleConversation(id, { firstUserMessage: content }).then((r) => {
-          if (r.data?.name) setTitle(r.data.name);
-        });
-      }
+      if (messages.length === 0) void autoTitle(id, content, setTitle);
     } catch (err) {
       if (isApiError(err) && err.status === 402) {
         setCreditsEmpty(true);
-        setDraft(content);
       } else {
         setError(err instanceof Error ? err.message : t.common.somethingWentWrong);
-        setDraft(content);
       }
+      setDraft(content);
     } finally {
       setSending(false);
     }
