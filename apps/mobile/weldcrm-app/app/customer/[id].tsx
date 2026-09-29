@@ -11,6 +11,7 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  type TextInputProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
@@ -27,11 +28,231 @@ import {
   X,
   Edit3,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { api, type CustomerRecord } from '@/services/api';
 import { hideAppSplash } from '@/utils/splash';
+
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+interface CustomerFormData {
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  mobile: string;
+  website: string;
+  notes: string;
+}
+
+type EditableField = Exclude<keyof CustomerFormData, 'fullName'>;
+
+interface FieldConfig {
+  key: EditableField;
+  label: string;
+  icon: LucideIcon;
+  placeholder: string;
+  required?: boolean;
+  multiline?: boolean;
+  inputProps?: TextInputProps;
+  /** How the read-only value is styled: never, always, or only when filled in as a link. */
+  viewLink?: 'always' | 'whenFilled';
+  onPressView?: () => void;
+}
+
+const EMPTY_FORM: CustomerFormData = {
+  firstName: '',
+  lastName: '',
+  fullName: '',
+  companyName: '',
+  email: '',
+  phone: '',
+  mobile: '',
+  website: '',
+  notes: '',
+};
+
+const formFromCustomer = (found: CustomerRecord): CustomerFormData => ({
+  firstName: found.firstName || '',
+  lastName: found.lastName || '',
+  fullName: found.fullName || '',
+  companyName: found.companyName || '',
+  email: found.email || '',
+  phone: found.phone || '',
+  mobile: found.mobile || '',
+  website: found.website || '',
+  notes: found.notes || '',
+});
+
+const resolveDisplayName = (formData: CustomerFormData, name?: string) => {
+  if (formData.fullName) return formData.fullName;
+  if (formData.firstName || formData.lastName) {
+    return [formData.firstName, formData.lastName].filter(Boolean).join(' ');
+  }
+  if (formData.companyName) return formData.companyName;
+  return formData.email || name || 'Customer';
+};
+
+const initialsOf = (displayName: string) =>
+  displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+interface CustomerFieldProps {
+  config: FieldConfig;
+  value: string;
+  isEditing: boolean;
+  colors: ThemeColors;
+  onChange: (key: EditableField, text: string) => void;
+}
+
+const CustomerField = ({ config, value, isEditing, colors, onChange }: CustomerFieldProps) => {
+  const Icon = config.icon;
+  const isLink = config.viewLink === 'always' || (config.viewLink === 'whenFilled' && !!value);
+  const valueText = (
+    <Text style={[styles.fieldValue, isLink ? styles.linkText : { color: colors.text }]}>{value || '-'}</Text>
+  );
+
+  return (
+    <View style={styles.field}>
+      <View style={styles.fieldLabel}>
+        <Icon size={16} color={colors.muted} />
+        <Text style={[styles.fieldLabelText, { color: colors.muted }]}>{config.label}</Text>
+        {isEditing && config.required && <Text style={styles.required}>*</Text>}
+      </View>
+      {isEditing ? (
+        <TextInput
+          style={[config.multiline ? styles.textArea : styles.input, { color: colors.text, borderColor: colors.divider }]}
+          value={value}
+          onChangeText={(text) => onChange(config.key, text)}
+          placeholder={config.placeholder}
+          placeholderTextColor={colors.muted}
+          {...config.inputProps}
+        />
+      ) : (
+        <ViewValue onPress={config.onPressView}>{valueText}</ViewValue>
+      )}
+    </View>
+  );
+};
+
+const ViewValue = ({ onPress, children }: { onPress?: () => void; children: React.ReactNode }) =>
+  onPress ? <TouchableOpacity onPress={onPress}>{children}</TouchableOpacity> : <>{children}</>;
+
+interface HeaderActionsProps {
+  isEditing: boolean;
+  saving: boolean;
+  colors: ThemeColors;
+  onCancel: () => void;
+  onSave: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+const HeaderActions = ({ isEditing, saving, colors, onCancel, onSave, onEdit, onDelete }: HeaderActionsProps) => {
+  if (isEditing) {
+    return (
+      <>
+        <TouchableOpacity onPress={onCancel} style={styles.headerButton}>
+          <X size={22} color={colors.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onSave} style={styles.headerButton} disabled={saving}>
+          <Save size={22} color={saving ? colors.muted : '#7C3AED'} />
+        </TouchableOpacity>
+      </>
+    );
+  }
+  return (
+    <>
+      <TouchableOpacity onPress={onEdit} style={styles.headerButton}>
+        <Edit3 size={22} color={colors.text} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onDelete} style={styles.headerButton}>
+        <Trash2 size={22} color="#EF4444" />
+      </TouchableOpacity>
+    </>
+  );
+};
+
+interface ProfileHeaderProps {
+  displayName: string;
+  companyName: string;
+  isEditing: boolean;
+  colors: ThemeColors;
+  onCall: () => void;
+  onEmail: () => void;
+}
+
+const ProfileHeader = ({ displayName, companyName, isEditing, colors, onCall, onEmail }: ProfileHeaderProps) => (
+  <View style={styles.profileHeader}>
+    <View style={styles.avatar}>
+      <Text style={styles.avatarText}>{initialsOf(displayName)}</Text>
+    </View>
+    <Text style={[styles.profileName, { color: colors.text }]}>{displayName}</Text>
+    {!!companyName && !isEditing && (
+      <Text style={[styles.profileCompany, { color: colors.muted }]}>{companyName}</Text>
+    )}
+
+    {!isEditing && (
+      <View style={styles.quickActions}>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: colors.background, borderColor: colors.divider }]}
+          onPress={onCall}
+        >
+          <Phone size={20} color="#7C3AED" />
+          <Text style={[styles.quickActionText, { color: colors.text }]}>Call</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: colors.background, borderColor: colors.divider }]}
+          onPress={onEmail}
+        >
+          <Mail size={20} color="#7C3AED" />
+          <Text style={[styles.quickActionText, { color: colors.text }]}>Email</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+  </View>
+);
+
+const CustomerInfoSection = ({ customer, colors }: { customer: CustomerRecord; colors: ThemeColors }) => (
+  <View style={styles.section}>
+    <Text style={[styles.sectionTitle, { color: colors.text }]}>Customer Info</Text>
+
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, { color: colors.muted }]}>Status</Text>
+      <View style={[styles.statusBadge, { backgroundColor: '#10B98115' }]}>
+        <Text style={[styles.statusText, { color: '#10B981' }]}>
+          {customer.status ? capitalize(customer.status) : 'Active'}
+        </Text>
+      </View>
+    </View>
+
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, { color: colors.muted }]}>Type</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]}>
+        {customer.type === 'b2b' ? 'Business' : 'Individual'}
+      </Text>
+    </View>
+
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, { color: colors.muted }]}>Created</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]}>
+        {new Date(customer.createdAt).toLocaleDateString()}
+      </Text>
+    </View>
+
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, { color: colors.muted }]}>Last Updated</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]}>
+        {new Date(customer.updatedAt).toLocaleDateString()}
+      </Text>
+    </View>
+  </View>
+);
 
 export default function CustomerDetailPage() {
   const { markInteractive } = useObserve();
@@ -45,17 +266,7 @@ export default function CustomerDetailPage() {
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(edit === 'true');
 
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    fullName: '',
-    companyName: '',
-    email: '',
-    phone: '',
-    mobile: '',
-    website: '',
-    notes: '',
-  });
+  const [formData, setFormData] = useState<CustomerFormData>(EMPTY_FORM);
 
   const loadCustomer = useCallback(async () => {
     try {
@@ -64,17 +275,7 @@ export default function CustomerDetailPage() {
       if (response.success && response.data) {
         const found = response.data;
         setCustomer(found);
-        setFormData({
-          firstName: found.firstName || '',
-          lastName: found.lastName || '',
-          fullName: found.fullName || '',
-          companyName: found.companyName || '',
-          email: found.email || '',
-          phone: found.phone || '',
-          mobile: found.mobile || '',
-          website: found.website || '',
-          notes: found.notes || '',
-        });
+        setFormData(formFromCustomer(found));
       }
     } catch (error) {
       console.error('Error loading customer:', error);
@@ -95,18 +296,10 @@ export default function CustomerDetailPage() {
     }
   }, [loading, markInteractive]);
 
-  const getDisplayName = () => {
-    if (formData.fullName) return formData.fullName;
-    if (formData.firstName || formData.lastName) {
-      return [formData.firstName, formData.lastName].filter(Boolean).join(' ');
-    }
-    if (formData.companyName) return formData.companyName;
-    return formData.email || name || 'Customer';
-  };
+  const getDisplayName = () => resolveDisplayName(formData, name);
 
-  const getInitials = () => {
-    const displayName = getDisplayName();
-    return displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const handleFieldChange = (key: EditableField, text: string) => {
+    setFormData(prev => ({ ...prev, [key]: text }));
   };
 
   const handleSave = async () => {
@@ -181,6 +374,54 @@ export default function CustomerDetailPage() {
     );
   }
 
+  const fields: FieldConfig[] = [
+    { key: 'firstName', label: 'First Name', icon: User, placeholder: 'Enter first name' },
+    { key: 'lastName', label: 'Last Name', icon: User, placeholder: 'Enter last name' },
+    { key: 'companyName', label: 'Company', icon: Building2, placeholder: 'Enter company name' },
+    {
+      key: 'email',
+      label: 'Email',
+      icon: Mail,
+      placeholder: 'Enter email',
+      required: true,
+      inputProps: { keyboardType: 'email-address', autoCapitalize: 'none' },
+      viewLink: 'always',
+      onPressView: handleEmail,
+    },
+    {
+      key: 'phone',
+      label: 'Phone',
+      icon: Phone,
+      placeholder: 'Enter phone number',
+      inputProps: { keyboardType: 'phone-pad' },
+      viewLink: 'whenFilled',
+      onPressView: handleCall,
+    },
+    {
+      key: 'mobile',
+      label: 'Mobile',
+      icon: Phone,
+      placeholder: 'Enter mobile number',
+      inputProps: { keyboardType: 'phone-pad' },
+    },
+    {
+      key: 'website',
+      label: 'Website',
+      icon: Globe,
+      placeholder: 'Enter website URL',
+      inputProps: { keyboardType: 'url', autoCapitalize: 'none' },
+      viewLink: 'whenFilled',
+    },
+    {
+      key: 'notes',
+      label: 'Notes',
+      icon: FileText,
+      placeholder: 'Add notes...',
+      multiline: true,
+      inputProps: { multiline: true, numberOfLines: 4, textAlignVertical: 'top' },
+    },
+  ];
+
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -196,261 +437,46 @@ export default function CustomerDetailPage() {
           {isEditing ? 'Edit Customer' : getDisplayName()}
         </Text>
         <View style={styles.headerRight}>
-          {isEditing ? (
-            <>
-              <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.headerButton}>
-                <X size={22} color={colors.muted} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSave} style={styles.headerButton} disabled={saving}>
-                <Save size={22} color={saving ? colors.muted : '#7C3AED'} />
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.headerButton}>
-                <Edit3 size={22} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
-                <Trash2 size={22} color="#EF4444" />
-              </TouchableOpacity>
-            </>
-          )}
+          <HeaderActions
+            isEditing={isEditing}
+            saving={saving}
+            colors={colors}
+            onCancel={() => setIsEditing(false)}
+            onSave={handleSave}
+            onEdit={() => setIsEditing(true)}
+            onDelete={handleDelete}
+          />
         </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials()}</Text>
-          </View>
-          <Text style={[styles.profileName, { color: colors.text }]}>{getDisplayName()}</Text>
-          {!!formData.companyName && !isEditing && (
-            <Text style={[styles.profileCompany, { color: colors.muted }]}>{formData.companyName}</Text>
-          )}
-
-          {!isEditing && (
-            <View style={styles.quickActions}>
-              <TouchableOpacity
-                style={[styles.quickActionButton, { backgroundColor: colors.background, borderColor: colors.divider }]}
-                onPress={handleCall}
-              >
-                <Phone size={20} color="#7C3AED" />
-                <Text style={[styles.quickActionText, { color: colors.text }]}>Call</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickActionButton, { backgroundColor: colors.background, borderColor: colors.divider }]}
-                onPress={handleEmail}
-              >
-                <Mail size={20} color="#7C3AED" />
-                <Text style={[styles.quickActionText, { color: colors.text }]}>Email</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+        <ProfileHeader
+          displayName={getDisplayName()}
+          companyName={formData.companyName}
+          isEditing={isEditing}
+          colors={colors}
+          onCall={handleCall}
+          onEmail={handleEmail}
+        />
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             {isEditing ? 'Edit Details' : 'Contact Information'}
           </Text>
 
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <User size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>First Name</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.firstName}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, firstName: text }))}
-                placeholder="Enter first name"
-                placeholderTextColor={colors.muted}
-              />
-            ) : (
-              <Text style={[styles.fieldValue, { color: colors.text }]}>{formData.firstName || '-'}</Text>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <User size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Last Name</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.lastName}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, lastName: text }))}
-                placeholder="Enter last name"
-                placeholderTextColor={colors.muted}
-              />
-            ) : (
-              <Text style={[styles.fieldValue, { color: colors.text }]}>{formData.lastName || '-'}</Text>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <Building2 size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Company</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.companyName}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, companyName: text }))}
-                placeholder="Enter company name"
-                placeholderTextColor={colors.muted}
-              />
-            ) : (
-              <Text style={[styles.fieldValue, { color: colors.text }]}>{formData.companyName || '-'}</Text>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <Mail size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Email</Text>
-              {isEditing && <Text style={styles.required}>*</Text>}
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.email}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
-                placeholder="Enter email"
-                placeholderTextColor={colors.muted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            ) : (
-              <TouchableOpacity onPress={handleEmail}>
-                <Text style={[styles.fieldValue, styles.linkText]}>{formData.email || '-'}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <Phone size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Phone</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.phone}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
-                placeholder="Enter phone number"
-                placeholderTextColor={colors.muted}
-                keyboardType="phone-pad"
-              />
-            ) : (
-              <TouchableOpacity onPress={handleCall}>
-                <Text style={[styles.fieldValue, formData.phone ? styles.linkText : { color: colors.text }]}>
-                  {formData.phone || '-'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <Phone size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Mobile</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.mobile}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, mobile: text }))}
-                placeholder="Enter mobile number"
-                placeholderTextColor={colors.muted}
-                keyboardType="phone-pad"
-              />
-            ) : (
-              <Text style={[styles.fieldValue, { color: colors.text }]}>{formData.mobile || '-'}</Text>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <Globe size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Website</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.website}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, website: text }))}
-                placeholder="Enter website URL"
-                placeholderTextColor={colors.muted}
-                keyboardType="url"
-                autoCapitalize="none"
-              />
-            ) : (
-              <Text style={[styles.fieldValue, formData.website ? styles.linkText : { color: colors.text }]}>
-                {formData.website || '-'}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.field}>
-            <View style={styles.fieldLabel}>
-              <FileText size={16} color={colors.muted} />
-              <Text style={[styles.fieldLabelText, { color: colors.muted }]}>Notes</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={[styles.textArea, { color: colors.text, borderColor: colors.divider }]}
-                value={formData.notes}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, notes: text }))}
-                placeholder="Add notes..."
-                placeholderTextColor={colors.muted}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            ) : (
-              <Text style={[styles.fieldValue, { color: colors.text }]}>{formData.notes || '-'}</Text>
-            )}
-          </View>
+          {fields.map(config => (
+            <CustomerField
+              key={config.key}
+              config={config}
+              value={formData[config.key]}
+              isEditing={isEditing}
+              colors={colors}
+              onChange={handleFieldChange}
+            />
+          ))}
         </View>
 
-        {!isEditing && customer && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Customer Info</Text>
-
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: colors.muted }]}>Status</Text>
-              <View style={[styles.statusBadge, { backgroundColor: '#10B98115' }]}>
-                <Text style={[styles.statusText, { color: '#10B981' }]}>
-                  {customer.status ? customer.status.charAt(0).toUpperCase() + customer.status.slice(1) : 'Active'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: colors.muted }]}>Type</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>
-                {customer.type === 'b2b' ? 'Business' : 'Individual'}
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: colors.muted }]}>Created</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>
-                {new Date(customer.createdAt).toLocaleDateString()}
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: colors.muted }]}>Last Updated</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>
-                {new Date(customer.updatedAt).toLocaleDateString()}
-              </Text>
-            </View>
-          </View>
-        )}
+        {!isEditing && customer && <CustomerInfoSection customer={customer} colors={colors} />}
 
         <View style={{ height: 40 }} />
       </ScrollView>
