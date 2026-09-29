@@ -249,6 +249,128 @@ async function insertBatch(sql: postgres.Sql, batch: PendingRow[]): Promise<numb
   return (result as unknown as { id: string }[]).length;
 }
 
+/** Mutable bookkeeping for one entity-type sweep. */
+interface SweepState {
+  counts: Counts;
+  defBySlug: Map<string, DefinitionRow>;
+  existingKeys: Set<string>;
+  orphanSamples: Set<string>;
+  invalidSamples: string[];
+  pending: PendingRow[];
+}
+
+type SourceRow = { id: string; custom_fields: Record<string, unknown> };
+
+/**
+ * Classify one slug->value pair from a blob, updating the counters. Returns the
+ * row to insert, or null when there is nothing to write.
+ */
+function classifyBlobValue(
+  state: SweepState,
+  entityType: string,
+  rowId: string,
+  slug: string,
+  raw: unknown,
+): PendingRow | null {
+  const { counts } = state;
+  counts.blobValues++;
+
+  const def = state.defBySlug.get(slug);
+  if (!def) {
+    // Renamed or never-defined field. Non-destructive: the blob keeps it.
+    counts.orphanSlugs++;
+    if (state.orphanSamples.size < 10) state.orphanSamples.add(slug);
+    return null;
+  }
+
+  if (raw === null || raw === undefined || raw === '') {
+    // Absence of a row IS the cleared state — nothing to insert.
+    counts.empty++;
+    return null;
+  }
+
+  // `required` is deliberately not enforced: a historical row that predates
+  // a field being made required must still migrate, exactly as the Phase 1
+  // mirror treats it (enforceRequired: false).
+  const result = validateCustomFieldValue(
+    { ...def, fieldType: def.field_type } as unknown as CustomFieldDefinitionLike,
+    raw,
+  );
+  if (!result.ok) {
+    counts.invalid++;
+    if (state.invalidSamples.length < 10) {
+      state.invalidSamples.push(`${rowId}.${slug}: ${result.error}`);
+    }
+    return null;
+  }
+  if (result.value === null || result.value === undefined) {
+    counts.empty++;
+    return null;
+  }
+
+  counts.migratable++;
+  if (state.existingKeys.has(`${rowId}:${def.id}`)) {
+    counts.alreadyPresent++;
+    return null;
+  }
+
+  return toPendingRow(def, entityType, rowId, result.value);
+}
+
+/** Classify every pair in one source row, flushing full batches when executing. */
+async function processSourceRow(
+  sql: postgres.Sql,
+  state: SweepState,
+  entityType: string,
+  row: SourceRow,
+  execute: boolean,
+): Promise<void> {
+  state.counts.rows++;
+  for (const [slug, raw] of Object.entries(row.custom_fields)) {
+    const pendingRow = classifyBlobValue(state, entityType, row.id, slug, raw);
+    if (!pendingRow) continue;
+
+    state.pending.push(pendingRow);
+    if (execute && state.pending.length >= WRITE_BATCH) {
+      state.counts.inserted += await insertBatch(sql, state.pending);
+      state.pending = [];
+    }
+  }
+}
+
+/**
+ * Keyset pagination — stable under concurrent writes, unlike OFFSET.
+ * Soft-deleted parents are INCLUDED: their blob is still restorable data,
+ * and dropping it here would silently lose it at Phase 4.
+ */
+async function fetchSourceRows(sql: postgres.Sql, table: string, cursor: string): Promise<SourceRow[]> {
+  return (await sql.unsafe(
+    `SELECT id, custom_fields
+       FROM ${table}
+      WHERE custom_fields IS NOT NULL
+        AND jsonb_typeof(custom_fields) = 'object'
+        AND custom_fields <> '{}'::jsonb
+        AND id > $1
+      ORDER BY id
+      LIMIT ${READ_BATCH}`,
+    [cursor] as never[],
+  )) as unknown as SourceRow[];
+}
+
+function logEntitySummary(entityType: string, table: string, state: SweepState) {
+  const { counts } = state;
+  if (counts.blobValues <= 0) return;
+  console.log(
+    `    ${entityType} (${table}): rows=${counts.rows} values=${counts.blobValues} ` +
+      `migratable=${counts.migratable} present=${counts.alreadyPresent} ` +
+      `inserted=${counts.inserted} orphan=${counts.orphanSlugs} invalid=${counts.invalid} empty=${counts.empty}`,
+  );
+  if (state.orphanSamples.size > 0) {
+    console.log(`      orphan slugs (no active definition): ${[...state.orphanSamples].join(', ')}`);
+  }
+  for (const sample of state.invalidSamples) console.log(`      invalid: ${sample}`);
+}
+
 /** Backfill one entity type within one tenant DB. */
 async function sweepEntityType(
   sql: postgres.Sql,
@@ -281,100 +403,33 @@ async function sweepEntityType(
   )) as unknown as { entity_id: string; field_id: string }[];
   const existingKeys = new Set(existing.map((r) => `${r.entity_id}:${r.field_id}`));
 
-  const orphanSamples = new Set<string>();
-  const invalidSamples: string[] = [];
-  let pending: PendingRow[] = [];
+  const state: SweepState = {
+    counts,
+    defBySlug,
+    existingKeys,
+    orphanSamples: new Set<string>(),
+    invalidSamples: [],
+    pending: [],
+  };
   let cursor = '';
 
   for (;;) {
-    // Keyset pagination — stable under concurrent writes, unlike OFFSET.
-    // Soft-deleted parents are INCLUDED: their blob is still restorable data,
-    // and dropping it here would silently lose it at Phase 4.
-    const rows = (await sql.unsafe(
-      `SELECT id, custom_fields
-         FROM ${table}
-        WHERE custom_fields IS NOT NULL
-          AND jsonb_typeof(custom_fields) = 'object'
-          AND custom_fields <> '{}'::jsonb
-          AND id > $1
-        ORDER BY id
-        LIMIT ${READ_BATCH}`,
-      [cursor] as never[],
-    )) as unknown as { id: string; custom_fields: Record<string, unknown> }[];
-
+    const rows = await fetchSourceRows(sql, table, cursor);
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      counts.rows++;
-      for (const [slug, raw] of Object.entries(row.custom_fields)) {
-        counts.blobValues++;
-
-        const def = defBySlug.get(slug);
-        if (!def) {
-          // Renamed or never-defined field. Non-destructive: the blob keeps it.
-          counts.orphanSlugs++;
-          if (orphanSamples.size < 10) orphanSamples.add(slug);
-          continue;
-        }
-
-        if (raw === null || raw === undefined || raw === '') {
-          // Absence of a row IS the cleared state — nothing to insert.
-          counts.empty++;
-          continue;
-        }
-
-        // `required` is deliberately not enforced: a historical row that predates
-        // a field being made required must still migrate, exactly as the Phase 1
-        // mirror treats it (enforceRequired: false).
-        const result = validateCustomFieldValue(
-          { ...def, fieldType: def.field_type } as unknown as CustomFieldDefinitionLike,
-          raw,
-        );
-        if (!result.ok || result.value === null || result.value === undefined) {
-          if (!result.ok) {
-            counts.invalid++;
-            if (invalidSamples.length < 10) {
-              invalidSamples.push(`${row.id}.${slug}: ${result.error}`);
-            }
-          } else {
-            counts.empty++;
-          }
-          continue;
-        }
-
-        counts.migratable++;
-        if (existingKeys.has(`${row.id}:${def.id}`)) {
-          counts.alreadyPresent++;
-          continue;
-        }
-
-        pending.push(toPendingRow(def, entityType, row.id, result.value));
-        if (execute && pending.length >= WRITE_BATCH) {
-          counts.inserted += await insertBatch(sql, pending);
-          pending = [];
-        }
-      }
+      await processSourceRow(sql, state, entityType, row, execute);
     }
 
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < READ_BATCH) break;
   }
 
-  if (execute && pending.length > 0) {
-    counts.inserted += await insertBatch(sql, pending);
+  if (execute && state.pending.length > 0) {
+    counts.inserted += await insertBatch(sql, state.pending);
   }
 
-  if (verbose && counts.blobValues > 0) {
-    console.log(
-      `    ${entityType} (${table}): rows=${counts.rows} values=${counts.blobValues} ` +
-        `migratable=${counts.migratable} present=${counts.alreadyPresent} ` +
-        `inserted=${counts.inserted} orphan=${counts.orphanSlugs} invalid=${counts.invalid} empty=${counts.empty}`,
-    );
-    if (orphanSamples.size > 0) {
-      console.log(`      orphan slugs (no active definition): ${[...orphanSamples].join(', ')}`);
-    }
-    for (const sample of invalidSamples) console.log(`      invalid: ${sample}`);
-  }
+  if (verbose) logEntitySummary(entityType, table, state);
 
   return counts;
 }
@@ -431,6 +486,82 @@ async function sweepTenant(
   return counts;
 }
 
+async function loadActiveTenants(masterUrl: string, only: string | null) {
+  const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
+  const db = drizzle(masterClient);
+  const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
+  if (only) conditions.push(eq(workspaces.id, only));
+
+  const rows = await db
+    .select({
+      id: workspaces.id,
+      name: workspaces.name,
+      neonProjectId: workspaces.neonProjectId,
+      neonBranchId: workspaces.neonBranchId,
+      neonRoleName: workspaces.neonRoleName,
+      neonDatabaseName: workspaces.neonDatabaseName,
+      databaseUrl: workspaces.databaseUrl,
+    })
+    .from(workspaces)
+    .where(and(...conditions));
+  await masterClient.end({ timeout: 5 });
+  return rows;
+}
+
+/** Sweeps every tenant in order, accumulating into `total`. */
+async function sweepAllTenants(
+  rows: Awaited<ReturnType<typeof loadActiveTenants>>,
+  neonApiKey: string,
+  keys: { v1: string | undefined; v2: string | undefined },
+  options: CliOptions,
+  total: Counts,
+): Promise<void> {
+  for (const w of rows) {
+    if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
+    try {
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keys);
+      addCounts(total, await sweepTenant(w.id, url, options));
+    } catch (err) {
+      console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
+      total.failedTenants++;
+    }
+  }
+}
+
+function printTotals(total: Counts, options: CliOptions) {
+  const stored = total.alreadyPresent + total.inserted;
+  console.log(
+    `\nTOTAL: rows=${total.rows} values=${total.blobValues} migratable=${total.migratable} ` +
+      `present=${total.alreadyPresent} inserted=${total.inserted}`,
+  );
+  console.log(
+    `       orphan=${total.orphanSlugs} invalid=${total.invalid} empty=${total.empty} ` +
+      `missingTable=${total.missingTable} failedTenants=${total.failedTenants}`,
+  );
+
+  if (total.orphanSlugs > 0 || total.invalid > 0) {
+    console.log(
+      '\nNote: orphaned/invalid values were NOT migrated and remain in the ' +
+        'custom_fields blob. Review them (--verbose lists samples) before ' +
+        'Phase 4 drops those columns.',
+    );
+  }
+
+  if (!options.execute) {
+    console.log(
+      `\nDry-run only. ${total.migratable - total.alreadyPresent} row(s) would be inserted. ` +
+        'Re-run with --execute to write.',
+    );
+    return;
+  }
+
+  if (stored === total.migratable && total.missingTable === 0 && total.failedTenants === 0) {
+    console.log('\nParity verified across all tenants — safe to proceed to Phase 3.');
+  } else {
+    console.log('\nParity NOT clean. Re-run (the sweep is idempotent) and investigate.');
+  }
+}
+
 async function main() {
   const options = parseArgs();
 
@@ -453,69 +584,14 @@ async function main() {
       (options.entityType ? ` — entity type: ${options.entityType}` : ''),
   );
 
-  const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
-  const db = drizzle(masterClient);
-  const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-  if (options.only) conditions.push(eq(workspaces.id, options.only));
-
-  const rows = await db
-    .select({
-      id: workspaces.id,
-      name: workspaces.name,
-      neonProjectId: workspaces.neonProjectId,
-      neonBranchId: workspaces.neonBranchId,
-      neonRoleName: workspaces.neonRoleName,
-      neonDatabaseName: workspaces.neonDatabaseName,
-      databaseUrl: workspaces.databaseUrl,
-    })
-    .from(workspaces)
-    .where(and(...conditions));
-  await masterClient.end({ timeout: 5 });
+  const rows = await loadActiveTenants(masterUrl, options.only);
 
   console.log(`\nTenant DBs (${rows.length}):`);
   const total = newCounts();
 
-  for (const w of rows) {
-    if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
-    try {
-      const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
-      addCounts(total, await sweepTenant(w.id, url, options));
-    } catch (err) {
-      console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
-      total.failedTenants++;
-    }
-  }
+  await sweepAllTenants(rows, neonApiKey, { v1, v2 }, options, total);
 
-  const stored = total.alreadyPresent + total.inserted;
-  console.log(
-    `\nTOTAL: rows=${total.rows} values=${total.blobValues} migratable=${total.migratable} ` +
-      `present=${total.alreadyPresent} inserted=${total.inserted}`,
-  );
-  console.log(
-    `       orphan=${total.orphanSlugs} invalid=${total.invalid} empty=${total.empty} ` +
-      `missingTable=${total.missingTable} failedTenants=${total.failedTenants}`,
-  );
-
-  if (total.orphanSlugs > 0 || total.invalid > 0) {
-    console.log(
-      '\nNote: orphaned/invalid values were NOT migrated and remain in the ' +
-        'custom_fields blob. Review them (--verbose lists samples) before ' +
-        'Phase 4 drops those columns.',
-    );
-  }
-
-  if (options.execute) {
-    if (stored === total.migratable && total.missingTable === 0 && total.failedTenants === 0) {
-      console.log('\nParity verified across all tenants — safe to proceed to Phase 3.');
-    } else {
-      console.log('\nParity NOT clean. Re-run (the sweep is idempotent) and investigate.');
-    }
-  } else {
-    console.log(
-      `\nDry-run only. ${total.migratable - total.alreadyPresent} row(s) would be inserted. ` +
-        'Re-run with --execute to write.',
-    );
-  }
+  printTotals(total, options);
 
   const clean = total.failedTenants === 0 && total.missingTable === 0;
   process.exit(clean ? 0 : 1);
