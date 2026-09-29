@@ -62,6 +62,36 @@ const priorityColors: Record<string, string> = {
 
 const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
+// ---------- Filtering ----------
+
+const taskFilterFieldGetters = new Map<string, (task: Task) => string | undefined>([
+  ['status', (task) => task.status],
+  ['priority', (task) => task.priority],
+  ['company', (task) => task.linkedCompany?.name],
+  ['assignee', (task) => task.assignee?.name],
+]);
+
+function taskMatchesSearch(task: Task, query: string): boolean {
+  return Boolean(
+    task.title.toLowerCase().includes(query) ||
+    task.description?.toLowerCase().includes(query) ||
+    task.assignee?.name?.toLowerCase().includes(query) ||
+    task.linkedCompany?.name?.toLowerCase().includes(query)
+  );
+}
+
+function applyTaskFilters(tasks: Task[], filters: ActiveFilter[]): Task[] {
+  let result = tasks;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    const getValue = taskFilterFieldGetters.get(filter.field);
+    if (!getValue) continue;
+    const wantMatch = filter.operator === 'is';
+    result = result.filter(task => (getValue(task) === filter.value) === wantMatch);
+  }
+  return result;
+}
+
 // ---------- DroppableColumn ----------
 
 function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
@@ -318,44 +348,9 @@ export function CrmTasksPipeline({
 
   // Filter + search
   const filteredTasks = useMemo(() => {
-    let result = tasks;
-
-    // Search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(t =>
-        t.title.toLowerCase().includes(query) ||
-        t.description?.toLowerCase().includes(query) ||
-        t.assignee?.name?.toLowerCase().includes(query) ||
-        t.linkedCompany?.name?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply filters
-    if (activeFilters.length > 0) {
-      for (const filter of activeFilters) {
-        if (!filter.operator || !filter.value) continue;
-        if (filter.field === 'status') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.status === filter.value)
-            : result.filter(t => t.status !== filter.value);
-        } else if (filter.field === 'priority') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.priority === filter.value)
-            : result.filter(t => t.priority !== filter.value);
-        } else if (filter.field === 'company') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.linkedCompany?.name === filter.value)
-            : result.filter(t => t.linkedCompany?.name !== filter.value);
-        } else if (filter.field === 'assignee') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.assignee?.name === filter.value)
-            : result.filter(t => t.assignee?.name !== filter.value);
-        }
-      }
-    }
-
-    return result;
+    const query = searchQuery.toLowerCase();
+    const searched = searchQuery.trim() ? tasks.filter(t => taskMatchesSearch(t, query)) : tasks;
+    return applyTaskFilters(searched, activeFilters);
   }, [tasks, searchQuery, activeFilters]);
 
   // Drag handlers

@@ -131,6 +131,43 @@ function buildTemplateRows(
   return { headers, row };
 }
 
+/** Resolve a raw cell string to the value stored for a field, or undefined to skip it. */
+function resolveFieldValue(raw: string, field: ImportFieldDef): unknown {
+  if (field.multiValue) {
+    const arr = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+    return arr.length ? arr : undefined;
+  }
+  return coerceScalar(raw, field.valueType);
+}
+
+/** Build one import record from a source row using the column -> field mappings. */
+function buildRecord(
+  row: Record<string, unknown>,
+  mappings: Mappings,
+  fieldByKey: Map<string, ImportFieldDef>,
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  for (const [sourceCol, key] of Object.entries(mappings)) {
+    if (!key) continue;
+    const field = fieldByKey.get(key);
+    if (!field) continue;
+    const raw = safeString(row[sourceCol]);
+    if (!raw) continue;
+
+    const value = resolveFieldValue(raw, field);
+    if (value === undefined) continue;
+
+    if (field.customFieldSlug) {
+      const bag = (record.customFields as Record<string, unknown> | undefined) ?? {};
+      bag[field.customFieldSlug] = value;
+      record.customFields = bag;
+    } else {
+      record[key] = value;
+    }
+  }
+  return record;
+}
+
 // ── Field picker (one per file column) ───────────────────────────────────────
 
 function FieldCombobox({
@@ -436,39 +473,10 @@ export function ImportEntitiesDialog({
 
   const mappedCount = useMemo(() => Object.values(mappings).filter(Boolean).length, [mappings]);
 
-  const buildRecords = useCallback((): Record<string, unknown>[] => {
-    const records: Record<string, unknown>[] = [];
-    for (const row of validRows) {
-      const record: Record<string, unknown> = {};
-      for (const [sourceCol, key] of Object.entries(mappings)) {
-        if (!key) continue;
-        const field = fieldByKey.get(key);
-        if (!field) continue;
-        const raw = safeString(row[sourceCol]);
-        if (!raw) continue;
-
-        let value: unknown;
-        if (field.multiValue) {
-          const arr = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-          if (!arr.length) continue;
-          value = arr;
-        } else {
-          value = coerceScalar(raw, field.valueType);
-          if (value === undefined) continue;
-        }
-
-        if (field.customFieldSlug) {
-          const bag = (record.customFields as Record<string, unknown> | undefined) ?? {};
-          bag[field.customFieldSlug] = value;
-          record.customFields = bag;
-        } else {
-          record[key] = value;
-        }
-      }
-      records.push(record);
-    }
-    return records;
-  }, [validRows, mappings, fieldByKey]);
+  const buildRecords = useCallback(
+    (): Record<string, unknown>[] => validRows.map((row) => buildRecord(row, mappings, fieldByKey)),
+    [validRows, mappings, fieldByKey],
+  );
 
   const handleImport = useCallback(async () => {
     const records = buildRecords();

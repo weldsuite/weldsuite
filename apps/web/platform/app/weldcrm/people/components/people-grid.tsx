@@ -53,6 +53,24 @@ interface PeopleGridProps {
   toolbarActions?: React.ReactNode;
 }
 
+/** Run `action` for every id sequentially and count how many succeeded / failed. */
+async function countOutcomes(
+  ids: string[],
+  action: (id: string) => Promise<unknown>,
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0;
+  let fail = 0;
+  for (const id of ids) {
+    try {
+      await action(id);
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
 export function PeopleGrid({
   people,
   totalCount,
@@ -166,30 +184,12 @@ export function PeopleGrid({
     },
     onBulkDelete: async (ids) => {
       if (listContext) {
-        let ok = 0;
-        let fail = 0;
-        for (const id of ids) {
-          try {
-            await listContext.removeMember(id);
-            ok++;
-          } catch {
-            fail++;
-          }
-        }
+        const { ok, fail } = await countOutcomes(ids, listContext.removeMember);
         if (fail === 0) toast.success(t('crm.peopleGrid.removeFromListSuccess', { count: ok }));
         else toast.error(t('crm.peopleGrid.removeFromListPartial', { succeeded: ok, failed: fail }));
         return;
       }
-      let ok = 0;
-      let fail = 0;
-      for (const id of ids) {
-        try {
-          await deleteMut.mutateAsync(id);
-          ok++;
-        } catch {
-          fail++;
-        }
-      }
+      const { ok, fail } = await countOutcomes(ids, deleteMut.mutateAsync);
       if (fail === 0) toast.success(ok === 1 ? t('crm.peopleGrid.bulkDeleteSuccess', { count: ok }) : t('crm.peopleGrid.bulkDeleteSuccessPlural', { count: ok }));
       else toast.error(t('crm.peopleGrid.bulkDeletePartial', { succeeded: ok, failed: fail }));
     },
