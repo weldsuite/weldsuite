@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -92,9 +93,17 @@ export default function EditContactPage() {
     );
   }
 
-  const onSubmit = async (values: ContactFormValues) => {
-    await updateContact.mutateAsync({ id, data: values as Record<string, unknown> });
-    navigate({ to: '/weldbooks/customers/$id', params: { id } });
+  const onSubmit = async ({ name, ...values }: ContactFormValues) => {
+    try {
+      // The API names the display name `fullName`.
+      await updateContact.mutateAsync({ id, data: { ...values, fullName: name } });
+      toast.success(tc.contactUpdated);
+      navigate({ to: '/weldbooks/customers/$id', params: { id } });
+    } catch (err) {
+      toast.error(tc.updateFailed, {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
   };
 
   return (

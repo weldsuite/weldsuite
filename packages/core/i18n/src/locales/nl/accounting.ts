@@ -2049,6 +2049,10 @@ export const accounting = {
       outstandingBalance: 'Openstaand Saldo',
       financial: 'Financieel',
       company: 'Bedrijf',
+      contactCreated: 'Contact aangemaakt',
+      contactUpdated: 'Contact bijgewerkt',
+      createFailed: 'Contact aanmaken mislukt',
+      updateFailed: 'Contact bijwerken mislukt',
     },
 
     // Invoice detail page
