@@ -12,6 +12,7 @@ import { logger } from 'hono/logger';
 import { eq, and, isNull } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { getMasterDb, getTenantDbForWorkspaceById, getTenantDbForWorkspace, tenantSchema, masterSchema, type TenantDatabase } from './db';
+import { fetchConnectInternal, hasConnectInternal } from './lib/connect-internal';
 import { getProvider } from './lib/integrations/registry';
 import { upsertCompany, upsertPerson, softDeleteByMapping, resolveCompanyByExternalId, resolveEntityByExternalId, upsertNote, softDeleteNote, upsertTask, softDeleteTask, upsertListAndEntry, softDeleteListEntry } from './lib/sync';
 import { getValidAccessToken } from './lib/token';
@@ -56,14 +57,21 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
   ENVIRONMENT: string;
-  /** app-api service binding (weldsuite-app-api[-test]) — Google Calendar
-   *  incremental-sync trigger + watch-channel renewal, via app-api's internal
-   *  integrations router. */
+  /** connect-api `ConnectInternal` entrypoint (weldsuite-connect-api[-test]) —
+   *  connector-event ingest, Meta ad events, Google Calendar incremental-sync
+   *  trigger + watch-channel renewal, via connect-api's internal integration
+   *  routes. Trusted by topology (no secret). */
+  CONNECT_INTERNAL?: Fetcher;
+  /** app-api service binding (weldsuite-app-api[-test]) — the public
+   *  /webhooks/woocommerce/auth compat forward, and the FALLBACK path to the
+   *  internal integration routes (through app-api's forwarder) while
+   *  CONNECT_INTERNAL is unbound or the entrypoint is not deployed yet. */
   APP_API?: Fetcher;
   /**
-   * Shared secret for internal service-to-service calls. Must match the target
-   * app-api env's INTERNAL_API_SECRET — its internal integrations router fails
-   * closed with 401 on a missing/wrong secret, and both callers below only log.
+   * Fallback path only: must match the target env's INTERNAL_API_SECRET — the
+   * public internal integrations router fails closed with 401 on a missing/wrong
+   * secret, and the callers below only log. Unused once CONNECT_INTERNAL is
+   * bound everywhere.
    */
   INTERNAL_API_SECRET?: string;
   /** CRM sync engine — Cloudflare Workflow owned by this worker. */
@@ -210,15 +218,14 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     return c.json({ error: 'Corrupt connector mapping' }, 500);
   }
 
-  if (!c.env.APP_API) {
-    console.error('[Webhook/connectors] APP_API binding missing');
+  if (!hasConnectInternal(c.env)) {
+    console.error('[Webhook/connectors] CONNECT_INTERNAL / APP_API binding missing');
     return c.json({ error: 'Connector ingest unavailable' }, 503);
   }
 
   const rawBody = await c.req.text();
   const headers = new Headers({
     'Content-Type': c.req.header('content-type') || 'application/json',
-    'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
     'X-Internal-Workspace-Id': entry.workspaceId,
   });
   for (const name of [
@@ -234,12 +241,10 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     if (value) headers.set(name, value);
   }
 
-  const res = await c.env.APP_API.fetch(
-    new Request(`https://internal/api/integrations/connections/${connectionId}/connector-event`, {
-      method: 'POST',
-      headers,
-      body: rawBody,
-    }),
+  const res = await fetchConnectInternal(
+    c.env,
+    `/api/integrations/connections/${connectionId}/connector-event`,
+    { method: 'POST', headers, body: rawBody },
   );
 
   const body = await res.text();
@@ -265,8 +270,8 @@ app.get('/webhooks/meta/ads', async (c) => {
 });
 
 app.post('/webhooks/meta/ads', async (c) => {
-  if (!c.env.APP_API) {
-    console.error('[Webhook/meta/ads] APP_API binding missing');
+  if (!hasConnectInternal(c.env)) {
+    console.error('[Webhook/meta/ads] CONNECT_INTERNAL / APP_API binding missing');
     return c.json({ error: 'Ad ingest unavailable' }, 503);
   }
 
@@ -303,21 +308,18 @@ app.post('/webhooks/meta/ads', async (c) => {
       continue;
     }
 
-    const res = await c.env.APP_API.fetch(
-      new Request('https://internal/api/integrations/ad-events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
-          'X-Workspace-Id': entry.clerkOrgId,
-        },
-        body: JSON.stringify({
-          platformAccountId: event.platformAccountId,
-          platformCampaignId: event.objectId,
-          objectType: event.objectType,
-        }),
+    const res = await fetchConnectInternal(c.env, '/api/integrations/ad-events', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Workspace-Id': entry.clerkOrgId,
+      },
+      body: JSON.stringify({
+        platformAccountId: event.platformAccountId,
+        platformCampaignId: event.objectId,
+        objectType: event.objectType,
       }),
-    );
+    });
     responses.push({ platformAccountId: event.platformAccountId, status: res.status });
   }
 
@@ -745,30 +747,29 @@ app.post('/webhook/gcal/:connectionId', async (c) => {
     if (resourceState === 'exists') {
       console.info(`[Webhook/GoogleCalendar] Change notification for ${connectionId}, triggering incremental sync`);
 
-      if (c.env.APP_API) {
-        // Trigger sync via the app-api service binding.
-        // X-Internal-Secret is REQUIRED: the app-api internal router
-        // (routes/integrations/internal.ts) fails closed with 401 when an
-        // internal-header call carries no/wrong secret. The cron sweeps below
-        // and in integration-sync-worker already send it; this caller did not,
-        // which would have silently stopped every incremental GCal sync at W5
-        // retargeting (the !ok branch only logs and still 200s to Google).
-        const syncResponse = await c.env.APP_API.fetch(
-          new Request('https://internal/api/integrations/connections/' + connectionId + '/sync', {
+      if (hasConnectInternal(c.env)) {
+        // Trigger sync on connect-api's internal integration routes via the
+        // ConnectInternal entrypoint (no secret). The fallback path through
+        // app-api's forwarder sends X-Internal-Secret, which that router
+        // requires (401 otherwise; the !ok branch only logs and still 200s to
+        // Google).
+        const syncResponse = await fetchConnectInternal(
+          c.env,
+          '/api/integrations/connections/' + connectionId + '/sync',
+          {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-Internal-Workspace-Id': kvEntry.workspaceId,
-              'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
             },
             body: JSON.stringify({ syncType: 'incremental' }),
-          }),
+          },
         );
         if (!syncResponse.ok) {
           console.error(`[Webhook/GoogleCalendar] Sync trigger failed: ${syncResponse.status}`);
         }
       } else {
-        console.warn('[Webhook/GoogleCalendar] APP_API service binding not available');
+        console.warn('[Webhook/GoogleCalendar] CONNECT_INTERNAL / APP_API service binding not available');
       }
     }
 
@@ -1135,21 +1136,21 @@ async function runScheduledSync(env: Env): Promise<void> {
           continue;
         }
 
-        // Google Calendar watch-channel renewal via app-api's internal router.
-        if (connection.provider === 'google_calendar' && connection.webhookSecret && env.APP_API) {
+        // Google Calendar watch-channel renewal via connect-api's internal router.
+        if (connection.provider === 'google_calendar' && connection.webhookSecret && hasConnectInternal(env)) {
           try {
             const watchInfo = JSON.parse(connection.webhookSecret) as { expiration?: string };
             if (watchInfo.expiration) {
               const expiresAt = Number(watchInfo.expiration);
               if (now > expiresAt - 24 * 60 * 60 * 1000) {
-                await env.APP_API.fetch(
-                  `https://internal/api/integrations/connections/${connection.id}/renew-watch`,
+                await fetchConnectInternal(
+                  env,
+                  `/api/integrations/connections/${connection.id}/renew-watch`,
                   {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
                       'X-Workspace-Id': workspace.clerkOrgId,
-                      'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
                     },
                   },
                 );

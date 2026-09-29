@@ -3,7 +3,7 @@
  *
  * Cron every 15 minutes:
  * 1. D1 connector catch-up — probe stores, open tenant Neon only on hits
- * 2. D1 CRM due-index — trigger APP_API sync for due CRM connections only
+ * 2. D1 CRM due-index — trigger connect-api sync for due CRM connections only
  * 3. Master ad_sync_index — WeldAds metrics (due rows only)
  *
  * Quiet ticks never open tenant Neon for connectors or CRM.
@@ -14,17 +14,28 @@ import { neon } from '@neondatabase/serverless';
 import { and, eq, lte } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { runConnectorCatchupSweep } from './connector-catchup';
+import { fetchConnectInternal } from './connect-internal';
 import { runCrmDueSweep } from './crm-due';
 
 export interface Env {
   HYPERDRIVE_MASTER: Hyperdrive;
-  /** app-api service binding (weldsuite-app-api[-test]) — internal routes only. */
+  /**
+   * connect-api `ConnectInternal` entrypoint (weldsuite-connect-api[-test]):
+   * its internal integration routes, trusted by topology (no secret).
+   */
+  CONNECT_INTERNAL?: Fetcher;
+  /**
+   * app-api service binding (weldsuite-app-api[-test]) — fallback path to the
+   * same routes (through app-api's forwarder) while CONNECT_INTERNAL is not
+   * bound or connect-api has not deployed the entrypoint yet.
+   */
   APP_API: Fetcher;
   ENVIRONMENT: string;
   /**
-   * Must match the target app-api env's INTERNAL_API_SECRET. app-api's internal
-   * integrations router fails closed with 401 on a missing/wrong secret, and the
-   * failure branches below only log — a mismatch silently stops all auto-sync.
+   * Fallback path only: must match the target env's INTERNAL_API_SECRET. The
+   * public internal router fails closed with 401 on a missing/wrong secret, and
+   * the failure branches below only log — a mismatch silently stops all
+   * auto-sync. Unused once CONNECT_INTERNAL is bound everywhere.
    */
   INTERNAL_API_SECRET?: string;
   /** D1 connector catch-up + CRM due index — never scan tenant Neon for due-ness. */
@@ -88,14 +99,14 @@ async function runAdSyncSweep(env: Env, masterDb: ReturnType<typeof getMasterDb>
   for (const row of dueRows) {
     if (!row.clerkOrgId) continue;
     try {
-      const response = await env.APP_API.fetch(
-        `https://internal/api/integrations/ad-connections/${row.connectionId}/sync?scope=full`,
+      const response = await fetchConnectInternal(
+        env,
+        `/api/integrations/ad-connections/${row.connectionId}/sync?scope=full`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Workspace-Id': row.clerkOrgId,
-            'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
           },
         },
       );

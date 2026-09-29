@@ -6,6 +6,7 @@
  * recently. Daily reconcile compares remote counts and only ingests on drift.
  */
 
+import { fetchConnectInternal, type ConnectInternalEnv } from './connect-internal';
 import {
   ConnectorApiError,
   backoffUntil,
@@ -27,9 +28,7 @@ import {
 } from '@weldsuite/connectors';
 import { maybeDecryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 
-export interface ConnectorCatchupEnv {
-  APP_API: Fetcher;
-  INTERNAL_API_SECRET?: string;
+export interface ConnectorCatchupEnv extends ConnectInternalEnv {
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
 }
@@ -95,14 +94,14 @@ export async function requestConnectorCatchup(
   env: ConnectorCatchupEnv,
   row: ConnectorSyncIndexRow,
 ): Promise<{ ok: boolean; status: number; watermarks?: Record<string, string> | null; error?: string }> {
-  const response = await env.APP_API.fetch(
-    `https://internal/api/integrations/connections/${row.connection_id}/catch-up`,
+  const response = await fetchConnectInternal(
+    env,
+    `/api/integrations/connections/${row.connection_id}/catch-up`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Workspace-Id': row.clerk_org_id,
-        'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
       },
     },
   );

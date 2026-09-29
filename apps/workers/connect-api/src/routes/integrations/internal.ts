@@ -4,25 +4,24 @@
  * integration-sync-worker and integration-webhook-worker call
  *   POST /api/integrations/connections/:id/sync
  *   POST /api/integrations/connections/:id/renew-watch
- * over an `API_WORKER` service binding with NO Clerk JWT — they authenticate
- * with an `X-Internal-Secret` header and identify the tenant via
- * `X-Workspace-Id` (Clerk org id) or `X-Internal-Workspace-Id` (internal
- * workspace id, used by the Google Calendar push-webhook path).
+ * (plus catch-up, connector-event, woocommerce-auth, ad-connections, ad-events)
+ * with NO Clerk JWT, identifying the tenant via `X-Workspace-Id` (Clerk org id)
+ * or `X-Internal-Workspace-Id` (internal workspace id, used by the Google
+ * Calendar push-webhook path).
  *
- * This router MUST be mounted at `/api/integrations` BEFORE the global
+ * Two ways in, both mounted from src/index.ts:
+ *  - `ConnectInternal` (named WorkerEntrypoint, reachable over a service binding
+ *    only): trusted by topology, no secret (`c.get('internalTrusted')`). This is
+ *    the callers' path.
+ *  - The public `/api/integrations` mount, reached through app-api's forwarder:
+ *    authenticates with an `X-Internal-Secret` header. It stays until every
+ *    caller uses the entrypoint (docs/plans/app-api-module-split.md, item 7).
+ *
+ * The public mount MUST sit at `/api/integrations` BEFORE the global
  * `app.use('/api/*', clerkMiddleware(), ...)` guard. When a request carries no
  * internal headers, the handlers call `next()` so the request falls through to
  * the Clerk-authed integrations router mounted after the guard — platform
  * traffic is unaffected.
- *
- * NOTE: the legacy api-worker equivalents sat BEHIND clerkMiddleware with no
- * internal-secret bypass, so these cross-worker calls have been failing with
- * 401 (see the port report). This router fixes that: internal calls must send
- * a CORRECT X-Internal-Secret. All known callers now do — the GCal
- * push-webhook trigger in integration-webhook-worker was the last one missing
- * it and was updated alongside this port. Any NEW internal caller must send
- * the header before W5 retargeting, or it will fail closed (401) while its
- * own error handling may only log.
  */
 
 import { Hono } from 'hono';
@@ -58,19 +57,23 @@ type ResolveResult =
 
 /**
  * Authenticate an internal call and resolve its tenant DB.
+ * - Through the `ConnectInternal` entrypoint (`internalTrusted`) → no secret
+ *   needed; the tenant headers are still required.
  * - No internal headers → passthrough (fall through to the Clerk-authed router).
  * - Wrong/missing secret with internal headers present → 401.
  */
 async function resolveInternal(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<ResolveResult> {
+  const trusted = c.get('internalTrusted') === true;
   const secret = c.req.header('X-Internal-Secret');
   const clerkOrgHeader = c.req.header('X-Workspace-Id');
   const internalWorkspaceHeader = c.req.header('X-Internal-Workspace-Id');
 
-  if (secret === undefined && !clerkOrgHeader && !internalWorkspaceHeader) {
+  // On the entrypoint there is no Clerk router behind this one to fall through to.
+  if (!trusted && secret === undefined && !clerkOrgHeader && !internalWorkspaceHeader) {
     return { kind: 'passthrough' };
   }
 
-  if (!c.env.INTERNAL_API_SECRET || secret !== c.env.INTERNAL_API_SECRET) {
+  if (!trusted && (!c.env.INTERNAL_API_SECRET || secret !== c.env.INTERNAL_API_SECRET)) {
     return { kind: 'response', response: error.unauthorized(c, 'Invalid internal secret') };
   }
 

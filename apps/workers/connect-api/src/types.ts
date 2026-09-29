@@ -34,12 +34,13 @@ export interface Env extends KitEnv {
    *  same pattern as the GITHUB_PROJECT_SYNC bindings. */
   CRM_SYNC?: Workflow;
 
-  /** Shared secret for internal service-to-service auth. Consumed by
-   *  /api/internal/workflow-actions (workflow-worker create_customer bearer),
-   *  the internal /api/integrations router (X-Internal-Secret from
-   *  integration-sync-worker and integration-webhook-worker) and the
-   *  WooCommerce connect HMAC `user_id`. Must be SET with the same value those
-   *  callers (and app-api / commerce-api) use. */
+  /** Shared secret for internal service-to-service auth. Only the public
+   *  (secret-guarded) mounts and the WooCommerce connect HMAC `user_id` use it
+   *  now: /api/internal/workflow-actions (create_customer bearer) and the
+   *  internal /api/integrations router (X-Internal-Secret). Callers reach those
+   *  routes through the `ConnectInternal` entrypoint without it; the public
+   *  mounts stay until they all do. Must be SET with the same value those
+   *  callers (and app-api / commerce-api) use while they remain. */
   INTERNAL_API_SECRET?: string;
   /**
    * Public HTTPS origin of integration-webhook-worker, used as the delivery
