@@ -141,6 +141,18 @@ export function resolveProxyUrl(params: {
   return `${base}/api/user-apps/code/${encodeURIComponent(appCode)}/gateway${path}`;
 }
 
+/** Keep only well-formed, allow-listed request headers (names lowercased). */
+function parseProxyHeaders(raw: unknown): [string, string][] {
+  const headers: [string, string][] = [];
+  if (!Array.isArray(raw)) return headers;
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || typeof entry[0] !== 'string' || typeof entry[1] !== 'string') continue;
+    const name = entry[0].toLowerCase();
+    if (PROXY_REQUEST_HEADERS.has(name)) headers.push([name, entry[1]]);
+  }
+  return headers;
+}
+
 /** Validate an incoming `fetch` payload; returns null when malformed. */
 export function parseProxyFetchRequest(payload: unknown): ProxyFetchRequest | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -148,14 +160,7 @@ export function parseProxyFetchRequest(payload: unknown): ProxyFetchRequest | nu
   const method = typeof raw.method === 'string' ? raw.method.toUpperCase() : 'GET';
   if (!PROXY_METHODS.has(method)) return null;
   if (typeof raw.path !== 'string') return null;
-  const headers: [string, string][] = [];
-  if (Array.isArray(raw.headers)) {
-    for (const entry of raw.headers) {
-      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || typeof entry[1] !== 'string') continue;
-      const name = entry[0].toLowerCase();
-      if (PROXY_REQUEST_HEADERS.has(name)) headers.push([name, entry[1]]);
-    }
-  }
+  const headers = parseProxyHeaders(raw.headers);
   let body: string | ArrayBuffer | null = null;
   if (method !== 'GET' && method !== 'HEAD') {
     if (typeof raw.body === 'string' || raw.body instanceof ArrayBuffer) body = raw.body;

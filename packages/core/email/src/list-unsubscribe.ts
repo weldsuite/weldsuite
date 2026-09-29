@@ -155,6 +155,24 @@ export interface UnsubscribeOutcome {
   url: string | null;
 }
 
+/** RFC 8058 one-click POST. Resolves `null` on success, else the failure. */
+async function tryOneClick(url: string, deps: UnsubscribeDeps): Promise<unknown> {
+  try {
+    const res = await deps.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'List-Unsubscribe=One-Click',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+    });
+    // RFC 8058 senders answer 2xx; some redirect to a confirmation page.
+    if (res.status >= 200 && res.status < 400) return null;
+    return new Error(`One-click POST returned HTTP ${res.status}`);
+  } catch (err) {
+    return err;
+  }
+}
+
 /**
  * Pick and perform the best unsubscribe mechanism, Gmail-style:
  *   1. RFC 8058 one-click: POST to the https URL.
@@ -171,20 +189,8 @@ export async function performUnsubscribe(
   let lastError: unknown = null;
 
   if (url && targets.oneClick) {
-    try {
-      const res = await deps.fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'List-Unsubscribe=One-Click',
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10_000),
-      });
-      // RFC 8058 senders answer 2xx; some redirect to a confirmation page.
-      if (res.status >= 200 && res.status < 400) return { method: 'one_click', url: null };
-      lastError = new Error(`One-click POST returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-    }
+    lastError = await tryOneClick(url, deps);
+    if (lastError === null) return { method: 'one_click', url: null };
   }
 
   if (mailto) {
