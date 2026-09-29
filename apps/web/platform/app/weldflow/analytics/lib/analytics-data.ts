@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql, desc, asc } from 'drizzle-orm';
+import { and, eq, gte, lte, sql, desc, asc, type SQL } from 'drizzle-orm';
 import { getScopedDb } from '@/lib/db';
 import {
   mvProjectsSummaryDaily,
@@ -102,6 +102,14 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
   }
 
   return { start, end };
+}
+
+function orderBySortOrder(sortOrder: string | undefined, expr: SQL) {
+  return sortOrder === 'desc' ? desc(expr) : asc(expr);
+}
+
+function resolveLimit(limit: number | undefined, fallback: number): number {
+  return limit || fallback;
 }
 
 function getDateTruncUnit(groupBy: string): TruncUnit {
@@ -228,8 +236,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -248,8 +256,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -267,8 +275,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(mvProjectsSummaryDaily.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`) : asc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),
@@ -286,8 +294,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(and(mvBaseConditions, sql`${mvProjectsSummaryDaily.health} IS NOT NULL`))
           .groupBy(mvProjectsSummaryDaily.health)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`) : asc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
+          .limit(resolveLimit(limit, 10));
 
         const healthColorMap: Record<string, string> = {
           on_track: 'hsl(var(--chart-2))',
@@ -314,8 +322,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const total = Number(row.total);
@@ -339,8 +347,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const budgeted = Number(row.budgeted);
@@ -364,8 +372,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const budgeted = Number(row.budgeted);
@@ -388,8 +396,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -437,8 +445,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -457,8 +465,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -477,8 +485,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -496,8 +504,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(mvTasksDaily.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),
@@ -515,8 +523,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(mvTasksDaily.priority)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         const priorityColorMap: Record<string, string> = {
           critical: 'hsl(var(--destructive))',
@@ -542,8 +550,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(and(mvBaseConditions, sql`${mvTasksDaily.type} IS NOT NULL`))
           .groupBy(mvTasksDaily.type)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatTypeLabel(row.type || 'Unknown'),
@@ -562,8 +570,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -583,8 +591,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const estimated = Number(row.estimated);
@@ -636,8 +644,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -656,8 +664,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -676,8 +684,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -697,8 +705,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const total = Number(row.total);
@@ -721,8 +729,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -760,8 +768,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvMilestoneStats)
           .where(mvBaseConditions)
           .groupBy(mvMilestoneStats.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`COUNT(*)`) : asc(sql`COUNT(*)`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`COUNT(*)`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),
@@ -779,8 +787,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvMilestoneStats)
           .where(mvBaseConditions)
           .groupBy(mvMilestoneStats.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`COUNT(*)`) : asc(sql`COUNT(*)`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`COUNT(*)`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),

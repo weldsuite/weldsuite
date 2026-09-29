@@ -228,10 +228,154 @@ function toCrmTask(task: Task): CrmTask {
   };
 }
 
+// Merge optimistic-only fields from the previous copy of a task (`p`) into the
+// fresh server copy (`f`) when the server response is missing them.
+function mergeOptimisticTaskFields(f: Task, p: Task): Task {
+  const out: Task = { ...f };
+  if ((f.assigneeIds?.length ?? 0) < (p.assigneeIds?.length ?? 0)) {
+    out.assigneeIds = p.assigneeIds;
+  }
+  if ((f.assignees?.length ?? 0) < (p.assignees?.length ?? 0)) {
+    out.assignees = p.assignees;
+  }
+  fillMissingScalarFields(out, p);
+  if ((!out.labels || out.labels.length === 0) && p.labels?.length) out.labels = p.labels;
+  if (!out.description && p.description) out.description = p.description;
+  return out;
+}
+
+function fillMissingScalarFields(out: Task, p: Task): void {
+  if (out.duration == null && p.duration != null) out.duration = p.duration;
+  if (out.estimatedHours == null && p.estimatedHours != null) out.estimatedHours = p.estimatedHours;
+  if (out.startDate == null && p.startDate != null) out.startDate = p.startDate;
+  if (out.dueDate == null && p.dueDate != null) out.dueDate = p.dueDate;
+  if (out.priority == null && p.priority != null) out.priority = p.priority;
+}
+
+interface SaveTaskFormData {
+  title: string;
+  description?: string;
+  status: Task['status'];
+  priority?: 'low' | 'medium' | 'high';
+  assigneeId?: string;
+  assigneeIds?: string[];
+  dueDate?: Date;
+  duration?: number;
+  linkedCompanyId?: string;
+  labels?: string[];
+  repeat?: { frequency: string; interval?: number; unit?: string };
+}
+
+// The API response may not include all fields, so fill the gaps from the form
+// data the user just entered.
+function fillNewTaskFromForm(
+  newTask: Task,
+  data: SaveTaskFormData,
+  selectedProject: ProjectInfo | undefined,
+  availableAssignees: { id: string; name: string; avatar?: string }[],
+): void {
+  if (!newTask.assignee && data.assigneeId) {
+    const member = availableAssignees.find(a => a.id === data.assigneeId);
+    if (member) {
+      newTask.assignee = member.name;
+      newTask.assigneeId = data.assigneeId;
+    }
+  }
+  if (!newTask.project && selectedProject) {
+    newTask.project = selectedProject.name;
+    newTask.projectId = selectedProject.id;
+  }
+  fillNewTaskScalarsFromForm(newTask, data);
+}
+
+function fillNewTaskScalarsFromForm(newTask: Task, data: SaveTaskFormData): void {
+  if (!newTask.dueDate && data.dueDate) newTask.dueDate = data.dueDate;
+  if (!newTask.priority && data.priority) newTask.priority = data.priority;
+  if ((!newTask.labels || newTask.labels.length === 0) && data.labels?.length) {
+    newTask.labels = data.labels;
+  }
+  if (!newTask.description && data.description) newTask.description = data.description;
+  if (newTask.duration == null && data.duration != null) newTask.duration = data.duration;
+}
+
+// Applies the multi-assignee `assigneeIds` normalisation to an inline-edit
+// payload (multi-assignee fields win over the singular ones).
+function applyAssigneePayload(apiData: Record<string, unknown>, data: Partial<Task>): void {
+  if (data.assigneeIds !== undefined || data.assignees !== undefined) {
+    const ids =
+      data.assigneeIds === undefined
+        ? (data.assignees?.map((a) => a.id) ?? [])
+        : (Array.isArray(data.assigneeIds) ? data.assigneeIds : []);
+    apiData.assigneeIds = ids.length > 0 ? ids : null;
+    delete apiData.assigneeId;
+    delete apiData.assignee;
+    delete apiData.assignees;
+  } else if (data.assigneeId !== undefined && data.assignee !== undefined) {
+    apiData.assigneeId = data.assigneeId;
+    delete apiData.assignee;
+  }
+}
+
+// Build the API payload for an inline task edit: normalises dates and the
+// assignee fields.
+function buildTaskUpdatePayload(data: Partial<Task>): Record<string, unknown> {
+  const apiData: Record<string, unknown> = { ...data };
+  if (data.dueDate !== undefined) {
+    apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+  }
+  applyAssigneePayload(apiData, data);
+  return apiData;
+}
+
 const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: number; scaleX: number; scaleY: number } }) => ({
   ...transform,
   x: 0,
 });
+
+// Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
+// transform so they fill the gap the dragged row leaves behind. We override transition
+// for both so they share the exact same timing and never cross paths mid-animation.
+function computeDragSnapY(
+  isDragging: boolean,
+  rectHeight: number | undefined,
+  activeIndex: number,
+  overIndex: number,
+): number {
+  if (!isDragging || rectHeight === undefined || activeIndex === -1) return 0;
+  const targetIndex = overIndex === -1 ? activeIndex : overIndex;
+  return (targetIndex - activeIndex) * rectHeight;
+}
+
+// Only apply drag-related layout styles while a sort is in progress. When idle, leave
+// the row completely alone so there are no stray stacking contexts or transitions that
+// could flicker during normal hover.
+function buildSortableRowStyle({
+  isSorting,
+  isDragging,
+  isDragEnabled,
+  snapY,
+  transform,
+}: {
+  isSorting: boolean;
+  isDragging: boolean;
+  isDragEnabled: boolean;
+  snapY: number;
+  transform: Parameters<typeof CSS.Transform.toString>[0];
+}): React.CSSProperties {
+  if (!isSorting) {
+    return { cursor: isDragEnabled ? 'grab' : undefined };
+  }
+  return {
+    transform: isDragging
+      ? `translate3d(0, ${snapY}px, 0)`
+      : CSS.Transform.toString(transform),
+    transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
+    position: 'relative',
+    zIndex: isDragging ? 50 : undefined,
+    backgroundColor: isDragging ? 'var(--background)' : undefined,
+    cursor: isDragEnabled ? 'grabbing' : undefined,
+  };
+}
 
 function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string; isDragEnabled: boolean; children: React.ReactNode }>) {
   const {
@@ -250,31 +394,8 @@ function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string;
     animateLayoutChanges: () => false,
   });
 
-  // Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
-  // transform so they fill the gap the dragged row leaves behind. We override transition
-  // for both so they share the exact same timing and never cross paths mid-animation.
-  const snapY =
-    isDragging && rect.current && activeIndex !== -1
-      ? ((overIndex !== -1 ? overIndex : activeIndex) - activeIndex) * rect.current.height
-      : 0;
-
-  // Only apply drag-related layout styles while a sort is in progress. When idle, leave
-  // the row completely alone so there are no stray stacking contexts or transitions that
-  // could flicker during normal hover.
-  const style: React.CSSProperties = isSorting
-    ? {
-        transform: isDragging
-          ? `translate3d(0, ${snapY}px, 0)`
-          : CSS.Transform.toString(transform),
-        transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
-        position: 'relative',
-        zIndex: isDragging ? 50 : undefined,
-        backgroundColor: isDragging ? 'var(--background)' : undefined,
-        cursor: isDragEnabled ? 'grabbing' : undefined,
-      }
-    : {
-        cursor: isDragEnabled ? 'grab' : undefined,
-      };
+  const snapY = computeDragSnapY(isDragging, rect.current?.height, activeIndex, overIndex);
+  const style = buildSortableRowStyle({ isSorting, isDragging, isDragEnabled, snapY, transform });
 
   return (
     <div ref={setNodeRef} style={style} {...(isDragEnabled ? { ...attributes, ...listeners } : {})}>
@@ -338,22 +459,7 @@ export function MyTasksClient({
         // server catches up.
         const merged: Task[] = fresh.map((f) => {
           const p = prevById.get(f.id);
-          if (!p) return f;
-          const out: Task = { ...f };
-          if ((f.assigneeIds?.length ?? 0) < (p.assigneeIds?.length ?? 0)) {
-            out.assigneeIds = p.assigneeIds;
-          }
-          if ((f.assignees?.length ?? 0) < (p.assignees?.length ?? 0)) {
-            out.assignees = p.assignees;
-          }
-          if (out.duration == null && p.duration != null) out.duration = p.duration;
-          if (out.estimatedHours == null && p.estimatedHours != null) out.estimatedHours = p.estimatedHours;
-          if (out.startDate == null && p.startDate != null) out.startDate = p.startDate;
-          if (out.dueDate == null && p.dueDate != null) out.dueDate = p.dueDate;
-          if (out.priority == null && p.priority != null) out.priority = p.priority;
-          if ((!out.labels || out.labels.length === 0) && p.labels?.length) out.labels = p.labels;
-          if (!out.description && p.description) out.description = p.description;
-          return out;
+          return p ? mergeOptimisticTaskFields(f, p) : f;
         });
 
         const optimisticOnly = prev.filter((p) => !freshById.has(p.id));
@@ -501,19 +607,7 @@ export function MyTasksClient({
   const projectOptions = projects.map(p => ({ id: p.id, name: p.name }));
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
 
-  const handleSaveTask = (data: {
-    title: string;
-    description?: string;
-    status: Task['status'];
-    priority?: 'low' | 'medium' | 'high';
-    assigneeId?: string;
-    assigneeIds?: string[];
-    dueDate?: Date;
-    duration?: number;
-    linkedCompanyId?: string;
-    labels?: string[];
-    repeat?: { frequency: string; interval?: number; unit?: string };
-  }) => {
+  const handleSaveTask = (data: SaveTaskFormData) => {
     const selectedProject = data.linkedCompanyId ? projectById[data.linkedCompanyId] : projects[0];
 
     startTransition(async () => {
@@ -532,25 +626,7 @@ export function MyTasksClient({
       });
       if (result.success && result.data) {
         const newTask = transformApiTask(result.data);
-        // API response may not include all fields, fill from the form data the user just entered
-        if (!newTask.assignee && data.assigneeId) {
-          const member = availableAssignees.find(a => a.id === data.assigneeId);
-          if (member) {
-            newTask.assignee = member.name;
-            newTask.assigneeId = data.assigneeId;
-          }
-        }
-        if (!newTask.project && selectedProject) {
-          newTask.project = selectedProject.name;
-          newTask.projectId = selectedProject.id;
-        }
-        if (!newTask.dueDate && data.dueDate) newTask.dueDate = data.dueDate;
-        if (!newTask.priority && data.priority) newTask.priority = data.priority;
-        if ((!newTask.labels || newTask.labels.length === 0) && data.labels?.length) {
-          newTask.labels = data.labels;
-        }
-        if (!newTask.description && data.description) newTask.description = data.description;
-        if (newTask.duration == null && data.duration != null) newTask.duration = data.duration;
+        fillNewTaskFromForm(newTask, data, selectedProject, availableAssignees);
         setTasks(prev => [newTask, ...prev]);
         setShowTaskDialog(false);
         toast.success(t.projects.myTasks.taskCreated);
@@ -760,26 +836,7 @@ export function MyTasksClient({
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
     setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
 
-    const apiData: Record<string, unknown> = { ...data };
-    if (data.dueDate !== undefined) {
-      apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
-    }
-    if (data.assigneeIds !== undefined) {
-      const ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
-      apiData.assigneeIds = ids.length > 0 ? ids : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    } else if (data.assignees !== undefined) {
-      const ids = data.assignees?.map((a) => a.id) ?? [];
-      apiData.assigneeIds = ids.length > 0 ? ids : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    } else if (data.assigneeId !== undefined && data.assignee !== undefined) {
-      apiData.assigneeId = data.assigneeId;
-      delete apiData.assignee;
-    }
+    const apiData = buildTaskUpdatePayload(data);
 
     // Prefer the project-scoped task update endpoint (which already supports
     // multi-assignees) when the task has a projectId; fall back to the
