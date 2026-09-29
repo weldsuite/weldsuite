@@ -12,11 +12,74 @@ import {
   type ThreadChannel,
 } from 'discord.js';
 import { eq, and, ne, isNull, sql } from 'drizzle-orm';
-import { getTenantDb, schema } from '../lib/db.js';
+import { getTenantDb, schema, type Database } from '../lib/db.js';
 import { resolveGuild } from '../lib/guild-cache.js';
 import { generateId } from '../lib/id.js';
 import { executeWorkflows } from '../engine/executor.js';
 import { publishConversationEvent } from '../lib/realtime.js';
+
+/** Whether the thread (or its parent channel) is an enabled support channel (opt-in: nothing selected → ignore). */
+function isMonitoredChannel(
+  config: Record<string, unknown>,
+  channelId: string,
+  parentChannelId: string | null,
+): boolean {
+  const supportChannels = (config.supportChannels || []) as Array<{ channelId: string; enabled: boolean }>;
+  const enabledChannels = supportChannels.filter((ch) => ch.enabled);
+  if (enabledChannels.length === 0) return false; // not_monitored
+
+  return enabledChannels.some((ch) => ch.channelId === channelId || ch.channelId === parentChannelId);
+}
+
+/**
+ * Resolve the customer's email and display name from a linked Discord identity,
+ * falling back to Discord defaults. Non-fatal: lookup errors keep the defaults.
+ */
+async function resolveCustomerIdentity(
+  db: Database,
+  author: Message['author'],
+): Promise<{ customerEmail: string; customerName: string }> {
+  let customerEmail = `discord:${author.id}@discord`;
+  let customerName = author.displayName || author.username;
+
+  try {
+    const [identity] = await db
+      .select({
+        personId: schema.contactExternalIdentities.personId,
+        externalEmail: schema.contactExternalIdentities.externalEmail,
+      })
+      .from(schema.contactExternalIdentities)
+      .where(
+        and(
+          eq(schema.contactExternalIdentities.provider, 'discord'),
+          eq(schema.contactExternalIdentities.externalId, author.id),
+        ),
+      )
+      .limit(1);
+
+    if (identity) {
+      if (identity.externalEmail) customerEmail = identity.externalEmail;
+
+      if (identity.personId) {
+        const [person] = await db
+          .select({
+            fullName: schema.people.fullName,
+            displayName: schema.people.displayName,
+          })
+          .from(schema.people)
+          .where(eq(schema.people.id, identity.personId))
+          .limit(1);
+
+        if (person?.fullName) customerName = person.fullName;
+        else if (person?.displayName) customerName = person.displayName;
+      }
+    }
+  } catch {
+    // Non-fatal — continue with defaults
+  }
+
+  return { customerEmail, customerName };
+}
 
 export async function handleMessage(message: Message): Promise<void> {
   // Ignore bot messages and system messages
@@ -63,14 +126,7 @@ export async function handleMessage(message: Message): Promise<void> {
     const config = (integration.config || {}) as Record<string, unknown>;
 
     // Check if parent channel is monitored (opt-in: nothing selected → ignore)
-    const supportChannels = (config.supportChannels || []) as Array<{ channelId: string; enabled: boolean }>;
-    const enabledChannels = supportChannels.filter((ch) => ch.enabled);
-    if (enabledChannels.length === 0) return; // not_monitored
-
-    const channelConfig = enabledChannels.find(
-      (ch) => ch.channelId === channelId || ch.channelId === parentChannelId,
-    );
-    if (!channelConfig) return;
+    if (!isMonitoredChannel(config, channelId, parentChannelId)) return;
 
     // 3. Find existing ticket conversation for this thread
     const threadChannelId = channelId;
@@ -91,44 +147,7 @@ export async function handleMessage(message: Message): Promise<void> {
     if (!existingConv) return; // Not a known ticket thread — ignore
 
     // 4. Resolve person for author name.
-    let customerEmail = `discord:${author.id}@discord`;
-    let customerName = author.displayName || author.username;
-
-    try {
-      const [identity] = await db
-        .select({
-          personId: schema.contactExternalIdentities.personId,
-          externalEmail: schema.contactExternalIdentities.externalEmail,
-        })
-        .from(schema.contactExternalIdentities)
-        .where(
-          and(
-            eq(schema.contactExternalIdentities.provider, 'discord'),
-            eq(schema.contactExternalIdentities.externalId, author.id),
-          ),
-        )
-        .limit(1);
-
-      if (identity) {
-        if (identity.externalEmail) customerEmail = identity.externalEmail;
-
-        if (identity.personId) {
-          const [person] = await db
-            .select({
-              fullName: schema.people.fullName,
-              displayName: schema.people.displayName,
-            })
-            .from(schema.people)
-            .where(eq(schema.people.id, identity.personId))
-            .limit(1);
-
-          if (person?.fullName) customerName = person.fullName;
-          else if (person?.displayName) customerName = person.displayName;
-        }
-      }
-    } catch {
-      // Non-fatal — continue with defaults
-    }
+    const { customerEmail, customerName } = await resolveCustomerIdentity(db, author);
 
     const messageContent = content;
     const now = new Date();

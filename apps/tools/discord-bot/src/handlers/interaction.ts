@@ -20,7 +20,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { eq, and, ne, isNull, sql } from 'drizzle-orm';
-import { getTenantDb, schema } from '../lib/db.js';
+import { getTenantDb, schema, type Database } from '../lib/db.js';
 import { resolveGuild } from '../lib/guild-cache.js';
 import { generateId } from '../lib/id.js';
 import { executeWorkflows, resumeWorkflow } from '../engine/executor.js';
@@ -46,6 +46,100 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
   }
 }
 
+type FormField =
+  | string
+  | { id: string; label: string; type?: string; required?: boolean; placeholder?: string };
+
+/**
+ * Field definitions for a collect_input step: from the waiting execution's step
+ * result, falling back to the step's message metadata.
+ */
+async function loadFormFields(db: Database, conversationId: string, stepId: string): Promise<FormField[]> {
+  // Find the execution to get the field definitions
+  const [execution] = await db
+    .select({
+      id: schema.helpdeskWorkflowExecutions.id,
+      executionContext: schema.helpdeskWorkflowExecutions.executionContext,
+    })
+    .from(schema.helpdeskWorkflowExecutions)
+    .where(
+      and(
+        eq(schema.helpdeskWorkflowExecutions.conversationId, conversationId),
+        eq(schema.helpdeskWorkflowExecutions.status, 'waiting_for_input'),
+      ),
+    )
+    .limit(1);
+
+  // Get field definitions from the step result stored in execution context
+  const execCtx = (execution?.executionContext || {}) as Record<string, unknown>;
+  const stepResults = (execCtx.stepResults || {}) as Record<string, Record<string, unknown>>;
+  const stepResult = stepResults[stepId] || {};
+  const fields = (stepResult.fields || []) as FormField[];
+
+  // If no fields found, try to get from the message metadata
+  if (fields.length === 0) {
+    const [msg] = await db
+      .select({ metadata: schema.helpdeskConversationMessages.metadata })
+      .from(schema.helpdeskConversationMessages)
+      .where(
+        and(
+          eq(schema.helpdeskConversationMessages.conversationId, conversationId),
+          sql`${schema.helpdeskConversationMessages.metadata}->>'workflowStepId' = ${stepId}`,
+        ),
+      )
+      .limit(1);
+
+    const msgFields = ((msg?.metadata as any)?.fields || []) as FormField[];
+    fields.push(...msgFields);
+  }
+
+  return fields;
+}
+
+/** One modal text input for a field. Fields can be strings ("email") or objects ({ id, label, type }). */
+function buildFieldInput(field: FormField): TextInputBuilder {
+  if (typeof field === 'string') {
+    return new TextInputBuilder()
+      .setCustomId(field)
+      .setLabel((field.charAt(0).toUpperCase() + field.slice(1)).slice(0, 45))
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setPlaceholder('');
+  }
+  return new TextInputBuilder()
+    .setCustomId(field.id || field.label || 'field')
+    .setLabel((field.label || field.id || 'Field').slice(0, 45))
+    .setStyle(field.type === 'textarea' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+    .setRequired(field.required ?? false)
+    .setPlaceholder(field.placeholder || '');
+}
+
+/** Build the modal with text inputs (max 5 per modal). */
+function buildFormModal(conversationId: string, stepId: string, fields: FormField[]): ModalBuilder {
+  const modal = new ModalBuilder()
+    .setCustomId(`wf_form_submit:${conversationId}:${stepId}`)
+    .setTitle('Please fill in your details');
+
+  const inputFields = fields.slice(0, 5); // Discord modals support max 5 inputs
+
+  if (inputFields.length === 0) {
+    // Fallback: single generic text input
+    const input = new TextInputBuilder()
+      .setCustomId('response')
+      .setLabel('Your response')
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
+
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    return modal;
+  }
+
+  for (const field of inputFields) {
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(buildFieldInput(field)));
+  }
+  return modal;
+}
+
 // ============================================================================
 // Form Button → Show Modal
 // ============================================================================
@@ -58,7 +152,7 @@ async function handleFormButton(button: ButtonInteraction): Promise<void> {
   const parts = button.customId.split(':');
   if (parts.length < 3) return;
 
-  const [, conversationId, stepId] = parts;
+  const [, conversationId, stepId] = parts as [string, string, string];
 
   try {
     const guildMapping = await resolveGuild(guildId);
@@ -66,79 +160,8 @@ async function handleFormButton(button: ButtonInteraction): Promise<void> {
 
     const db = await getTenantDb(guildMapping.clerkOrgId);
 
-    // Find the execution to get the field definitions
-    const [execution] = await db
-      .select({
-        id: schema.helpdeskWorkflowExecutions.id,
-        executionContext: schema.helpdeskWorkflowExecutions.executionContext,
-      })
-      .from(schema.helpdeskWorkflowExecutions)
-      .where(
-        and(
-          eq(schema.helpdeskWorkflowExecutions.conversationId, conversationId),
-          eq(schema.helpdeskWorkflowExecutions.status, 'waiting_for_input'),
-        ),
-      )
-      .limit(1);
-
-    // Get field definitions from the step result stored in execution context
-    const execCtx = (execution?.executionContext || {}) as Record<string, unknown>;
-    const stepResults = (execCtx.stepResults || {}) as Record<string, Record<string, unknown>>;
-    const stepResult = stepResults[stepId] || {};
-    const fields = (stepResult.fields || []) as Array<{ id: string; label: string; type?: string; required?: boolean; placeholder?: string }>;
-
-    // If no fields found, try to get from the message metadata
-    if (fields.length === 0) {
-      const [msg] = await db
-        .select({ metadata: schema.helpdeskConversationMessages.metadata })
-        .from(schema.helpdeskConversationMessages)
-        .where(
-          and(
-            eq(schema.helpdeskConversationMessages.conversationId, conversationId),
-            sql`${schema.helpdeskConversationMessages.metadata}->>'workflowStepId' = ${stepId}`,
-          ),
-        )
-        .limit(1);
-
-      const msgFields = ((msg?.metadata as any)?.fields || []) as Array<{ id: string; label: string; type?: string; required?: boolean; placeholder?: string }>;
-      fields.push(...msgFields);
-    }
-
-    // Build modal with text inputs (max 5 per modal)
-    const modal = new ModalBuilder()
-      .setCustomId(`wf_form_submit:${conversationId}:${stepId}`)
-      .setTitle('Please fill in your details');
-
-    const inputFields = fields.slice(0, 5); // Discord modals support max 5 inputs
-
-    if (inputFields.length === 0) {
-      // Fallback: single generic text input
-      const input = new TextInputBuilder()
-        .setCustomId('response')
-        .setLabel('Your response')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true);
-
-      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
-    } else {
-      for (const field of inputFields) {
-        // Fields can be strings ("email") or objects ({ id, label, type })
-        const fieldId = typeof field === 'string' ? field : (field.id || field.label || 'field');
-        const fieldLabel = typeof field === 'string' ? field.charAt(0).toUpperCase() + field.slice(1) : (field.label || field.id || 'Field');
-        const isLongText = typeof field !== 'string' && field.type === 'textarea';
-        const isRequired = typeof field === 'string' ? true : (field.required ?? false);
-        const placeholder = typeof field !== 'string' ? (field.placeholder || '') : '';
-
-        const input = new TextInputBuilder()
-          .setCustomId(fieldId)
-          .setLabel(fieldLabel.slice(0, 45))
-          .setStyle(isLongText ? TextInputStyle.Paragraph : TextInputStyle.Short)
-          .setRequired(isRequired)
-          .setPlaceholder(placeholder);
-
-        modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
-      }
-    }
+    const fields = await loadFormFields(db, conversationId, stepId);
+    const modal = buildFormModal(conversationId, stepId, fields);
 
     await button.showModal(modal);
   } catch (err) {

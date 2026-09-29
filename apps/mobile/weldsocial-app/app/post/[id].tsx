@@ -23,6 +23,43 @@ interface PostDetailData {
   accounts: SocialAccount[];
 }
 
+interface TargetsListProps {
+  post: SocialPost;
+  accountsById: Map<string, SocialAccount>;
+}
+
+function TargetsList({ post, accountsById }: TargetsListProps) {
+  const { colors } = useTheme();
+  if (!(post.targetAccountIds ?? []).length) {
+    return <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>;
+  }
+  return (
+    <View style={{ gap: 8 }}>
+      {post.targetAccountIds.map((accountId) => {
+        const account = accountsById.get(accountId);
+        const meta = account ? PLATFORM_META[account.platform] : null;
+        const platformResult = post.platformContent?.find((p) => p.accountId === accountId);
+        return (
+          <View key={accountId} style={styles.targetRow}>
+            <View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />
+            <Text style={[styles.targetName, { color: colors.text }]} numberOfLines={1}>
+              {account ? `${account.name}${account.username ? ` (@${account.username})` : ''}` : accountId}
+            </Text>
+            {platformResult?.publishedUrl && (
+              <TouchableOpacity
+                onPress={() => Linking.openURL(platformResult.publishedUrl!)}
+                accessibilityLabel="Open published post"
+              >
+                <ExternalLink size={16} color={colors.info} />
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function PostDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -133,33 +170,7 @@ export default function PostDetailScreen() {
 
           <View>
             <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TARGETS</Text>
-            {(post.targetAccountIds ?? []).length ? (
-              <View style={{ gap: 8 }}>
-                {post.targetAccountIds.map((accountId) => {
-                  const account = accountsById.get(accountId);
-                  const meta = account ? PLATFORM_META[account.platform] : null;
-                  const platformResult = post.platformContent?.find((p) => p.accountId === accountId);
-                  return (
-                    <View key={accountId} style={styles.targetRow}>
-                      <View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />
-                      <Text style={[styles.targetName, { color: colors.text }]} numberOfLines={1}>
-                        {account ? `${account.name}${account.username ? ` (@${account.username})` : ''}` : accountId}
-                      </Text>
-                      {platformResult?.publishedUrl && (
-                        <TouchableOpacity
-                          onPress={() => Linking.openURL(platformResult.publishedUrl!)}
-                          accessibilityLabel="Open published post"
-                        >
-                          <ExternalLink size={16} color={colors.info} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>
-            )}
+            <TargetsList post={post} accountsById={accountsById} />
           </View>
 
           {post.status === 'failed' && (

@@ -27,6 +27,160 @@ import { hideAppSplash } from '@/utils/splash';
 
 const TERMINAL = new Set(['picked', 'partial', 'short', 'skipped']);
 
+interface SendcloudSender {
+  id: number;
+  name: string;
+  enabled: boolean;
+  isDefault: boolean;
+}
+
+interface SendcloudMethod {
+  code: string;
+  name: string;
+  enabled: boolean;
+  isDefault: boolean;
+}
+
+interface SendcloudFormProps {
+  connected: boolean;
+  senders: SendcloudSender[];
+  methods: SendcloudMethod[];
+  senderId: string;
+  onSenderIdChange: (value: string) => void;
+  methodCode: string;
+  onMethodCodeChange: (value: string) => void;
+  weightKg: string;
+  onWeightKgChange: (value: string) => void;
+}
+
+function SendcloudForm({
+  connected,
+  senders,
+  methods,
+  senderId,
+  onSenderIdChange,
+  methodCode,
+  onMethodCodeChange,
+  weightKg,
+  onWeightKgChange,
+}: SendcloudFormProps) {
+  const { colors } = useTheme();
+  if (!connected) {
+    return (
+      <Text style={{ color: colors.muted, marginBottom: 8 }}>
+        Connect Sendcloud in Settings → Integrations before shipping.
+      </Text>
+    );
+  }
+  return (
+    <View style={{ gap: 8, marginBottom: 12 }}>
+      <Text style={{ color: colors.muted }}>Sender id</Text>
+      <TextInput
+        value={senderId}
+        onChangeText={onSenderIdChange}
+        keyboardType="number-pad"
+        style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
+      />
+      {senders.map((sender) => (
+        <Pressable key={sender.id} onPress={() => onSenderIdChange(String(sender.id))}>
+          <Text style={{ color: senderId === String(sender.id) ? colors.text : colors.muted }}>
+            {sender.name}
+          </Text>
+        </Pressable>
+      ))}
+      <Text style={{ color: colors.muted }}>Parcel type</Text>
+      {methods.map((method) => (
+        <Pressable key={method.code} onPress={() => onMethodCodeChange(method.code)}>
+          <Text style={{ color: methodCode === method.code ? colors.text : colors.muted }}>
+            {method.name}
+          </Text>
+        </Pressable>
+      ))}
+      <Text style={{ color: colors.muted }}>Weight (kg)</Text>
+      <TextInput
+        value={weightKg}
+        onChangeText={onWeightKgChange}
+        keyboardType="decimal-pad"
+        style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
+      />
+    </View>
+  );
+}
+
+/** Loads the workspace's Sendcloud connection state, enabled senders/methods and their defaults. */
+function useSendcloudOptions() {
+  const [senderId, setSenderId] = useState('');
+  const [methodCode, setMethodCode] = useState('');
+  const [senders, setSenders] = useState<SendcloudSender[]>([]);
+  const [methods, setMethods] = useState<SendcloudMethod[]>([]);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void appApi.sendcloud
+      .get()
+      .then((res) => {
+        if (cancelled) return;
+        const data = res.data;
+        setConnected(Boolean(data.connected));
+        const nextSenders = (data.senders ?? []).filter((row) => row.enabled);
+        const nextMethods = (data.methods ?? []).filter((row) => row.enabled);
+        setSenders(nextSenders);
+        setMethods(nextMethods);
+        const defaultSender = nextSenders.find((row) => row.isDefault) ?? nextSenders[0];
+        const defaultMethod = nextMethods.find((row) => row.isDefault) ?? nextMethods[0];
+        if (defaultSender) setSenderId(String(defaultSender.id));
+        if (defaultMethod) setMethodCode(defaultMethod.code);
+      })
+      .catch(() => {
+        if (!cancelled) setConnected(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { connected, senders, methods, senderId, setSenderId, methodCode, setMethodCode };
+}
+
+interface CurrentLineCardProps {
+  line: PickListItemRow;
+  scanPhase: 'location' | 'product' | 'done';
+  scannedLocation: string | null;
+  qty: string;
+  onQtyChange: (value: string) => void;
+  busy: boolean;
+  onMarkShort: () => void;
+}
+
+function CurrentLineCard({ line, scanPhase, scannedLocation, qty, onQtyChange, busy, onMarkShort }: CurrentLineCardProps) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.divider }]}>
+      <Text style={[styles.kicker, { color: colors.muted }]}>
+        Line {(line.pickSequence ?? 0)} · scan {scanPhase}
+      </Text>
+      <Text style={[styles.itemName, { color: colors.text }]}>{line.name}</Text>
+      <Text style={[styles.meta, { color: colors.muted }]}>
+        SKU {line.sku || '—'} · Location {line.locationCode || 'unlocated'} · Qty {line.quantityRequired}
+      </Text>
+      {scannedLocation ? (
+        <Text style={[styles.meta, { color: colors.text }]}>Location scanned: {scannedLocation}</Text>
+      ) : null}
+      <Text style={[styles.kicker, { color: colors.muted, marginTop: 16 }]}>Quantity</Text>
+      <TextInput
+        value={qty}
+        onChangeText={onQtyChange}
+        keyboardType="number-pad"
+        style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
+      />
+      <View style={{ marginTop: 12, gap: 8 }}>
+        <Button title="Mark short" variant="secondary" disabled={busy} onPress={onMarkShort} />
+      </View>
+    </View>
+  );
+}
+
 export default function PickDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { markInteractive } = useObserve();
@@ -50,12 +204,16 @@ export default function PickDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [qty, setQty] = useState('');
   const [scannedLocation, setScannedLocation] = useState<string | null>(null);
-  const [senderId, setSenderId] = useState('');
-  const [methodCode, setMethodCode] = useState('');
   const [weightKg, setWeightKg] = useState('1');
-  const [senders, setSenders] = useState<Array<{ id: number; name: string; enabled: boolean; isDefault: boolean }>>([]);
-  const [methods, setMethods] = useState<Array<{ code: string; name: string; enabled: boolean; isDefault: boolean }>>([]);
-  const [sendcloudConnected, setSendcloudConnected] = useState(false);
+  const {
+    connected: sendcloudConnected,
+    senders,
+    methods,
+    senderId,
+    setSenderId,
+    methodCode,
+    setMethodCode,
+  } = useSendcloudOptions();
 
   const items = list?.items ?? [];
   const current = useMemo(
@@ -79,31 +237,6 @@ export default function PickDetailScreen() {
     await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
     await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
   }, [id, queryClient]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void appApi.sendcloud
-      .get()
-      .then((res) => {
-        if (cancelled) return;
-        const data = res.data;
-        setSendcloudConnected(Boolean(data.connected));
-        const nextSenders = (data.senders ?? []).filter((row) => row.enabled);
-        const nextMethods = (data.methods ?? []).filter((row) => row.enabled);
-        setSenders(nextSenders);
-        setMethods(nextMethods);
-        const defaultSender = nextSenders.find((row) => row.isDefault) ?? nextSenders[0];
-        const defaultMethod = nextMethods.find((row) => row.isDefault) ?? nextMethods[0];
-        if (defaultSender) setSenderId(String(defaultSender.id));
-        if (defaultMethod) setMethodCode(defaultMethod.code);
-      })
-      .catch(() => {
-        if (!cancelled) setSendcloudConnected(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const confirmLine = useCallback(
     async (item: PickListItemRow, productBarcode: string, locationBarcode?: string, short = false) => {
@@ -192,33 +325,15 @@ export default function PickDetailScreen() {
       ) : null}
 
       {current && (status === 'in_progress' || status === 'assigned' || status === 'pending') ? (
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.divider }]}>
-          <Text style={[styles.kicker, { color: colors.muted }]}>
-            Line {(current.pickSequence ?? 0)} · scan {scanPhase}
-          </Text>
-          <Text style={[styles.itemName, { color: colors.text }]}>{current.name}</Text>
-          <Text style={[styles.meta, { color: colors.muted }]}>
-            SKU {current.sku || '—'} · Location {current.locationCode || 'unlocated'} · Qty {current.quantityRequired}
-          </Text>
-          {scannedLocation ? (
-            <Text style={[styles.meta, { color: colors.text }]}>Location scanned: {scannedLocation}</Text>
-          ) : null}
-          <Text style={[styles.kicker, { color: colors.muted, marginTop: 16 }]}>Quantity</Text>
-          <TextInput
-            value={qty}
-            onChangeText={setQty}
-            keyboardType="number-pad"
-            style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-          />
-          <View style={{ marginTop: 12, gap: 8 }}>
-            <Button
-              title="Mark short"
-              variant="secondary"
-              disabled={busy}
-              onPress={() => void confirmLine(current, current.sku || current.name, scannedLocation ?? undefined, true)}
-            />
-          </View>
-        </View>
+        <CurrentLineCard
+          line={current}
+          scanPhase={scanPhase}
+          scannedLocation={scannedLocation}
+          qty={qty}
+          onQtyChange={setQty}
+          busy={busy}
+          onMarkShort={() => void confirmLine(current, current.sku || current.name, scannedLocation ?? undefined, true)}
+        />
       ) : null}
 
       {allPicked && status === 'in_progress' ? (
@@ -235,43 +350,17 @@ export default function PickDetailScreen() {
 
       {status === 'packed' ? (
         <View style={styles.pad}>
-          {!sendcloudConnected ? (
-            <Text style={{ color: colors.muted, marginBottom: 8 }}>
-              Connect Sendcloud in Settings → Integrations before shipping.
-            </Text>
-          ) : (
-            <View style={{ gap: 8, marginBottom: 12 }}>
-              <Text style={{ color: colors.muted }}>Sender id</Text>
-              <TextInput
-                value={senderId}
-                onChangeText={setSenderId}
-                keyboardType="number-pad"
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-              />
-              {senders.map((sender) => (
-                <Pressable key={sender.id} onPress={() => setSenderId(String(sender.id))}>
-                  <Text style={{ color: senderId === String(sender.id) ? colors.text : colors.muted }}>
-                    {sender.name}
-                  </Text>
-                </Pressable>
-              ))}
-              <Text style={{ color: colors.muted }}>Parcel type</Text>
-              {methods.map((method) => (
-                <Pressable key={method.code} onPress={() => setMethodCode(method.code)}>
-                  <Text style={{ color: methodCode === method.code ? colors.text : colors.muted }}>
-                    {method.name}
-                  </Text>
-                </Pressable>
-              ))}
-              <Text style={{ color: colors.muted }}>Weight (kg)</Text>
-              <TextInput
-                value={weightKg}
-                onChangeText={setWeightKg}
-                keyboardType="decimal-pad"
-                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
-              />
-            </View>
-          )}
+          <SendcloudForm
+            connected={sendcloudConnected}
+            senders={senders}
+            methods={methods}
+            senderId={senderId}
+            onSenderIdChange={setSenderId}
+            methodCode={methodCode}
+            onMethodCodeChange={setMethodCode}
+            weightKg={weightKg}
+            onWeightKgChange={setWeightKg}
+          />
           <Button
             title="Send parcel"
             disabled={!sendcloudConnected || !senderId || !methodCode || busy}

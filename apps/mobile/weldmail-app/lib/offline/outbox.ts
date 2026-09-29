@@ -161,6 +161,22 @@ export async function enqueueOp(orgId: string, op: OutboxOp): Promise<OutboxOp[]
  */
 export function applyOps<T extends { id: string }>(messages: T[], ops: OutboxOp[], label?: string): T[] {
   if (!ops.length) return messages;
+  const byMsg = groupOpsByMessage(ops);
+  const upper = (label ?? '').toUpperCase();
+  const result: T[] = [];
+  for (const m of messages) {
+    const mops = byMsg.get(m.id);
+    if (!mops) {
+      result.push(m);
+    } else if (!isHiddenByOps(mops, upper)) {
+      result.push(patchWithOps(m, mops));
+    }
+  }
+  return result;
+}
+
+/** Group the ops that target an existing message by message id (sends target none). */
+function groupOpsByMessage(ops: OutboxOp[]): Map<string, OutboxOp[]> {
   const byMsg = new Map<string, OutboxOp[]>();
   for (const op of ops) {
     if (op.kind === 'send') continue; // sends don't target an existing list row
@@ -168,25 +184,25 @@ export function applyOps<T extends { id: string }>(messages: T[], ops: OutboxOp[
     arr.push(op);
     byMsg.set(op.messageId, arr);
   }
-  const upper = (label ?? '').toUpperCase();
-  const result: T[] = [];
-  for (const m of messages) {
-    const mops = byMsg.get(m.id);
-    if (!mops) {
-      result.push(m);
-      continue;
-    }
-    if (mops.some((o) => o.kind === 'delete')) continue;
-    if (mops.some((o) => o.kind === 'archive') && upper !== 'ARCHIVE') continue;
-    if (mops.some((o) => o.kind === 'snooze') && upper !== 'SNOOZED') continue;
-    if (mops.some((o) => o.kind === 'unsnooze') && upper === 'SNOOZED') continue;
-    let patched = m;
-    for (const o of mops) {
-      if (o.kind === 'update') patched = { ...patched, ...o.patch };
-    }
-    result.push(patched);
+  return byMsg;
+}
+
+/** Whether pending ops have moved a message out of the (upper-cased) label view. */
+function isHiddenByOps(mops: OutboxOp[], upperLabel: string): boolean {
+  const has = (kind: OutboxOp['kind']) => mops.some((o) => o.kind === kind);
+  if (has('delete')) return true;
+  if (has('archive') && upperLabel !== 'ARCHIVE') return true;
+  if (has('snooze') && upperLabel !== 'SNOOZED') return true;
+  return has('unsnooze') && upperLabel === 'SNOOZED';
+}
+
+/** Merge every pending flag update into the message. */
+function patchWithOps<T>(message: T, mops: OutboxOp[]): T {
+  let patched = message;
+  for (const o of mops) {
+    if (o.kind === 'update') patched = { ...patched, ...o.patch };
   }
-  return result;
+  return patched;
 }
 
 export interface FlushResult {
