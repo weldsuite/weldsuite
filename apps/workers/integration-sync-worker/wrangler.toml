@@ -20,11 +20,23 @@ binding = "HYPERDRIVE_MASTER"
 id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
 
-# app-api service binding. Calls POST /api/integrations/connections/:id/sync and
-# /renew-watch on the internal router (app-api routes/integrations/internal.ts),
-# which is mounted ABOVE the Clerk guard and authenticates on X-Internal-Secret.
-# This worker's INTERNAL_API_SECRET must match the target app-api env's secret —
-# the router fails closed with 401 otherwise.
+# connect-api's ConnectInternal entrypoint. Calls the internal integration routes
+# (/api/integrations/connections/:id/sync, /renew-watch, /catch-up,
+# /ad-connections/:id/sync) over the binding: a named entrypoint is reachable only
+# through a service binding, so it needs no secret. `remote = true` lets plain
+# `wrangler dev` reach the deployed test worker (mirrors WORKSPACE_WORKER in app-api).
+# Deploy order: connect-api must have the entrypoint first (module workers do).
+[[services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
+remote = true
+
+# app-api service binding — FALLBACK to the same routes through app-api's forwarder,
+# authenticated on X-Internal-Secret, used while CONNECT_INTERNAL is unbound or the
+# entrypoint is not deployed yet. This worker's INTERNAL_API_SECRET must match the
+# target env's secret for that path. Remove with the secret once every env has the
+# entrypoint binding (docs/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
 service = "weldsuite-app-api"
@@ -47,6 +59,11 @@ name = "integration-sync-scheduler-test"
 
 [env.test.vars]
 ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
 
 [[env.test.services]]
 binding = "APP_API"
@@ -76,6 +93,12 @@ ENVIRONMENT = "production"
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
 id = "2cdec4bef19746d1a2c2e9726ddaacc3"
+
+# connect-api's [env.production] name is "weldsuite-connect-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api"
+entrypoint = "ConnectInternal"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]
