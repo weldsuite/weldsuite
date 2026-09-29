@@ -204,7 +204,7 @@ const { user } = useUser();
 
 ### API Client Patterns
 
-**All new client code uses the app-api client** (`useAppApi()` / `appApi` in the platform, `services/app-api.ts` in the mobile apps). It picks the host per path: modules listed in `VITE_API_MODULES` / `EXPO_PUBLIC_API_MODULES` go straight to their `<module>-api` worker, everything else to app-api, which forwards. `useCoreApi()` and `useApiClient()` are legacy hooks for the obsolete `core-api` and `api-worker` workers, existing call sites should be migrated to the app-api client.
+**All new client code uses the app-api client** (`useAppApi()` / `appApi` in the platform, `services/app-api.ts` in the mobile apps). It picks the host per path: modules listed in `VITE_API_MODULES` / `EXPO_PUBLIC_API_MODULES` (deployed as `all`; `all,-<module>` routes one module back through app-api) go straight to their `<module>-api` worker, everything else to app-api, which forwards. `useCoreApi()` and `useApiClient()` are legacy hooks for the obsolete `core-api` and `api-worker` workers, existing call sites should be migrated to the app-api client.
 
 ### Where new endpoints go: the module's worker
 

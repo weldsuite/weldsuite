@@ -8,21 +8,24 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org"
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all"
       },
       "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org"
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all"
       },
       "channel": "preview"
     },
     "production": {
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org"
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all"
       },
       "autoIncrement": true
     }

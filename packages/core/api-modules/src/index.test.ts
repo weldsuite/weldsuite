@@ -7,6 +7,8 @@ import {
   findModuleForPath,
   getApiModule,
   moduleOriginFrom,
+  coreOriginFrom,
+  originForPathFrom,
   parseModuleList,
 } from './index';
 
@@ -146,11 +148,41 @@ describe('origins', () => {
 
   it('leaves hosts it cannot map alone', () => {
     expect(moduleOriginFrom('https://proxy.example.com', pass)).toBe('https://proxy.example.com');
+    expect(coreOriginFrom('https://proxy.example.com')).toBe('https://proxy.example.com');
+  });
+
+  it('maps any worker host back to app-api', () => {
+    expect(coreOriginFrom('https://crm-api-test.weldsuite.org')).toBe('https://app-api-test.weldsuite.org');
+    expect(coreOriginFrom('https://connect-api.weldsuite.org')).toBe('https://app-api.weldsuite.org');
+    expect(coreOriginFrom('https://app-api.weldsuite.org')).toBe('https://app-api.weldsuite.org');
+    expect(coreOriginFrom('http://localhost:8801')).toBe('http://localhost:8789');
+  });
+
+  it('points callback URLs at the worker that owns the path', () => {
+    expect(originForPathFrom('https://connect-api.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
+      'https://commerce-api.weldsuite.org',
+    );
+    expect(originForPathFrom('https://app-api-test.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
+      'https://commerce-api-test.weldsuite.org',
+    );
+    expect(originForPathFrom('https://crm-api.weldsuite.org', '/api/workspaces')).toBe(
+      'https://app-api.weldsuite.org',
+    );
   });
 
   it('parses module lists, dropping core and unknown ids', () => {
     expect([...parseModuleList(' pass, host ,core,nope,')]).toEqual(['pass', 'host']);
     expect(parseModuleList(undefined).size).toBe(0);
+  });
+
+  it('expands all, minus exclusions', () => {
+    const all = parseModuleList('all');
+    expect(all.size).toBe(API_MODULES.length - 1);
+    expect(all.has('core' as never)).toBe(false);
+    const most = parseModuleList(' all , -connect,-nope');
+    expect(most.size).toBe(API_MODULES.length - 2);
+    expect(most.has('connect')).toBe(false);
+    expect([...parseModuleList('-pass,pass')]).toEqual([]);
   });
 
   it('routes only enabled modules to their own host', () => {
