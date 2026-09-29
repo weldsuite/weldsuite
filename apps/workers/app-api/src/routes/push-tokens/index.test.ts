@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { pushTokensRoutes } from './index';
-import { createTestApp } from '../../test/harness';
+import { createTestApp } from '@weldsuite/worker-kit/testing';
 
 vi.mock('../../services/push-tokens', async () => {
   const actual = await vi.importActual<typeof import('../../services/push-tokens')>(

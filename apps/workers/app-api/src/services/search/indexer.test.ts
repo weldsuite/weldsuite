@@ -11,9 +11,9 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { eq, and } from 'drizzle-orm';
-import { createPgliteDb } from '../../test/pglite';
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import {
   chunkText,
   hashContent,

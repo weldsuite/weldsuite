@@ -13,7 +13,7 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import { getTenantDbForWorkspace, type Database } from '../db';
+import { getTenantDbForWorkspace, type Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 
 type TestFixturesVariables = {

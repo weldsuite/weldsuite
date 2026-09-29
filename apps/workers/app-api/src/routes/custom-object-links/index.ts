@@ -23,11 +23,11 @@ import {
   updateCustomObjectLinkSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import type { Env, Variables } from '../../types';
-import type { Database } from '../../db';
-import { atomically } from '../../lib/atomically';
-import { error, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema } from '../../db';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
+import { error, noContent, success } from '@weldsuite/worker-kit/response';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { schema } from '@weldsuite/worker-kit/db';
 import {
   requireCustomObject,
   customObjectScope,
@@ -38,7 +38,7 @@ import {
   getRecord,
   entityKeyForSlug,
   type CustomObjectRow,
-} from '../../services/custom-objects';
+} from '@weldsuite/core-domain/custom-objects';
 import {
   assertValidTarget,
   attach,

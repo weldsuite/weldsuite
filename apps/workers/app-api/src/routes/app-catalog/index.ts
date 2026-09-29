@@ -46,10 +46,10 @@
 import { Hono, type Context } from 'hono';
 import { installCatalogAppSchema, type InstallCatalogAppInput } from '@weldsuite/app-api-client/schemas/app-catalog';
 import type { Env, Variables } from '../../types';
-import { error, success, noContent } from '../../lib/response';
+import { error, success, noContent } from '@weldsuite/worker-kit/response';
 import { toDbCode, toLegacyCode } from '../../lib/legacy-app-codes';
-import { getMasterDb } from '../../db';
-import { isAdminOrOwner } from '../../services/mail/access';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
+import { isAdminOrOwner } from '@weldsuite/mail-domain/access';
 import {
   listCatalogApps,
   listCatalogCategories,

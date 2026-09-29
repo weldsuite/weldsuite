@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { driveRoutes } from './index';
-import { createTestApp, permissions } from '../../test/harness';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 
 describe('/api/drive · auth gates', () => {
   it('GET /trash returns 403 without files:read', async () => {

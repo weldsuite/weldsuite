@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateId } from './id';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 describe('generateId', () => {
   it('produces an id with the prefix when given one', () => {

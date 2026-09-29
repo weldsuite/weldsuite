@@ -1,8 +1,8 @@
-import type { Database } from './db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
-import type { CustomObjectRow } from './services/custom-objects';
+import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 
 /**
  * App API worker — Cloudflare bindings.

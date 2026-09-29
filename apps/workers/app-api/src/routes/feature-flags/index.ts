@@ -15,7 +15,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { success } from '../../lib/response';
+import { success } from '@weldsuite/worker-kit/response';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

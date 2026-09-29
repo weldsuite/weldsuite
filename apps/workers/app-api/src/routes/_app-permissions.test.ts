@@ -32,7 +32,7 @@ import {
   requirePermission,
 } from '@weldsuite/permissions/server';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
-import { createTestApp } from '../test/harness';
+import { createTestApp } from '@weldsuite/worker-kit/testing';
 import type { Env, Variables } from '../types';
 
 function subject(permissions: string[], denies: string[] = []): ResolvedPermissions {

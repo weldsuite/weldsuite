@@ -29,9 +29,9 @@ import type {
   ReindexProgress,
 } from '@weldsuite/app-api-client/schemas/search';
 import type { Env } from '../../types';
-import type { Database } from '../../db';
-import { schema } from '../../db';
-import { generateId } from '../../lib/id';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import {
   getDocumentLoader,
   INDEXED_ENTITY_TYPES,

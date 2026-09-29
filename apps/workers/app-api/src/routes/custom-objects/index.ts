@@ -26,20 +26,20 @@ import {
   reorderCustomObjectsSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, noContent, success } from '../../lib/response';
-import { generateId } from '../../lib/id';
-import { schema } from '../../db';
+import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { schema } from '@weldsuite/worker-kit/db';
 import {
   deleteCustomObjectCascade,
   entityKeyForSlug,
   getCustomObjectCounts,
   getDeleteImpact,
   listCustomObjects,
-} from '../../services/custom-objects';
+} from '@weldsuite/core-domain/custom-objects';
 import { clearCustomObjectIndex } from '../../services/search/custom-object-documents';
-import { atomically } from '../../lib/atomically';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { findRestrictingLinks } from '../../services/custom-object-links';
-import { isUniqueViolation } from '../../lib/pg-errors';
+import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.customObjects;

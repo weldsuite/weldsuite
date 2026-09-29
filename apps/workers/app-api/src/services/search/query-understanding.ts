@@ -44,7 +44,7 @@ import {
   type SearchUnderstanding,
 } from '@weldsuite/app-api-client/schemas/search';
 import type { Env } from '../../types';
-import { assertAiCredits, chargeAiUsage, type AiMetering } from '../ai/billing';
+import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
 
 // ---------------------------------------------------------------------------
 // Result shape

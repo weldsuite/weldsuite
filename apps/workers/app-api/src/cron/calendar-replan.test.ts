@@ -7,8 +7,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { replanStaleAutoScheduledEvents } from '@weldsuite/db/lib/calendar-sync';
-import { createPgliteDb } from '../test/pglite';
-import { schema, type Database } from '../db';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 let close: () => Promise<void>;

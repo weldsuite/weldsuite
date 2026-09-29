@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { success, list, noContent, error, cursorPagination } from './response';
+import { success, list, noContent, error, cursorPagination } from '@weldsuite/worker-kit/response';
 
 describe('response helpers', () => {
   it('success() wraps the payload in a `data` envelope with 200', async () => {

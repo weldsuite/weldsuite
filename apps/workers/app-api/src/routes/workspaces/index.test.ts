@@ -6,16 +6,16 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { workspacesRoutes } from './index';
-import { createTestApp } from '../../test/harness';
+import { createTestApp } from '@weldsuite/worker-kit/testing';
 
-vi.mock('../../services/workspaces', async () => {
-  const actual = await vi.importActual<typeof import('../../services/workspaces')>(
-    '../../services/workspaces',
+vi.mock('@weldsuite/core-domain/workspaces', async () => {
+  const actual = await vi.importActual<typeof import('@weldsuite/core-domain/workspaces')>(
+    '@weldsuite/core-domain/workspaces',
   );
   return { ...actual, listUserWorkspaces: vi.fn() };
 });
 
-import * as workspacesService from '../../services/workspaces';
+import * as workspacesService from '@weldsuite/core-domain/workspaces';
 
 const mockedList = workspacesService.listUserWorkspaces as ReturnType<typeof vi.fn>;
 

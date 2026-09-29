@@ -10,8 +10,8 @@ import {
   DEV_SESSION_TTL_MS,
   isAllowedDevSessionUrl,
 } from '@weldsuite/app-api-client/schemas/user-apps';
-import { masterSchema, type MasterDatabase } from '../db';
-import { generateId } from '../lib/id';
+import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 export { DEV_SESSION_TTL_MS, isAllowedDevSessionUrl };
 

@@ -15,7 +15,7 @@ import {
   updateFolderSchema,
 } from '@weldsuite/core-api-client/schemas/folders';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 import * as foldersService from '../../services/folders';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

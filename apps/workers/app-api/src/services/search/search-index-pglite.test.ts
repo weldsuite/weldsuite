@@ -11,8 +11,8 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { createPgliteDb } from '../../test/pglite';
-import { schema, type Database } from '../../db';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 

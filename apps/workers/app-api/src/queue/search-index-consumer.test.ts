@@ -26,12 +26,12 @@ vi.mock('../services/search/indexer', () => ({
   })),
 }));
 
-vi.mock('../db', () => ({
+vi.mock('@weldsuite/worker-kit/db', () => ({
   getTenantDbForWorkspace: vi.fn(async () => ({}) as never),
 }));
 
 const { createEmbedder, indexEntity } = await import('../services/search/indexer');
-const { getTenantDbForWorkspace } = await import('../db');
+const { getTenantDbForWorkspace } = await import('@weldsuite/worker-kit/db');
 
 function message(
   overrides: {

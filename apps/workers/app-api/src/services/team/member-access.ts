@@ -15,8 +15,8 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import { appName } from '../roles';
 import { SYSTEM_ROLES } from '@weldsuite/permissions';
 

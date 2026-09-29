@@ -14,7 +14,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { getMasterDb } from '../../db';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import {
   contentTypeFor,
   hasFileExtension,

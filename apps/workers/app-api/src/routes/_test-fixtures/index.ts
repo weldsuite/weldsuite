@@ -16,18 +16,18 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
-import { schema, masterSchema, getMasterDb, type Database } from '../../db';
-import { createCompany } from '../../services/companies';
-import { createPerson } from '../../services/people';
-import { createDomain } from '../../services/domains';
+import { schema, masterSchema, getMasterDb, type Database } from '@weldsuite/worker-kit/db';
+import { createCompany } from '@weldsuite/crm-domain/companies';
+import { createPerson } from '@weldsuite/crm-domain/people';
+import { createDomain } from '@weldsuite/host-domain/domains';
 import {
   sendAndPersist,
   replyAndPersist,
   forwardAndPersist,
   MailSendError,
-} from '../../services/mail/send';
-import { generateId } from '../../lib/id';
-import { success, error } from '../../lib/response';
+} from '@weldsuite/mail-domain/send';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { success, error } from '@weldsuite/worker-kit/response';
 import { testFixturesGuard } from '../../middleware/test-fixtures-guard';
 import type { Env } from '../../types';
 

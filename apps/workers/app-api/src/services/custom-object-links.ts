@@ -23,10 +23,10 @@
  */
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { generateId } from '../lib/id';
-import { atomically } from '../lib/atomically';
-import { schema } from '../db';
-import type { Database } from '../db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { atomically } from '@weldsuite/worker-kit/atomically';
+import { schema } from '@weldsuite/worker-kit/db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import {
   isLinkableBuiltin,
   resolveBuiltinTargets,

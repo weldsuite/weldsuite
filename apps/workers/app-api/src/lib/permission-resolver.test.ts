@@ -15,7 +15,7 @@ import {
   type PermissionDbQuery,
 } from '@weldsuite/permissions/server';
 import { checkAppPermission } from '@weldsuite/permissions';
-import { schema } from '../db';
+import { schema } from '@weldsuite/worker-kit/db';
 
 function queries(member: Awaited<ReturnType<PermissionDbQuery['getMember']>>, role: string[] = []): PermissionDbQuery {
   return {

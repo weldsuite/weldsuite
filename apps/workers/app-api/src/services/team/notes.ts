@@ -8,8 +8,8 @@
  */
 
 import { eq, and } from 'drizzle-orm';
-import { schema, type Database } from '../../db';
-import { generateId } from '../../lib/id';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 import type { MemberNote } from '@weldsuite/app-api-client/schemas/team-members';
 
 function toApi(row: typeof schema.memberNotes.$inferSelect): MemberNote {

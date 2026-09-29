@@ -24,8 +24,8 @@ import {
   confirmUploadSchema,
 } from '@weldsuite/core-api-client/schemas/storage';
 import type { Env, Variables } from '../../types';
-import { error } from '../../lib/response';
-import { generateId } from '../../lib/id';
+import { error } from '@weldsuite/worker-kit/response';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 // ============================================================================
 // KV-stored upload tokens (10 min TTL).
