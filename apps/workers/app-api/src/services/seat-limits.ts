@@ -26,6 +26,20 @@ export interface SeatLimit {
   planName: string;
 }
 
+/**
+ * A hard cap wins (Free = 1, Business = 10). Otherwise a per-seat plan is
+ * limited by what it has paid for. A plan with neither is unlimited (null).
+ */
+function planSeatLimit(
+  plan: { maxUsers: number | null; pricePerUser: string | null; includedUsers: number | null },
+  purchasedSeats: number | null,
+): number | null {
+  if (plan.maxUsers != null && plan.maxUsers > 0) return plan.maxUsers;
+  const pricePerUser = plan.pricePerUser ? Number.parseFloat(plan.pricePerUser) : 0;
+  if (pricePerUser > 0) return (plan.includedUsers ?? 1) + (purchasedSeats ?? 0);
+  return null;
+}
+
 /** Not found — the caller decides whether that is a 404 or a pass-through. */
 export async function getWorkspaceSeatLimit(
   env: Env,
@@ -61,17 +75,7 @@ export async function getWorkspaceSeatLimit(
 
     if (plan) {
       planName = plan.name;
-
-      // A hard cap wins (Free = 1, Business = 10). Otherwise a per-seat plan
-      // is limited by what it has paid for. A plan with neither is unlimited.
-      if (plan.maxUsers != null && plan.maxUsers > 0) {
-        limit = plan.maxUsers;
-      } else {
-        const pricePerUser = plan.pricePerUser ? Number.parseFloat(plan.pricePerUser) : 0;
-        if (pricePerUser > 0) {
-          limit = (plan.includedUsers ?? 1) + (workspace.purchasedSeats ?? 0);
-        }
-      }
+      limit = planSeatLimit(plan, workspace.purchasedSeats);
     }
   }
 
