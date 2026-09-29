@@ -130,6 +130,20 @@ interface ServerHelpArticlesDataTableProps {
   initialStatus?: string;
 }
 
+function SortIndicator({ active, order }: Readonly<{ active: boolean; order: "asc" | "desc" }>) {
+  if (!active) return <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />;
+  return order === "asc" ? (
+    <ArrowUp className="h-3 w-3 text-primary" />
+  ) : (
+    <ArrowDown className="h-3 w-3 text-primary" />
+  );
+}
+
+function getTableMinHeight(loading: boolean, articleCount: number): string {
+  if (loading) return "400px";
+  return articleCount === 0 ? "200px" : "auto";
+}
+
 export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<ServerHelpArticlesDataTableProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -831,56 +845,266 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
     });
   };
 
+  const renderTableBody = () => {
+    if (loading) {
+      // Skeleton loading rows
+      return (
+        Array.from({ length: 10 }).map((_, index) => (
+          <TableRow key={`skeleton-${index}`} className="border-b border-border/30">
+            {visibleColumns.title && (
+              <TableCell className="px-3 py-3">
+                <div className="h-4 bg-muted animate-pulse rounded w-48"></div>
+              </TableCell>
+            )}
+            {visibleColumns.tags && (
+              <TableCell className="px-3 py-3">
+                <div className="h-4 bg-muted animate-pulse rounded w-32"></div>
+              </TableCell>
+            )}
+            {visibleColumns.author && (
+              <TableCell className="px-3 py-3">
+                <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
+              </TableCell>
+            )}
+            {visibleColumns.views && (
+              <TableCell className="px-3 py-3 text-right">
+                <div className="h-4 bg-muted animate-pulse rounded w-12 ml-auto"></div>
+              </TableCell>
+            )}
+            {visibleColumns.feedback && (
+              <TableCell className="px-3 py-3 text-right">
+                <div className="h-4 bg-muted animate-pulse rounded w-16 ml-auto"></div>
+              </TableCell>
+            )}
+            {visibleColumns.lastUpdated && (
+              <TableCell className="px-3 py-3">
+                <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
+              </TableCell>
+            )}
+            {visibleColumns.status && (
+              <TableCell className="px-3 py-3 text-left">
+                <div className="h-6 bg-muted animate-pulse rounded-full w-20"></div>
+              </TableCell>
+            )}
+            {visibleColumns.actions && (
+              <TableCell className="px-3 py-3 text-right">
+                <div className="h-7 bg-muted animate-pulse rounded w-8 ml-auto"></div>
+              </TableCell>
+            )}
+          </TableRow>
+        ))
+      );
+    }
+
+    if (treeData.length === 0 && currentFolderArticles.length === 0) {
+      return (
+        <TableRow>
+          <TableCell
+            colSpan={Object.values(visibleColumns).filter(Boolean).length}
+            className="text-center text-muted-foreground"
+          >
+            <div className="space-y-2 py-8">
+              <FileText className="h-12 w-12 mx-auto text-muted-foreground/30" />
+              <p className="font-medium">{th.noHelpArticlesFound}</p>
+              <p className="text-xs text-muted-foreground">
+                {th.tryAdjustingFilters}
+              </p>
+            </div>
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    return (
+      <TableRow>
+        {visibleColumns.title && (
+          <TableCell className="px-3 py-3 align-top">
+            <TreeProvider
+              defaultExpandedIds={defaultExpandedIds}
+              onSelectionChange={() => {}}
+            >
+              <TreeView>
+                {renderTreeNodes(treeData)}
+              </TreeView>
+            </TreeProvider>
+          </TableCell>
+        )}
+        {visibleColumns.tags && (
+          <TableCell className="px-3 py-3 align-top">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="flex flex-wrap gap-1 py-1">
+                  {article.tags?.slice(0, 2).map((tag: string) => (
+                    <Badge key={tag} variant="outline" className="text-xs">
+                      <Tag className="h-2.5 w-2.5 mr-1" />
+                      {tag}
+                    </Badge>
+                  ))}
+                  {article.tags?.length > 2 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{article.tags.length - 2}
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.author && (
+          <TableCell className="px-3 py-3 align-top">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="py-1">
+                  <span className="text-sm text-muted-foreground">
+                    {article.author || "-"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.views && (
+          <TableCell className="px-3 py-3 align-top text-right">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="flex items-center justify-end gap-1.5 py-1">
+                  <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="font-medium text-sm">
+                    {article.views?.toLocaleString() || 0}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.feedback && (
+          <TableCell className="px-3 py-3 align-top text-right">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="flex items-center justify-end gap-2 py-1">
+                  <div className="flex items-center gap-1">
+                    <ThumbsUp className="h-3.5 w-3.5 text-green-600" />
+                    <span className="text-sm text-green-600">{article.helpful || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <ThumbsDown className="h-3.5 w-3.5 text-red-500" />
+                    <span className="text-sm text-red-500">{article.notHelpful || 0}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.lastUpdated && (
+          <TableCell className="px-3 py-3 align-top">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="flex items-center gap-1.5 text-sm text-muted-foreground py-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>
+                    {article.lastUpdated
+                      ? format(new Date(article.lastUpdated), "MMM d, yyyy")
+                      : "-"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.status && (
+          <TableCell className="px-3 py-3 align-top">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="py-1">
+                  <Badge
+                    variant="outline"
+                    className={`inline-flex items-center transition-all duration-200 ${getStatusColor(article.status)}`}
+                  >
+                    <StatusIcon status={article.status} />
+                    {article.status?.charAt(0).toUpperCase() + article.status?.slice(1)}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+        {visibleColumns.actions && (
+          <TableCell className="px-3 py-3 align-top text-right">
+            <div className="space-y-2">
+              {currentFolderArticles.map((article) => (
+                <div key={article.id} className="flex items-center justify-end gap-1 py-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 shadow-none hover:bg-muted"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href={`/welddesk/help/${article.id}`}
+                          className="flex items-center"
+                        >
+                          <Eye className="h-4 w-4 mr-0.5" />
+                          {th.viewArticle}
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href={`/welddesk/help/${article.id}/edit`}
+                          className="flex items-center"
+                        >
+                          <Edit className="h-4 w-4 mr-0.5" />
+                          {th.editArticle}
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="flex items-center text-destructive focus:text-destructive">
+                        <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
+                        {th.deleteArticle}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+            </div>
+          </TableCell>
+        )}
+      </TableRow>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Controls Bar with Status Filters and Search */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Status Filter Buttons */}
-          <Button
-            variant={statusFilter === "all" ? "default" : "outline"}
-            onClick={() => setStatusFilter("all")}
-            className="h-8 text-sm px-3 transition-all duration-200 relative overflow-hidden shadow-none"
-            disabled={isFiltering}
-          >
-            <span className="relative z-10">{th.allArticles}</span>
-            <span className="relative z-10 -ml-0.5 transition-all duration-300">
-              ({counts.total})
-            </span>
-          </Button>
-          <Button
-            variant={statusFilter === "published" ? "default" : "outline"}
-            onClick={() => setStatusFilter("published")}
-            className="h-8 text-sm px-3 transition-all duration-200 relative overflow-hidden shadow-none"
-            disabled={isFiltering}
-          >
-            <span className="relative z-10">{th.published}</span>
-            <span className="relative z-10 -ml-0.5 transition-all duration-300">
-              ({counts.published})
-            </span>
-          </Button>
-          <Button
-            variant={statusFilter === "draft" ? "default" : "outline"}
-            onClick={() => setStatusFilter("draft")}
-            className="h-8 text-sm px-3 transition-all duration-200 relative overflow-hidden shadow-none"
-            disabled={isFiltering}
-          >
-            <span className="relative z-10">{th.draft}</span>
-            <span className="relative z-10 -ml-0.5 transition-all duration-300">
-              ({counts.draft})
-            </span>
-          </Button>
-          <Button
-            variant={statusFilter === "archived" ? "default" : "outline"}
-            onClick={() => setStatusFilter("archived")}
-            className="h-8 text-sm px-3 transition-all duration-200 relative overflow-hidden shadow-none"
-            disabled={isFiltering}
-          >
-            <span className="relative z-10">{th.archived}</span>
-            <span className="relative z-10 -ml-0.5 transition-all duration-300">
-              ({counts.archived})
-            </span>
-          </Button>
+          {(
+            [
+              ["all", th.allArticles, counts.total],
+              ["published", th.published, counts.published],
+              ["draft", th.draft, counts.draft],
+              ["archived", th.archived, counts.archived],
+            ] as const
+          ).map(([value, label, count]) => (
+            <Button
+              key={value}
+              variant={statusFilter === value ? "default" : "outline"}
+              onClick={() => setStatusFilter(value)}
+              className="h-8 text-sm px-3 transition-all duration-200 relative overflow-hidden shadow-none"
+              disabled={isFiltering}
+            >
+              <span className="relative z-10">{label}</span>
+              <span className="relative z-10 -ml-0.5 transition-all duration-300">
+                ({count})
+              </span>
+            </Button>
+          ))}
 
           {/* Clear Filters */}
           {(search || categoryFilter !== "all") && (
@@ -1049,7 +1273,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
           ref={tableContainerRef}
           className="rounded-md border border-border/50 overflow-hidden"
           style={{
-            minHeight: loading ? "400px" : articles.length === 0 ? "200px" : "auto",
+            minHeight: getTableMinHeight(loading, articles.length),
           }}
         >
           <div className={`${isFiltering ? "no-scrollbar-transition" : ""}`}>
@@ -1065,15 +1289,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                         disabled={isFiltering}
                       >
                         {th.titleColumn}
-                        {sortBy === "title" ? (
-                          sortOrder === "asc" ? (
-                            <ArrowUp className="h-3 w-3 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3 text-primary" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />
-                        )}
+                        <SortIndicator active={sortBy === "title"} order={sortOrder} />
                       </Button>
                     </TableHead>
                   )}
@@ -1096,15 +1312,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                         disabled={isFiltering}
                       >
                         {th.views}
-                        {sortBy === "views" ? (
-                          sortOrder === "asc" ? (
-                            <ArrowUp className="h-3 w-3 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3 text-primary" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />
-                        )}
+                        <SortIndicator active={sortBy === "views"} order={sortOrder} />
                       </Button>
                     </TableHead>
                   )}
@@ -1122,15 +1330,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                         disabled={isFiltering}
                       >
                         {th.lastUpdated}
-                        {sortBy === "updatedAt" ? (
-                          sortOrder === "asc" ? (
-                            <ArrowUp className="h-3 w-3 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3 text-primary" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />
-                        )}
+                        <SortIndicator active={sortBy === "updatedAt"} order={sortOrder} />
                       </Button>
                     </TableHead>
                   )}
@@ -1143,15 +1343,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                         disabled={isFiltering}
                       >
                         {th.status}
-                        {sortBy === "status" ? (
-                          sortOrder === "asc" ? (
-                            <ArrowUp className="h-3 w-3 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3 text-primary" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />
-                        )}
+                        <SortIndicator active={sortBy === "status"} order={sortOrder} />
                       </Button>
                     </TableHead>
                   )}
@@ -1161,228 +1353,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                 </TableRow>
               </TableHeader>
               <TableBody className="relative" style={{ overflow: "hidden" }}>
-                {loading ? (
-                  // Skeleton loading rows
-                  Array.from({ length: 10 }).map((_, index) => (
-                    <TableRow key={`skeleton-${index}`} className="border-b border-border/30">
-                      {visibleColumns.title && (
-                        <TableCell className="px-3 py-3">
-                          <div className="h-4 bg-muted animate-pulse rounded w-48"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.tags && (
-                        <TableCell className="px-3 py-3">
-                          <div className="h-4 bg-muted animate-pulse rounded w-32"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.author && (
-                        <TableCell className="px-3 py-3">
-                          <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.views && (
-                        <TableCell className="px-3 py-3 text-right">
-                          <div className="h-4 bg-muted animate-pulse rounded w-12 ml-auto"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.feedback && (
-                        <TableCell className="px-3 py-3 text-right">
-                          <div className="h-4 bg-muted animate-pulse rounded w-16 ml-auto"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.lastUpdated && (
-                        <TableCell className="px-3 py-3">
-                          <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.status && (
-                        <TableCell className="px-3 py-3 text-left">
-                          <div className="h-6 bg-muted animate-pulse rounded-full w-20"></div>
-                        </TableCell>
-                      )}
-                      {visibleColumns.actions && (
-                        <TableCell className="px-3 py-3 text-right">
-                          <div className="h-7 bg-muted animate-pulse rounded w-8 ml-auto"></div>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                ) : treeData.length === 0 && currentFolderArticles.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={Object.values(visibleColumns).filter(Boolean).length}
-                      className="text-center text-muted-foreground"
-                    >
-                      <div className="space-y-2 py-8">
-                        <FileText className="h-12 w-12 mx-auto text-muted-foreground/30" />
-                        <p className="font-medium">{th.noHelpArticlesFound}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {th.tryAdjustingFilters}
-                        </p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <TableRow>
-                    {visibleColumns.title && (
-                      <TableCell className="px-3 py-3 align-top">
-                        <TreeProvider
-                          defaultExpandedIds={defaultExpandedIds}
-                          onSelectionChange={() => {}}
-                        >
-                          <TreeView>
-                            {renderTreeNodes(treeData)}
-                          </TreeView>
-                        </TreeProvider>
-                      </TableCell>
-                    )}
-                    {visibleColumns.tags && (
-                      <TableCell className="px-3 py-3 align-top">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="flex flex-wrap gap-1 py-1">
-                              {article.tags?.slice(0, 2).map((tag: string) => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  <Tag className="h-2.5 w-2.5 mr-1" />
-                                  {tag}
-                                </Badge>
-                              ))}
-                              {article.tags?.length > 2 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{article.tags.length - 2}
-                                </Badge>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.author && (
-                      <TableCell className="px-3 py-3 align-top">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="py-1">
-                              <span className="text-sm text-muted-foreground">
-                                {article.author || "-"}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.views && (
-                      <TableCell className="px-3 py-3 align-top text-right">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="flex items-center justify-end gap-1.5 py-1">
-                              <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span className="font-medium text-sm">
-                                {article.views?.toLocaleString() || 0}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.feedback && (
-                      <TableCell className="px-3 py-3 align-top text-right">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="flex items-center justify-end gap-2 py-1">
-                              <div className="flex items-center gap-1">
-                                <ThumbsUp className="h-3.5 w-3.5 text-green-600" />
-                                <span className="text-sm text-green-600">{article.helpful || 0}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <ThumbsDown className="h-3.5 w-3.5 text-red-500" />
-                                <span className="text-sm text-red-500">{article.notHelpful || 0}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.lastUpdated && (
-                      <TableCell className="px-3 py-3 align-top">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="flex items-center gap-1.5 text-sm text-muted-foreground py-1">
-                              <Clock className="h-3.5 w-3.5" />
-                              <span>
-                                {article.lastUpdated
-                                  ? format(new Date(article.lastUpdated), "MMM d, yyyy")
-                                  : "-"}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.status && (
-                      <TableCell className="px-3 py-3 align-top">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="py-1">
-                              <Badge
-                                variant="outline"
-                                className={`inline-flex items-center transition-all duration-200 ${getStatusColor(article.status)}`}
-                              >
-                                <StatusIcon status={article.status} />
-                                {article.status?.charAt(0).toUpperCase() + article.status?.slice(1)}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                    {visibleColumns.actions && (
-                      <TableCell className="px-3 py-3 align-top text-right">
-                        <div className="space-y-2">
-                          {currentFolderArticles.map((article) => (
-                            <div key={article.id} className="flex items-center justify-end gap-1 py-1">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 shadow-none hover:bg-muted"
-                                  >
-                                    <MoreVertical className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem asChild>
-                                    <Link
-                                      href={`/welddesk/help/${article.id}`}
-                                      className="flex items-center"
-                                    >
-                                      <Eye className="h-4 w-4 mr-0.5" />
-                                      {th.viewArticle}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link
-                                      href={`/welddesk/help/${article.id}/edit`}
-                                      className="flex items-center"
-                                    >
-                                      <Edit className="h-4 w-4 mr-0.5" />
-                                      {th.editArticle}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem className="flex items-center text-destructive focus:text-destructive">
-                                    <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
-                                    {th.deleteArticle}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                )}
+                {renderTableBody()}
               </TableBody>
             </Table>
           </div>
