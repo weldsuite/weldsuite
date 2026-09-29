@@ -322,3 +322,98 @@ describe('/api/tasks · project list pagination · pglite integration', () => {
     expect(new Set(ids).size).toBe(9);
   });
 });
+
+describe('/api/tasks · CRM company link · pglite integration', () => {
+  const companyId = 'company_link_acme';
+  const deletedCompanyId = 'company_link_gone';
+
+  beforeAll(async () => {
+    const now = new Date();
+    await db.insert(schema.companies).values([
+      {
+        id: companyId,
+        name: 'Acme Test BV',
+        displayName: 'Acme Test BV',
+        avatarUrl: 'https://cdn.example.test/acme.png',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: deletedCompanyId,
+        name: 'Gone BV',
+        displayName: 'Gone BV',
+        deletedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ] as unknown as (typeof schema.companies.$inferInsert)[]);
+  });
+
+  type TaskBody = {
+    id: string;
+    customerId: string | null;
+    duration: number | null;
+    linkedCompany: { id: string; name: string; avatar: string | null } | null;
+  };
+
+  async function create(payload: Record<string, unknown>): Promise<TaskBody> {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { data: TaskBody }).data;
+  }
+
+  it('persists duration and the company link on create and returns the company name', async () => {
+    const created = await create({
+      title: 'Send quote to Acme',
+      customerId: companyId,
+      duration: 30,
+    });
+    expect(created.duration).toBe(30);
+    expect(created.customerId).toBe(companyId);
+    expect(created.linkedCompany).toEqual({
+      id: companyId,
+      name: 'Acme Test BV',
+      avatar: 'https://cdn.example.test/acme.png',
+    });
+  });
+
+  it('GET /?crmLinked=true includes linkedCompany and duration on every row', async () => {
+    const created = await create({ title: 'CRM list row', customerId: companyId, duration: 45 });
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const res = await request('/api/tasks?crmLinked=true');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: TaskBody[] };
+    const row = body.data.find((r) => r.id === created.id);
+    expect(row?.linkedCompany?.name).toBe('Acme Test BV');
+    expect(row?.duration).toBe(45);
+  });
+
+  it('GET /:id returns linkedCompany', async () => {
+    const created = await create({ title: 'CRM detail', customerId: companyId });
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const res = await request(`/api/tasks/${created.id}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: TaskBody };
+    expect(body.data.linkedCompany?.id).toBe(companyId);
+    expect(body.data.linkedCompany?.name).toBe('Acme Test BV');
+  });
+
+  it('returns linkedCompany null for tasks without a link or with an archived company', async () => {
+    const unlinked = await create({ title: 'No link' });
+    expect(unlinked.linkedCompany).toBeNull();
+    const archived = await create({ title: 'Archived link', customerId: deletedCompanyId });
+    expect(archived.customerId).toBe(deletedCompanyId);
+    expect(archived.linkedCompany).toBeNull();
+  });
+});

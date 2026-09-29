@@ -929,6 +929,7 @@ export default function CrmTasksClient() {
                   status: task.status,
                   priority: task.priority,
                   dueDate: task.dueDate,
+                  duration: task.duration,
                   linkedCompanyId: task.linkedCompany?.id,
                   labels: task.labels,
                   repeat: task.repeat,
