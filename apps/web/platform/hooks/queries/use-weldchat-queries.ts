@@ -620,7 +620,17 @@ export function useSendMessage() {
   const { user } = useUser();
   return useMutation({
      
-    mutationFn: async ({ channelId, _optimisticId, ...data }: SendMessageRequest & { channelId: string; _optimisticId?: string }) => {
+    mutationFn: async ({
+      channelId,
+      _optimisticId,
+      _replyPreview,
+      ...data
+    }: SendMessageRequest & {
+      channelId: string;
+      _optimisticId?: string;
+      /** Quote shown on the optimistic message until the server row lands. */
+      _replyPreview?: { messageId: string; authorName: string; content: string };
+    }) => {
       const client = await getClient();
       return client.post<{ data: ChatMessage }>(`/channels/${channelId}/messages`, data);
     },
@@ -645,6 +655,7 @@ export function useSendMessage() {
         parentId: variables.parentId,
         attachments: variables.attachments,
         mentions: variables.mentions,
+        metadata: variables._replyPreview ? { replyTo: variables._replyPreview } : undefined,
         reactions: {},
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

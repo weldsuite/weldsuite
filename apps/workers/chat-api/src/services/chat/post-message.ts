@@ -11,7 +11,7 @@
  * over its own ChatRoom DO, not the entity-event bus.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import {
   sendChatMentionNotification,
@@ -66,6 +66,49 @@ export interface PostChatMessageInput {
   attachments?: Array<Record<string, unknown>>;
   mentions?: string[];
   metadata?: Record<string, unknown>;
+  /**
+   * Discord-style inline reply: the id of a message in the same channel this
+   * one answers. The message stays top-level (visible in the channel, unlike a
+   * thread reply) and carries a server-built snapshot of the quoted message in
+   * `metadata.replyTo` (see {@link ChatReplyReference}).
+   */
+  replyToId?: string | null;
+  /** Ping the author of `replyToId` (Discord's "@ ON"). Defaults to true. */
+  replyMention?: boolean;
+}
+
+/**
+ * Snapshot of the message an inline reply answers, stored at
+ * `chat_messages.metadata.replyTo`. `depth` is the reply's position in the
+ * chain (a reply to a plain message is 1, a reply to that reply 2, …) and
+ * `rootId` is the message that started the chain, so clients can suggest
+ * moving a long back-and-forth into a thread on the root.
+ */
+export interface ChatReplyReference {
+  messageId: string;
+  rootId: string;
+  depth: number;
+  authorId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  hasAttachments: boolean;
+}
+
+const REPLY_SNIPPET_LENGTH = 200;
+
+/** Truncate a quoted message without leaving half a `<@…>` token behind. */
+function replySnippet(content: string): string {
+  if (content.length <= REPLY_SNIPPET_LENGTH) return content;
+  return content.slice(0, REPLY_SNIPPET_LENGTH).replace(/<@[^>]*$/, '').trimEnd() + '…';
+}
+
+function readReplyReference(metadata: unknown): ChatReplyReference | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const ref = (metadata as Record<string, unknown>).replyTo;
+  if (!ref || typeof ref !== 'object') return null;
+  const r = ref as Partial<ChatReplyReference>;
+  return typeof r.messageId === 'string' ? (r as ChatReplyReference) : null;
 }
 
 export interface PostChatMessageContext {
@@ -113,6 +156,55 @@ export async function postChatMessage(
     .where(eq(workspaceMembers.userId, authorUserId))
     .limit(1);
 
+  // Inline reply: snapshot the quoted message (same channel only). A target
+  // that vanished (deleted while the reply was being typed) just drops the
+  // reference — the message itself still goes out. A client-supplied
+  // `metadata.replyTo` is always discarded so a quote can't be forged.
+  let metadata = input.metadata;
+  if (metadata && 'replyTo' in metadata) {
+    const { replyTo: _forged, ...rest } = metadata;
+    metadata = rest;
+  }
+  const replyMentions: string[] = [];
+  if (input.replyToId) {
+    const [target] = await db
+      .select({
+        id: chatMessages.id,
+        authorId: chatMessages.authorId,
+        authorName: chatMessages.authorName,
+        authorAvatar: chatMessages.authorAvatar,
+        content: chatMessages.content,
+        hasAttachments: chatMessages.hasAttachments,
+        metadata: chatMessages.metadata,
+      })
+      .from(chatMessages)
+      .where(
+        and(
+          eq(chatMessages.id, input.replyToId),
+          eq(chatMessages.channelId, channelId),
+          isNull(chatMessages.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (target) {
+      const previous = readReplyReference(target.metadata);
+      const replyTo: ChatReplyReference = {
+        messageId: target.id,
+        rootId: previous?.rootId ?? target.id,
+        depth: (previous?.depth ?? 0) + 1,
+        authorId: target.authorId,
+        authorName: target.authorName,
+        authorAvatar: target.authorAvatar ?? null,
+        content: replySnippet(target.content),
+        hasAttachments: target.hasAttachments,
+      };
+      metadata = { ...(metadata ?? {}), replyTo };
+      if (input.replyMention !== false && target.authorId !== authorUserId) {
+        replyMentions.push(target.authorId);
+      }
+    }
+  }
+
   const id = generateId('msg');
   const now = new Date();
   const hasAttachments = !!(input.attachments && input.attachments.length > 0);
@@ -143,7 +235,9 @@ export async function postChatMessage(
     }
     if (!contentMentions.includes(mentionId)) contentMentions.push(mentionId);
   }
-  const allMentions = Array.from(new Set([...(input.mentions ?? []), ...contentMentions]));
+  const allMentions = Array.from(
+    new Set([...(input.mentions ?? []), ...contentMentions, ...replyMentions]),
+  );
   const mentionsEveryone = allMentions.includes('everyone');
 
   await db.insert(chatMessages).values({
@@ -159,7 +253,7 @@ export async function postChatMessage(
     hasAttachments,
     mentions: allMentions.length > 0 ? allMentions : null,
     mentionsEveryone,
-    metadata: input.metadata,
+    metadata,
     createdAt: now,
     updatedAt: now,
   });
@@ -257,6 +351,7 @@ export async function postChatMessage(
         senderAvatar: author?.picture ?? undefined,
         authorType: 'user',
         threadId: input.parentId ?? undefined,
+        replyTo: readReplyReference(metadata) ?? undefined,
       });
     } catch (e) {
       console.error('[app-api/chat] message realtime publish failed:', e);

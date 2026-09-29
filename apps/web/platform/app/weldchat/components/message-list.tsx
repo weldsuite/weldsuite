@@ -46,6 +46,12 @@ interface MessagesQueryResult {
   isFetchingNextPage?: boolean;
 }
 
+/** Quote of a Discord-style inline reply, stored at `metadata.replyTo`. */
+function inlineReplyOf(message: ChatMessage) {
+  const metadata = message.metadata as { replyTo?: { authorName?: string; authorAvatar?: string | null; content?: string } } | null | undefined;
+  return metadata?.replyTo ?? undefined;
+}
+
 interface ReadReceiptEntry {
   userId: string;
   userName?: string;
@@ -342,7 +348,10 @@ export function MessageList({
                 showChannel={showChannel}
                 channelId={channelId}
                 membersMap={membersMap}
-                replyToMessage={message.parentId ? messages.find((m) => m.id === message.parentId) : undefined}
+                replyToMessage={
+                  inlineReplyOf(message) ??
+                  (message.parentId ? messages.find((m) => m.id === message.parentId) : undefined)
+                }
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}

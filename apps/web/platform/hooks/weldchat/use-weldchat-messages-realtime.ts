@@ -39,6 +39,8 @@ export interface WeldChatRealtimeMessage {
   createdAt: string;
   isEdited?: boolean;
   forwardedFrom?: unknown;
+  /** Carries `replyTo` for an inline (Discord-style) reply. */
+  metadata?: Record<string, unknown>;
 }
 
 interface UseWeldChatMessagesRealtimeOptions {
@@ -80,6 +82,7 @@ function roomEventToMessage(
     reactions: {},
     createdAt: new Date(event.ts).toISOString(),
     forwardedFrom: event.forwardedFrom,
+    metadata: event.replyTo ? { replyTo: event.replyTo } : undefined,
   };
 }
 

@@ -19,6 +19,10 @@ import { BRAND } from '@/lib/brand';
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
+import { MentionPicker } from '@/components/chat/MentionPicker';
+import { renderMessageText } from '@/components/chat/MessageText';
+import { detectMentionQuery, insertMention } from '@/lib/chat/mentions';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 interface Message {
   id: string;
@@ -30,11 +34,18 @@ interface Message {
 }
 
 export default function ThreadScreen() {
-  const { messageId, channelId } = useLocalSearchParams<{ messageId: string; channelId: string }>();
+  const { messageId, channelId, draft } = useLocalSearchParams<{
+    messageId: string;
+    channelId: string;
+    /** Text carried over when a reply chain is moved into this thread. */
+    draft?: string;
+  }>();
   const [parentMessage, setParentMessage] = useState<Message | null>(null);
   const [replies, setReplies] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const [input, setInput] = useState(draft ?? '');
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [membersMap, setMembersMap] = useState<Map<string, string>>(new Map());
+  const toast = useToast();
   const flatListRef = useRef<FlatList>(null);
   const router = useRouter();
   const { colors } = useTheme();
@@ -44,6 +55,20 @@ export default function ThreadScreen() {
   useEffect(() => {
     loadThread();
   }, [messageId, channelId]);
+
+  // Workspace roster, to show `<@userId>` mention tokens as names.
+  useEffect(() => {
+    appApi.chatMembers
+      .list()
+      .then((res) => {
+        const map = new Map<string, string>();
+        for (const m of res.data ?? []) {
+          if (m.userId && m.name) map.set(m.userId, m.name);
+        }
+        setMembersMap(map);
+      })
+      .catch(console.error);
+  }, []);
 
   const loadThread = async () => {
     if (!channelId || !messageId) return;
@@ -62,19 +87,21 @@ export default function ThreadScreen() {
   };
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || sending || !channelId || !messageId) return;
-    setSending(true);
+    const body = input.trim();
+    if (!body || !channelId || !messageId) return;
+    // Clear the composer right away; give the text back if the send fails.
+    setInput('');
+    setMentionQuery(null);
     try {
-      await appApi.chatMessages.create({ channelId, parentId: messageId, body: input.trim() });
-      setInput('');
+      await appApi.chatMessages.create({ channelId, parentId: messageId, body });
       loadThread();
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err) {
       console.error(err);
-    } finally {
-      setSending(false);
+      setInput((current) => current || body);
+      toast.error('Reply failed to send');
     }
-  }, [input, channelId, messageId, sending]);
+  }, [input, channelId, messageId, toast]);
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => (
     <>
@@ -95,7 +122,7 @@ export default function ThreadScreen() {
               {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
-          <Text style={styles.text}>{item.content}</Text>
+          {renderMessageText(item.content ?? '', membersMap, colors)}
         </View>
       </View>
       {index === 0 && parentMessage && replies.length > 0 && (
@@ -138,11 +165,23 @@ export default function ThreadScreen() {
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
 
+        <MentionPicker
+          query={mentionQuery ?? ''}
+          visible={mentionQuery !== null}
+          onSelect={(member) => {
+            setInput((prev) => insertMention(prev, member.userId));
+            setMentionQuery(null);
+          }}
+        />
+
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(text) => {
+              setInput(text);
+              setMentionQuery(detectMentionQuery(text));
+            }}
             placeholder="Reply..."
             placeholderTextColor={colors.muted}
             multiline
@@ -150,7 +189,7 @@ export default function ThreadScreen() {
           <TouchableOpacity
             style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
             onPress={handleSend}
-            disabled={!input.trim() || sending}
+            disabled={!input.trim()}
           >
             <Send size={18} color="#fff" />
           </TouchableOpacity>
@@ -182,7 +221,6 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
     header: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 2 },
     author: { fontSize: 15, fontWeight: '600', color: c.text, marginRight: 8 },
     time: { fontSize: 12, color: c.muted },
-    text: { fontSize: 15, lineHeight: 22, color: c.mutedForeground },
     divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 12, gap: 8 },
     dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
     dividerText: { fontSize: 12, color: c.muted },
