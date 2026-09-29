@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
-import { Plus, Smile, AtSign, X, CornerDownRight, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
+import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -9,7 +9,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { EmojiPicker } from './emoji-picker';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useSendMessage, useEditMessage, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useCreateTask } from '@/hooks/queries/use-task-queries';
 import { useTypingPublisher } from '@/hooks/weldchat/use-weldchat-typing';
 import type { RoomClient } from '@weldsuite/realtime/client';
@@ -17,6 +17,7 @@ import { MentionAutocomplete, type MentionSelection } from './mention-autocomple
 import { SlashCommandPalette } from './slash-command-palette';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useChatContext, type ReplyTo } from './chat-context';
+import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
@@ -241,6 +242,7 @@ export function MessageInput({
     setReplyTo,
     editingMessage: contextEditingMessage,
     setEditingMessage,
+    openThread,
   } = useChatContext();
   // The channel composer and the thread pane composer are mounted together and
   // share this context. Only the composer that owns the message's thread reacts
@@ -311,6 +313,16 @@ export function MessageInput({
     editorRef.current?.focus();
   }, [channelId, parentId]);
 
+  // A reply chain just moved into this thread: pick up what was being typed.
+  useEffect(() => {
+    if (!parentId) return;
+    const draft = takeThreadDraft(parentId);
+    if (!draft || !editorRef.current || editorRef.current.innerText.trim().length > 0) return;
+    editorRef.current.innerText = draft;
+    setContent(draft);
+    editorRef.current.focus();
+  }, [parentId]);
+
   // Auto-focus the input when the user clicks "Reply" on a message — they
   // shouldn't have to click the input separately to start typing.
   useEffect(() => {
@@ -349,6 +361,36 @@ export function MessageInput({
       editorRef.current.focus();
     }
   }, [editingMessage?.messageId, setReplyTo]);
+
+  // Discord-style nudge: replying deep into a reply chain in the channel
+  // suggests continuing the conversation in a thread on the chain's root.
+  const { data: channelData } = useChannel(parentId ? '' : channelId);
+  const [dismissedThreadSuggestions, setDismissedThreadSuggestions] = useState<Set<string>>(new Set());
+  const threadRootId = replyTo?.rootId ?? null;
+  const showThreadSuggestion =
+    !parentId &&
+    !editingMessage &&
+    !!threadRootId &&
+    (replyTo?.depth ?? 0) >= THREAD_SUGGESTION_DEPTH &&
+    channelData?.data?.threadsEnabled !== false &&
+    !dismissedThreadSuggestions.has(threadRootId);
+
+  const continueInThread = useCallback(() => {
+    if (!threadRootId) return;
+    stashThreadDraft(threadRootId, content);
+    setContent('');
+    setMentions([]);
+    setMentionQuery(null);
+    setReplyTo(null);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+    deleteSavedDraft();
+    openThread(threadRootId);
+  }, [threadRootId, content, setReplyTo, deleteSavedDraft, openThread]);
+
+  const dismissThreadSuggestion = useCallback(() => {
+    if (!threadRootId) return;
+    setDismissedThreadSuggestions((prev) => new Set(prev).add(threadRootId));
+  }, [threadRootId]);
 
   // "/createtask" is always swallowed (never posted), even without a title,
   // so the palette can guide the user.
@@ -1014,6 +1056,36 @@ export function MessageInput({
                     type="button"
                     variant="ghost"
                     onClick={() => setEditingMessage(null)}
+                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Long reply chain → suggest continuing in a thread */}
+            {showThreadSuggestion && (
+              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <MessageSquare className="h-3.5 w-3.5 text-gray-900 dark:text-foreground shrink-0" />
+                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground leading-snug">
+                    {t.weldchat.messageInput.threadSuggestion}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={continueInThread}
+                    className="h-7 shrink-0 rounded-lg px-2.5 text-[12px]"
+                  >
+                    {t.weldchat.messageInput.createThread}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={dismissThreadSuggestion}
+                    aria-label={t.weldchat.messageInput.dismissThreadSuggestion}
+                    title={t.weldchat.messageInput.dismissThreadSuggestion}
                     className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
                   >
                     <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />

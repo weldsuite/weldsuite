@@ -252,13 +252,15 @@ function AppStack() {
                         <Stack.Screen name="(tabs)" />
                         <Stack.Screen name="sso-callback" />
                         <Stack.Screen name="authorisation/index" />
+                        {/* Edge swipe-back only: a right drag on a message is
+                            swipe-to-reply, so full-screen back would fight it. */}
                         <Stack.Screen
                           name="channel/[channelId]"
-                          options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
+                          options={{ gestureEnabled: true, fullScreenGestureEnabled: false }}
                         />
                         <Stack.Screen
                           name="dm/[channelId]"
-                          options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
+                          options={{ gestureEnabled: true, fullScreenGestureEnabled: false }}
                         />
                         <Stack.Screen
                           name="thread/[messageId]"
