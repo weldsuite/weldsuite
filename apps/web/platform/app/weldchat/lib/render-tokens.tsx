@@ -30,6 +30,39 @@ export type ChatTokenSegment =
   | { kind: 'user'; userId: string; displayName: string | null }
   | { kind: 'entity'; entityType: EntitySheetType; entityId: string; label: string | null };
 
+/** Classify the inside of one `<@…>` token (`raw` is the whole token, kept for malformed fallbacks). */
+function classifyTokenBody(body: string, raw: string): ChatTokenSegment {
+  const colonIdx = body.indexOf(':');
+
+  if (colonIdx === -1) {
+    // <@userId>
+    return { kind: 'user', userId: body, displayName: null };
+  }
+
+  const prefix = body.slice(0, colonIdx);
+  const rest = body.slice(colonIdx + 1);
+
+  if (!VALID_TYPES.has(prefix)) {
+    // <@userId:DisplayName> — user mention with name override
+    return { kind: 'user', userId: prefix, displayName: rest || null };
+  }
+
+  // <@type:id|Label> entity reference
+  const pipeIdx = rest.indexOf('|');
+  const id = pipeIdx === -1 ? rest : rest.slice(0, pipeIdx);
+  const label = pipeIdx === -1 ? null : rest.slice(pipeIdx + 1);
+  if (!id) {
+    // Malformed — preserve as plain text so we don't lose data.
+    return { kind: 'text', text: raw };
+  }
+  return {
+    kind: 'entity',
+    entityType: prefix as EntitySheetType,
+    entityId: id,
+    label: label && label.length > 0 ? label : null,
+  };
+}
+
 /**
  * Parse a chat-message body into a flat list of segments. The caller is
  * responsible for rendering each segment; this is just classification.
@@ -47,37 +80,7 @@ export function parseChatTokens(text: string): ChatTokenSegment[] {
       segments.push({ kind: 'text', text: text.substring(lastIndex, match.index) });
     }
 
-    const body = match[1];
-    const colonIdx = body.indexOf(':');
-
-    if (colonIdx === -1) {
-      // <@userId>
-      segments.push({ kind: 'user', userId: body, displayName: null });
-    } else {
-      const prefix = body.slice(0, colonIdx);
-      const rest = body.slice(colonIdx + 1);
-
-      if (VALID_TYPES.has(prefix)) {
-        // <@type:id|Label> entity reference
-        const pipeIdx = rest.indexOf('|');
-        const id = pipeIdx === -1 ? rest : rest.slice(0, pipeIdx);
-        const label = pipeIdx === -1 ? null : rest.slice(pipeIdx + 1);
-        if (id) {
-          segments.push({
-            kind: 'entity',
-            entityType: prefix as EntitySheetType,
-            entityId: id,
-            label: label && label.length > 0 ? label : null,
-          });
-        } else {
-          // Malformed — preserve as plain text so we don't lose data.
-          segments.push({ kind: 'text', text: match[0] });
-        }
-      } else {
-        // <@userId:DisplayName> — user mention with name override
-        segments.push({ kind: 'user', userId: prefix, displayName: rest || null });
-      }
-    }
+    segments.push(classifyTokenBody(match[1], match[0]));
 
     lastIndex = match.index + match[0].length;
   }

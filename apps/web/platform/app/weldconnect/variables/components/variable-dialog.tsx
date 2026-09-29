@@ -33,6 +33,83 @@ interface VariableDialogProps {
   mode?: 'create' | 'edit';
 }
 
+type VariablesTranslations = ReturnType<typeof useI18n>['t']['weldconnect']['variables'];
+
+interface VariableFormFields {
+  name: string;
+  value: string;
+  confirmValue: string;
+  description: string;
+  isSecret: boolean;
+}
+
+function getValidationError(
+  mode: 'create' | 'edit',
+  form: VariableFormFields,
+  toasts: VariablesTranslations['toastsDialog'],
+): string | null {
+  if (mode === 'create') {
+    if (!form.name.trim()) return toasts.nameRequired;
+    if (!form.value.trim()) return toasts.valueRequired;
+    if (form.isSecret && form.value !== form.confirmValue) return toasts.valuesMismatch;
+    return null;
+  }
+  if (!form.value.trim() && !form.description.trim()) return toasts.updateRequiresChange;
+  return null;
+}
+
+function buildUpdateData(value: string, description: string): { value?: string; description?: string } {
+  const updateData: { value?: string; description?: string } = {};
+  if (value.trim()) updateData.value = value;
+  if (description.trim()) updateData.description = description;
+  return updateData;
+}
+
+function buildCreateData(form: {
+  name: string;
+  value: string;
+  description: string;
+  isSecret: boolean;
+  scope: string;
+  workflowId: string;
+}) {
+  return {
+    name: form.name.trim(),
+    value: form.value.trim(),
+    description: form.description.trim() || undefined,
+    isSecret: form.isSecret,
+    isGlobal: form.scope === 'global',
+    workflowId: form.scope === 'workflow' && form.workflowId ? form.workflowId : undefined,
+  };
+}
+
+function VisibilityIcon({ shown }: Readonly<{ shown: boolean }>) {
+  return shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />;
+}
+
+function SubmitLabel({
+  isPending,
+  mode,
+  isSecret,
+  dialog,
+}: Readonly<{
+  isPending: boolean;
+  mode: 'create' | 'edit';
+  isSecret: boolean;
+  dialog: VariablesTranslations['dialog'];
+}>) {
+  if (isPending) {
+    return (
+      <>
+        <RefreshCw className="h-4 w-4 mr-0.5 animate-spin" />
+        {mode === 'edit' ? dialog.updating : dialog.creating}
+      </>
+    );
+  }
+  if (mode === 'edit') return <>{dialog.update}</>;
+  return <>{dialog.create.replace('{type}', isSecret ? dialog.secret : dialog.variable)}</>;
+}
+
 export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }: Readonly<VariableDialogProps>) {
   const { t } = useI18n();
   const createVariableMutation = useCreateVariable();
@@ -71,37 +148,32 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
     }
   }, [variable, mode, open]);
 
+  const resetForm = () => {
+    setName('');
+    setValue('');
+    setConfirmValue('');
+    setDescription('');
+    setScope('global');
+    setWorkflowId('');
+    setIsSecret(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
-    if (mode === 'create' && !name.trim()) {
-      toast.error(t.weldconnect.variables.toastsDialog.nameRequired);
-      return;
-    }
-
-    if (mode === 'create' && !value.trim()) {
-      toast.error(t.weldconnect.variables.toastsDialog.valueRequired);
-      return;
-    }
-
-    if (mode === 'create' && isSecret && value !== confirmValue) {
-      toast.error(t.weldconnect.variables.toastsDialog.valuesMismatch);
-      return;
-    }
-
-    if (mode === 'edit' && !value.trim() && !description.trim()) {
-      toast.error(t.weldconnect.variables.toastsDialog.updateRequiresChange);
+    const validationError = getValidationError(
+      mode,
+      { name, value, confirmValue, description, isSecret },
+      t.weldconnect.variables.toastsDialog,
+    );
+    if (validationError !== null) {
+      toast.error(validationError);
       return;
     }
 
     if (mode === 'edit' && variable) {
       // Update existing variable
-      const updateData: { value?: string; description?: string } = {};
-      if (value.trim()) updateData.value = value;
-      if (description.trim()) updateData.description = description;
-
-      updateVariableMutation.mutate({ id: variable.id, data: updateData }, {
+      updateVariableMutation.mutate({ id: variable.id, data: buildUpdateData(value, description) }, {
         onSuccess: () => {
           toast.success(t.weldconnect.variables.toastsDialog.updated);
           onOpenChange(false);
@@ -112,14 +184,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
       });
     } else {
       // Create new variable (use isSecret flag in the data)
-      const data = {
-        name: name.trim(),
-        value: value.trim(),
-        description: description.trim() || undefined,
-        isSecret: isSecret,
-        isGlobal: scope === 'global',
-        workflowId: scope === 'workflow' && workflowId ? workflowId : undefined,
-      };
+      const data = buildCreateData({ name, value, description, isSecret, scope, workflowId });
 
       const entityType = isSecret ? t.weldconnect.variables.dialog.secret : t.weldconnect.variables.dialog.variable;
 
@@ -128,14 +193,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
           toast.success(t.weldconnect.variables.toastsDialog.created.replace('{type}', entityType));
           onOpenChange(false);
 
-          // Reset form
-          setName('');
-          setValue('');
-          setConfirmValue('');
-          setDescription('');
-          setScope('global');
-          setWorkflowId('');
-          setIsSecret(false);
+          resetForm();
         },
         onError: () => {
           toast.error(t.weldconnect.variables.toastsDialog.createFailed.replace('{type}', entityType));
@@ -275,7 +333,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                   onClick={() => setShowValue(!showValue)}
                   disabled={isPending}
                 >
-                  {showValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <VisibilityIcon shown={showValue} />
                 </Button>
               )}
             </div>
@@ -310,7 +368,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                   onClick={() => setShowConfirmValue(!showConfirmValue)}
                   disabled={isPending}
                 >
-                  {showConfirmValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <VisibilityIcon shown={showConfirmValue} />
                 </Button>
               </div>
               {value && confirmValue && value !== confirmValue && (
@@ -363,16 +421,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
             {t.weldconnect.variables.dialog.cancel}
           </Button>
           <Button onClick={handleSubmit} disabled={isPending}>
-            {isPending ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-0.5 animate-spin" />
-                {mode === 'edit' ? t.weldconnect.variables.dialog.updating : t.weldconnect.variables.dialog.creating}
-              </>
-            ) : mode === 'edit' ? (
-              t.weldconnect.variables.dialog.update
-            ) : (
-              t.weldconnect.variables.dialog.create.replace('{type}', isSecret ? t.weldconnect.variables.dialog.secret : t.weldconnect.variables.dialog.variable)
-            )}
+            <SubmitLabel isPending={isPending} mode={mode} isSecret={isSecret} dialog={t.weldconnect.variables.dialog} />
           </Button>
         </DialogFooter>
       </DialogContent>

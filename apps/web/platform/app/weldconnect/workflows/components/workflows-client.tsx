@@ -108,6 +108,178 @@ const triggerConfig: Record<string, { variant: WorkflowTriggerVariant }> = {
   webhook: { variant: 'webhook' },
 };
 
+type WorkflowsClientCopy = ReturnType<typeof useI18n>['t']['weldconnect']['workflowsClient'];
+
+interface EmptyStateCopyArgs {
+  copy: WorkflowsClientCopy;
+  entityLabel: string;
+  category: 'workflow' | 'sequence' | undefined;
+  onSeedDefaults: (() => void) | undefined;
+  onNewWorkflow: () => void | Promise<void>;
+  onOpenCreateDialog: () => void;
+}
+
+interface EmptyStateAction {
+  label: string;
+  onClick: () => void | Promise<void>;
+}
+
+/** Description + actions of the empty state, depending on seed-defaults support and the list category. */
+function buildEmptyStateCopy({
+  copy,
+  entityLabel,
+  category,
+  onSeedDefaults,
+  onNewWorkflow,
+  onOpenCreateDialog,
+}: EmptyStateCopyArgs): {
+  description: string;
+  action: EmptyStateAction;
+  secondaryAction: EmptyStateAction | undefined;
+} {
+  const createAction: EmptyStateAction = {
+    label: copy.createButton.replace('{entityLabel}', entityLabel.toLowerCase()),
+    onClick: onNewWorkflow,
+  };
+  if (onSeedDefaults) {
+    return {
+      description: copy.emptyDescriptionDefault,
+      action: { label: copy.loadDefaultsButton, onClick: onSeedDefaults },
+      secondaryAction: createAction,
+    };
+  }
+  if (category === 'workflow') {
+    return {
+      description: copy.emptyDescriptionWorkflow,
+      action: createAction,
+      secondaryAction: undefined,
+    };
+  }
+  return {
+    description: copy.emptyDescriptionEntity.replace('{entityLabel}', entityLabel.toLowerCase()),
+    action: {
+      label: copy.createButtonAlt.replace('{entityLabel}', entityLabel),
+      onClick: onOpenCreateDialog,
+    },
+    secondaryAction: undefined,
+  };
+}
+
+function selectionCheckedState(allSelected: boolean, someSelected: boolean): boolean | 'indeterminate' {
+  if (allSelected) return true;
+  return someSelected ? 'indeterminate' : false;
+}
+
+interface TriggerOptionButtonProps {
+  option: CreateTriggerOption;
+  taken: string | undefined;
+  isSelected: boolean;
+  activeInTemplate: string;
+  onSelect: (option: CreateTriggerOption | null) => void;
+}
+
+function TriggerOptionButton({
+  option,
+  taken,
+  isSelected,
+  activeInTemplate,
+  onSelect,
+}: Readonly<TriggerOptionButtonProps>) {
+  const Icon = option.icon;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      disabled={!!taken}
+      onClick={() => onSelect(isSelected ? null : option)}
+      className={cn(
+        'flex items-start gap-2.5 w-full py-2 px-2.5 rounded-lg transition-all text-left',
+        taken
+          ? 'opacity-40 cursor-not-allowed'
+          : isSelected
+            ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
+            : 'hover:bg-muted',
+      )}
+    >
+      <div className={cn(
+        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md mt-0.5',
+        isSelected ? 'bg-teal-100 dark:bg-teal-900/40' : 'bg-muted',
+      )}>
+        <Icon className={cn('w-3.5 h-3.5', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <span className={cn('text-sm block leading-snug', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : 'font-medium')}>
+          {option.label}
+        </span>
+        {option.description && (
+          <span className="text-[11px] text-muted-foreground block mt-0.5 leading-snug">
+            {option.description}
+          </span>
+        )}
+        {taken && (
+          <span className="block text-[10px] text-orange-600 dark:text-orange-400 mt-0.5 truncate">{activeInTemplate.replace('{name}', taken)}</span>
+        )}
+      </div>
+    </Button>
+  );
+}
+
+interface CreateTriggerPickerProps {
+  options: CreateTriggerOption[];
+  categories: CreateTriggerCategory[] | undefined;
+  takenTriggers: Map<string, string> | undefined;
+  selected: CreateTriggerOption | null;
+  onSelect: (option: CreateTriggerOption | null) => void;
+  triggerLabel: string;
+  activeInTemplate: string;
+}
+
+function CreateTriggerPicker({
+  options,
+  categories,
+  takenTriggers,
+  selected,
+  onSelect,
+  triggerLabel,
+  activeInTemplate,
+}: Readonly<CreateTriggerPickerProps>) {
+  const renderOption = (opt: CreateTriggerOption) => (
+    <TriggerOptionButton
+      key={opt.id}
+      option={opt}
+      taken={takenTriggers?.get(`${opt.entityType}:${opt.eventType}`)}
+      isSelected={selected?.id === opt.id}
+      activeInTemplate={activeInTemplate}
+      onSelect={onSelect}
+    />
+  );
+
+  const renderCategory = (cat: CreateTriggerCategory) => {
+    const catOptions = options.filter((o) => o.category === cat.id);
+    if (catOptions.length === 0) return null;
+    return (
+      <div key={cat.id}>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+          {cat.label}
+        </p>
+        <div className="space-y-0.5">{catOptions.map(renderOption)}</div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Label className="text-sm">{triggerLabel} <span className="text-red-500">*</span></Label>
+      <div className="max-h-[320px] overflow-y-auto rounded-lg border p-1.5 space-y-3">
+        {categories && categories.length > 0
+          ? categories.map(renderCategory)
+          : // Flat list fallback (no categories)
+            options.map(renderOption)}
+      </div>
+    </div>
+  );
+}
+
 export function WorkflowsClient({
   initialWorkflows,
   // initialStats is accepted for API-compatibility with callers that compute
@@ -604,114 +776,15 @@ export function WorkflowsClient({
             </div>
 
             {createTriggerOptions && (
-              <div className="grid gap-2">
-                <Label className="text-sm">{t.weldconnect.workflows.dialogs.triggerLabel} <span className="text-red-500">*</span></Label>
-                <div className="max-h-[320px] overflow-y-auto rounded-lg border p-1.5 space-y-3">
-                  {createTriggerCategories && createTriggerCategories.length > 0 ? (
-                    createTriggerCategories.map((cat) => {
-                      const catOptions = createTriggerOptions.filter((o) => o.category === cat.id);
-                      if (catOptions.length === 0) return null;
-                      return (
-                        <div key={cat.id}>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                            {cat.label}
-                          </p>
-                          <div className="space-y-0.5">
-                            {catOptions.map((opt) => {
-                              const key = `${opt.entityType}:${opt.eventType}`;
-                              const taken = takenTriggers?.get(key);
-                              const isSelected = selectedCreateTrigger?.id === opt.id;
-                              const Icon = opt.icon;
-                              return (
-                                <Button
-                                  key={opt.id}
-                                  type="button"
-                                  variant="ghost"
-                                  disabled={!!taken}
-                                  onClick={() => setSelectedCreateTrigger(isSelected ? null : opt)}
-                                  className={cn(
-                                    'flex items-start gap-2.5 w-full py-2 px-2.5 rounded-lg transition-all text-left',
-                                    taken
-                                      ? 'opacity-40 cursor-not-allowed'
-                                      : isSelected
-                                        ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
-                                        : 'hover:bg-muted',
-                                  )}
-                                >
-                                  <div className={cn(
-                                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md mt-0.5',
-                                    isSelected ? 'bg-teal-100 dark:bg-teal-900/40' : 'bg-muted',
-                                  )}>
-                                    <Icon className={cn('w-3.5 h-3.5', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <span className={cn('text-sm block leading-snug', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : 'font-medium')}>
-                                      {opt.label}
-                                    </span>
-                                    {opt.description && (
-                                      <span className="text-[11px] text-muted-foreground block mt-0.5 leading-snug">
-                                        {opt.description}
-                                      </span>
-                                    )}
-                                    {taken && (
-                                      <span className="block text-[10px] text-orange-600 dark:text-orange-400 mt-0.5 truncate">{t.weldconnect.workflows.dialogs.activeIn.replace('{name}', taken)}</span>
-                                    )}
-                                  </div>
-                                </Button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    // Flat list fallback (no categories)
-                    createTriggerOptions.map((opt) => {
-                      const key = `${opt.entityType}:${opt.eventType}`;
-                      const taken = takenTriggers?.get(key);
-                      const isSelected = selectedCreateTrigger?.id === opt.id;
-                      const Icon = opt.icon;
-                      return (
-                        <Button
-                          key={opt.id}
-                          type="button"
-                          variant="ghost"
-                          disabled={!!taken}
-                          onClick={() => setSelectedCreateTrigger(isSelected ? null : opt)}
-                          className={cn(
-                            'flex items-start gap-2.5 w-full py-2 px-2.5 rounded-lg transition-all text-left',
-                            taken
-                              ? 'opacity-40 cursor-not-allowed'
-                              : isSelected
-                                ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
-                                : 'hover:bg-muted',
-                          )}
-                        >
-                          <div className={cn(
-                            'flex h-7 w-7 shrink-0 items-center justify-center rounded-md mt-0.5',
-                            isSelected ? 'bg-teal-100 dark:bg-teal-900/40' : 'bg-muted',
-                          )}>
-                            <Icon className={cn('w-3.5 h-3.5', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <span className={cn('text-sm block leading-snug', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : 'font-medium')}>
-                              {opt.label}
-                            </span>
-                            {opt.description && (
-                              <span className="text-[11px] text-muted-foreground block mt-0.5 leading-snug">
-                                {opt.description}
-                              </span>
-                            )}
-                            {taken && (
-                              <span className="block text-[10px] text-orange-600 dark:text-orange-400 mt-0.5 truncate">{t.weldconnect.workflows.dialogs.activeIn.replace('{name}', taken)}</span>
-                            )}
-                          </div>
-                        </Button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+              <CreateTriggerPicker
+                options={createTriggerOptions}
+                categories={createTriggerCategories}
+                takenTriggers={takenTriggers}
+                selected={selectedCreateTrigger}
+                onSelect={setSelectedCreateTrigger}
+                triggerLabel={t.weldconnect.workflows.dialogs.triggerLabel}
+                activeInTemplate={t.weldconnect.workflows.dialogs.activeIn}
+              />
             )}
           </div>
           <DialogFooter>
@@ -732,7 +805,7 @@ export function WorkflowsClient({
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 px-3 md:px-4 h-[53px] border-b border-border bg-muted/40">
           <Checkbox
-            checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+            checked={selectionCheckedState(allSelected, someSelected)}
             onCheckedChange={(checked) => toggleSelectAll(checked === true)}
             aria-label={t.weldconnect.workflows.bulk.selectAll}
           />
@@ -845,19 +918,14 @@ export function WorkflowsClient({
             </EmptyStateIllustration>
           ),
           title: t.weldconnect.workflowsClient.emptyTitle.replace('{entityLabel}', entityLabelPlural.toLowerCase()),
-          description: onSeedDefaults
-            ? t.weldconnect.workflowsClient.emptyDescriptionDefault
-            : category === 'workflow'
-              ? t.weldconnect.workflowsClient.emptyDescriptionWorkflow
-              : t.weldconnect.workflowsClient.emptyDescriptionEntity.replace('{entityLabel}', entityLabel.toLowerCase()),
-          action: onSeedDefaults
-            ? { label: t.weldconnect.workflowsClient.loadDefaultsButton, onClick: onSeedDefaults }
-            : category === 'workflow'
-              ? { label: t.weldconnect.workflowsClient.createButton.replace('{entityLabel}', entityLabel.toLowerCase()), onClick: handleNewWorkflow }
-              : { label: t.weldconnect.workflowsClient.createButtonAlt.replace('{entityLabel}', entityLabel), onClick: () => setShowCreateDialog(true) },
-          secondaryAction: onSeedDefaults
-            ? { label: t.weldconnect.workflowsClient.createButton.replace('{entityLabel}', entityLabel.toLowerCase()), onClick: handleNewWorkflow }
-            : undefined,
+          ...buildEmptyStateCopy({
+            copy: t.weldconnect.workflowsClient,
+            entityLabel,
+            category,
+            onSeedDefaults,
+            onNewWorkflow: handleNewWorkflow,
+            onOpenCreateDialog: () => setShowCreateDialog(true),
+          }),
         }}
         noResultsState={{
           title: t.weldconnect.workflowsClient.noResultsTitle.replace('{entityLabel}', entityLabelPlural.toLowerCase()),

@@ -177,6 +177,51 @@ function hasUnread(ch: FilterChannel): boolean {
   return new Date(ch.lastMessageAt).getTime() > new Date(ch.lastReadAt).getTime();
 }
 
+interface ExcludeRule {
+  flag: keyof GroupFilterSettings;
+  excludes: (ch: FilterChannel) => boolean;
+}
+
+/** Each enabled flag excludes every channel for which `excludes` returns true. */
+const EXCLUDE_RULES: ExcludeRule[] = [
+  { flag: 'showOnlyUnread', excludes: (ch) => !hasUnread(ch) },
+  { flag: 'showOnlyMentions', excludes: (ch) => !((ch.unreadMentionCount ?? 0) > 0) },
+  { flag: 'showOnlyActiveCalls', excludes: (ch) => !ch.hasActiveCall },
+  { flag: 'showOnlyPinned', excludes: (ch) => !ch.isPinned },
+  { flag: 'showOnlyFavorited', excludes: (ch) => !ch.isFavorite },
+  { flag: 'hideMuted', excludes: (ch) => !!ch.isMuted },
+  { flag: 'showOnlyMuted', excludes: (ch) => !ch.isMuted },
+  { flag: 'hideArchived', excludes: (ch) => !!ch.isArchived },
+  { flag: 'hideRead', excludes: (ch) => !hasUnread(ch) },
+  { flag: 'hideEmpty', excludes: (ch) => !ch.lastMessageAt },
+  { flag: 'hideWithoutTopic', excludes: (ch) => !(ch.topic ?? '').trim() },
+  { flag: 'hideDms', excludes: (ch) => ch.type === 'dm' },
+];
+
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+function passesChannelMode(
+  id: string,
+  mode: ChannelMode,
+  ids: Set<string>,
+): boolean {
+  if (mode === 'include') return ids.has(id);
+  if (mode === 'exclude') return !ids.has(id);
+  return true;
+}
+
+function passesActivityThreshold(
+  ch: FilterChannel,
+  threshold: ActivityThreshold,
+  now: number,
+): boolean {
+  if (threshold === 'any') return true;
+  const last = ch.lastMessageAt ? new Date(ch.lastMessageAt).getTime() : 0;
+  const age = last ? now - last : Infinity;
+  if (threshold === 'older1y') return age >= ONE_YEAR_MS;
+  return age <= THRESHOLD_MS[threshold];
+}
+
 export function filterChannels<T extends FilterChannel>(
   channels: T[],
   settings: GroupFilterSettings,
@@ -184,6 +229,7 @@ export function filterChannels<T extends FilterChannel>(
 ): T[] {
   const ids = new Set(settings.channelIds ?? []);
   const mode = settings.channelMode ?? 'all';
+  const threshold = settings.activityThreshold ?? 'any';
   const now = Date.now();
 
   return channels.filter((ch) => {
@@ -192,56 +238,46 @@ export function filterChannels<T extends FilterChannel>(
       hasActiveCall: activeCallChannelIds.has(ch.id),
     };
 
-    if (mode === 'include' && !ids.has(ch.id)) return false;
-    if (mode === 'exclude' && ids.has(ch.id)) return false;
-
-    if (settings.showOnlyUnread && !hasUnread(enriched)) return false;
-    if (settings.showOnlyMentions && !((enriched.unreadMentionCount ?? 0) > 0)) return false;
-    if (settings.showOnlyActiveCalls && !enriched.hasActiveCall) return false;
-    if (settings.showOnlyPinned && !enriched.isPinned) return false;
-    if (settings.showOnlyFavorited && !enriched.isFavorite) return false;
-    if (settings.hideMuted && enriched.isMuted) return false;
-    if (settings.showOnlyMuted && !enriched.isMuted) return false;
-    if (settings.hideArchived && enriched.isArchived) return false;
-    if (settings.hideRead && !hasUnread(enriched)) return false;
-    if (settings.hideEmpty && !enriched.lastMessageAt) return false;
-    if (settings.hideWithoutTopic && !(enriched.topic ?? '').trim()) return false;
-    if (settings.hideDms && enriched.type === 'dm') return false;
-
-    const threshold = settings.activityThreshold ?? 'any';
-    if (threshold !== 'any') {
-      const last = enriched.lastMessageAt ? new Date(enriched.lastMessageAt).getTime() : 0;
-      const age = last ? now - last : Infinity;
-      if (threshold === 'older1y') {
-        if (age < 365 * 24 * 60 * 60 * 1000) return false;
-      } else {
-        const max = THRESHOLD_MS[threshold];
-        if (age > max) return false;
-      }
-    }
-
-    return true;
+    if (!passesChannelMode(ch.id, mode, ids)) return false;
+    if (EXCLUDE_RULES.some((rule) => settings[rule.flag] && rule.excludes(enriched))) return false;
+    return passesActivityThreshold(enriched, threshold, now);
   });
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+interface TierRule {
+  flag: keyof GroupFilterSettings;
+  tier: number;
+  matches: (ch: FilterChannel, now: number) => boolean;
+}
+
+/**
+ * Ordered tier rules, earliest match wins.
+ * Boost tiers: lowest number = topmost. Sink tiers: highest number = bottommost.
+ */
+const TIER_RULES: TierRule[] = [
+  { flag: 'boostActiveCall', tier: 0, matches: (ch) => !!ch.hasActiveCall },
+  { flag: 'boostPinned', tier: 1, matches: (ch) => !!ch.isPinned },
+  { flag: 'boostFavorite', tier: 2, matches: (ch) => !!ch.isFavorite },
+  { flag: 'boostMentions', tier: 3, matches: (ch) => (ch.unreadMentionCount ?? 0) > 0 },
+  { flag: 'boostUnread', tier: 4, matches: (ch) => hasUnread(ch) },
+  { flag: 'sinkArchived', tier: 105, matches: (ch) => !!ch.isArchived },
+  { flag: 'sinkMuted', tier: 104, matches: (ch) => !!ch.isMuted },
+  { flag: 'sinkEmpty', tier: 103, matches: (ch) => !ch.lastMessageAt },
+  {
+    flag: 'sinkInactive',
+    tier: 102,
+    matches: (ch, now) =>
+      !!ch.lastMessageAt && now - new Date(ch.lastMessageAt).getTime() > THIRTY_DAYS_MS,
+  },
+  { flag: 'sinkRead', tier: 101, matches: (ch) => !hasUnread(ch) },
+];
+
 function tierFor(ch: FilterChannel, s: GroupFilterSettings): number {
   const now = Date.now();
-  // Boost tiers — earliest match wins (lowest tier number = topmost)
-  if (s.boostActiveCall && ch.hasActiveCall) return 0;
-  if (s.boostPinned && ch.isPinned) return 1;
-  if (s.boostFavorite && ch.isFavorite) return 2;
-  if (s.boostMentions && (ch.unreadMentionCount ?? 0) > 0) return 3;
-  if (s.boostUnread && hasUnread(ch)) return 4;
-  // Sink tiers — earliest match wins (highest tier number = bottommost)
-  if (s.sinkArchived && ch.isArchived) return 105;
-  if (s.sinkMuted && ch.isMuted) return 104;
-  if (s.sinkEmpty && !ch.lastMessageAt) return 103;
-  if (s.sinkInactive && ch.lastMessageAt) {
-    const age = now - new Date(ch.lastMessageAt).getTime();
-    if (age > 30 * 24 * 60 * 60 * 1000) return 102;
-  }
-  if (s.sinkRead && !hasUnread(ch)) return 101;
-  return 50;
+  const rule = TIER_RULES.find((r) => s[r.flag] && r.matches(ch, now));
+  return rule ? rule.tier : 50;
 }
 
 export function sortChannels<T extends FilterChannel>(
