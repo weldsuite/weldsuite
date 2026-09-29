@@ -106,6 +106,146 @@ type AccountRequest = { accountId: string; force: boolean };
 // switches to X's workspace).
 let pendingAccountRequest: AccountRequest | null = null;
 
+type PersonalRow = NonNullable<Awaited<ReturnType<typeof personalApi.me>>['data']['mailAccounts']>[number];
+type WorkspaceRow = Awaited<ReturnType<typeof appApi.mailAccounts.list>>['data'][number];
+type DirectoryGroup = Awaited<ReturnType<typeof appApi.mailboxes.list>>['data'][number];
+type DirectoryAccount = DirectoryGroup['accounts'][number];
+
+function valueOrFallback<T, R>(result: PromiseSettledResult<T>, pick: (value: T) => R, fallback: R): R {
+  return result.status === 'fulfilled' ? pick(result.value) : fallback;
+}
+
+function logUnlessNetworkError(message: string, error: unknown): void {
+  if (!isNetworkError(error)) console.error(message, error);
+}
+
+/**
+ * `allSettled` never rejects, so the fetch's catch (cache fallback + bounded
+ * retry) is only reachable when this reports a failure: offline, every call
+ * fails, and an empty list would otherwise replace the accounts and overwrite
+ * the good cache.
+ */
+function accountsFetchFailure(
+  personalResult: PromiseSettledResult<unknown>,
+  workspaceResult: PromiseSettledResult<unknown>,
+  organizationId: string | null | undefined,
+): { reason: unknown } | null {
+  if (personalResult.status === 'rejected' && (workspaceResult.status === 'rejected' || !organizationId)) {
+    return { reason: workspaceResult.status === 'rejected' ? workspaceResult.reason : personalResult.reason };
+  }
+  return null;
+}
+
+function toPersonalAccount(a: PersonalRow): MailAccount {
+  return {
+    id: a.id,
+    emailAddress: a.email,
+    displayName: a.displayName ?? a.name ?? a.email,
+    provider: a.provider,
+    isDefault: a.isDefault,
+    isActive: a.status === 'active',
+    tenantKind: 'personal',
+    clerkOrgId: null,
+    workspaceName: 'Personal',
+  };
+}
+
+function toWorkspaceAccount(a: WorkspaceRow, clerkOrgId: string | null | undefined): MailAccount {
+  return {
+    id: a.id,
+    emailAddress: a.email,
+    displayName: a.displayName ?? a.name ?? a.email,
+    provider: a.provider,
+    isDefault: a.isDefault,
+    isActive: a.status === 'active',
+    tenantKind: 'workspace',
+    clerkOrgId,
+    workspaceName: null,
+  };
+}
+
+function toDirectoryAccount(a: DirectoryAccount, group: DirectoryGroup): MailAccount {
+  return {
+    id: a.id,
+    emailAddress: a.email,
+    displayName: a.displayName,
+    provider: a.provider ?? undefined,
+    isDefault: a.isDefault,
+    isActive: a.status === 'active',
+    tenantKind: 'workspace',
+    clerkOrgId: group.clerkOrgId,
+    workspaceName: group.workspaceName,
+  };
+}
+
+/** Sidebar directory: mailboxes of the user's other workspaces. */
+function collectOtherOrgAccounts(
+  directory: DirectoryGroup[],
+  currentIds: Set<string>,
+  organizationId: string | null | undefined,
+): MailAccount[] {
+  const otherOrgAccounts: MailAccount[] = [];
+  for (const group of directory) {
+    if (organizationId && group.clerkOrgId === organizationId) continue;
+    for (const a of group.accounts) {
+      if (currentIds.has(a.id)) continue;
+      otherOrgAccounts.push(toDirectoryAccount(a, group));
+    }
+  }
+  return otherOrgAccounts;
+}
+
+function buildAccountList(
+  personalRows: PersonalRow[],
+  liveWorkspace: WorkspaceRow[],
+  directory: DirectoryGroup[],
+  organizationId: string | null | undefined,
+  fallbackOrgId: string | null,
+): MailAccount[] {
+  const personalAccounts = personalRows.map(toPersonalAccount);
+  const currentOrgAccounts = liveWorkspace.map((a) => toWorkspaceAccount(a, organizationId ?? fallbackOrgId));
+  const currentIds = new Set(currentOrgAccounts.map((a) => a.id));
+  const otherOrgAccounts = collectOtherOrgAccounts(directory, currentIds, organizationId);
+  return [...personalAccounts, ...currentOrgAccounts, ...otherOrgAccounts];
+}
+
+async function readCachedAccounts(orgId: string | null): Promise<MailAccount[] | null> {
+  const cached = orgId ? ((await mailCache.getAccounts(orgId)) as MailAccount[] | null) : null;
+  return cached && cached.length ? cached : null;
+}
+
+async function readCachedLabels(orgId: string | null, scope: string) {
+  return orgId ? await mailCache.getLabels(orgId, scope) : null;
+}
+
+/** Labels of every mailbox the unified inbox covers; a failing mailbox is skipped. */
+async function loadUnifiedLabelItems(accounts: MailAccount[], organizationId: string | null | undefined): Promise<any[]> {
+  const results = await Promise.allSettled(
+    accounts.filter((acc) => acc.tenantKind !== 'workspace' || !acc.clerkOrgId || acc.clerkOrgId === organizationId)
+      .map((acc) => listLabelsForAccount(acc)),
+  );
+  const allItems: any[] = [];
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      allItems.push(...result.value);
+    }
+  }
+  return allItems;
+}
+
+/** Null when there is no mailbox to read labels from. */
+async function loadLabelItems(
+  isUnifiedInbox: boolean,
+  accounts: MailAccount[],
+  selectedAccount: MailAccount | null,
+  organizationId: string | null | undefined,
+): Promise<any[] | null> {
+  if (isUnifiedInbox) {
+    return accounts.length === 0 ? null : loadUnifiedLabelItems(accounts, organizationId);
+  }
+  return selectedAccount ? listLabelsForAccount(selectedAccount) : null;
+}
+
 export function MailProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   // Gate data fetching on auth readiness. The app-api client throws when no
   // Clerk token is available yet; MailProvider mounts above the AuthGuard, so
@@ -220,78 +360,29 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
       // A newer fetch (e.g. after a workspace switch) owns the state now.
       if (seq !== accountsFetchSeqRef.current) return;
 
-      // allSettled never rejects, so without this the catch below (cache
-      // fallback + bounded retry) was unreachable: offline, every call failed,
-      // an empty list replaced the accounts and overwrote the good cache.
-      if (
-        personalResult.status === 'rejected' &&
-        (workspaceResult.status === 'rejected' || !organizationId)
-      ) {
-        throw workspaceResult.status === 'rejected' ? workspaceResult.reason : personalResult.reason;
-      }
+      const failure = accountsFetchFailure(personalResult, workspaceResult, organizationId);
+      if (failure) throw failure.reason;
 
       initializedRef.current = true;
       retryCountRef.current = 0;
 
-      const personalRows =
-        personalResult.status === 'fulfilled' ? (personalResult.value.data.mailAccounts ?? []) : [];
+      const personalRows = valueOrFallback(personalResult, (r) => r.data.mailAccounts ?? [], [] as PersonalRow[]);
       rememberPersonalAccounts(personalRows.map((a) => a.id));
-      const personalAccounts: MailAccount[] = personalRows.map((a) => ({
-        id: a.id,
-        emailAddress: a.email,
-        displayName: a.displayName ?? a.name ?? a.email,
-        provider: a.provider,
-        isDefault: a.isDefault,
-        isActive: a.status === 'active',
-        tenantKind: 'personal',
-        clerkOrgId: null,
-        workspaceName: 'Personal',
-      }));
 
-      const liveWorkspace =
-        workspaceResult.status === 'fulfilled' ? workspaceResult.value.data : [];
-      const currentOrgAccounts: MailAccount[] = liveWorkspace.map((a) => ({
-        id: a.id,
-        emailAddress: a.email,
-        displayName: a.displayName ?? a.name ?? a.email,
-        provider: a.provider,
-        isDefault: a.isDefault,
-        isActive: a.status === 'active',
-        tenantKind: 'workspace',
-        clerkOrgId: organizationId ?? orgId,
-        workspaceName: null,
-      }));
-      const currentIds = new Set(currentOrgAccounts.map((a) => a.id));
-
-      const directory =
-        directoryResult.status === 'fulfilled' ? directoryResult.value.data : [];
-      const otherOrgAccounts: MailAccount[] = [];
-      for (const group of directory) {
-        if (organizationId && group.clerkOrgId === organizationId) continue;
-        for (const a of group.accounts) {
-          if (currentIds.has(a.id)) continue;
-          otherOrgAccounts.push({
-            id: a.id,
-            emailAddress: a.email,
-            displayName: a.displayName,
-            provider: a.provider ?? undefined,
-            isDefault: a.isDefault,
-            isActive: a.status === 'active',
-            tenantKind: 'workspace',
-            clerkOrgId: group.clerkOrgId,
-            workspaceName: group.workspaceName,
-          });
-        }
-      }
-
-      const normalized = [...personalAccounts, ...currentOrgAccounts, ...otherOrgAccounts];
+      const normalized = buildAccountList(
+        personalRows,
+        valueOrFallback(workspaceResult, (r) => r.data, [] as WorkspaceRow[]),
+        valueOrFallback(directoryResult, (r) => r.data, [] as DirectoryGroup[]),
+        organizationId,
+        orgId,
+      );
       setAccounts(normalized);
       if (orgId) mailCache.setAccounts(orgId, normalized);
       await applySavedSelection(normalized);
     } catch (error) {
       if (seq !== accountsFetchSeqRef.current) return;
-      const cached = orgId ? ((await mailCache.getAccounts(orgId)) as MailAccount[] | null) : null;
-      if (cached && cached.length) {
+      const cached = await readCachedAccounts(orgId);
+      if (cached) {
         rememberPersonalAccounts(
           cached.filter((a) => a.tenantKind === 'personal').map((a) => a.id),
         );
@@ -299,7 +390,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
         await applySavedSelection(cached);
       }
       initializedRef.current = false;
-      if (!isNetworkError(error)) console.error('Failed to fetch accounts:', error);
+      logUnlessNetworkError('Failed to fetch accounts:', error);
       if (retryCountRef.current < MAX_INIT_RETRIES) {
         retryCountRef.current += 1;
         setTimeout(() => setRetryTick((t) => t + 1), 600);
@@ -418,42 +509,23 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     const seq = ++labelsFetchSeqRef.current;
     const isStale = () => seq !== labelsFetchSeqRef.current;
     try {
-      if (isUnifiedInbox) {
-        if (accounts.length === 0) return;
-        const allItems: any[] = [];
-        const results = await Promise.allSettled(
-          accounts.filter((acc) => acc.tenantKind !== 'workspace' || !acc.clerkOrgId || acc.clerkOrgId === organizationId)
-            .map((acc) => listLabelsForAccount(acc)),
-        );
-        if (isStale()) return;
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            allItems.push(...result.value);
-          }
-        }
-        if (allItems.length > 0) {
-          const { mainCounts, secondaryCounts, custom } = processLabelsResponse(allItems);
-          applyLabels(scope, mainCounts, secondaryCounts, custom);
-        }
-      } else if (selectedAccount) {
-        const items = await listLabelsForAccount(selectedAccount);
-        if (isStale()) return;
-        if (items.length > 0) {
-          const { mainCounts, secondaryCounts, custom } = processLabelsResponse(items);
-          applyLabels(scope, mainCounts, secondaryCounts, custom);
-        }
+      const items = await loadLabelItems(isUnifiedInbox, accounts, selectedAccount, organizationId);
+      if (!items || isStale()) return;
+      if (items.length > 0) {
+        const { mainCounts, secondaryCounts, custom } = processLabelsResponse(items);
+        applyLabels(scope, mainCounts, secondaryCounts, custom);
       }
     } catch (error) {
       // Offline: fall back to the last cached label counts/custom labels for
       // this scope so the sidebar isn't bare. Only log real (server) errors.
       if (isStale()) return;
-      const cached = orgIdRef.current ? await mailCache.getLabels(orgIdRef.current, scope) : null;
+      const cached = await readCachedLabels(orgIdRef.current, scope);
       if (cached && !isStale()) {
         setMainLabelCounts(cached.mainCounts);
         setSecondaryLabelCounts(cached.secondaryCounts);
         setCustomLabels(cached.custom as MailLabel[]);
       }
-      if (!isNetworkError(error)) console.error('Failed to fetch labels:', error);
+      logUnlessNetworkError('Failed to fetch labels:', error);
     }
   }, [selectedAccount?.id, isUnifiedInbox, accounts, processLabelsResponse, applyLabels, organizationId]);
 
