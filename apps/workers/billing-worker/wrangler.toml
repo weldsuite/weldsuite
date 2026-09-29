@@ -19,11 +19,9 @@ head_sampling_rate = 1
 # - CLERK_MACHINE_SECRET_KEY: Clerk M2M machine secret key (ak_...)
 # - NEON_API_KEY: Neon database API key
 # - DATABASE_ENCRYPTION_KEY: 64-char hex key for AES-256-GCM encryption
-# - INTERNAL_API_SECRET: same value as app-api and call-api; FALLBACK bearer for
-#   ordering Telnyx numbers after phone checkout is paid (POST
-#   /api/internal/telephony/fulfill-number, served by call-api; app-api forwards
-#   it there). The primary path is the CALL_INTERNAL entrypoint binding below
-#   (no secret); the bearer is used only while it is unbound or not deployed.
+# - INTERNAL_API_SECRET: same value as app-api and call-api; orders Telnyx numbers
+#   after phone checkout is paid (POST /api/internal/telephony/fulfill-number,
+#   served by call-api; app-api forwards it there)
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
 
 [vars]
@@ -38,16 +36,6 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
-
-# call-api's CallInternal entrypoint: paid phone-number fulfilment. Reachable only
-# over a service binding, so no secret. `remote = true` lets plain `wrangler dev`
-# reach the deployed test worker (mirrors WORKSPACE_WORKER in app-api).
-# Deploy order: call-api must have the entrypoint first (module workers do).
-[[services]]
-binding = "CALL_INTERNAL"
-service = "weldsuite-call-api-test"
-entrypoint = "CallInternal"
-remote = true
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -64,11 +52,6 @@ APP_API_URL = "https://app-api-test.weldsuite.org"
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
-
-[[env.test.services]]
-binding = "CALL_INTERNAL"
-service = "weldsuite-call-api-test"
-entrypoint = "CallInternal"
 
 [env.test.observability]
 enabled = true
@@ -93,12 +76,6 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
-
-# call-api's [env.production] name is "weldsuite-call-api" (no "-production" suffix).
-[[env.production.services]]
-binding = "CALL_INTERNAL"
-service = "weldsuite-call-api"
-entrypoint = "CallInternal"
 
 [env.production.observability]
 enabled = true

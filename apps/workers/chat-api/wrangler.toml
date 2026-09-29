@@ -12,10 +12,8 @@
 #   CLOUDFLARE_API_TOKEN (the AI token the WeldAgent runtime uses when a room
 #     reply runs inline here — no WELDAGENT_JOB binding — and
 #     AI_GATEWAY_API_TOKEN is unset; same value as app-api)
-#   INTERNAL_API_SECRET (FALLBACK bearer for the WeldAgent computer/browser tools'
-#     public HTTP calls to the agent-runtime worker, same inline case; must match
-#     agent-runtime's. The primary path is the AGENT_RUNTIME entrypoint binding
-#     (no secret))
+#   INTERNAL_API_SECRET (the WeldAgent computer/browser tools' bearer to the
+#     agent-runtime worker, same inline case; same value as app-api)
 #   (DATABASE_URL_MASTER also backs the agent runtime's credit metering)
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
@@ -134,17 +132,6 @@ queue = "entity-events-test"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
-# agent-runtime's AgentRuntimeInternal entrypoint: WeldAgent computer/browser tools
-# for room replies that run inline. Reachable only over a service binding, so no
-# secret. Falls back to AGENT_RUNTIME_URL + INTERNAL_API_SECRET while the binding is
-# absent or the entrypoint is not deployed. Deploy order: agent-runtime (in the
-# `workers` job) must have the entrypoint before this worker gets the binding.
-# Not bound in the top-level dev config: local dev keeps AGENT_RUNTIME_URL (Docker runtime).
-[[env.test.services]]
-binding = "AGENT_RUNTIME"
-service = "weldsuite-agent-runtime-test"
-entrypoint = "AgentRuntimeInternal"
-
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
@@ -207,12 +194,6 @@ queue = "entity-events"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
-
-# agent-runtime deploys as "weldsuite-agent-runtime" (no "-production" suffix).
-[[env.production.services]]
-binding = "AGENT_RUNTIME"
-service = "weldsuite-agent-runtime"
-entrypoint = "AgentRuntimeInternal"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
