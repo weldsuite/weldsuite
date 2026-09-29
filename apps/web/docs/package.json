@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "capture-screenshots": "node scripts/capture-screenshots.mjs",
-    "capture-screenshots:all": "node scripts/capture-screenshots-all.mjs"
+    "capture-screenshots:all": "node scripts/capture-screenshots-all.mjs",
+    "record-videos": "node scripts/record-videos.mjs"
   },
   "browserslist": "defaults, not ie <= 11",
   "dependencies": {
@@ -36,6 +37,7 @@
     "typescript": "^5.8.3"
   },
   "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@playwright/test": "^1.57.0",
     "@types/node": "^24.1.0",
     "@types/react": "^19",

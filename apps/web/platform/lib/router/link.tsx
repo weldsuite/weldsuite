@@ -1,5 +1,6 @@
 import { Link as TanStackLink } from '@tanstack/react-router';
 import { forwardRef } from 'react';
+import { toPreviewHref, usePreviewMode } from '@/contexts/preview-mode-context';
 
 interface LinkProps extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
   href: string;
@@ -29,6 +30,7 @@ export const Link = forwardRef<HTMLAnchorElement, LinkProps>(
     },
     ref,
   ) => {
+    const previewMode = usePreviewMode();
     // Handle external links
     if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('tel:')) {
       return (
@@ -41,7 +43,7 @@ export const Link = forwardRef<HTMLAnchorElement, LinkProps>(
     return (
       <TanStackLink
         ref={ref}
-        to={href}
+        to={toPreviewHref(previewMode, href)}
         replace={replace}
         // TanStackLink's props are inferred per-route (heavily generic); the
         // leftover DOM anchor attributes in `rest` don't structurally match

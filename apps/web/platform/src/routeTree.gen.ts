@@ -73,6 +73,7 @@ import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
 import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
+import { Route as PreviewWeldmailRouteRouteImport } from './routes/preview/weldmail/route'
 import { Route as AppsAppCodeRouteRouteImport } from './routes/apps/$appCode/route'
 import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash/warehouses/index'
 import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
@@ -233,6 +234,7 @@ import { Route as AppsAppCodeSplatRouteImport } from './routes/apps/$appCode/$'
 import { Route as WeldmailUnifiedLabelSlugRouteRouteImport } from './routes/weldmail/unified/$labelSlug/route'
 import { Route as WeldmailAccountIdLabelSlugRouteRouteImport } from './routes/weldmail/$accountId/$labelSlug/route'
 import { Route as WeldflowProjectProjectIdRouteRouteImport } from './routes/weldflow/project/$projectId/route'
+import { Route as PreviewWeldmailAccountIdRouteRouteImport } from './routes/preview/weldmail/$accountId/route'
 import { Route as WeldpassProjectIdSyncIndexRouteImport } from './routes/weldpass/$projectId/sync/index'
 import { Route as WeldpassProjectIdAuditIndexRouteImport } from './routes/weldpass/$projectId/audit/index'
 import { Route as WeldmailUnifiedLabelSlugIndexRouteImport } from './routes/weldmail/unified/$labelSlug/index'
@@ -324,6 +326,7 @@ import { Route as SettingsIntegrationsGoogleCalendarCallbackRouteImport } from '
 import { Route as SettingsIntegrationsAttioCallbackRouteImport } from './routes/settings/integrations/attio/callback'
 import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/register/tasks/$'
 import { Route as AuthLoginTasksSplatRouteImport } from './routes/auth/login/tasks/$'
+import { Route as PreviewWeldmailAccountIdLabelSlugRouteRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/route'
 import { Route as WeldmailUnifiedLabelSlugComposeIndexRouteImport } from './routes/weldmail/unified/$labelSlug/compose/index'
 import { Route as WeldmailUnifiedLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/unified/$labelSlug/$messageId/index'
 import { Route as WeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/compose/index'
@@ -365,6 +368,7 @@ import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbook
 import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
 import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
 import { Route as SettingsAppsPhoneNumbersNewNumberIndexRouteImport } from './routes/settings/apps/phone-numbers/new-number/index'
+import { Route as PreviewWeldmailAccountIdLabelSlugIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/index'
 import { Route as WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/$whiteboardId/index'
 import { Route as WeldflowProjectProjectIdTableFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/table/$fileId/index'
 import { Route as WeldflowProjectProjectIdMembersMemberIdIndexRouteImport } from './routes/weldflow/project/$projectId/members/$memberId/index'
@@ -373,6 +377,7 @@ import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } fro
 import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
 import { Route as WelddeskHelpCenterArticlesIdEditIndexRouteImport } from './routes/welddesk/help-center/articles/$id/edit/index'
 import { Route as SettingsAppsPhoneNumbersPortIdIndexRouteImport } from './routes/settings/apps/phone-numbers/port/$id/index'
+import { Route as PreviewWeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/compose/index'
 
 const NewChatRoute = NewChatRouteImport.update({
   id: '/new-chat',
@@ -692,6 +697,11 @@ const WeldcrmCompaniesRouteRoute = WeldcrmCompaniesRouteRouteImport.update({
   id: '/companies',
   path: '/companies',
   getParentRoute: () => WeldcrmRouteRoute,
+} as any)
+const PreviewWeldmailRouteRoute = PreviewWeldmailRouteRouteImport.update({
+  id: '/preview/weldmail',
+  path: '/preview/weldmail',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppsAppCodeRouteRoute = AppsAppCodeRouteRouteImport.update({
   id: '/apps/$appCode',
@@ -1521,6 +1531,12 @@ const WeldflowProjectProjectIdRouteRoute =
     path: '/project/$projectId',
     getParentRoute: () => WeldflowRouteRoute,
   } as any)
+const PreviewWeldmailAccountIdRouteRoute =
+  PreviewWeldmailAccountIdRouteRouteImport.update({
+    id: '/$accountId',
+    path: '/$accountId',
+    getParentRoute: () => PreviewWeldmailRouteRoute,
+  } as any)
 const WeldpassProjectIdSyncIndexRoute =
   WeldpassProjectIdSyncIndexRouteImport.update({
     id: '/$projectId/sync/',
@@ -2052,6 +2068,12 @@ const AuthLoginTasksSplatRoute = AuthLoginTasksSplatRouteImport.update({
   path: '/login/tasks/$',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const PreviewWeldmailAccountIdLabelSlugRouteRoute =
+  PreviewWeldmailAccountIdLabelSlugRouteRouteImport.update({
+    id: '/$labelSlug',
+    path: '/$labelSlug',
+    getParentRoute: () => PreviewWeldmailAccountIdRouteRoute,
+  } as any)
 const WeldmailUnifiedLabelSlugComposeIndexRoute =
   WeldmailUnifiedLabelSlugComposeIndexRouteImport.update({
     id: '/compose/',
@@ -2298,6 +2320,12 @@ const SettingsAppsPhoneNumbersNewNumberIndexRoute =
     path: '/apps/phone-numbers/new-number/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const PreviewWeldmailAccountIdLabelSlugIndexRoute =
+  PreviewWeldmailAccountIdLabelSlugIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => PreviewWeldmailAccountIdLabelSlugRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute =
   WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport.update({
     id: '/whiteboard/$whiteboardId/',
@@ -2346,6 +2374,12 @@ const SettingsAppsPhoneNumbersPortIdIndexRoute =
     path: '/apps/phone-numbers/port/$id/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const PreviewWeldmailAccountIdLabelSlugComposeIndexRoute =
+  PreviewWeldmailAccountIdLabelSlugComposeIndexRouteImport.update({
+    id: '/compose/',
+    path: '/compose/',
+    getParentRoute: () => PreviewWeldmailAccountIdLabelSlugRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -2377,6 +2411,7 @@ export interface FileRoutesByFullPath {
   '/call-room': typeof CallRoomRoute
   '/new-chat': typeof NewChatRoute
   '/apps/$appCode': typeof AppsAppCodeRouteRouteWithChildren
+  '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
@@ -2412,6 +2447,7 @@ export interface FileRoutesByFullPath {
   '/weldmeet/': typeof WeldmeetIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
+  '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdRouteRouteWithChildren
   '/weldmail/$accountId/$labelSlug': typeof WeldmailAccountIdLabelSlugRouteRouteWithChildren
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugRouteRouteWithChildren
@@ -2571,6 +2607,7 @@ export interface FileRoutesByFullPath {
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
@@ -2662,6 +2699,7 @@ export interface FileRoutesByFullPath {
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpass/$projectId/audit/': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync/': typeof WeldpassProjectIdSyncIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
@@ -2703,6 +2741,7 @@ export interface FileRoutesByFullPath {
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose/': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug/compose/': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id/': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -2718,6 +2757,7 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/call-room': typeof CallRoomRoute
   '/new-chat': typeof NewChatRoute
+  '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -2750,6 +2790,7 @@ export interface FileRoutesByTo {
   '/weldmeet': typeof WeldmeetIndexRoute
   '/weldpass': typeof WeldpassIndexRoute
   '/weldstash': typeof WeldstashIndexRoute
+  '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/apps/$appCode/$': typeof AppsAppCodeSplatRoute
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
@@ -2997,6 +3038,7 @@ export interface FileRoutesByTo {
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpass/$projectId/audit': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync': typeof WeldpassProjectIdSyncIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/weldbooks/accounts/$id/edit': typeof WeldbooksAccountsIdEditIndexRoute
@@ -3038,6 +3080,7 @@ export interface FileRoutesByTo {
   '/weldmail/$accountId/$labelSlug/compose': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug/compose': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
   '/welddesk/help-center/articles/$id/edit': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -3079,6 +3122,7 @@ export interface FileRoutesById {
   '/call-room': typeof CallRoomRoute
   '/new-chat': typeof NewChatRoute
   '/apps/$appCode': typeof AppsAppCodeRouteRouteWithChildren
+  '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
@@ -3114,6 +3158,7 @@ export interface FileRoutesById {
   '/weldmeet/': typeof WeldmeetIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
+  '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdRouteRouteWithChildren
   '/weldmail/$accountId/$labelSlug': typeof WeldmailAccountIdLabelSlugRouteRouteWithChildren
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugRouteRouteWithChildren
@@ -3273,6 +3318,7 @@ export interface FileRoutesById {
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
@@ -3364,6 +3410,7 @@ export interface FileRoutesById {
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpass/$projectId/audit/': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync/': typeof WeldpassProjectIdSyncIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
@@ -3405,6 +3452,7 @@ export interface FileRoutesById {
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose/': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/preview/weldmail/$accountId/$labelSlug/compose/': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id/': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -3446,6 +3494,7 @@ export interface FileRouteTypes {
     | '/call-room'
     | '/new-chat'
     | '/apps/$appCode'
+    | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
     | '/weldmail/$accountId'
@@ -3481,6 +3530,7 @@ export interface FileRouteTypes {
     | '/weldmeet/'
     | '/weldpass/'
     | '/weldstash/'
+    | '/preview/weldmail/$accountId'
     | '/weldflow/project/$projectId'
     | '/weldmail/$accountId/$labelSlug'
     | '/weldmail/unified/$labelSlug'
@@ -3640,6 +3690,7 @@ export interface FileRouteTypes {
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
+    | '/preview/weldmail/$accountId/$labelSlug'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
     | '/settings/integrations/attio/callback'
@@ -3731,6 +3782,7 @@ export interface FileRouteTypes {
     | '/weldmail/unified/$labelSlug/'
     | '/weldpass/$projectId/audit/'
     | '/weldpass/$projectId/sync/'
+    | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
     | '/weldbooks/accounts/$id/edit/'
@@ -3772,6 +3824,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
     | '/weldmail/unified/$labelSlug/compose/'
+    | '/preview/weldmail/$accountId/$labelSlug/compose/'
     | '/settings/apps/phone-numbers/port/$id/'
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
@@ -3787,6 +3840,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/call-room'
     | '/new-chat'
+    | '/preview/weldmail'
     | '/weldmail/$accountId'
     | '/documents/$fileId'
     | '/weldchat/activity'
@@ -3819,6 +3873,7 @@ export interface FileRouteTypes {
     | '/weldmeet'
     | '/weldpass'
     | '/weldstash'
+    | '/preview/weldmail/$accountId'
     | '/apps/$appCode/$'
     | '/auth/login/$'
     | '/auth/register/$'
@@ -4066,6 +4121,7 @@ export interface FileRouteTypes {
     | '/weldmail/unified/$labelSlug'
     | '/weldpass/$projectId/audit'
     | '/weldpass/$projectId/sync'
+    | '/preview/weldmail/$accountId/$labelSlug'
     | '/settings/apps/phone-numbers/new-number'
     | '/settings/apps/phone-numbers/port'
     | '/weldbooks/accounts/$id/edit'
@@ -4107,6 +4163,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose'
     | '/weldmail/unified/$labelSlug/$messageId'
     | '/weldmail/unified/$labelSlug/compose'
+    | '/preview/weldmail/$accountId/$labelSlug/compose'
     | '/settings/apps/phone-numbers/port/$id'
     | '/welddesk/help-center/articles/$id/edit'
     | '/weldflow/project/$projectId/analytics/$id'
@@ -4147,6 +4204,7 @@ export interface FileRouteTypes {
     | '/call-room'
     | '/new-chat'
     | '/apps/$appCode'
+    | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
     | '/weldmail/$accountId'
@@ -4182,6 +4240,7 @@ export interface FileRouteTypes {
     | '/weldmeet/'
     | '/weldpass/'
     | '/weldstash/'
+    | '/preview/weldmail/$accountId'
     | '/weldflow/project/$projectId'
     | '/weldmail/$accountId/$labelSlug'
     | '/weldmail/unified/$labelSlug'
@@ -4341,6 +4400,7 @@ export interface FileRouteTypes {
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
+    | '/preview/weldmail/$accountId/$labelSlug'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
     | '/settings/integrations/attio/callback'
@@ -4432,6 +4492,7 @@ export interface FileRouteTypes {
     | '/weldmail/unified/$labelSlug/'
     | '/weldpass/$projectId/audit/'
     | '/weldpass/$projectId/sync/'
+    | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
     | '/weldbooks/accounts/$id/edit/'
@@ -4473,6 +4534,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
     | '/weldmail/unified/$labelSlug/compose/'
+    | '/preview/weldmail/$accountId/$labelSlug/compose/'
     | '/settings/apps/phone-numbers/port/$id/'
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
@@ -4514,6 +4576,7 @@ export interface RootRouteChildren {
   CallRoomRoute: typeof CallRoomRoute
   NewChatRoute: typeof NewChatRoute
   AppsAppCodeRouteRoute: typeof AppsAppCodeRouteRouteWithChildren
+  PreviewWeldmailRouteRoute: typeof PreviewWeldmailRouteRouteWithChildren
   DocumentsFileIdRoute: typeof DocumentsFileIdRoute
   InviteIndexRoute: typeof InviteIndexRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
@@ -4974,6 +5037,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldcrm/companies'
       preLoaderRoute: typeof WeldcrmCompaniesRouteRouteImport
       parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/preview/weldmail': {
+      id: '/preview/weldmail'
+      path: '/preview/weldmail'
+      fullPath: '/preview/weldmail'
+      preLoaderRoute: typeof PreviewWeldmailRouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/apps/$appCode': {
       id: '/apps/$appCode'
@@ -6095,6 +6165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdRouteRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
+    '/preview/weldmail/$accountId': {
+      id: '/preview/weldmail/$accountId'
+      path: '/$accountId'
+      fullPath: '/preview/weldmail/$accountId'
+      preLoaderRoute: typeof PreviewWeldmailAccountIdRouteRouteImport
+      parentRoute: typeof PreviewWeldmailRouteRoute
+    }
     '/weldpass/$projectId/sync/': {
       id: '/weldpass/$projectId/sync/'
       path: '/$projectId/sync'
@@ -6732,6 +6809,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginTasksSplatRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/preview/weldmail/$accountId/$labelSlug': {
+      id: '/preview/weldmail/$accountId/$labelSlug'
+      path: '/$labelSlug'
+      fullPath: '/preview/weldmail/$accountId/$labelSlug'
+      preLoaderRoute: typeof PreviewWeldmailAccountIdLabelSlugRouteRouteImport
+      parentRoute: typeof PreviewWeldmailAccountIdRouteRoute
+    }
     '/weldmail/unified/$labelSlug/compose/': {
       id: '/weldmail/unified/$labelSlug/compose/'
       path: '/compose'
@@ -7019,6 +7103,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/preview/weldmail/$accountId/$labelSlug/': {
+      id: '/preview/weldmail/$accountId/$labelSlug/'
+      path: '/'
+      fullPath: '/preview/weldmail/$accountId/$labelSlug/'
+      preLoaderRoute: typeof PreviewWeldmailAccountIdLabelSlugIndexRouteImport
+      parentRoute: typeof PreviewWeldmailAccountIdLabelSlugRouteRoute
+    }
     '/weldflow/project/$projectId/whiteboard/$whiteboardId/': {
       id: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
       path: '/whiteboard/$whiteboardId'
@@ -7074,6 +7165,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/apps/phone-numbers/port/$id/'
       preLoaderRoute: typeof SettingsAppsPhoneNumbersPortIdIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/preview/weldmail/$accountId/$labelSlug/compose/': {
+      id: '/preview/weldmail/$accountId/$labelSlug/compose/'
+      path: '/compose'
+      fullPath: '/preview/weldmail/$accountId/$labelSlug/compose/'
+      preLoaderRoute: typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRouteImport
+      parentRoute: typeof PreviewWeldmailAccountIdLabelSlugRouteRoute
     }
   }
 }
@@ -8119,6 +8217,51 @@ const AppsAppCodeRouteRouteChildren: AppsAppCodeRouteRouteChildren = {
 const AppsAppCodeRouteRouteWithChildren =
   AppsAppCodeRouteRoute._addFileChildren(AppsAppCodeRouteRouteChildren)
 
+interface PreviewWeldmailAccountIdLabelSlugRouteRouteChildren {
+  PreviewWeldmailAccountIdLabelSlugIndexRoute: typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
+  PreviewWeldmailAccountIdLabelSlugComposeIndexRoute: typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
+}
+
+const PreviewWeldmailAccountIdLabelSlugRouteRouteChildren: PreviewWeldmailAccountIdLabelSlugRouteRouteChildren =
+  {
+    PreviewWeldmailAccountIdLabelSlugIndexRoute:
+      PreviewWeldmailAccountIdLabelSlugIndexRoute,
+    PreviewWeldmailAccountIdLabelSlugComposeIndexRoute:
+      PreviewWeldmailAccountIdLabelSlugComposeIndexRoute,
+  }
+
+const PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren =
+  PreviewWeldmailAccountIdLabelSlugRouteRoute._addFileChildren(
+    PreviewWeldmailAccountIdLabelSlugRouteRouteChildren,
+  )
+
+interface PreviewWeldmailAccountIdRouteRouteChildren {
+  PreviewWeldmailAccountIdLabelSlugRouteRoute: typeof PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren
+}
+
+const PreviewWeldmailAccountIdRouteRouteChildren: PreviewWeldmailAccountIdRouteRouteChildren =
+  {
+    PreviewWeldmailAccountIdLabelSlugRouteRoute:
+      PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren,
+  }
+
+const PreviewWeldmailAccountIdRouteRouteWithChildren =
+  PreviewWeldmailAccountIdRouteRoute._addFileChildren(
+    PreviewWeldmailAccountIdRouteRouteChildren,
+  )
+
+interface PreviewWeldmailRouteRouteChildren {
+  PreviewWeldmailAccountIdRouteRoute: typeof PreviewWeldmailAccountIdRouteRouteWithChildren
+}
+
+const PreviewWeldmailRouteRouteChildren: PreviewWeldmailRouteRouteChildren = {
+  PreviewWeldmailAccountIdRouteRoute:
+    PreviewWeldmailAccountIdRouteRouteWithChildren,
+}
+
+const PreviewWeldmailRouteRouteWithChildren =
+  PreviewWeldmailRouteRoute._addFileChildren(PreviewWeldmailRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRouteRoute: DashboardRouteRouteWithChildren,
@@ -8150,6 +8293,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallRoomRoute: CallRoomRoute,
   NewChatRoute: NewChatRoute,
   AppsAppCodeRouteRoute: AppsAppCodeRouteRouteWithChildren,
+  PreviewWeldmailRouteRoute: PreviewWeldmailRouteRouteWithChildren,
   DocumentsFileIdRoute: DocumentsFileIdRoute,
   InviteIndexRoute: InviteIndexRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,

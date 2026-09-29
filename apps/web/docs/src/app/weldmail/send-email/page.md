@@ -33,8 +33,10 @@ Quoted text from the original message is included automatically.
 
 ## Compose a new message
 
+{% video src="/videos/help/weldmail-send-email.mp4" poster="/videos/help/weldmail-send-email.jpg" title="How to send an email in WeldMail" caption="Compose a message, pick a recipient from your contacts, and send it." /%}
+
 1. Click **Compose** (or press the shortcut shown in the UI).
-2. Enter **To**, **Cc**, and **Bcc** as needed.
+2. Enter **To**, **Cc**, and **Bcc** as needed. Start typing a name to pick a saved contact.
 3. Add a **subject** and body.
 4. Attach files with the paperclip if needed.
 5. Click **Send**.

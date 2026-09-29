@@ -95,6 +95,52 @@ Always commit UI/copy changes **with** updated PNGs under `public/images/help/`.
 4. Run `capture-screenshots:all`
 5. Commit PNG + manifest + copy
 
+## Support videos
+
+Guides can embed a screen recording of the **real** platform UI:
+
+```markdown
+{% video src="/videos/help/<name>.mp4" poster="/videos/help/<name>.jpg" title="..." caption="..." /%}
+```
+
+| Layer | Path |
+| --- | --- |
+| Video scripts (fixtures + steps) | `apps/web/docs/scripts/videos/<name>.mjs` |
+| Registry | `apps/web/docs/scripts/videos.config.mjs` |
+| Recorder (cursor, captions, 1080p H.264) | `apps/web/docs/scripts/video-director.mjs` |
+| API fixtures helper | `apps/web/docs/scripts/mock-api.mjs` |
+| Output | `apps/web/docs/public/videos/help/<name>.{mp4,jpg}` |
+| Unauthenticated module mirror | `apps/web/platform/src/routes/preview/<module>/` + `app/preview/<module>/` |
+
+How it works: `/preview/<module>/*` mirrors the module's real routes inside
+`PreviewModeProvider` (`contexts/preview-mode-context.tsx`). There the app sees
+`/<module>/...` paths, navigation stays under `/preview`, and the app-api client
+sends a placeholder token instead of a Clerk session, so every API call goes
+out and Playwright answers it from the video's fixtures (`mockApi`). Unmatched
+calls get a 404, which shell widgets tolerate.
+
+Record (platform dev server running):
+
+```bash
+PLATFORM_URL=http://localhost:3000 pnpm --filter docs record-videos <name>
+```
+
+Adding a video for another module:
+
+1. Mirror the module's route files under `src/routes/preview/<module>/` (same
+   components, `/preview` prefix) with a shell like
+   `app/preview/weldmail/preview-weldmail-shell.tsx`.
+2. Open the preview in a browser, list the `/api/*` requests it makes, and add
+   fixtures for the ones the screen needs (copy shapes from
+   `@weldsuite/app-api-client` domain types).
+3. Script the steps with the `Director` (`caption`, `click`, `type`, `pause`),
+   prefer `getByRole` / `getByTestId` / placeholders over CSS selectors, and
+   give it `intro` / `outro` cards.
+4. Register it in `videos.config.mjs`, record, embed, commit MP4 + poster.
+
+Keep videos short (under a minute), one task per video, and fixture data
+fictional (`*.example` / `example.com` addresses).
+
 ## Rules
 
 - **Do not** hand-edit PNGs or use SVG placeholders for UI that exists in the app.
