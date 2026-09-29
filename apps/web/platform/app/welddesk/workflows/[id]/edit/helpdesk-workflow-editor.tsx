@@ -70,6 +70,233 @@ interface AgentDefinitionDetail {
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+function buildSubAgentForm(data: AgentDefinitionDetail): SubAgentFormState {
+  return {
+    name: data.name || '',
+    description: data.description || '',
+    systemPrompt: data.systemPrompt || '',
+    modelId: data.modelId || 'openai/gpt-4o',
+    temperature: Number.parseFloat(data.temperature || '') || 0.7,
+    maxTokens: data.maxTokens || 1024,
+    maxIterations: data.maxIterations || 10,
+    maxTotalTokens: data.maxTotalTokens || 20000,
+    enabledBuiltinTools: data.enabledBuiltinTools || [],
+    integrationIds: data.integrationIds || [],
+    integrationToolPermissions: data.integrationToolPermissions || {},
+    escalationRules: {
+      escalateOnFailure: data.escalationRules?.escalateOnFailure !== false,
+      escalateOnMaxIterations: data.escalationRules?.escalateOnMaxIterations !== false,
+    },
+  };
+}
+
+/** Builds a new step, pre-configured for the action types that need defaults. */
+function buildNewStep(
+  actionType: string,
+  actionTypes: ReadonlyArray<{ id: string; name: string }>,
+  existingSteps: WorkflowStep[],
+): WorkflowStep {
+  const actionNames: Record<string, string> = {};
+  actionTypes.forEach((a) => { actionNames[a.id] = a.name; });
+
+  const newStep: WorkflowStep = {
+    id: `step-${Date.now()}`,
+    type: actionType,
+    name: actionNames[actionType] || actionType,
+    config: {},
+    order: existingSteps.length,
+    position: undefined,
+  };
+
+  // Pre-configure send_choices with one default button
+  if (actionType === 'send_choices') {
+    newStep.config = {
+      message: '',
+      options: [{ label: 'Reply button', value: `btn_${Date.now()}` }],
+    };
+  }
+
+  // Pre-configure send_notification to reference assigned agent when there's a preceding assign step
+  if (actionType === 'send_notification') {
+    const precedingAssignStep = existingSteps.find((s) => s.type === 'assign_conversation');
+    if (precedingAssignStep) {
+      newStep.config = {
+        recipientMode: 'assigned_agent',
+        assignStepRef: precedingAssignStep.id,
+        userIds: [`{{steps.${precedingAssignStep.id}.assignedUserId}}`],
+        category: 'helpdesk',
+      };
+    }
+  }
+
+  return newStep;
+}
+
+/** Branch a new step belongs to, derived from the node it was added from. */
+function resolveParentBranchId(
+  sourceId: string | null | undefined,
+  steps: WorkflowStep[],
+): string | undefined {
+  if (!sourceId) return undefined;
+  if (sourceId.includes('_branch_') || sourceId.endsWith('_if') || sourceId.endsWith('_if_not')) {
+    return sourceId;
+  }
+  return steps.find((s) => s.id === sourceId)?.parentBranchId || undefined;
+}
+
+/** Ids of the branches a step opens (reply buttons, agent outcomes, condition branches). */
+function getChildBranchIds(stepId: string, stepType: string, stepConfig?: Record<string, unknown>): string[] {
+  // For send_choices: steps in reply-button branches
+  if (stepType === 'send_choices') {
+    const opts: Array<{ value?: string }> = Array.isArray(stepConfig?.options) ? (stepConfig!.options as Array<{ value?: string }>) : [];
+    return opts.map((opt, oi) => `${stepId}_branch_${opt.value || oi}`);
+  }
+  // For ai_auto_reply: steps in escalated/resolved branches
+  if (stepType === 'ai_auto_reply') {
+    return ['escalated', 'resolved'].map((val) => `${stepId}_branch_${val}`);
+  }
+  // For conditions: steps in condition branches
+  if (stepType === 'condition') {
+    return getConditionBranchIds({ id: stepId, config: stepConfig });
+  }
+  return [];
+}
+
+/** Ids of a step plus every step nested in its child branches. */
+function collectStepIdsToRemove(steps: WorkflowStep[], rootStep: WorkflowStep): Set<string> {
+  const idsToRemove = new Set<string>();
+  const collectChildren = (step: WorkflowStep) => {
+    idsToRemove.add(step.id);
+    for (const branchId of getChildBranchIds(step.id, step.type, step.config)) {
+      steps.forEach((s) => {
+        if (s.parentBranchId === branchId) collectChildren(s);
+      });
+    }
+  };
+  collectChildren(rootStep);
+  return idsToRemove;
+}
+
+/**
+ * Returns the steps with `newStep` added: a terminal action replaces any
+ * existing terminal on the same path, other actions go before it.
+ */
+function insertStep(steps: WorkflowStep[], newStep: WorkflowStep, actionType: string): WorkflowStep[] {
+  let updatedSteps = [...steps];
+  const samePathFilter = (s: WorkflowStep) =>
+    newStep.parentBranchId
+      ? s.parentBranchId === newStep.parentBranchId
+      : !s.parentBranchId;
+  const isTerminalOnSamePath = (s: WorkflowStep) => isTerminalAction(s.type) && samePathFilter(s);
+
+  // If adding a terminal action and one already exists on the same path, replace it
+  const existingTerminal = updatedSteps.find(isTerminalOnSamePath);
+  if (isTerminalAction(actionType) && existingTerminal) {
+    const idsToRemove = collectStepIdsToRemove(updatedSteps, existingTerminal);
+    updatedSteps = updatedSteps.filter((s) => !idsToRemove.has(s.id));
+  }
+
+  // Insert before any remaining terminal action, or append
+  const terminalIdx = updatedSteps.findIndex(isTerminalOnSamePath);
+  if (terminalIdx >= 0 && !isTerminalAction(actionType)) {
+    updatedSteps.splice(terminalIdx, 0, newStep);
+  } else {
+    updatedSteps.push(newStep);
+  }
+
+  updatedSteps.forEach((step, i) => (step.order = i));
+  return updatedSteps;
+}
+
+function RunHistoryPanel({ onClose }: Readonly<{ onClose: () => void }>) {
+  const { t } = useI18n();
+  const tw = t.helpdesk.workflowsPage;
+  return (
+    <>
+      <div className="pl-4 py-3 pr-3 border-b flex items-center justify-between">
+        <h3 className="font-semibold text-sm">{tw.runHistory}</h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="flex-1 flex flex-col">
+        {/* Empty State */}
+        <div className="flex-1 flex flex-col items-center justify-center px-4">
+          <div className="relative mb-4 scale-75">
+            <div className="relative py-4">
+              <div className="flex gap-3 mb-3">
+                <div className="w-14 h-10 border border-dashed border-red-200 rounded-lg" />
+                <div className="w-24 h-10 border border-dashed border-red-200 rounded-lg" />
+              </div>
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full border-2 border-red-200 bg-background flex items-center justify-center z-10">
+                <XCircle className="w-5 h-5 text-red-400" />
+              </div>
+              <div className="flex gap-3">
+                <div className="w-20 h-10 border border-dashed border-red-200 rounded-lg" />
+                <div className="w-16 h-10 border border-dashed border-red-200 rounded-lg" />
+              </div>
+            </div>
+          </div>
+          <h4 className="text-base font-semibold mb-1">{tw.noRuns}</h4>
+          <p className="text-sm text-muted-foreground text-center">
+            {tw.noRunsDesc}
+          </p>
+        </div>
+
+        {/* Overview Stats */}
+        <div className="p-4 border-t">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-3 rounded-lg bg-green-50 border border-green-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold text-green-700">0</span>
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              </div>
+              <p className="text-xs text-green-600">{tw.runCompleted}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold text-red-700">0</span>
+                <XCircle className="w-4 h-4 text-red-500" />
+              </div>
+              <p className="text-xs text-red-600">{tw.runFailed}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold">0</span>
+                <RefreshCw className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">{tw.runInProgress}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold">-</span>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">{tw.runAvgRuntime}</p>
+            </div>
+          </div>
+          <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-lg font-semibold">0</span>
+              <Settings className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <p className="text-xs text-muted-foreground">{tw.creditsConsumed.replace('{consumed}', '0').replace('{included}', '250')}</p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
 // Component
 // ============================================================================
 
@@ -175,23 +402,7 @@ export function HelpdeskWorkflowEditorClient({
   // Populate form when agent data loads
   useEffect(() => {
     if (editSubAgentData && editSubAgentId) {
-      setSubAgentForm({
-        name: editSubAgentData.name || '',
-        description: editSubAgentData.description || '',
-        systemPrompt: editSubAgentData.systemPrompt || '',
-        modelId: editSubAgentData.modelId || 'openai/gpt-4o',
-        temperature: Number.parseFloat(editSubAgentData.temperature || '') || 0.7,
-        maxTokens: editSubAgentData.maxTokens || 1024,
-        maxIterations: editSubAgentData.maxIterations || 10,
-        maxTotalTokens: editSubAgentData.maxTotalTokens || 20000,
-        enabledBuiltinTools: editSubAgentData.enabledBuiltinTools || [],
-        integrationIds: editSubAgentData.integrationIds || [],
-        integrationToolPermissions: editSubAgentData.integrationToolPermissions || {},
-        escalationRules: {
-          escalateOnFailure: editSubAgentData.escalationRules?.escalateOnFailure !== false,
-          escalateOnMaxIterations: editSubAgentData.escalationRules?.escalateOnMaxIterations !== false,
-        },
-      });
+      setSubAgentForm(buildSubAgentForm(editSubAgentData));
     }
   }, [editSubAgentData, editSubAgentId]);
 
@@ -257,111 +468,15 @@ export function HelpdeskWorkflowEditorClient({
 
   /** Shared step-creation logic used by both sidebar and inline add */
   const createStep = useCallback((actionType: string, sourceId: string | null | undefined) => {
-    const actionNames: Record<string, string> = {};
-    helpdeskActionTypes.forEach((a) => { actionNames[a.id] = a.name; });
-
-    const newStep: WorkflowStep = {
-      id: `step-${Date.now()}`,
-      type: actionType,
-      name: actionNames[actionType] || actionType,
-      config: {},
-      order: workflow.steps.length,
-      position: undefined,
-    };
-
-    // Pre-configure send_choices with one default button
-    if (actionType === 'send_choices') {
-      newStep.config = {
-        message: '',
-        options: [{ label: 'Reply button', value: `btn_${Date.now()}` }],
-      };
-    }
-
-    // Pre-configure send_notification to reference assigned agent when there's a preceding assign step
-    if (actionType === 'send_notification') {
-      const precedingAssignStep = workflow.steps.find((s) => s.type === 'assign_conversation');
-      if (precedingAssignStep) {
-        newStep.config = {
-          recipientMode: 'assigned_agent',
-          assignStepRef: precedingAssignStep.id,
-          userIds: [`{{steps.${precedingAssignStep.id}.assignedUserId}}`],
-          category: 'helpdesk',
-        };
-      }
-    }
+    const newStep = buildNewStep(actionType, helpdeskActionTypes, workflow.steps);
 
     // Determine branch membership
-    if (sourceId) {
-      if (sourceId.includes('_branch_') ||
-          sourceId.endsWith('_if') ||
-          sourceId.endsWith('_if_not')) {
-        newStep.parentBranchId = sourceId;
-      } else {
-        const sourceStep = workflow.steps.find((s) => s.id === sourceId);
-        if (sourceStep?.parentBranchId) {
-          newStep.parentBranchId = sourceStep.parentBranchId;
-        }
-      }
+    const parentBranchId = resolveParentBranchId(sourceId, workflow.steps);
+    if (parentBranchId) {
+      newStep.parentBranchId = parentBranchId;
     }
 
-    // If adding a terminal action and one already exists on the same path, replace it
-    let updatedSteps = [...workflow.steps];
-    const samePathFilter = (s: WorkflowStep) =>
-      newStep.parentBranchId
-        ? s.parentBranchId === newStep.parentBranchId
-        : !s.parentBranchId;
-    const existingTerminal = updatedSteps.find((s) =>
-      isTerminalAction(s.type) && samePathFilter(s)
-    );
-    if (isTerminalAction(actionType) && existingTerminal) {
-      // Collect the old terminal and all its child branch steps for removal
-      const idsToRemove = new Set<string>();
-      function collectChildren(stepId: string, stepType: string, stepConfig?: Record<string, unknown>) {
-        idsToRemove.add(stepId);
-        // For send_choices: remove steps in reply-button branches
-        if (stepType === 'send_choices') {
-          const opts: Array<{ value?: string }> = Array.isArray(stepConfig?.options) ? (stepConfig!.options as Array<{ value?: string }>) : [];
-          opts.forEach((opt, oi) => {
-            const branchId = `${stepId}_branch_${opt.value || oi}`;
-            updatedSteps.forEach((s) => {
-              if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
-            });
-          });
-        }
-        // For ai_auto_reply: remove steps in escalated/resolved branches
-        if (stepType === 'ai_auto_reply') {
-          ['escalated', 'resolved'].forEach((val) => {
-            const branchId = `${stepId}_branch_${val}`;
-            updatedSteps.forEach((s) => {
-              if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
-            });
-          });
-        }
-        // For conditions: remove steps in condition branches
-        if (stepType === 'condition') {
-          const branchIds = getConditionBranchIds({ id: stepId, config: stepConfig });
-          branchIds.forEach((branchId) => {
-            updatedSteps.forEach((s) => {
-              if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
-            });
-          });
-        }
-      }
-      collectChildren(existingTerminal.id, existingTerminal.type, existingTerminal.config);
-      updatedSteps = updatedSteps.filter((s) => !idsToRemove.has(s.id));
-    }
-
-    // Insert before any remaining terminal action, or append
-    const terminalIdx = updatedSteps.findIndex((s) =>
-      isTerminalAction(s.type) && samePathFilter(s)
-    );
-    if (terminalIdx >= 0 && !isTerminalAction(actionType)) {
-      updatedSteps.splice(terminalIdx, 0, newStep);
-    } else {
-      updatedSteps.push(newStep);
-    }
-
-    updatedSteps.forEach((step, i) => (step.order = i));
+    const updatedSteps = insertStep(workflow.steps, newStep, actionType);
 
     setWorkflow({ ...workflow, steps: updatedSteps });
     // Don't open sidebar for actions that are fully inline
@@ -528,6 +643,75 @@ export function HelpdeskWorkflowEditorClient({
 
   const sortedSteps = [...workflow.steps].sort((a, b) => (a.order || 0) - (b.order || 0));
 
+  // Right sidebar content, by priority: runs > trigger filters > add action > branch > step > overview
+  const renderSidebarPanel = () => {
+    if (showRunsPanel) {
+      return (
+        <RunHistoryPanel
+          onClose={() => { setShowRunsPanel(false); setShowMobileSidebar(false); }}
+        />
+      );
+    }
+    if (showTriggerFilterPanel) {
+      return (
+        <TriggerFilterPanel
+          workflow={workflow}
+          onUpdateTriggerConfig={handleUpdateTriggerConfig}
+          onClose={() => { setShowTriggerFilterPanel(false); setShowMobileSidebar(false); }}
+        />
+      );
+    }
+    if (showAddActionPanel) {
+      return (
+        <AddActionPanel
+          trigger={workflow.triggers[0]}
+          onAddAction={handleAddAction}
+          onClose={() => { setShowAddActionPanel(false); setShowMobileSidebar(false); }}
+        />
+      );
+    }
+    if (editingBranch) {
+      return (
+        <BranchEditPanel
+          editingBranch={editingBranch}
+          workflow={workflow}
+          onSelectStep={handleSelectStep}
+          onAddStepToBranch={(branchNodeId) => {
+            setEditingBranch(null);
+            setShowAddActionPanel(true);
+            setAddStepSourceNodeId(branchNodeId);
+          }}
+          onClose={() => { setEditingBranch(null); setShowMobileSidebar(false); }}
+        />
+      );
+    }
+    if (editingStep) {
+      return (
+        <StepEditPanel
+          editingStep={editingStep}
+          workflow={workflow}
+          workspaceMembers={workspaceMembers}
+          workflowVariables={workflowVariables}
+          onUpdateStep={handleUpdateStep}
+          onDeleteStep={(index) => {
+            handleDeleteStep(index);
+            setEditingStep(null);
+          }}
+          onClose={() => { setEditingStep(null); setShowMobileSidebar(false); }}
+        />
+      );
+    }
+    return (
+      <OverviewPanel
+        workflow={workflow}
+        savedAgents={savedAgents}
+        onSelectTrigger={handleSelectTrigger}
+        onSelectStep={handleSelectStep}
+        onCloseMobile={() => setShowMobileSidebar(false)}
+      />
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
       {/* Header */}
@@ -674,131 +858,7 @@ export function HelpdeskWorkflowEditorClient({
           "lg:relative lg:top-0 lg:w-[360px] lg:border-l",
           showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
         )}>
-          {showRunsPanel ? (
-            <>
-              <div className="pl-4 py-3 pr-3 border-b flex items-center justify-between">
-                <h3 className="font-semibold text-sm">{tw.runHistory}</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={() => { setShowRunsPanel(false); setShowMobileSidebar(false); }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex-1 flex flex-col">
-                {/* Empty State */}
-                <div className="flex-1 flex flex-col items-center justify-center px-4">
-                  <div className="relative mb-4 scale-75">
-                    <div className="relative py-4">
-                      <div className="flex gap-3 mb-3">
-                        <div className="w-14 h-10 border border-dashed border-red-200 rounded-lg" />
-                        <div className="w-24 h-10 border border-dashed border-red-200 rounded-lg" />
-                      </div>
-                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full border-2 border-red-200 bg-background flex items-center justify-center z-10">
-                        <XCircle className="w-5 h-5 text-red-400" />
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-20 h-10 border border-dashed border-red-200 rounded-lg" />
-                        <div className="w-16 h-10 border border-dashed border-red-200 rounded-lg" />
-                      </div>
-                    </div>
-                  </div>
-                  <h4 className="text-base font-semibold mb-1">{tw.noRuns}</h4>
-                  <p className="text-sm text-muted-foreground text-center">
-                    {tw.noRunsDesc}
-                  </p>
-                </div>
-
-                {/* Overview Stats */}
-                <div className="p-4 border-t">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-3 rounded-lg bg-green-50 border border-green-100">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold text-green-700">0</span>
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      </div>
-                      <p className="text-xs text-green-600">{tw.runCompleted}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold text-red-700">0</span>
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      </div>
-                      <p className="text-xs text-red-600">{tw.runFailed}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold">0</span>
-                        <RefreshCw className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{tw.runInProgress}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold">-</span>
-                        <Clock className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{tw.runAvgRuntime}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-lg font-semibold">0</span>
-                      <Settings className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                    <p className="text-xs text-muted-foreground">{tw.creditsConsumed.replace('{consumed}', '0').replace('{included}', '250')}</p>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : showTriggerFilterPanel ? (
-            <TriggerFilterPanel
-              workflow={workflow}
-              onUpdateTriggerConfig={handleUpdateTriggerConfig}
-              onClose={() => { setShowTriggerFilterPanel(false); setShowMobileSidebar(false); }}
-            />
-          ) : showAddActionPanel ? (
-            <AddActionPanel
-              trigger={workflow.triggers[0]}
-              onAddAction={handleAddAction}
-              onClose={() => { setShowAddActionPanel(false); setShowMobileSidebar(false); }}
-            />
-          ) : editingBranch ? (
-            <BranchEditPanel
-              editingBranch={editingBranch}
-              workflow={workflow}
-              onSelectStep={handleSelectStep}
-              onAddStepToBranch={(branchNodeId) => {
-                setEditingBranch(null);
-                setShowAddActionPanel(true);
-                setAddStepSourceNodeId(branchNodeId);
-              }}
-              onClose={() => { setEditingBranch(null); setShowMobileSidebar(false); }}
-            />
-          ) : editingStep ? (
-            <StepEditPanel
-              editingStep={editingStep}
-              workflow={workflow}
-              workspaceMembers={workspaceMembers}
-              workflowVariables={workflowVariables}
-              onUpdateStep={handleUpdateStep}
-              onDeleteStep={(index) => {
-                handleDeleteStep(index);
-                setEditingStep(null);
-              }}
-              onClose={() => { setEditingStep(null); setShowMobileSidebar(false); }}
-            />
-          ) : (
-            <OverviewPanel
-              workflow={workflow}
-              savedAgents={savedAgents}
-              onSelectTrigger={handleSelectTrigger}
-              onSelectStep={handleSelectStep}
-              onCloseMobile={() => setShowMobileSidebar(false)}
-            />
-          )}
+          {renderSidebarPanel()}
         </div>
       </div>
 

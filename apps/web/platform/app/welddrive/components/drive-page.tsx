@@ -180,6 +180,318 @@ function buildTreeItems(
   return result;
 }
 
+const MB = 1024 * 1024;
+
+function matchesSizeBucket(size: number, bucket: string): boolean {
+  switch (bucket) {
+    case 'small': return size < MB;
+    case 'medium': return size >= MB && size < 10 * MB;
+    case 'large': return size >= 10 * MB && size < 100 * MB;
+    case 'huge': return size >= 100 * MB;
+    default: return true;
+  }
+}
+
+function applyNameFilter(items: DriveItem[], operator: string, value: string): DriveItem[] {
+  const val = value.toLowerCase();
+  switch (operator) {
+    case 'contains': return items.filter(i => i.name.toLowerCase().includes(val));
+    case 'not contains': return items.filter(i => !i.name.toLowerCase().includes(val));
+    case 'is': return items.filter(i => i.name.toLowerCase() === val);
+    case 'is not': return items.filter(i => i.name.toLowerCase() !== val);
+    default: return items;
+  }
+}
+
+function applySizeFilter(items: DriveItem[], operator: string, value: string): DriveItem[] {
+  if (operator === 'is') return items.filter(i => matchesSizeBucket(i.fileSize ?? 0, value));
+  if (operator === 'is not') return items.filter(i => !matchesSizeBucket(i.fileSize ?? 0, value));
+  return items;
+}
+
+// Applies one active filter (with a non-empty operator and value) to the items
+function applyDriveFilter(items: DriveItem[], filter: ActiveFilter): DriveItem[] {
+  const { field, operator, value } = filter;
+  // "is" keeps the matches, any other operator keeps the non-matches
+  const keep = (matches: (i: DriveItem) => boolean) =>
+    items.filter(i => matches(i) === (operator === 'is'));
+
+  switch (field) {
+    case 'fileType': return keep(i => i.fileType === value);
+    case 'source': return keep(i => i.source === value);
+    case 'kind': return keep(i => i.kind === value);
+    case 'isStarred': {
+      const starred = value === 'true';
+      return keep(i => i.isStarred === starred);
+    }
+    case 'name': return applyNameFilter(items, operator, value);
+    case 'fileSize': return applySizeFilter(items, operator, value);
+    default: return items;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Row "more" menu
+// ---------------------------------------------------------------------------
+
+interface DriveRowMenuActions {
+  restoreFileMutation: ReturnType<typeof useRestoreDriveFile>;
+  restoreFolderMutation: ReturnType<typeof useRestoreDriveFolder>;
+  permanentDeleteFileMutation: ReturnType<typeof usePermanentDeleteDriveFile>;
+  permanentDeleteFolderMutation: ReturnType<typeof usePermanentDeleteDriveFolder>;
+  openDocument: (id: string) => void;
+  onToggleStar: (file: UnifiedFile) => void;
+  onRename: (file: UnifiedFile) => void;
+  onMoveToFolder: (file: UnifiedFile) => void;
+  onCopyLink: (file: UnifiedFile) => void;
+  onDeleteFile: (file: UnifiedFile) => void;
+  onDetails: (file: UnifiedFile) => void;
+  onRenameFolder: (folder: DriveFolder) => void;
+  onDuplicateFolder: (folder: DriveFolder) => void;
+  onDeleteFolder: (folder: DriveFolder) => void;
+}
+
+interface DriveRowMenuContentProps {
+  item: DriveItem;
+  isTrashView: boolean;
+  actions: DriveRowMenuActions;
+}
+
+function TrashRowMenuContent({ item, actions }: Readonly<Omit<DriveRowMenuContentProps, 'isTrashView'>>) {
+  const { t } = useI18n();
+
+  const handleRestore = () => {
+    if (item.kind === 'file' && item._file) {
+      actions.restoreFileMutation.mutate(item._file.id, {
+        onSuccess: () => toast.success(t.welddrive.toasts.fileRestored),
+        onError: () => toast.error(t.welddrive.toasts.failedToRestoreFile),
+      });
+    } else if (item.kind === 'folder' && item._folder) {
+      actions.restoreFolderMutation.mutate(item._folder.id, {
+        onSuccess: () => toast.success(t.welddrive.toasts.folderRestored),
+        onError: () => toast.error(t.welddrive.toasts.failedToRestoreFolder),
+      });
+    }
+  };
+
+  const handleDeletePermanently = () => {
+    if (item.kind === 'file' && item._file) {
+      actions.permanentDeleteFileMutation.mutate(item._file.id, {
+        onSuccess: () => toast.success(t.welddrive.toasts.filePermanentlyDeleted),
+        onError: () => toast.error(t.welddrive.toasts.failedToDeleteFile),
+      });
+    } else if (item.kind === 'folder' && item._folder) {
+      actions.permanentDeleteFolderMutation.mutate(item._folder.id, {
+        onSuccess: () => toast.success(t.welddrive.toasts.folderPermanentlyDeleted),
+        onError: () => toast.error(t.welddrive.toasts.failedToDeleteFolder),
+      });
+    }
+  };
+
+  return (
+    <DropdownMenuContent align="end" className="w-48" sideOffset={4}>
+      <DropdownMenuItem onClick={handleRestore}>
+        <RotateCcw className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.restore}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+        onClick={handleDeletePermanently}
+      >
+        <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+        {t.welddrive.page.actions.deletePermanently}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  );
+}
+
+function FileRowMenuContent({ file, isStarred, actions }: Readonly<{
+  file: UnifiedFile;
+  isStarred: boolean;
+  actions: DriveRowMenuActions;
+}>) {
+  const { t } = useI18n();
+  return (
+    <DropdownMenuContent align="end" className="w-52" sideOffset={4}>
+      {file.isWeldDoc && (
+        <DropdownMenuItem onClick={() => actions.openDocument(file.id)}>
+          <FileText className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.openInWeldDocs}
+        </DropdownMenuItem>
+      )}
+      {!file.isWeldDoc && file.url && (
+        <DropdownMenuItem asChild>
+          <a href={file.url} target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="h-4 w-4 mr-0.5" />
+            {t.welddrive.page.actions.openInNewTab}
+          </a>
+        </DropdownMenuItem>
+      )}
+      {!file.isWeldDoc && (file.source === 'drive' || file.url) && (
+        <DropdownMenuItem onClick={() => downloadFile(file)}>
+          <Download className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.download}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={() => actions.onDetails(file)}>
+        <Info className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.details}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => actions.onToggleStar(file)}>
+        <Star className={cn("h-4 w-4 mr-0.5", isStarred && "fill-yellow-400 text-yellow-400")} />
+        {isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => actions.onRename(file)}>
+        <Pencil className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.rename}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => actions.onMoveToFolder(file)}>
+        <FolderInput className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.moveToFolder}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => actions.onCopyLink(file)}>
+        <Link className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.copyLink}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+        onClick={() => actions.onDeleteFile(file)}
+      >
+        <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+        {t.welddrive.page.actions.moveToTrash}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  );
+}
+
+function FolderRowMenuContent({ folder, actions }: Readonly<{
+  folder: DriveFolder;
+  actions: DriveRowMenuActions;
+}>) {
+  const { t } = useI18n();
+  return (
+    <DropdownMenuContent align="end" className="w-48" sideOffset={4}>
+      <DropdownMenuItem onClick={() => actions.onRenameFolder(folder)}>
+        <Pencil className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.rename}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => actions.onDuplicateFolder(folder)}>
+        <Copy className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.duplicate}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+        onClick={() => actions.onDeleteFolder(folder)}
+      >
+        <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+        {t.welddrive.page.actions.moveToTrash}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  );
+}
+
+function DriveRowMenuContent({ item, isTrashView, actions }: Readonly<DriveRowMenuContentProps>) {
+  if (isTrashView) return <TrashRowMenuContent item={item} actions={actions} />;
+  if (item.kind === 'file' && item._file) {
+    return <FileRowMenuContent file={item._file} isStarred={item.isStarred} actions={actions} />;
+  }
+  if (item.kind === 'folder' && item._folder) {
+    return <FolderRowMenuContent folder={item._folder} actions={actions} />;
+  }
+  return null;
+}
+
+// "Modified" column: the auto-delete countdown in the trash, the created date elsewhere
+function DriveModifiedCell({ item, isTrashView }: Readonly<{ item: DriveItem; isTrashView: boolean }>) {
+  const { t } = useI18n();
+  if (isTrashView && item._file?.deletedAt) {
+    const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(item._file.deletedAt).getTime()) / 86400000));
+    return <span className="text-sm font-mono text-orange-500">{daysLeft === 0 ? t.welddrive.page.trash.deletingSoon : t.welddrive.page.trash.deletesIn.replace('{days}', String(daysLeft))}</span>;
+  }
+  return <span className="text-sm font-mono text-muted-foreground">{formatDate(item.createdAt)}</span>;
+}
+
+type DragGhost = { name: string; iconHtml: string; x: number; y: number };
+
+// Cursor-following preview shown while a file row is dragged
+function DriveDragGhost({ ghost }: Readonly<{ ghost: DragGhost | null }>) {
+  if (!ghost) return null;
+
+  return (
+    <div
+      className="fixed z-[9999] pointer-events-none transition-opacity duration-150"
+      style={{ left: `${ghost.x}px`, top: `${ghost.y}px` }}
+    >
+      <div
+        className="flex items-center gap-1.5 h-[50px] px-4 bg-white border border-[#dadce0] rounded-xl max-w-[320px] animate-in fade-in zoom-in-95 duration-150"
+        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
+      >
+        <span className="shrink-0 [&>svg]:h-4 [&>svg]:w-4" dangerouslySetInnerHTML={{ __html: ghost.iconHtml }} />
+        <span className="text-sm font-medium text-gray-900 truncate">{ghost.name}</span>
+      </div>
+    </div>
+  );
+}
+
+// Overlay shown while files are dragged over the page
+function DriveDropOverlay({ visible, hasCurrentFolder }: Readonly<{ visible: boolean; hasCurrentFolder: boolean }>) {
+  const { t } = useI18n();
+  if (!visible) return null;
+
+  return (
+    <div className="absolute inset-0 z-50 bg-primary/5 border-[2.5px] border-dashed border-primary rounded-lg flex items-center justify-center pointer-events-none">
+      <div className="flex flex-col items-center gap-2 text-primary">
+        <Upload className="h-10 w-10" />
+        <p className="text-lg font-semibold">{t.welddrive.page.dragAndDrop.dropFilesToUpload}</p>
+        <p className="text-sm text-muted-foreground">{t.welddrive.page.dragAndDrop.dropFilesDescription.replace('{destination}', hasCurrentFolder ? t.welddrive.page.dragAndDrop.currentFolder : t.welddrive.page.dragAndDrop.myDrive)}</p>
+      </div>
+    </div>
+  );
+}
+
+type DriveTranslations = ReturnType<typeof useI18n>['t'];
+
+function getDriveEmptyState(
+  t: DriveTranslations,
+  view: DriveView,
+  isTrashView: boolean,
+  onUploadClick: () => void,
+) {
+  const illustration = (Icon: typeof Trash) => (
+    <EmptyStateIllustration>
+      <Icon className="h-24 w-24 text-[#e0e0e0] dark:text-white/8" strokeWidth={0.5} />
+    </EmptyStateIllustration>
+  );
+
+  if (isTrashView) {
+    return {
+      icon: illustration(Trash),
+      title: t.welddrive.page.emptyState.trashEmpty,
+      description: t.welddrive.page.emptyState.trashEmptyDescription,
+    };
+  }
+  if (view === 'starred') {
+    return {
+      icon: illustration(Star),
+      title: t.welddrive.page.emptyState.noStarredFiles,
+      description: t.welddrive.page.emptyState.noStarredDescription,
+    };
+  }
+  return {
+    icon: illustration(Folder),
+    title: t.welddrive.page.emptyState.noFilesYet,
+    description: t.welddrive.page.emptyState.noFilesDescription,
+    action: {
+      label: t.welddrive.page.uploadFiles,
+      onClick: onUploadClick,
+    },
+  };
+}
+
 export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderId: initialFolderId }: Readonly<DrivePageProps>) {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -223,7 +535,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     return () => window.removeEventListener('keydown', handler);
   }, [clearSelection]);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
-  const [dragGhost, setDragGhost] = useState<{ name: string; iconHtml: string; x: number; y: number } | null>(null);
+  const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const emptyImg = useRef<HTMLImageElement | null>(null);
 
@@ -636,51 +948,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     let result = allItems;
     activeFilters.forEach(filter => {
       if (!filter.operator || !filter.value) return;
-      if (filter.field === 'fileType') {
-        result = filter.operator === 'is'
-          ? result.filter(i => i.fileType === filter.value)
-          : result.filter(i => i.fileType !== filter.value);
-      } else if (filter.field === 'source') {
-        result = filter.operator === 'is'
-          ? result.filter(i => i.source === filter.value)
-          : result.filter(i => i.source !== filter.value);
-      } else if (filter.field === 'kind') {
-        result = filter.operator === 'is'
-          ? result.filter(i => i.kind === filter.value)
-          : result.filter(i => i.kind !== filter.value);
-      } else if (filter.field === 'isStarred') {
-        const starred = filter.value === 'true';
-        result = filter.operator === 'is'
-          ? result.filter(i => i.isStarred === starred)
-          : result.filter(i => i.isStarred !== starred);
-      } else if (filter.field === 'name') {
-        const val = filter.value.toLowerCase();
-        if (filter.operator === 'contains') {
-          result = result.filter(i => i.name.toLowerCase().includes(val));
-        } else if (filter.operator === 'not contains') {
-          result = result.filter(i => !i.name.toLowerCase().includes(val));
-        } else if (filter.operator === 'is') {
-          result = result.filter(i => i.name.toLowerCase() === val);
-        } else if (filter.operator === 'is not') {
-          result = result.filter(i => i.name.toLowerCase() !== val);
-        }
-      } else if (filter.field === 'fileSize') {
-        const MB = 1024 * 1024;
-        const matchSize = (size: number, val: string) => {
-          switch (val) {
-            case 'small': return size < MB;
-            case 'medium': return size >= MB && size < 10 * MB;
-            case 'large': return size >= 10 * MB && size < 100 * MB;
-            case 'huge': return size >= 100 * MB;
-            default: return true;
-          }
-        };
-        if (filter.operator === 'is') {
-          result = result.filter(i => matchSize(i.fileSize ?? 0, filter.value));
-        } else if (filter.operator === 'is not') {
-          result = result.filter(i => !matchSize(i.fileSize ?? 0, filter.value));
-        }
-      }
+      result = applyDriveFilter(result, filter);
     });
     return result;
   }, []);
@@ -850,6 +1118,73 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     );
   }, [createFolderMutation, t]);
 
+  // Handlers and mutations used by the per-row "more" menu
+  const rowMenuActions = useMemo<DriveRowMenuActions>(() => ({
+    restoreFileMutation,
+    restoreFolderMutation,
+    permanentDeleteFileMutation,
+    permanentDeleteFolderMutation,
+    openDocument,
+    onToggleStar: handleToggleStar,
+    onRename: handleRename,
+    onMoveToFolder: handleMoveToFolder,
+    onCopyLink: handleCopyLink,
+    onDeleteFile: handleDeleteFile,
+    onDetails: setDetailFile,
+    onRenameFolder: setRenameFolder,
+    onDuplicateFolder: handleDuplicateFolder,
+    onDeleteFolder: setDeleteFolder,
+  }), [
+    restoreFileMutation,
+    restoreFolderMutation,
+    permanentDeleteFileMutation,
+    permanentDeleteFolderMutation,
+    openDocument,
+    handleToggleStar,
+    handleRename,
+    handleMoveToFolder,
+    handleCopyLink,
+    handleDeleteFile,
+    handleDuplicateFolder,
+  ]);
+
+  // Start dragging a drive file row: hide the native ghost and show the custom one
+  const handleRowDragStart = useCallback((item: DriveItem, e: React.DragEvent<HTMLDivElement>) => {
+    if (item.kind === 'folder' || !item._file) return;
+
+    e.dataTransfer.setData('application/x-drive-file-id', item._file.id);
+    e.dataTransfer.effectAllowed = 'move';
+
+    // Hide native drag ghost
+    if (emptyImg.current) {
+      e.dataTransfer.setDragImage(emptyImg.current, 0, 0);
+    }
+
+    // Get icon HTML from the row
+    const row = e.currentTarget as HTMLElement;
+    const iconEl = row.querySelector('[data-drag-handle] svg:not([data-drag-exclude])');
+    const iconHtml = iconEl ? iconEl.outerHTML : '';
+    setDragGhost({ name: item.name, iconHtml, x: e.clientX, y: e.clientY });
+    setDraggingFileId(item._file.id);
+  }, []);
+
+  // Drop a dragged drive file onto a folder row
+  const handleRowDrop = useCallback((item: DriveItem, e: React.DragEvent<HTMLDivElement>) => {
+    const folder = item._folder;
+    if (item.kind !== 'folder' || !folder) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolderId(null);
+    const fileId = e.dataTransfer.getData('application/x-drive-file-id');
+    if (fileId) {
+      moveMutation.mutate({ id: fileId, folderId: folder.id }, {
+        onSuccess: () => toast.success(t.welddrive.toasts.movedToFolder.replace('{folderName}', folder.name)),
+        onError: () => toast.error(t.welddrive.toasts.failedToMoveFile),
+      });
+    }
+  }, [moveMutation, t]);
+
   // Render row for list view
   const renderRow = useCallback((item: DriveItem) => {
     // Empty folder placeholder
@@ -885,24 +1220,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         onClick={(e) => handleItemClick(item, e)}
         onDoubleClick={() => handleItemDoubleClick(item)}
         draggable={!isFolder && item._file?.source === 'drive'}
-        onDragStart={(e) => {
-          if (!isFolder && item._file) {
-            e.dataTransfer.setData('application/x-drive-file-id', item._file.id);
-            e.dataTransfer.effectAllowed = 'move';
-
-            // Hide native drag ghost
-            if (emptyImg.current) {
-              e.dataTransfer.setDragImage(emptyImg.current, 0, 0);
-            }
-
-            // Get icon HTML from the row
-            const row = e.currentTarget as HTMLElement;
-            const iconEl = row.querySelector('[data-drag-handle] svg:not([data-drag-exclude])');
-            const iconHtml = iconEl ? iconEl.outerHTML : '';
-            setDragGhost({ name: item.name, iconHtml, x: e.clientX, y: e.clientY });
-            setDraggingFileId(item._file.id);
-          }
-        }}
+        onDragStart={(e) => handleRowDragStart(item, e)}
         onDrag={(e) => {
           if (e.clientX > 0 || e.clientY > 0) {
             setDragGhost(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null);
@@ -926,20 +1244,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
             setDragOverFolderId(null);
           }
         }}
-        onDrop={(e) => {
-          if (isFolder && item._folder) {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOverFolderId(null);
-            const fileId = e.dataTransfer.getData('application/x-drive-file-id');
-            if (fileId) {
-              moveMutation.mutate({ id: fileId, folderId: item._folder.id }, {
-                onSuccess: () => toast.success(t.welddrive.toasts.movedToFolder.replace('{folderName}', item._folder!.name)),
-                onError: () => toast.error(t.welddrive.toasts.failedToMoveFile),
-              });
-            }
-          }
-        }}
+        onDrop={(e) => handleRowDrop(item, e)}
         className={cn(
           'flex items-center gap-4 px-4 cursor-pointer border-b border-gray-200/70 dark:border-border group transition-all duration-200',
           isDragOver
@@ -994,12 +1299,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
 
         {/* Modified / Auto-delete countdown */}
         <div className="w-[130px]">
-          {isTrashView && item._file?.deletedAt ? (() => {
-            const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(item._file!.deletedAt!).getTime()) / 86400000));
-            return <span className="text-sm font-mono text-orange-500">{daysLeft === 0 ? t.welddrive.page.trash.deletingSoon : t.welddrive.page.trash.deletesIn.replace('{days}', String(daysLeft))}</span>;
-          })() : (
-            <span className="text-sm font-mono text-muted-foreground">{formatDate(item.createdAt)}</span>
-          )}
+          <DriveModifiedCell item={item} isTrashView={isTrashView} />
         </div>
 
         {/* Actions */}
@@ -1011,123 +1311,13 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
                   <MoreVertical className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              {isTrashView ? (
-                <DropdownMenuContent align="end" className="w-48" sideOffset={4}>
-                  <DropdownMenuItem onClick={() => {
-                    if (item.kind === 'file' && item._file) {
-                      restoreFileMutation.mutate(item._file.id, {
-                        onSuccess: () => toast.success(t.welddrive.toasts.fileRestored),
-                        onError: () => toast.error(t.welddrive.toasts.failedToRestoreFile),
-                      });
-                    } else if (item.kind === 'folder' && item._folder) {
-                      restoreFolderMutation.mutate(item._folder.id, {
-                        onSuccess: () => toast.success(t.welddrive.toasts.folderRestored),
-                        onError: () => toast.error(t.welddrive.toasts.failedToRestoreFolder),
-                      });
-                    }
-                  }}>
-                    <RotateCcw className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.restore}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-                    onClick={() => {
-                      if (item.kind === 'file' && item._file) {
-                        permanentDeleteFileMutation.mutate(item._file.id, {
-                          onSuccess: () => toast.success(t.welddrive.toasts.filePermanentlyDeleted),
-                          onError: () => toast.error(t.welddrive.toasts.failedToDeleteFile),
-                        });
-                      } else if (item.kind === 'folder' && item._folder) {
-                        permanentDeleteFolderMutation.mutate(item._folder.id, {
-                          onSuccess: () => toast.success(t.welddrive.toasts.folderPermanentlyDeleted),
-                          onError: () => toast.error(t.welddrive.toasts.failedToDeleteFolder),
-                        });
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                    {t.welddrive.page.actions.deletePermanently}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              ) : item.kind === 'file' && item._file ? (
-                <DropdownMenuContent align="end" className="w-52" sideOffset={4}>
-                  {item._file.isWeldDoc && (
-                    <DropdownMenuItem onClick={() => openDocument(item._file!.id)}>
-                      <FileText className="h-4 w-4 mr-0.5" />
-                      {t.welddrive.page.actions.openInWeldDocs}
-                    </DropdownMenuItem>
-                  )}
-                  {!item._file.isWeldDoc && item._file.url && (
-                    <DropdownMenuItem asChild>
-                      <a href={item._file.url} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="h-4 w-4 mr-0.5" />
-                        {t.welddrive.page.actions.openInNewTab}
-                      </a>
-                    </DropdownMenuItem>
-                  )}
-                  {!item._file.isWeldDoc && (item._file.source === 'drive' || item._file.url) && (
-                    <DropdownMenuItem onClick={() => downloadFile(item._file!)}>
-                      <Download className="h-4 w-4 mr-0.5" />
-                      {t.welddrive.page.actions.download}
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={() => setDetailFile(item._file!)}>
-                    <Info className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.details}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleToggleStar(item._file!)}>
-                    <Star className={cn("h-4 w-4 mr-0.5", item.isStarred && "fill-yellow-400 text-yellow-400")} />
-                    {item.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleRename(item._file!)}>
-                    <Pencil className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.rename}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleMoveToFolder(item._file!)}>
-                    <FolderInput className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.moveToFolder}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleCopyLink(item._file!)}>
-                    <Link className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.copyLink}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-                    onClick={() => handleDeleteFile(item._file!)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                    {t.welddrive.page.actions.moveToTrash}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              ) : item.kind === 'folder' && item._folder ? (
-                <DropdownMenuContent align="end" className="w-48" sideOffset={4}>
-                  <DropdownMenuItem onClick={() => setRenameFolder(item._folder!)}>
-                    <Pencil className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.rename}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleDuplicateFolder(item._folder!)}>
-                    <Copy className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.actions.duplicate}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-                    onClick={() => setDeleteFolder(item._folder!)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                    {t.welddrive.page.actions.moveToTrash}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              ) : null}
+              <DriveRowMenuContent item={item} isTrashView={isTrashView} actions={rowMenuActions} />
             </DropdownMenu>
           </div>
         </div>
       </div>
     );
-  }, [handleItemClick, handleItemDoubleClick, selectedIds, handleToggleStar, handleRename, handleMoveToFolder, handleCopyLink, handleDeleteFile, handleDuplicateFolder, expandedFolders, dragOverFolderId, draggingFileId, moveMutation, isTrashView, restoreFileMutation, restoreFolderMutation, permanentDeleteFileMutation, permanentDeleteFolderMutation, openDocument, t]);
+  }, [handleItemClick, handleItemDoubleClick, handleRowDragStart, handleRowDrop, selectedIds, expandedFolders, dragOverFolderId, draggingFileId, isTrashView, rowMenuActions, t]);
 
   // Google-Drive-style "New" menu: a single primary button that opens a
   // dropdown with create + upload actions. Reused by both the list (EntityList)
@@ -1249,31 +1439,10 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       onDrop={handlePageDrop}
     >
       {/* Custom drag ghost */}
-      {dragGhost && (
-        <div
-          className="fixed z-[9999] pointer-events-none transition-opacity duration-150"
-          style={{ left: `${dragGhost.x}px`, top: `${dragGhost.y}px` }}
-        >
-          <div
-            className="flex items-center gap-1.5 h-[50px] px-4 bg-white border border-[#dadce0] rounded-xl max-w-[320px] animate-in fade-in zoom-in-95 duration-150"
-            style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-          >
-            <span className="shrink-0 [&>svg]:h-4 [&>svg]:w-4" dangerouslySetInnerHTML={{ __html: dragGhost.iconHtml }} />
-            <span className="text-sm font-medium text-gray-900 truncate">{dragGhost.name}</span>
-          </div>
-        </div>
-      )}
+      <DriveDragGhost ghost={dragGhost} />
 
       {/* Drag overlay */}
-      {isDraggingOver && (
-        <div className="absolute inset-0 z-50 bg-primary/5 border-[2.5px] border-dashed border-primary rounded-lg flex items-center justify-center pointer-events-none">
-          <div className="flex flex-col items-center gap-2 text-primary">
-            <Upload className="h-10 w-10" />
-            <p className="text-lg font-semibold">{t.welddrive.page.dragAndDrop.dropFilesToUpload}</p>
-            <p className="text-sm text-muted-foreground">{t.welddrive.page.dragAndDrop.dropFilesDescription.replace('{destination}', currentFolderId ? t.welddrive.page.dragAndDrop.currentFolder : t.welddrive.page.dragAndDrop.myDrive)}</p>
-          </div>
-        </div>
-      )}
+      <DriveDropOverlay visible={isDraggingOver} hasCurrentFolder={!!currentFolderId} />
       {viewMode === 'list' ? (
         <EntityList<DriveItem>
           items={sortedItems}
@@ -1292,35 +1461,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
           stickyOffset={-16}
           leftActionButtons={viewToggle}
           actionButtons={actionButtons}
-          emptyState={isTrashView ? {
-            icon: (
-              <EmptyStateIllustration>
-                <Trash className="h-24 w-24 text-[#e0e0e0] dark:text-white/8" strokeWidth={0.5} />
-              </EmptyStateIllustration>
-            ),
-            title: t.welddrive.page.emptyState.trashEmpty,
-            description: t.welddrive.page.emptyState.trashEmptyDescription,
-          } : sidebarView === 'starred' ? {
-            icon: (
-              <EmptyStateIllustration>
-                <Star className="h-24 w-24 text-[#e0e0e0] dark:text-white/8" strokeWidth={0.5} />
-              </EmptyStateIllustration>
-            ),
-            title: t.welddrive.page.emptyState.noStarredFiles,
-            description: t.welddrive.page.emptyState.noStarredDescription,
-          } : {
-            icon: (
-              <EmptyStateIllustration>
-                <Folder className="h-24 w-24 text-[#e0e0e0] dark:text-white/8" strokeWidth={0.5} />
-              </EmptyStateIllustration>
-            ),
-            title: t.welddrive.page.emptyState.noFilesYet,
-            description: t.welddrive.page.emptyState.noFilesDescription,
-            action: {
-              label: t.welddrive.page.uploadFiles,
-              onClick: handleUploadClick,
-            },
-          }}
+          emptyState={getDriveEmptyState(t, sidebarView, isTrashView, handleUploadClick)}
           noResultsState={isTrashView ? {
             title: t.welddrive.page.emptyState.noItemsInTrash,
             description: t.welddrive.page.emptyState.noItemsInTrashDescription,
@@ -1528,58 +1669,99 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       />
 
       {/* Selection action bar */}
-      {selectedIds.size > 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200">
-          <div className="flex items-center gap-1 rounded-xl border border-border bg-background px-2 py-1.5 shadow-lg">
-            <span className="text-sm font-medium text-foreground px-2 tabular-nums">
-              {t.welddrive.page.selection.selected.replace('{count}', String(selectedIds.size))}
-            </span>
-            <div className="w-px h-5 bg-border mx-1" />
-            {selectedFiles.length === 1 && selectedFolders.length === 0 && (
-              <>
-                <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => handleRename(selectedFiles[0])}>
-                  <Pencil className="h-4 w-4 mr-0.5" />
-                  {t.welddrive.page.selection.rename}
-                </Button>
-                <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => setDetailFile(selectedFiles[0])}>
-                  <Info className="h-4 w-4 mr-0.5" />
-                  {t.welddrive.page.selection.details}
-                </Button>
-              </>
-            )}
-            {selectedFiles.length > 0 && selectedFolders.length === 0 && (
-              <>
-                <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={handleBulkDownload}>
-                  <Download className="h-4 w-4 mr-0.5" />
-                  {t.welddrive.page.selection.download}
-                </Button>
-                <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={handleBulkStar}>
-                  <Star className="h-4 w-4 mr-0.5" />
-                  {t.welddrive.page.selection.star}
-                </Button>
-              </>
-            )}
-            {(selectedFiles.some(f => f.source === 'drive') || selectedFolders.length > 0) && (
-              <>
-                {selectedFiles.length === 1 && selectedFolders.length === 0 && (
-                  <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => handleMoveToFolder(selectedFiles[0])}>
-                    <FolderInput className="h-4 w-4 mr-0.5" />
-                    {t.welddrive.page.selection.move}
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={handleBulkDelete}>
-                  <Trash2 className="h-4 w-4 mr-0.5" />
-                  {t.welddrive.page.selection.delete}
-                </Button>
-              </>
-            )}
-            <div className="w-px h-5 bg-border mx-1" />
-            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={clearSelection}>
-              <X className="h-4 w-4" />
+      <DriveSelectionBar
+        selectedCount={selectedIds.size}
+        selectedFiles={selectedFiles}
+        selectedFolders={selectedFolders}
+        onRename={handleRename}
+        onDetails={setDetailFile}
+        onDownload={handleBulkDownload}
+        onStar={handleBulkStar}
+        onMove={handleMoveToFolder}
+        onDelete={handleBulkDelete}
+        onClear={clearSelection}
+      />
+    </div>
+  );
+}
+
+// Floating action bar shown while one or more items are selected
+function DriveSelectionBar({
+  selectedCount,
+  selectedFiles,
+  selectedFolders,
+  onRename,
+  onDetails,
+  onDownload,
+  onStar,
+  onMove,
+  onDelete,
+  onClear,
+}: Readonly<{
+  selectedCount: number;
+  selectedFiles: UnifiedFile[];
+  selectedFolders: DriveFolder[];
+  onRename: (file: UnifiedFile) => void;
+  onDetails: (file: UnifiedFile) => void;
+  onDownload: () => void;
+  onStar: () => void;
+  onMove: (file: UnifiedFile) => void;
+  onDelete: () => void;
+  onClear: () => void;
+}>) {
+  const { t } = useI18n();
+  if (selectedCount === 0) return null;
+
+  return (
+    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200">
+      <div className="flex items-center gap-1 rounded-xl border border-border bg-background px-2 py-1.5 shadow-lg">
+        <span className="text-sm font-medium text-foreground px-2 tabular-nums">
+          {t.welddrive.page.selection.selected.replace('{count}', String(selectedCount))}
+        </span>
+        <div className="w-px h-5 bg-border mx-1" />
+        {selectedFiles.length === 1 && selectedFolders.length === 0 && (
+          <>
+            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => onRename(selectedFiles[0])}>
+              <Pencil className="h-4 w-4 mr-0.5" />
+              {t.welddrive.page.selection.rename}
             </Button>
-          </div>
-        </div>
-      )}
+            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => onDetails(selectedFiles[0])}>
+              <Info className="h-4 w-4 mr-0.5" />
+              {t.welddrive.page.selection.details}
+            </Button>
+          </>
+        )}
+        {selectedFiles.length > 0 && selectedFolders.length === 0 && (
+          <>
+            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={onDownload}>
+              <Download className="h-4 w-4 mr-0.5" />
+              {t.welddrive.page.selection.download}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={onStar}>
+              <Star className="h-4 w-4 mr-0.5" />
+              {t.welddrive.page.selection.star}
+            </Button>
+          </>
+        )}
+        {(selectedFiles.some(f => f.source === 'drive') || selectedFolders.length > 0) && (
+          <>
+            {selectedFiles.length === 1 && selectedFolders.length === 0 && (
+              <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={() => onMove(selectedFiles[0])}>
+                <FolderInput className="h-4 w-4 mr-0.5" />
+                {t.welddrive.page.selection.move}
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={onDelete}>
+              <Trash2 className="h-4 w-4 mr-0.5" />
+              {t.welddrive.page.selection.delete}
+            </Button>
+          </>
+        )}
+        <div className="w-px h-5 bg-border mx-1" />
+        <Button variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground" onClick={onClear}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }

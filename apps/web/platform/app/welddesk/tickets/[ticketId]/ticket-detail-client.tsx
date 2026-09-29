@@ -85,6 +85,107 @@ interface TicketDetailClientProps {
   ticket: ApiTicket;
 }
 
+const GROUP_WINDOW_MINUTES = 5;
+
+// Two adjacent messages are visually grouped when the same side sent both within 5 minutes.
+function isGroupedPair(a: ChatMessage | undefined, b: ChatMessage): boolean {
+  if (!a || a.sender !== b.sender) return false;
+  const diffInMinutes = Math.abs(new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) / (1000 * 60);
+  return diffInMinutes <= GROUP_WINDOW_MINUTES;
+}
+
+function getBubbleRadiusClass(sender: ChatMessage['sender'], isGroupedWithPrev: boolean): string {
+  if (sender === 'agent') {
+    return isGroupedWithPrev ? 'rounded-l-2xl rounded-tr-sm rounded-br-sm' : 'rounded-2xl rounded-br-sm';
+  }
+  return isGroupedWithPrev ? 'rounded-r-2xl rounded-tl-sm rounded-bl-sm' : 'rounded-2xl rounded-bl-sm';
+}
+
+function ChatMessageTimestamp({ message }: Readonly<{ message: ChatMessage }>) {
+  return (
+    <>
+      <span className={cn(
+        "text-[11px]",
+        message.sender === 'agent'
+          ? "text-gray-700 dark:text-gray-700"
+          : "text-gray-500 dark:text-muted-foreground"
+      )}>
+        {format(new Date(message.timestamp), 'h:mm a')}
+      </span>
+      {message.sender === 'agent' && (
+        <CheckCheck className="w-4 h-4 text-gray-700" />
+      )}
+    </>
+  );
+}
+
+function ChatMessageRow({
+  message,
+  prevMessage,
+  nextMessage,
+}: Readonly<{
+  message: ChatMessage;
+  prevMessage: ChatMessage | undefined;
+  nextMessage: ChatMessage | undefined;
+}>) {
+  const lines = message.text.split('\n');
+  const lastLine = lines[lines.length - 1];
+  const shouldPutTimestampBelow = lastLine.length > 60;
+
+  const shouldGroupWithNext = isGroupedPair(nextMessage, message);
+  const isGroupedWithPrev = isGroupedPair(prevMessage, message);
+  const marginBottom = shouldGroupWithNext ? "mb-1.5" : "mb-6";
+  const borderRadiusClass = getBubbleRadiusClass(message.sender, isGroupedWithPrev);
+
+  return (
+    <div className={cn(
+      "flex gap-2 items-end",
+      marginBottom,
+      message.sender === 'agent' ? "justify-end" : ""
+    )}>
+      <div className={cn(
+        "inline-block max-w-[70%]",
+        message.sender === 'agent' ? "ml-auto" : ""
+      )}>
+        <div className={cn(
+          "px-4 py-2.5 inline-block",
+          borderRadiusClass,
+          message.sender === 'agent'
+            ? "bg-[#D7E8FE] dark:bg-[#D7E8FE]"
+            : "bg-[#F3F4F6] dark:bg-secondary"
+        )}>
+          <div className={cn(
+            "text-[14px] leading-relaxed whitespace-pre-wrap break-words",
+            message.sender === 'agent'
+              ? "text-gray-900 dark:text-gray-900"
+              : "text-gray-700 dark:text-foreground"
+          )}>
+            {lines.map((line, i) => {
+              const isLastLine = i === lines.length - 1;
+              if (isLastLine && !shouldPutTimestampBelow) {
+                return (
+                  <div key={i} className="flex items-end gap-2">
+                    <span className="flex-1">{line}</span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
+                      <ChatMessageTimestamp message={message} />
+                    </div>
+                  </div>
+                );
+              }
+              return <div key={i}>{line || <br />}</div>;
+            })}
+            {shouldPutTimestampBelow && (
+              <div className="flex items-center gap-1.5 justify-end mt-1">
+                <ChatMessageTimestamp message={message} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Customer Chat View ---
 function CustomerChatView({
   messages,
@@ -149,117 +250,14 @@ function CustomerChatView({
             </div>
           )}
 
-          {messages.map((message, index, array) => {
-            const lines = message.text.split('\n');
-            const lastLine = lines[lines.length - 1];
-            const shouldPutTimestampBelow = lastLine.length > 60;
-
-            const nextMessage = array[index + 1];
-            const isFollowedBySameSender = nextMessage && nextMessage.sender === message.sender;
-            const timeDiffInMinutes = nextMessage
-              ? Math.abs(new Date(nextMessage.timestamp).getTime() - new Date(message.timestamp).getTime()) / (1000 * 60)
-              : Infinity;
-            const shouldGroupWithNext = isFollowedBySameSender && timeDiffInMinutes <= 5;
-            const marginBottom = shouldGroupWithNext ? "mb-1.5" : "mb-6";
-
-            const prevMessage = array[index - 1];
-            const isPrecededBySameSender = prevMessage && prevMessage.sender === message.sender;
-            const prevTimeDiffInMinutes = prevMessage
-              ? Math.abs(new Date(message.timestamp).getTime() - new Date(prevMessage.timestamp).getTime()) / (1000 * 60)
-              : Infinity;
-            const isGroupedWithPrev = isPrecededBySameSender && prevTimeDiffInMinutes <= 5;
-
-            let borderRadiusClass = "rounded-2xl";
-            if (message.sender === 'agent') {
-              if (isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-l-2xl rounded-tr-sm rounded-br-sm";
-              } else if (isGroupedWithPrev && !shouldGroupWithNext) {
-                borderRadiusClass = "rounded-l-2xl rounded-tr-sm rounded-br-sm";
-              } else if (!isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-2xl rounded-br-sm";
-              } else {
-                borderRadiusClass = "rounded-2xl rounded-br-sm";
-              }
-            } else {
-              if (isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-r-2xl rounded-tl-sm rounded-bl-sm";
-              } else if (isGroupedWithPrev && !shouldGroupWithNext) {
-                borderRadiusClass = "rounded-r-2xl rounded-tl-sm rounded-bl-sm";
-              } else if (!isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-2xl rounded-bl-sm";
-              } else {
-                borderRadiusClass = "rounded-2xl rounded-bl-sm";
-              }
-            }
-
-            return (
-              <div key={message.id} className={cn(
-                "flex gap-2 items-end",
-                marginBottom,
-                message.sender === 'agent' ? "justify-end" : ""
-              )}>
-                <div className={cn(
-                  "inline-block max-w-[70%]",
-                  message.sender === 'agent' ? "ml-auto" : ""
-                )}>
-                  <div className={cn(
-                    "px-4 py-2.5 inline-block",
-                    borderRadiusClass,
-                    message.sender === 'agent'
-                      ? "bg-[#D7E8FE] dark:bg-[#D7E8FE]"
-                      : "bg-[#F3F4F6] dark:bg-secondary"
-                  )}>
-                    <div className={cn(
-                      "text-[14px] leading-relaxed whitespace-pre-wrap break-words",
-                      message.sender === 'agent'
-                        ? "text-gray-900 dark:text-gray-900"
-                        : "text-gray-700 dark:text-foreground"
-                    )}>
-                      {lines.map((line, i) => {
-                        const isLastLine = i === lines.length - 1;
-                        if (isLastLine && !shouldPutTimestampBelow) {
-                          return (
-                            <div key={i} className="flex items-end gap-2">
-                              <span className="flex-1">{line}</span>
-                              <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
-                                <span className={cn(
-                                  "text-[11px]",
-                                  message.sender === 'agent'
-                                    ? "text-gray-700 dark:text-gray-700"
-                                    : "text-gray-500 dark:text-muted-foreground"
-                                )}>
-                                  {format(new Date(message.timestamp), 'h:mm a')}
-                                </span>
-                                {message.sender === 'agent' && (
-                                  <CheckCheck className="w-4 h-4 text-gray-700" />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return <div key={i}>{line || <br />}</div>;
-                      })}
-                      {shouldPutTimestampBelow && (
-                        <div className="flex items-center gap-1.5 justify-end mt-1">
-                          <span className={cn(
-                            "text-[11px]",
-                            message.sender === 'agent'
-                              ? "text-gray-700 dark:text-gray-700"
-                              : "text-gray-500 dark:text-muted-foreground"
-                          )}>
-                            {format(new Date(message.timestamp), 'h:mm a')}
-                          </span>
-                          {message.sender === 'agent' && (
-                            <CheckCheck className="w-4 h-4 text-gray-700" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {messages.map((message, index, array) => (
+            <ChatMessageRow
+              key={message.id}
+              message={message}
+              prevMessage={array[index - 1]}
+              nextMessage={array[index + 1]}
+            />
+          ))}
 
           <div ref={messagesEndRef} />
         </div>
