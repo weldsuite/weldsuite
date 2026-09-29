@@ -18,6 +18,46 @@ function isId(part: string): boolean {
   return /^(msg_|macc_|mfld_|label_|thread_)/.test(part) || /^[a-zA-Z0-9_-]{20,}$/.test(part);
 }
 
+function capitalizeSegment(part: string): string {
+  return part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+}
+
+// Label for a path part that follows an account ID (or "unified"): system label
+// display name, or the capitalised user label. Null when the part is an ID.
+function resolveLabelSegment(part: string): string | null {
+  const labelConfig = SYSTEM_LABELS[part as SystemLabelSlug];
+  if (labelConfig) return labelConfig.displayName;
+  // User label — capitalize nicely
+  if (!isId(part)) return capitalizeSegment(part);
+  return null;
+}
+
+function resolveSegmentLabel(
+  part: string,
+  prevPart: string | null,
+  staticSegments: Record<string, string>,
+  accountEmailMap: Map<string, string>,
+  messageLabel: string,
+): string {
+  // Check static segments first
+  if (staticSegments[part]) return staticSegments[part];
+
+  // Resolve mail account IDs to email addresses
+  if (accountEmailMap.has(part)) return accountEmailMap.get(part)!;
+
+  // Resolve label slugs to display names (when preceded by an account ID)
+  if (prevPart && (accountEmailMap.has(prevPart) || prevPart === 'unified')) {
+    const labelSegment = resolveLabelSegment(part);
+    if (labelSegment !== null) return labelSegment;
+  }
+
+  // Skip IDs (message IDs, etc.) — show "Message" instead
+  if (isId(part)) return messageLabel;
+
+  // Default: capitalize
+  return capitalizeSegment(part);
+}
+
 export function MailHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle, calendarOpen }: Readonly<MailHeaderProps>) {
   const { t } = useI18n();
   const pathname = usePathname();
@@ -60,53 +100,12 @@ export function MailHeader({ onWeldAgentToggle, onCalendarToggle, onNotification
 
   // Build breadcrumbs from pathname
   const pathParts = pathname.split('/').filter(Boolean);
-  if (pathParts.length > 1) {
-    for (let i = 1; i < pathParts.length; i++) {
-      const part = pathParts[i];
-      const prevPart = i > 1 ? pathParts[i - 1] : null;
-
-      // Check static segments first
-      if (STATIC_SEGMENTS[part]) {
-        const href = '/' + pathParts.slice(0, i + 1).join('/');
-        segments.push({ label: STATIC_SEGMENTS[part], href });
-        continue;
-      }
-
-      // Resolve mail account IDs to email addresses
-      if (accountEmailMap.has(part)) {
-        const href = '/' + pathParts.slice(0, i + 1).join('/');
-        segments.push({ label: accountEmailMap.get(part)!, href });
-        continue;
-      }
-
-      // Resolve label slugs to display names (when preceded by an account ID)
-      if (prevPart && (accountEmailMap.has(prevPart) || prevPart === 'unified')) {
-        const labelConfig = SYSTEM_LABELS[part as SystemLabelSlug];
-        if (labelConfig) {
-          const href = '/' + pathParts.slice(0, i + 1).join('/');
-          segments.push({ label: labelConfig.displayName, href });
-          continue;
-        }
-        // User label — capitalize nicely
-        if (!isId(part)) {
-          const href = '/' + pathParts.slice(0, i + 1).join('/');
-          segments.push({ label: part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' '), href });
-          continue;
-        }
-      }
-
-      // Skip IDs (message IDs, etc.) — show "Message" instead
-      if (isId(part)) {
-        const href = '/' + pathParts.slice(0, i + 1).join('/');
-        segments.push({ label: t.mail.header.message, href });
-        continue;
-      }
-
-      // Default: capitalize
-      const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
-      const href = '/' + pathParts.slice(0, i + 1).join('/');
-      segments.push({ label, href });
-    }
+  for (let i = 1; i < pathParts.length; i++) {
+    const part = pathParts[i];
+    const prevPart = i > 1 ? pathParts[i - 1] : null;
+    const href = '/' + pathParts.slice(0, i + 1).join('/');
+    const label = resolveSegmentLabel(part, prevPart, STATIC_SEGMENTS, accountEmailMap, t.mail.header.message);
+    segments.push({ label, href });
   }
 
   return (
