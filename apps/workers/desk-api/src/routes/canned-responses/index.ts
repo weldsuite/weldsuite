@@ -157,7 +157,7 @@ app.get('/categories', requirePermission('tickets:read'), async (c) => {
     const categories = rows
       .map((r) => r.category)
       .filter((cat): cat is string => cat !== null)
-      .sort();
+      .sort((a, b) => a.localeCompare(b));
 
     return success(c, categories);
   } catch (err) {

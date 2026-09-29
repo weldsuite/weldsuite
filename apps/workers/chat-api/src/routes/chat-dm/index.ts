@@ -29,6 +29,9 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { leaveDm, setDmArchived, setDmPinned } from '../../services/chat/dm-membership';
 
+/** UTF-16 code-unit order (the default `sort()` order), so participant sets compare identically. */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : Number(a > b));
+
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /** Fire the new-DM realtime + notification for a recipient (best effort). */
@@ -162,8 +165,8 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
           .from(chatChannelMembers)
           .where(eq(chatChannelMembers.channelId, candidate.id));
 
-        const memberUserIds = members.map((m) => m.userId).sort();
-        const targetUserIds = [...allUserIds].sort();
+        const memberUserIds = members.map((m) => m.userId).sort(byCodeUnit);
+        const targetUserIds = [...allUserIds].sort(byCodeUnit);
 
         if (
           memberUserIds.length === targetUserIds.length &&
@@ -267,7 +270,7 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
   try {
     const { chatChannels, chatChannelMembers, workspaceMembers } = schema;
 
-    const allUserIds = Array.from(new Set([userId, targetUserId])).sort();
+    const allUserIds = Array.from(new Set([userId, targetUserId])).sort(byCodeUnit);
     const participantCount = allUserIds.length;
 
     const userDmChannels = await db
@@ -295,7 +298,7 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
           .from(chatChannelMembers)
           .where(eq(chatChannelMembers.channelId, candidate.id));
 
-        const memberIds = members.map((m) => m.userId).sort();
+        const memberIds = members.map((m) => m.userId).sort(byCodeUnit);
         if (memberIds.length === allUserIds.length && memberIds.every((id, i) => id === allUserIds[i])) {
           const [channel] = await db
             .select()

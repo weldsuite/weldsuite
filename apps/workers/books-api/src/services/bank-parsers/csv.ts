@@ -44,7 +44,7 @@ export function parseCSV(content: string): BankFileParseResult {
 
     // Compute date range
     if (result.transactions.length > 0) {
-      const dates = result.transactions.map((t) => t.date).filter(Boolean).sort();
+      const dates = result.transactions.map((t) => t.date).filter(Boolean).sort((a, b) => (a < b ? -1 : Number(a > b)));
       if (dates.length > 0) {
         result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
       }
