@@ -65,6 +65,9 @@ jobs:
   prepare:
     name: Prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # gh run list: the last successful deploy (diff base)
     outputs:
       sha: ${{ steps.ctx.outputs.sha }}
       ref: ${{ steps.ctx.outputs.ref }}
@@ -122,6 +125,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Diff against the last SUCCESSFUL deploy of this branch, not the push's
+      # `before`: concurrency keeps only the newest pending run (older ones are
+      # cancelled) and a failed run deploys nothing, so diffing against `before`
+      # would drop those pushes' workers for good. Falls back to `before` when
+      # there is no earlier success or it is not an ancestor (force push).
+      - name: Resolve diff base
+        id: base
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          LAST=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --branch "$REF_NAME" \
+            --event push --status success --limit 1 --json headSha --jq '.[0].headSha // ""' || true)
+          BASE=""
+          if [ -n "$LAST" ] && git merge-base --is-ancestor "$LAST" HEAD 2>/dev/null; then
+            BASE="$LAST"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            BASE="$BEFORE"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Diff base: ${BASE:-<none>} (last successful deploy: ${LAST:-none}; push before: ${BEFORE:-none})"
+
       # Path filters only apply to push. Manual workflow_dispatch always full-deploys:
       # paths-filter has no push `before` SHA and would otherwise only see the tip commit
       # (often platform-only), skipping workers/migrations/mobile.
@@ -130,7 +158,7 @@ jobs:
         uses: dorny/paths-filter@v3
         id: filter
         with:
-          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
+          base: ${{ steps.base.outputs.base }}
           filters: |
             migrations:
               - 'packages/core/db/drizzle/**'
@@ -488,7 +516,7 @@ jobs:
         id: modules
         env:
           FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changes.outputs.all_workers }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ steps.base.outputs.base }}
           SHA: ${{ github.sha }}
         run: node .github/scripts/module-workers.mjs
 
