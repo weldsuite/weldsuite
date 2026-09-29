@@ -27,11 +27,24 @@ ENVIRONMENT = "development"
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
-# app-api service binding (Google Calendar incremental-sync trigger + renew-watch).
-# Targets the internal router (app-api routes/integrations/internal.ts), mounted
-# above the Clerk guard and authenticated on X-Internal-Secret. This worker's
-# INTERNAL_API_SECRET must match the target app-api env's secret — the router
-# fails closed with 401 otherwise and the callers below only log the failure.
+# connect-api's ConnectInternal entrypoint: connector-event ingest, Meta ad events,
+# Google Calendar incremental-sync trigger + renew-watch (connect-api
+# routes/integrations/internal.ts). A named entrypoint is reachable only through a
+# service binding, so it needs no secret. `remote = true` lets plain `wrangler dev`
+# reach the deployed test worker (mirrors WORKSPACE_WORKER in app-api).
+# Deploy order: connect-api must have the entrypoint first (module workers do).
+[[services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
+remote = true
+
+# app-api service binding: the public /webhooks/woocommerce/auth compat forward, and
+# the FALLBACK to the internal integration routes (through app-api's forwarder,
+# authenticated on X-Internal-Secret) while CONNECT_INTERNAL is unbound or the
+# entrypoint is not deployed yet. This worker's INTERNAL_API_SECRET must match the
+# target env's secret for that path; it can go once every env has the entrypoint
+# binding (docs/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
 service = "weldsuite-app-api"
@@ -99,6 +112,11 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api-test"
+entrypoint = "ConnectInternal"
 
 [[env.test.services]]
 binding = "APP_API"
@@ -172,6 +190,12 @@ ENVIRONMENT = "production"
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
 id = "2cdec4bef19746d1a2c2e9726ddaacc3"
+
+# connect-api's [env.production] name is "weldsuite-connect-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "CONNECT_INTERNAL"
+service = "weldsuite-connect-api"
+entrypoint = "ConnectInternal"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]
