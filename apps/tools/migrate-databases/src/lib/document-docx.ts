@@ -425,6 +425,29 @@ function convertBlock(node: DomNode, ctx: Ctx): BlockRun[] {
   }
 }
 
+function isListTag(node: DomNode): boolean {
+  return node.type === 'tag' && (node.name === 'ul' || node.name === 'ol');
+}
+
+function listItemParagraph(li: DomNode, ordered: boolean, level: number, instance: number): Paragraph {
+  const inlineParts = (li.children ?? []).filter((c) => !isListTag(c));
+  const runs = inlineRuns(inlineParts, {});
+  return new Paragraph({
+    children: runs.length ? runs : [new TextRun('')],
+    ...(ordered
+      ? { numbering: { reference: ORDERED_REF, level, instance } }
+      : { bullet: { level } }),
+  });
+}
+
+function nestedListToBlocks(nested: DomNode, level: number, ctx: Ctx, instance: number): BlockRun[] {
+  if (nested.name === 'ol') {
+    ctx.orderedInstance.v += 1;
+    return listToBlocks(nested, true, level + 1, ctx, ctx.orderedInstance.v);
+  }
+  return listToBlocks(nested, false, level + 1, ctx, instance);
+}
+
 function listToBlocks(
   listNode: DomNode,
   ordered: boolean,
@@ -436,33 +459,26 @@ function listToBlocks(
   const items = (listNode.children ?? []).filter((c) => c.type === 'tag' && c.name === 'li');
 
   for (const li of items) {
-    const inlineParts: DomNode[] = [];
-    const nestedLists: DomNode[] = [];
-    for (const c of li.children ?? []) {
-      if (c.type === 'tag' && (c.name === 'ul' || c.name === 'ol')) nestedLists.push(c);
-      else inlineParts.push(c);
-    }
+    out.push(listItemParagraph(li, ordered, level, instance));
 
-    const runs = inlineRuns(inlineParts, {});
-    out.push(
-      new Paragraph({
-        children: runs.length ? runs : [new TextRun('')],
-        ...(ordered
-          ? { numbering: { reference: ORDERED_REF, level, instance } }
-          : { bullet: { level } }),
-      }),
-    );
-
+    const nestedLists = (li.children ?? []).filter(isListTag);
     for (const nested of nestedLists) {
-      if (nested.name === 'ol') {
-        ctx.orderedInstance.v += 1;
-        out.push(...listToBlocks(nested, true, level + 1, ctx, ctx.orderedInstance.v));
-      } else {
-        out.push(...listToBlocks(nested, false, level + 1, ctx, instance));
-      }
+      out.push(...nestedListToBlocks(nested, level, ctx, instance));
     }
   }
   return out;
+}
+
+function tableRowFromNode(tr: DomNode, ctx: Ctx): TableRow | null {
+  const cellNodes = (tr.children ?? []).filter(
+    (c) => c.type === 'tag' && (c.name === 'td' || c.name === 'th'),
+  );
+  if (cellNodes.length === 0) return null;
+  const cells = cellNodes.map((cell) => {
+    const blocks = nodesToBlocks(cell.children ?? [], ctx);
+    return new TableCell({ children: blocks.length ? blocks : [new Paragraph({})] });
+  });
+  return new TableRow({ children: cells });
 }
 
 function tableToBlocks(node: DomNode, ctx: Ctx): BlockRun[] {
@@ -470,15 +486,8 @@ function tableToBlocks(node: DomNode, ctx: Ctx): BlockRun[] {
     const trs = collectDescendants(node, 'tr');
     const rows: TableRow[] = [];
     for (const tr of trs) {
-      const cellNodes = (tr.children ?? []).filter(
-        (c) => c.type === 'tag' && (c.name === 'td' || c.name === 'th'),
-      );
-      if (cellNodes.length === 0) continue;
-      const cells = cellNodes.map((cell) => {
-        const blocks = nodesToBlocks(cell.children ?? [], ctx);
-        return new TableCell({ children: blocks.length ? blocks : [new Paragraph({})] });
-      });
-      rows.push(new TableRow({ children: cells }));
+      const row = tableRowFromNode(tr, ctx);
+      if (row) rows.push(row);
     }
     if (rows.length === 0) return [];
     return [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })];
@@ -503,53 +512,68 @@ function preToParagraph(node: DomNode): Paragraph {
 
 // --- inline ---------------------------------------------------------------
 
+/** Tags that only add one formatting flag to their children. */
+const FORMAT_TAG_STYLES = new Map<string, InlineStyles>([
+  ['b', { bold: true }],
+  ['strong', { bold: true }],
+  ['i', { italic: true }],
+  ['em', { italic: true }],
+  ['u', { underline: true }],
+  ['ins', { underline: true }],
+  ['s', { strike: true }],
+  ['strike', { strike: true }],
+  ['del', { strike: true }],
+  ['code', { code: true }],
+  ['kbd', { code: true }],
+  ['samp', { code: true }],
+  ['tt', { code: true }],
+]);
+
+/** Tags whose inline `style` attribute contributes formatting. */
+const STYLED_INLINE_TAGS = new Set([
+  'span', 'font', 'mark', 'small', 'big', 'label', 'abbr', 'cite', 'q',
+]);
+
+function anchorRuns(node: DomNode, fmt: InlineStyles): InlineRun[] {
+  const href = node.attribs?.href;
+  const inner = inlineRuns(node.children ?? [], { ...fmt, underline: true, textColor: '0563C1' });
+  if (href && inner.length) {
+    return [new ExternalHyperlink({ children: inner, link: href })];
+  }
+  return inner;
+}
+
+function tagRuns(node: DomNode, fmt: InlineStyles): InlineRun[] {
+  const name = node.name ?? '';
+  const kids = node.children ?? [];
+
+  const formatStyle = FORMAT_TAG_STYLES.get(name);
+  if (formatStyle) return inlineRuns(kids, { ...fmt, ...formatStyle });
+  if (STYLED_INLINE_TAGS.has(name)) {
+    return inlineRuns(kids, mergeStyle(fmt, node.attribs?.style, name));
+  }
+  switch (name) {
+    case 'br':
+      return [new TextRun({ break: 1 })];
+    case 'a':
+      return anchorRuns(node, fmt);
+    case 'img': {
+      const run = imageRun(node);
+      return run ? [run] : [];
+    }
+    default:
+      return inlineRuns(kids, fmt);
+  }
+}
+
 function inlineRuns(nodes: DomNode[], fmt: InlineStyles): InlineRun[] {
   const out: InlineRun[] = [];
   for (const node of nodes) {
     if (node.type === 'text') {
       const t = (node.data ?? '').replace(/\s+/g, ' ');
       if (t.length) out.push(makeRun(t, fmt));
-      continue;
-    }
-    if (node.type !== 'tag') continue;
-
-    const kids = node.children ?? [];
-    switch (node.name) {
-      case 'b': case 'strong':
-        out.push(...inlineRuns(kids, { ...fmt, bold: true })); break;
-      case 'i': case 'em':
-        out.push(...inlineRuns(kids, { ...fmt, italic: true })); break;
-      case 'u': case 'ins':
-        out.push(...inlineRuns(kids, { ...fmt, underline: true })); break;
-      case 's': case 'strike': case 'del':
-        out.push(...inlineRuns(kids, { ...fmt, strike: true })); break;
-      case 'code': case 'kbd': case 'samp': case 'tt':
-        out.push(...inlineRuns(kids, { ...fmt, code: true })); break;
-      case 'br':
-        out.push(new TextRun({ break: 1 })); break;
-      case 'a': {
-        const href = node.attribs?.href;
-        const inner = inlineRuns(kids, { ...fmt, underline: true, textColor: '0563C1' });
-        if (href && inner.length) {
-          out.push(new ExternalHyperlink({ children: inner, link: href }));
-        } else {
-          out.push(...inner);
-        }
-        break;
-      }
-      case 'img': {
-        const run = imageRun(node);
-        if (run) out.push(run);
-        break;
-      }
-      case 'span': case 'font': case 'mark': case 'small': case 'big':
-      case 'label': case 'abbr': case 'cite': case 'q': {
-        const merged = mergeStyle(fmt, node.attribs?.style, node.name);
-        out.push(...inlineRuns(kids, merged));
-        break;
-      }
-      default:
-        out.push(...inlineRuns(kids, fmt));
+    } else if (node.type === 'tag') {
+      out.push(...tagRuns(node, fmt));
     }
   }
   return out;
@@ -571,6 +595,27 @@ function makeRun(text: string, fmt: InlineStyles): TextRun {
   });
 }
 
+function applyStyleDecl(merged: InlineStyles, prop: string, val: string): void {
+  switch (prop) {
+    case 'color':
+      if (isHexColor(val)) merged.textColor = val;
+      break;
+    case 'background-color':
+      if (isHexColor(val)) merged.backgroundColor = val;
+      break;
+    case 'font-weight':
+      if (val === 'bold' || Number(val) >= 600) merged.bold = true;
+      break;
+    case 'font-style':
+      if (val === 'italic') merged.italic = true;
+      break;
+    case 'text-decoration':
+      if (val.includes('underline')) merged.underline = true;
+      else if (val.includes('line-through')) merged.strike = true;
+      break;
+  }
+}
+
 function mergeStyle(fmt: InlineStyles, style: string | undefined, tag: string): InlineStyles {
   const merged: InlineStyles = { ...fmt };
   if (tag === 'mark') merged.backgroundColor = 'FFFF00';
@@ -579,14 +624,7 @@ function mergeStyle(fmt: InlineStyles, style: string | undefined, tag: string): 
   for (const decl of decls) {
     const [propRaw, valRaw] = decl.split(':');
     if (!propRaw || !valRaw) continue;
-    const prop = propRaw.trim().toLowerCase();
-    const val = valRaw.trim();
-    if (prop === 'color' && isHexColor(val)) merged.textColor = val;
-    else if (prop === 'background-color' && isHexColor(val)) merged.backgroundColor = val;
-    else if (prop === 'font-weight' && (val === 'bold' || Number(val) >= 600)) merged.bold = true;
-    else if (prop === 'font-style' && val === 'italic') merged.italic = true;
-    else if (prop === 'text-decoration' && val.includes('underline')) merged.underline = true;
-    else if (prop === 'text-decoration' && val.includes('line-through')) merged.strike = true;
+    applyStyleDecl(merged, propRaw.trim().toLowerCase(), valRaw.trim());
   }
   return merged;
 }
@@ -636,38 +674,57 @@ function mimeToImageType(mime: string): 'png' | 'jpg' | 'gif' | 'bmp' | null {
   return null;
 }
 
+type Dimensions = { width: number; height: number };
+
+function sniffPng(buf: Buffer): Dimensions | null {
+  if (buf.length < 24) return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+function sniffGif(buf: Buffer): Dimensions | null {
+  if (buf.length < 10) return null;
+  return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+}
+
+function sniffBmp(buf: Buffer): Dimensions | null {
+  if (buf.length < 26) return null;
+  return { width: buf.readInt32LE(18), height: Math.abs(buf.readInt32LE(22)) };
+}
+
+function sniffJpg(buf: Buffer): Dimensions | null {
+  let off = 2;
+  while (off + 9 < buf.length) {
+    if (buf[off] !== 0xff) {
+      off += 1;
+      continue;
+    }
+    const marker = buf[off + 1]!;
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return { height: buf.readUInt16BE(off + 5), width: buf.readUInt16BE(off + 7) };
+    }
+    off += 2 + buf.readUInt16BE(off + 2);
+  }
+  return null;
+}
+
 function sniffDimensions(
   buf: Buffer,
   type: 'png' | 'jpg' | 'gif' | 'bmp',
-): { width: number; height: number } | null {
+): Dimensions | null {
   try {
-    if (type === 'png' && buf.length >= 24) {
-      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-    }
-    if (type === 'gif' && buf.length >= 10) {
-      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
-    }
-    if (type === 'bmp' && buf.length >= 26) {
-      return { width: buf.readInt32LE(18), height: Math.abs(buf.readInt32LE(22)) };
-    }
-    if (type === 'jpg') {
-      let off = 2;
-      while (off + 9 < buf.length) {
-        if (buf[off] !== 0xff) {
-          off += 1;
-          continue;
-        }
-        const marker = buf[off + 1]!;
-        if (marker >= 0xc0 && marker <= 0xc3) {
-          return { height: buf.readUInt16BE(off + 5), width: buf.readUInt16BE(off + 7) };
-        }
-        off += 2 + buf.readUInt16BE(off + 2);
-      }
+    switch (type) {
+      case 'png':
+        return sniffPng(buf);
+      case 'gif':
+        return sniffGif(buf);
+      case 'bmp':
+        return sniffBmp(buf);
+      case 'jpg':
+        return sniffJpg(buf);
     }
   } catch {
     return null;
   }
-  return null;
 }
 
 function scaleToMax(

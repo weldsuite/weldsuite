@@ -216,6 +216,89 @@ function maskDatabaseUrl(url: string): string {
   }
 }
 
+function printNoWorkspacesFound(only: string | null): void {
+  if (!only) {
+    console.log('No active workspaces with database URLs found.');
+    return;
+  }
+  console.log(
+    redactWorkspaces
+      ? 'No active workspace found with the requested ID.'
+      : `No active workspace found with ID: ${only}`
+  );
+}
+
+function printWorkspaceList(workspaceList: WorkspaceInfo[]): void {
+  let listIndex = 0;
+  for (const workspace of workspaceList) {
+    listIndex++;
+    if (redactWorkspaces) {
+      console.log(`  ${workspaceLabel(listIndex, workspace.name, workspace.id)}`);
+    } else {
+      console.log(`  ID:   ${workspace.id}`);
+      console.log(`  Name: ${workspace.name}`);
+      console.log(`  DB:   ${maskDatabaseUrl(workspace.databaseUrl)}`);
+    }
+    console.log('');
+  }
+}
+
+async function runMigrations(
+  workspaceList: WorkspaceInfo[],
+  migrationsFolder: string,
+  verbose: boolean
+): Promise<{ results: MigrationResult[]; labels: Map<string, string> }> {
+  const results: MigrationResult[] = [];
+  const labels = new Map<string, string>();
+  let current = 0;
+
+  for (const workspace of workspaceList) {
+    current++;
+    const label = workspaceLabel(current, workspace.name, workspace.id);
+    labels.set(workspace.id, label);
+    console.log(`[${current}/${workspaceList.length}] Migrating: ${label}`);
+
+    const result = await migrateWorkspace(workspace, migrationsFolder, verbose);
+    results.push(result);
+
+    if (result.success) {
+      console.log(`  Status: SUCCESS\n`);
+    } else {
+      console.log(`  Status: FAILED`);
+      console.log(`  Error:  ${result.error}\n`);
+    }
+  }
+
+  return { results, labels };
+}
+
+function printSummary(results: MigrationResult[], labels: Map<string, string>): void {
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  console.log('\n===========================================');
+  console.log('  Migration Summary');
+  console.log('===========================================');
+  console.log(`  Total:      ${results.length}`);
+  console.log(`  Successful: ${successful.length}`);
+  console.log(`  Failed:     ${failed.length}`);
+
+  if (failed.length > 0) {
+    console.log('\nFailed workspaces:');
+    for (const f of failed) {
+      console.log(`  - ${labels.get(f.workspaceId) ?? f.workspaceId}`);
+      console.log(`    Error: ${f.error}`);
+    }
+    if (redactWorkspaces) {
+      console.log('\n  Re-run locally with --show-workspaces to identify them.');
+    }
+    console.log('');
+    process.exit(1);
+  }
+
+  console.log('\nAll migrations completed successfully!\n');
+}
+
 async function main(): Promise<void> {
   const options = parseArgs();
   redactWorkspaces = options.redact;
@@ -256,15 +339,7 @@ async function main(): Promise<void> {
     const workspaceList = await getWorkspaces(masterClient, options.only);
 
     if (workspaceList.length === 0) {
-      if (options.only) {
-        console.log(
-          redactWorkspaces
-            ? 'No active workspace found with the requested ID.'
-            : `No active workspace found with ID: ${options.only}`
-        );
-      } else {
-        console.log('No active workspaces with database URLs found.');
-      }
+      printNoWorkspacesFound(options.only);
       return;
     }
 
@@ -272,18 +347,7 @@ async function main(): Promise<void> {
     console.log('-------------------------------------------');
 
     // List workspaces
-    let listIndex = 0;
-    for (const workspace of workspaceList) {
-      listIndex++;
-      if (redactWorkspaces) {
-        console.log(`  ${workspaceLabel(listIndex, workspace.name, workspace.id)}`);
-      } else {
-        console.log(`  ID:   ${workspace.id}`);
-        console.log(`  Name: ${workspace.name}`);
-        console.log(`  DB:   ${maskDatabaseUrl(workspace.databaseUrl)}`);
-      }
-      console.log('');
-    }
+    printWorkspaceList(workspaceList);
     console.log('-------------------------------------------\n');
 
     // If dry run, stop here
@@ -294,52 +358,10 @@ async function main(): Promise<void> {
 
     // Run migrations
     console.log('Starting migrations...\n');
-    const results: MigrationResult[] = [];
-    const labels = new Map<string, string>();
-    let current = 0;
+    const { results, labels } = await runMigrations(workspaceList, migrationsFolder, options.verbose);
 
-    for (const workspace of workspaceList) {
-      current++;
-      const label = workspaceLabel(current, workspace.name, workspace.id);
-      labels.set(workspace.id, label);
-      console.log(`[${current}/${workspaceList.length}] Migrating: ${label}`);
-
-      const result = await migrateWorkspace(workspace, migrationsFolder, options.verbose);
-      results.push(result);
-
-      if (result.success) {
-        console.log(`  Status: SUCCESS\n`);
-      } else {
-        console.log(`  Status: FAILED`);
-        console.log(`  Error:  ${result.error}\n`);
-      }
-    }
-
-    // Print summary
-    const successful = results.filter((r) => r.success);
-    const failed = results.filter((r) => !r.success);
-
-    console.log('\n===========================================');
-    console.log('  Migration Summary');
-    console.log('===========================================');
-    console.log(`  Total:      ${results.length}`);
-    console.log(`  Successful: ${successful.length}`);
-    console.log(`  Failed:     ${failed.length}`);
-
-    if (failed.length > 0) {
-      console.log('\nFailed workspaces:');
-      for (const f of failed) {
-        console.log(`  - ${labels.get(f.workspaceId) ?? f.workspaceId}`);
-        console.log(`    Error: ${f.error}`);
-      }
-      if (redactWorkspaces) {
-        console.log('\n  Re-run locally with --show-workspaces to identify them.');
-      }
-      console.log('');
-      process.exit(1);
-    }
-
-    console.log('\nAll migrations completed successfully!\n');
+    // Print summary (exits with code 1 when any workspace failed)
+    printSummary(results, labels);
   } finally {
     await masterClient.end();
   }
