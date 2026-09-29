@@ -39,6 +39,8 @@ import {
 import { formatMessageDate } from '@/utils/email-format';
 
 type StatusFilter = 'active' | 'unsubscribed';
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+type Toast = ReturnType<typeof useToast>;
 
 function senderLabel(sub: TenantSubscription): string {
   return sub.senderName || sub.senderEmail;
@@ -51,26 +53,49 @@ function confirmMessage(sub: TenantSubscription): string {
   return `The unsubscribe page of ${sender} opens in your browser. Finish the steps there.`;
 }
 
-export default function SubscriptionsScreen() {
-  const router = useRouter();
-  const { colors } = useTheme();
-  const toast = useToast();
-  const { accounts, selectedAccount } = useMail();
+/** `q` is the already trimmed + lower-cased search text. */
+function matchesQuery(s: TenantSubscription, q: string): boolean {
+  return (
+    !q ||
+    s.senderEmail.includes(q) ||
+    (s.senderName ?? '').toLowerCase().includes(q) ||
+    (s.lastSubject ?? '').toLowerCase().includes(q)
+  );
+}
 
+function filterSubscriptions(items: TenantSubscription[], status: StatusFilter, query: string): TenantSubscription[] {
+  const q = query.trim().toLowerCase();
+  return items.filter((s) => s.status === status && matchesQuery(s, q));
+}
+
+function countByStatus(items: TenantSubscription[]) {
+  return {
+    active: items.filter((s) => s.status === 'active').length,
+    unsubscribed: items.filter((s) => s.status === 'unsubscribed').length,
+  };
+}
+
+function emptyTitle(query: string, status: StatusFilter): string {
+  if (query) return 'No senders match your search';
+  return status === 'active' ? 'No subscriptions found' : 'You have not unsubscribed from anything yet';
+}
+
+/** The mailbox on screen: the selected one, else the first, once accounts have loaded. */
+function useActiveAccount(accounts: TenantMailAccount[], selectedAccount: TenantMailAccount | null) {
   const [account, setAccount] = useState<TenantMailAccount | null>(selectedAccount ?? accounts[0] ?? null);
-  const [items, setItems] = useState<TenantSubscription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [status, setStatus] = useState<StatusFilter>('active');
-  const [query, setQuery] = useState('');
-  const [pending, setPending] = useState<TenantSubscription | null>(null);
-  const [unsubscribing, setUnsubscribing] = useState(false);
 
   useEffect(() => {
     if (!account && accounts.length > 0) setAccount(selectedAccount ?? accounts[0]!);
   }, [account, accounts, selectedAccount]);
+
+  return [account, setAccount] as const;
+}
+
+function useSubscriptionList(account: TenantMailAccount | null) {
+  const [items, setItems] = useState<TenantSubscription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   // The account whose list is on screen. A slower response for the mailbox
   // the user just switched away from must not land under the new one (its
@@ -102,164 +127,330 @@ export default function SubscriptionsScreen() {
     void load();
   }, [load]);
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter(
-      (s) =>
-        s.status === status &&
-        (!q ||
-          s.senderEmail.includes(q) ||
-          (s.senderName ?? '').toLowerCase().includes(q) ||
-          (s.lastSubject ?? '').toLowerCase().includes(q)),
-    );
-  }, [items, status, query]);
+  return { items, setItems, loading, setLoading, refreshing, setRefreshing, loadError, load };
+}
 
-  const counts = useMemo(
-    () => ({
-      active: items.filter((s) => s.status === 'active').length,
-      unsubscribed: items.filter((s) => s.status === 'unsubscribed').length,
-    }),
-    [items],
+/** Runs a mailbox scan and reports the outcome; never rejects. */
+async function performScan(account: TenantMailAccount, toast: Toast, reload: () => Promise<void>): Promise<void> {
+  try {
+    const res = await scanSubscriptions(account);
+    toast.success(`Found ${res.subscriptions} subscriptions in ${res.scanned} emails`);
+    await reload();
+  } catch (err) {
+    console.error('Subscription scan failed:', err);
+    toast.error('Could not scan this mailbox');
+  }
+}
+
+async function announceUnsubscribe(toast: Toast, method: string, url: string | null, sender: string): Promise<void> {
+  if (method === 'one_click') toast.success(`Unsubscribed from ${sender}`);
+  else if (method === 'mailto') toast.success(`Unsubscribe request sent to ${sender}`);
+  else if (url) {
+    toast.info(`Finish unsubscribing on the page of ${sender}`, 5000);
+    await WebBrowser.openBrowserAsync(url);
+  }
+}
+
+function markUnsubscribed(items: TenantSubscription[], id: string): TenantSubscription[] {
+  return items.map((s) =>
+    s.id === id ? { ...s, status: 'unsubscribed', unsubscribedAt: new Date().toISOString() } : s,
   );
+}
 
-  const handleScan = async () => {
-    if (!account || scanning) return;
-    setScanning(true);
-    try {
-      const res = await scanSubscriptions(account);
-      toast.success(`Found ${res.subscriptions} subscriptions in ${res.scanned} emails`);
-      await load();
-    } catch (err) {
-      console.error('Subscription scan failed:', err);
-      toast.error('Could not scan this mailbox');
-    } finally {
-      setScanning(false);
-    }
-  };
+/** Unsubscribes from one sender and reports the outcome; never rejects. */
+async function performUnsubscribe(
+  account: TenantMailAccount,
+  sub: TenantSubscription,
+  toast: Toast,
+  setItems: React.Dispatch<React.SetStateAction<TenantSubscription[]>>,
+): Promise<void> {
+  const sender = senderLabel(sub);
+  try {
+    const { method, url } = await unsubscribeFromSender(account, sub.id);
+    setItems((prev) => markUnsubscribed(prev, sub.id));
+    await announceUnsubscribe(toast, method, url, sender);
+  } catch (err) {
+    console.error('Unsubscribe failed:', err);
+    toast.error(`Could not unsubscribe from ${sender}`);
+  }
+}
 
-  const handleUnsubscribe = async () => {
-    if (!account || !pending) return;
-    const sub = pending;
-    const sender = senderLabel(sub);
-    setUnsubscribing(true);
-    try {
-      const { method, url } = await unsubscribeFromSender(account, sub.id);
-      setItems((prev) =>
-        prev.map((s) =>
-          s.id === sub.id ? { ...s, status: 'unsubscribed', unsubscribedAt: new Date().toISOString() } : s,
-        ),
-      );
-      if (method === 'one_click') toast.success(`Unsubscribed from ${sender}`);
-      else if (method === 'mailto') toast.success(`Unsubscribe request sent to ${sender}`);
-      else if (url) {
-        toast.info(`Finish unsubscribing on the page of ${sender}`, 5000);
-        await WebBrowser.openBrowserAsync(url);
-      }
-    } catch (err) {
-      console.error('Unsubscribe failed:', err);
-      toast.error(`Could not unsubscribe from ${sender}`);
-    } finally {
-      setUnsubscribing(false);
-      setPending(null);
-    }
-  };
-
-  const renderItem = ({ item }: { item: TenantSubscription }) => {
-    const sender = senderLabel(item);
-    const canUnsubscribe = !!item.unsubscribeUrl || !!item.unsubscribeMailto;
-    const stillSending =
-      item.status === 'unsubscribed' &&
-      !!item.unsubscribedAt &&
-      new Date(item.lastReceivedAt) > new Date(item.unsubscribedAt);
-
+function RowStatus({ item, sender, canUnsubscribe, stillSending, colors, onUnsubscribe }: Readonly<{
+  item: TenantSubscription;
+  sender: string;
+  canUnsubscribe: boolean;
+  stillSending: boolean;
+  colors: ThemeColors;
+  onUnsubscribe: (item: TenantSubscription) => void;
+}>) {
+  if (item.status === 'unsubscribed') {
     return (
-      <View style={[styles.row, { borderBottomColor: colors.border }]}>
-        <View style={[styles.avatar, { backgroundColor: getAvatarColor(sender) }]}>
-          <Text style={styles.avatarText}>{sender.charAt(0).toUpperCase()}</Text>
-        </View>
-        <View style={styles.rowBody}>
-          <Text style={[styles.sender, { color: colors.text }]} numberOfLines={1}>
-            {sender}
-          </Text>
-          {item.lastSubject ? (
-            <Text style={[styles.subject, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {item.lastSubject}
-            </Text>
-          ) : null}
-          <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
-            {item.messageCount === 1 ? '1 email' : `${item.messageCount} emails`} · Last{' '}
-            {formatMessageDate(item.lastReceivedAt)}
-          </Text>
-        </View>
-        {item.status === 'unsubscribed' ? (
-          <Text style={[styles.statusText, { color: stillSending ? colors.destructive : colors.mutedForeground }]}>
-            {stillSending ? 'Still sending' : 'Unsubscribed'}
-          </Text>
-        ) : canUnsubscribe ? (
-          <Button
-            title="Unsubscribe"
-            variant="outline"
-            size="sm"
-            onPress={() => setPending(item)}
-            accessibilityLabel={`Unsubscribe from ${sender}`}
-          />
-        ) : (
-          <Text style={[styles.statusText, { color: colors.mutedForeground }]}>No option</Text>
-        )}
-      </View>
+      <Text style={[styles.statusText, { color: stillSending ? colors.destructive : colors.mutedForeground }]}>
+        {stillSending ? 'Still sending' : 'Unsubscribed'}
+      </Text>
     );
-  };
+  }
+  if (canUnsubscribe) {
+    return (
+      <Button
+        title="Unsubscribe"
+        variant="outline"
+        size="sm"
+        onPress={() => onUnsubscribe(item)}
+        accessibilityLabel={`Unsubscribe from ${sender}`}
+      />
+    );
+  }
+  return <Text style={[styles.statusText, { color: colors.mutedForeground }]}>No option</Text>;
+}
 
-  const header = (
+function SubscriptionRow({ item, colors, onUnsubscribe }: Readonly<{
+  item: TenantSubscription;
+  colors: ThemeColors;
+  onUnsubscribe: (item: TenantSubscription) => void;
+}>) {
+  const sender = senderLabel(item);
+  const canUnsubscribe = !!item.unsubscribeUrl || !!item.unsubscribeMailto;
+  const stillSending =
+    item.status === 'unsubscribed' &&
+    !!item.unsubscribedAt &&
+    new Date(item.lastReceivedAt) > new Date(item.unsubscribedAt);
+
+  return (
+    <View style={[styles.row, { borderBottomColor: colors.border }]}>
+      <View style={[styles.avatar, { backgroundColor: getAvatarColor(sender) }]}>
+        <Text style={styles.avatarText}>{sender.charAt(0).toUpperCase()}</Text>
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={[styles.sender, { color: colors.text }]} numberOfLines={1}>
+          {sender}
+        </Text>
+        {item.lastSubject ? (
+          <Text style={[styles.subject, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {item.lastSubject}
+          </Text>
+        ) : null}
+        <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
+          {item.messageCount === 1 ? '1 email' : `${item.messageCount} emails`} · Last{' '}
+          {formatMessageDate(item.lastReceivedAt)}
+        </Text>
+      </View>
+      <RowStatus
+        item={item}
+        sender={sender}
+        canUnsubscribe={canUnsubscribe}
+        stillSending={stillSending}
+        colors={colors}
+        onUnsubscribe={onUnsubscribe}
+      />
+    </View>
+  );
+}
+
+function AccountChips({ accounts, activeId, colors, onSelect }: Readonly<{
+  accounts: TenantMailAccount[];
+  activeId: string | undefined;
+  colors: ThemeColors;
+  onSelect: (account: TenantMailAccount) => void;
+}>) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountChips}>
+      {accounts.map((a) => {
+        const active = a.id === activeId;
+        return (
+          <TouchableOpacity
+            key={a.id}
+            onPress={() => onSelect(a)}
+            style={[
+              styles.chip,
+              { borderColor: colors.border },
+              active && { backgroundColor: colors.text, borderColor: colors.text },
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+          >
+            <Text style={[styles.chipText, { color: active ? colors.background : colors.text }]} numberOfLines={1}>
+              {a.emailAddress}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function SubscriptionsHeader({
+  account, accounts, colors, counts, query, status, scanning,
+  onBack, onScan, onSelectAccount, onChangeQuery, onChangeStatus,
+}: Readonly<{
+  account: TenantMailAccount | null;
+  accounts: TenantMailAccount[];
+  colors: ThemeColors;
+  counts: { active: number; unsubscribed: number };
+  query: string;
+  status: StatusFilter;
+  scanning: boolean;
+  onBack: () => void;
+  onScan: () => void;
+  onSelectAccount: (account: TenantMailAccount) => void;
+  onChangeQuery: (query: string) => void;
+  onChangeStatus: (status: StatusFilter) => void;
+}>) {
+  return (
     <ScreenHeader
       title="Subscriptions"
       subtitle={account?.emailAddress}
-      onBack={() => router.back()}
+      onBack={onBack}
       actions={
         <IconButton
           icon={<RefreshCw size={20} color={colors.text} />}
           accessibilityLabel="Scan mailbox"
-          onPress={handleScan}
+          onPress={onScan}
           disabled={scanning || !account}
         />
       }
       below={
         <View style={styles.below}>
           {accounts.length > 1 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountChips}>
-              {accounts.map((a) => {
-                const active = a.id === account?.id;
-                return (
-                  <TouchableOpacity
-                    key={a.id}
-                    onPress={() => setAccount(a)}
-                    style={[
-                      styles.chip,
-                      { borderColor: colors.border },
-                      active && { backgroundColor: colors.text, borderColor: colors.text },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                  >
-                    <Text style={[styles.chipText, { color: active ? colors.background : colors.text }]} numberOfLines={1}>
-                      {a.emailAddress}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            <AccountChips accounts={accounts} activeId={account?.id} colors={colors} onSelect={onSelectAccount} />
           ) : null}
-          <SearchBar value={query} onChangeText={setQuery} placeholder="Search senders" onClear={() => setQuery('')} />
+          <SearchBar value={query} onChangeText={onChangeQuery} placeholder="Search senders" onClear={() => onChangeQuery('')} />
           <SegmentedControl
             options={[
               { label: `Subscribed (${counts.active})`, value: 'active' },
               { label: `Unsubscribed (${counts.unsubscribed})`, value: 'unsubscribed' },
             ]}
             value={status}
-            onValueChange={(v) => setStatus(v as StatusFilter)}
+            onValueChange={(v) => onChangeStatus(v as StatusFilter)}
           />
         </View>
       }
+    />
+  );
+}
+
+function SubscriptionsEmpty({ query, status, scanning, colors, onScan }: Readonly<{
+  query: string;
+  status: StatusFilter;
+  scanning: boolean;
+  colors: ThemeColors;
+  onScan: () => void;
+}>) {
+  const showScanHint = !query && status === 'active';
+  return (
+    <EmptyState
+      icon={<MailX size={40} color={colors.mutedForeground} />}
+      title={emptyTitle(query, status)}
+      description={
+        showScanHint
+          ? 'Newsletters appear here as they arrive. Scan the mailbox to find the ones you already have.'
+          : undefined
+      }
+      action={
+        showScanHint ? (
+          <Button title={scanning ? 'Scanning…' : 'Scan mailbox'} onPress={onScan} loading={scanning} />
+        ) : undefined
+      }
+    />
+  );
+}
+
+function UnsubscribeConfirm({ pending, unsubscribing, onConfirm, onCancel }: Readonly<{
+  pending: TenantSubscription | null;
+  unsubscribing: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}>) {
+  return (
+    <ConfirmModal
+      visible={!!pending}
+      title={pending ? `Unsubscribe from ${senderLabel(pending)}?` : ''}
+      message={pending ? confirmMessage(pending) : undefined}
+      confirmText={pending && isLinkOnlySubscription(pending) ? 'Open page' : 'Unsubscribe'}
+      variant="destructive"
+      loading={unsubscribing}
+      onConfirm={onConfirm}
+      onCancel={() => !unsubscribing && onCancel()}
+    />
+  );
+}
+
+function SubscriptionsBody({ loading, loadError, visible, refreshing, scanning, query, status, colors, onRetry, onRefresh, onScan, onUnsubscribe }: Readonly<{
+  loading: boolean;
+  loadError: boolean;
+  visible: TenantSubscription[];
+  refreshing: boolean;
+  scanning: boolean;
+  query: string;
+  status: StatusFilter;
+  colors: ThemeColors;
+  onRetry: () => void;
+  onRefresh: () => void;
+  onScan: () => void;
+  onUnsubscribe: (item: TenantSubscription) => void;
+}>) {
+  if (loading) return <ListSkeleton count={8} />;
+  if (loadError) return <ErrorState message="Could not load subscriptions" onRetry={onRetry} />;
+  return (
+    <FlatList
+      data={visible}
+      keyExtractor={(s) => s.id}
+      renderItem={({ item }) => <SubscriptionRow item={item} colors={colors} onUnsubscribe={onUnsubscribe} />}
+      contentContainerStyle={visible.length === 0 ? styles.emptyContainer : undefined}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      ListEmptyComponent={
+        <SubscriptionsEmpty query={query} status={status} scanning={scanning} colors={colors} onScan={onScan} />
+      }
+    />
+  );
+}
+
+export default function SubscriptionsScreen() {
+  const router = useRouter();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const { accounts, selectedAccount } = useMail();
+
+  const [account, setAccount] = useActiveAccount(accounts, selectedAccount);
+  const { items, setItems, loading, setLoading, refreshing, setRefreshing, loadError, load } = useSubscriptionList(account);
+  const [scanning, setScanning] = useState(false);
+  const [status, setStatus] = useState<StatusFilter>('active');
+  const [query, setQuery] = useState('');
+  const [pending, setPending] = useState<TenantSubscription | null>(null);
+  const [unsubscribing, setUnsubscribing] = useState(false);
+
+  const visible = useMemo(() => filterSubscriptions(items, status, query), [items, status, query]);
+  const counts = useMemo(() => countByStatus(items), [items]);
+
+  const handleScan = async () => {
+    if (!account || scanning) return;
+    setScanning(true);
+    await performScan(account, toast, load);
+    setScanning(false);
+  };
+
+  const handleUnsubscribe = async () => {
+    if (!account || !pending) return;
+    setUnsubscribing(true);
+    await performUnsubscribe(account, pending, toast, setItems);
+    setUnsubscribing(false);
+    setPending(null);
+  };
+
+  const header = (
+    <SubscriptionsHeader
+      account={account}
+      accounts={accounts}
+      colors={colors}
+      counts={counts}
+      query={query}
+      status={status}
+      scanning={scanning}
+      onBack={() => router.back()}
+      onScan={handleScan}
+      onSelectAccount={setAccount}
+      onChangeQuery={setQuery}
+      onChangeStatus={setStatus}
     />
   );
 
@@ -273,53 +464,26 @@ export default function SubscriptionsScreen() {
 
   return (
     <Screen header={header}>
-      {loading ? (
-        <ListSkeleton count={8} />
-      ) : loadError ? (
-        <ErrorState message="Could not load subscriptions" onRetry={() => { setLoading(true); void load(); }} />
-      ) : (
-        <FlatList
-          data={visible}
-          keyExtractor={(s) => s.id}
-          renderItem={renderItem}
-          contentContainerStyle={visible.length === 0 ? styles.emptyContainer : undefined}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon={<MailX size={40} color={colors.mutedForeground} />}
-              title={
-                query
-                  ? 'No senders match your search'
-                  : status === 'active'
-                    ? 'No subscriptions found'
-                    : 'You have not unsubscribed from anything yet'
-              }
-              description={
-                !query && status === 'active'
-                  ? 'Newsletters appear here as they arrive. Scan the mailbox to find the ones you already have.'
-                  : undefined
-              }
-              action={
-                !query && status === 'active' ? (
-                  <Button title={scanning ? 'Scanning…' : 'Scan mailbox'} onPress={handleScan} loading={scanning} />
-                ) : undefined
-              }
-            />
-          }
-        />
-      )}
+      <SubscriptionsBody
+        loading={loading}
+        loadError={loadError}
+        visible={visible}
+        refreshing={refreshing}
+        scanning={scanning}
+        query={query}
+        status={status}
+        colors={colors}
+        onRetry={() => { setLoading(true); void load(); }}
+        onRefresh={() => { setRefreshing(true); void load(); }}
+        onScan={handleScan}
+        onUnsubscribe={setPending}
+      />
 
-      <ConfirmModal
-        visible={!!pending}
-        title={pending ? `Unsubscribe from ${senderLabel(pending)}?` : ''}
-        message={pending ? confirmMessage(pending) : undefined}
-        confirmText={pending && isLinkOnlySubscription(pending) ? 'Open page' : 'Unsubscribe'}
-        variant="destructive"
-        loading={unsubscribing}
+      <UnsubscribeConfirm
+        pending={pending}
+        unsubscribing={unsubscribing}
         onConfirm={handleUnsubscribe}
-        onCancel={() => !unsubscribing && setPending(null)}
+        onCancel={() => setPending(null)}
       />
     </Screen>
   );

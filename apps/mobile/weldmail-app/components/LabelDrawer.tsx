@@ -33,7 +33,7 @@ import {
   MailX,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useMail, getAvatarColor } from '@/contexts/MailContext';
+import { useMail, getAvatarColor, type MailAccount, type MailLabel } from '@/contexts/MailContext';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
 import { isPersonalAccount } from '@/services/mail-tenant';
@@ -65,6 +65,366 @@ export function getLabelIcon(slug: string, color: string, size: number = 22) {
   return icons[slug] || <Mail size={size} color={color} />;
 }
 
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+interface DrawerPalette {
+  /** Divider / border lines (mini sidebar edge, header underline, section rule). */
+  border: string;
+  miniAvatarBg: string;
+  miniAvatarActiveBg: string;
+  miniDivider: string;
+  addIcon: string;
+  /** Create-label "+" tint; null falls back to the theme's muted colour. */
+  createIcon: string | null;
+  /** "More" / "Less" toggle text + chevron. */
+  toggle: string;
+  sectionHeader: string;
+  customSelectedBg: string;
+}
+
+const DARK_PALETTE: DrawerPalette = {
+  border: '#38383A',
+  miniAvatarBg: '#2C2C2E',
+  miniAvatarActiveBg: '#2A1A14',
+  miniDivider: '#48484A',
+  addIcon: '#636366',
+  createIcon: '#636366',
+  toggle: '#636366',
+  sectionHeader: '#636366',
+  customSelectedBg: '#1A2744',
+};
+
+const LIGHT_PALETTE: DrawerPalette = {
+  border: '#E5E7EB',
+  miniAvatarBg: '#F1F3F4',
+  miniAvatarActiveBg: '#FEF0EC',
+  miniDivider: '#D1D5DB',
+  addIcon: '#B0B5BC',
+  createIcon: null,
+  toggle: '#6B7280',
+  sectionHeader: '#9CA3AF',
+  customSelectedBg: '#E8F0FE',
+};
+
+/** Personal inboxes have no label-create endpoint (personal-api is read-only for labels). */
+function canCreateLabel(isUnifiedInbox: boolean, account: MailAccount | null): boolean {
+  return !isUnifiedInbox && !!account && !isPersonalAccount(account);
+}
+
+function getHeaderAvatarColor(isUnifiedInbox: boolean, account: MailAccount | null): string {
+  if (isUnifiedInbox) return '#FEF0EC';
+  return account ? getAvatarColor(account.displayName) : '#6B7280';
+}
+
+function hasCount(label: { count?: number }): boolean {
+  return label.count != null && label.count > 0;
+}
+
+function SystemLabelRow({ label, isActive, colors, onSelect }: Readonly<{
+  label: MailLabel;
+  isActive: boolean;
+  colors: ThemeColors;
+  onSelect: (slug: string) => void;
+}>) {
+  const iconColor = isActive ? BRAND : colors.muted;
+  return (
+    <TouchableOpacity
+      style={[styles.drawerItem, isActive && { backgroundColor: BRAND_TINT }]}
+      onPress={() => onSelect(label.slug)}
+    >
+      {getLabelIcon(label.slug, iconColor)}
+      <Text style={[
+        styles.drawerItemText,
+        { color: colors.text },
+        isActive && { color: BRAND, fontWeight: '600' },
+      ]}>
+        {label.name}
+      </Text>
+      {hasCount(label) && (
+        <Text style={[styles.drawerItemCount, { color: colors.mutedForeground }]}>
+          {label.count}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function CustomLabelRow({ label, isSelected, palette, onSelect }: Readonly<{
+  label: MailLabel;
+  isSelected: boolean;
+  palette: DrawerPalette;
+  onSelect: (slug: string) => void;
+}>) {
+  const color = getLabelColor(label.name, label.color ? { [label.name]: label.color } : undefined);
+  return (
+    <TouchableOpacity
+      style={[styles.drawerItem, isSelected && { backgroundColor: palette.customSelectedBg }]}
+      onPress={() => onSelect(label.slug)}
+    >
+      <View style={[styles.labelBadge, { backgroundColor: color + '26' }]}>
+        <Text style={[styles.labelBadgeText, { color }]}>{label.name}</Text>
+      </View>
+      <View style={{ flex: 1 }} />
+      {hasCount(label) && (
+        <Text style={styles.drawerItemCount}>
+          {label.count}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function AccountAvatarButton({ account, isActive, onSelect }: Readonly<{
+  account: MailAccount;
+  isActive: boolean;
+  onSelect: (account: MailAccount) => void;
+}>) {
+  return (
+    <TouchableOpacity
+      style={styles.miniItem}
+      onPress={() => onSelect(account)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.miniAvatar, { backgroundColor: getAvatarColor(account.displayName) }, isActive && styles.miniAvatarRing]}>
+        <Text style={styles.miniAvatarText}>
+          {account.displayName?.charAt(0).toUpperCase() || 'U'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+/** Left: mini account sidebar. */
+function MiniSidebar({ paddingTop, colors, isDark, palette, accounts, selectedAccountId, isUnifiedInbox, onSelectUnified, onSelectAccount, onAddAccount }: Readonly<{
+  paddingTop: number;
+  colors: ThemeColors;
+  isDark: boolean;
+  palette: DrawerPalette;
+  accounts: MailAccount[];
+  selectedAccountId: string | undefined;
+  isUnifiedInbox: boolean;
+  onSelectUnified: () => void;
+  onSelectAccount: (account: MailAccount) => void;
+  onAddAccount: () => void;
+}>) {
+  return (
+    <View style={[styles.miniSidebar, { paddingTop, backgroundColor: colors.card || colors.background, borderRightColor: palette.border }]}>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.miniContent}>
+        {/* Unified inbox */}
+        <TouchableOpacity
+          style={styles.miniItem}
+          onPress={onSelectUnified}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.miniAvatar, { backgroundColor: palette.miniAvatarBg }, isUnifiedInbox && { backgroundColor: palette.miniAvatarActiveBg }]}>
+            <WeldMailLogo size={24} color={isUnifiedInbox ? BRAND : colors.muted} />
+          </View>
+        </TouchableOpacity>
+
+        {accounts.length > 0 && (
+          <View style={[styles.miniDivider, { backgroundColor: palette.miniDivider }]} />
+        )}
+
+        {/* Account avatars */}
+        {accounts.map((account) => (
+          <AccountAvatarButton
+            key={account.id}
+            account={account}
+            isActive={!isUnifiedInbox && selectedAccountId === account.id}
+            onSelect={onSelectAccount}
+          />
+        ))}
+
+        {/* Add account button */}
+        <TouchableOpacity
+          style={styles.miniItem}
+          onPress={onAddAccount}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.miniAvatar, styles.miniAddButton, isDark && { borderColor: '#48484A' }]}>
+            <Plus size={20} color={palette.addIcon} strokeWidth={2} />
+          </View>
+        </TouchableOpacity>
+      </ScrollView>
+
+    </View>
+  );
+}
+
+/** Header — selected account info. */
+function DrawerHeader({ paddingTop, palette, colors, isUnifiedInbox, selectedAccount, accountCount }: Readonly<{
+  paddingTop: number;
+  palette: DrawerPalette;
+  colors: ThemeColors;
+  isUnifiedInbox: boolean;
+  selectedAccount: MailAccount | null;
+  accountCount: number;
+}>) {
+  const headerText = isUnifiedInbox
+    ? 'All Inboxes'
+    : selectedAccount?.displayName || 'WeldMail';
+  const showEmail = !isUnifiedInbox && !!selectedAccount?.emailAddress;
+
+  return (
+    <View style={[styles.drawerHeader, { paddingTop, borderBottomColor: palette.border }]}>
+      <View style={styles.drawerHeaderRow}>
+        <View style={[styles.drawerHeaderAvatar, { backgroundColor: getHeaderAvatarColor(isUnifiedInbox, selectedAccount) }]}>
+          {isUnifiedInbox ? (
+            <WeldMailLogo size={24} color={BRAND} />
+          ) : (
+            <Text style={styles.drawerHeaderAvatarText}>
+              {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
+            </Text>
+          )}
+        </View>
+        <View style={styles.drawerHeaderInfo}>
+          <Text style={[styles.drawerTitle, { color: colors.text }]} numberOfLines={1}>{headerText}</Text>
+          {showEmail && (
+            <Text style={[styles.drawerSubtitle, { color: colors.muted }]} numberOfLines={1}>
+              {selectedAccount?.emailAddress}
+            </Text>
+          )}
+          {isUnifiedInbox && (
+            <Text style={[styles.drawerSubtitle, { color: colors.muted }]}>
+              {accountCount} {accountCount === 1 ? 'account' : 'accounts'}
+            </Text>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function MoreLessToggle({ label, Icon, palette, onPress }: Readonly<{
+  label: string;
+  Icon: typeof ChevronDown;
+  palette: DrawerPalette;
+  onPress: () => void;
+}>) {
+  return (
+    <TouchableOpacity
+      style={styles.drawerItem}
+      onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); onPress(); }}
+      activeOpacity={0.7}
+    >
+      <Icon size={20} color={palette.toggle} />
+      <Text style={[styles.drawerItemText, { color: palette.toggle }]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+interface LabelListProps {
+  colors: ThemeColors;
+  palette: DrawerPalette;
+  mainLabels: MailLabel[];
+  secondaryLabels: MailLabel[];
+  customLabels: MailLabel[];
+  selectedLabel: string;
+  showMore: boolean;
+  onSetShowMore: (show: boolean) => void;
+  canCreate: boolean;
+  onCreateLabel: () => void;
+  onSelectLabel: (slug: string) => void;
+  onOpenSubscriptions: () => void;
+}
+
+function MoreSection({ colors, palette, secondaryLabels, selectedLabel, onSelectLabel, onOpenSubscriptions, onLess }: Readonly<Pick<LabelListProps, 'colors' | 'palette' | 'secondaryLabels' | 'selectedLabel' | 'onSelectLabel' | 'onOpenSubscriptions'> & { onLess: () => void }>) {
+  return (
+    <>
+      {/* Secondary system labels (collapsible) */}
+      {secondaryLabels.map((label) => (
+        <SystemLabelRow key={label.slug} label={label} isActive={selectedLabel === label.slug} colors={colors} onSelect={onSelectLabel} />
+      ))}
+
+      <TouchableOpacity
+        style={styles.drawerItem}
+        onPress={onOpenSubscriptions}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+      >
+        <MailX size={22} color={colors.muted} />
+        <Text style={[styles.drawerItemText, { color: colors.text }]}>
+          Subscriptions
+        </Text>
+      </TouchableOpacity>
+
+      <MoreLessToggle label="Less" Icon={ChevronUp} palette={palette} onPress={onLess} />
+    </>
+  );
+}
+
+function CustomLabelsSection({ colors, palette, customLabels, selectedLabel, canCreate, onCreateLabel, onSelectLabel }: Readonly<Pick<LabelListProps, 'colors' | 'palette' | 'customLabels' | 'selectedLabel' | 'canCreate' | 'onCreateLabel' | 'onSelectLabel'>>) {
+  return (
+    <>
+      {/* Custom labels section */}
+      <View style={[styles.sectionDivider, { backgroundColor: palette.border }]} />
+      <View style={styles.sectionHeaderRow}>
+        <Text style={[styles.sectionHeader, { color: palette.sectionHeader }]}>Labels</Text>
+        {canCreate && (
+          <TouchableOpacity
+            onPress={onCreateLabel}
+            style={styles.createLabelButton}
+            activeOpacity={0.7}
+          >
+            <Plus size={16} color={palette.createIcon ?? colors.muted} strokeWidth={2.5} />
+          </TouchableOpacity>
+        )}
+      </View>
+      {customLabels.map((label) => (
+        <CustomLabelRow
+          key={label.id || label.name}
+          label={label}
+          isSelected={selectedLabel === label.slug}
+          palette={palette}
+          onSelect={onSelectLabel}
+        />
+      ))}
+    </>
+  );
+}
+
+function LabelList(props: Readonly<LabelListProps>) {
+  const { colors, palette, mainLabels, secondaryLabels, selectedLabel, showMore, onSetShowMore, onSelectLabel, onOpenSubscriptions } = props;
+  return (
+    <ScrollView
+      style={styles.labelList}
+      contentContainerStyle={{ flexGrow: 1 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Main system labels */}
+      {mainLabels.map((label) => (
+        <SystemLabelRow key={label.slug} label={label} isActive={selectedLabel === label.slug} colors={colors} onSelect={onSelectLabel} />
+      ))}
+
+      {showMore ? (
+        <MoreSection
+          colors={colors}
+          palette={palette}
+          secondaryLabels={secondaryLabels}
+          selectedLabel={selectedLabel}
+          onSelectLabel={onSelectLabel}
+          onOpenSubscriptions={onOpenSubscriptions}
+          onLess={() => onSetShowMore(false)}
+        />
+      ) : (
+        <MoreLessToggle label="More" Icon={ChevronDown} palette={palette} onPress={() => onSetShowMore(true)} />
+      )}
+
+      <CustomLabelsSection
+        colors={colors}
+        palette={palette}
+        customLabels={props.customLabels}
+        selectedLabel={selectedLabel}
+        canCreate={props.canCreate}
+        onCreateLabel={props.onCreateLabel}
+        onSelectLabel={onSelectLabel}
+      />
+    </ScrollView>
+  );
+}
+
 interface LabelDrawerProps {
   visible: boolean;
   onClose: () => void;
@@ -74,6 +434,7 @@ export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerPr
   const insets = useSafeAreaInsets();
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
+  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
   const {
     mainLabels, secondaryLabels, customLabels,
     selectedLabel, setSelectedLabel,
@@ -131,37 +492,13 @@ export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerPr
     handleClose();
   };
 
-  if (!visible) return null;
-
-  const headerText = isUnifiedInbox
-    ? 'All Inboxes'
-    : selectedAccount?.displayName || 'WeldMail';
-
-  const renderSystemLabel = (label: { slug: string; name: string; count?: number }) => {
-    const isActive = selectedLabel === label.slug;
-    const iconColor = isActive ? BRAND : colors.muted;
-    return (
-      <TouchableOpacity
-        key={label.slug}
-        style={[styles.drawerItem, isActive && { backgroundColor: BRAND_TINT }]}
-        onPress={() => handleSelectLabel(label.slug)}
-      >
-        {getLabelIcon(label.slug, iconColor)}
-        <Text style={[
-          styles.drawerItemText,
-          { color: colors.text },
-          isActive && { color: BRAND, fontWeight: '600' },
-        ]}>
-          {label.name}
-        </Text>
-        {label.count != null && label.count > 0 && (
-          <Text style={[styles.drawerItemCount, { color: colors.mutedForeground }]}>
-            {label.count}
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
+  /** Close the drawer, then navigate once its slide-out animation has finished. */
+  const closeThenPush = (path: string) => {
+    handleClose();
+    setTimeout(() => router.push(path as any), 250);
   };
+
+  if (!visible) return null;
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={handleClose}>
@@ -180,175 +517,44 @@ export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerPr
       >
         <View style={styles.drawerInner}>
           {/* Left: Mini account sidebar */}
-          <View style={[styles.miniSidebar, { paddingTop: insets.top + 12, backgroundColor: colors.card || colors.background, borderRightColor: isDark ? '#38383A' : '#E5E7EB' }]}>
-            <ScrollView showsVerticalScrollIndicator={false} style={styles.miniContent}>
-              {/* Unified inbox */}
-              <TouchableOpacity
-                style={styles.miniItem}
-                onPress={() => { selectUnifiedInbox(); handleClose(); }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.miniAvatar, { backgroundColor: isDark ? '#2C2C2E' : '#F1F3F4' }, isUnifiedInbox && { backgroundColor: isDark ? '#2A1A14' : '#FEF0EC' }]}>
-                  <WeldMailLogo size={24} color={isUnifiedInbox ? BRAND : colors.muted} />
-                </View>
-              </TouchableOpacity>
-
-              {accounts.length > 0 && (
-                <View style={[styles.miniDivider, { backgroundColor: isDark ? '#48484A' : '#D1D5DB' }]} />
-              )}
-
-              {/* Account avatars */}
-              {accounts.map((account) => {
-                const isActive = !isUnifiedInbox && selectedAccount?.id === account.id;
-                const avatarColor = getAvatarColor(account.displayName);
-                return (
-                  <TouchableOpacity
-                    key={account.id}
-                    style={styles.miniItem}
-                    onPress={() => { selectAccount(account); handleClose(); }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.miniAvatar, { backgroundColor: avatarColor }, isActive && styles.miniAvatarRing]}>
-                      <Text style={styles.miniAvatarText}>
-                        {account.displayName?.charAt(0).toUpperCase() || 'U'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-
-              {/* Add account button */}
-              <TouchableOpacity
-                style={styles.miniItem}
-                onPress={() => { handleClose(); setTimeout(() => router.push('/add-account' as any), 250); }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.miniAvatar, styles.miniAddButton, isDark && { borderColor: '#48484A' }]}>
-                  <Plus size={20} color={isDark ? '#636366' : '#B0B5BC'} strokeWidth={2} />
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
-
-          </View>
+          <MiniSidebar
+            paddingTop={insets.top + 12}
+            colors={colors}
+            isDark={isDark}
+            palette={palette}
+            accounts={accounts}
+            selectedAccountId={selectedAccount?.id}
+            isUnifiedInbox={isUnifiedInbox}
+            onSelectUnified={() => { selectUnifiedInbox(); handleClose(); }}
+            onSelectAccount={(account) => { selectAccount(account); handleClose(); }}
+            onAddAccount={() => closeThenPush('/add-account')}
+          />
 
           {/* Right: Labels panel */}
           <View style={styles.labelPanel}>
-            {/* Header — selected account info */}
-            <View style={[styles.drawerHeader, { paddingTop: insets.top + 17, borderBottomColor: isDark ? '#38383A' : '#E5E7EB' }]}>
-              <View style={styles.drawerHeaderRow}>
-                <View style={[styles.drawerHeaderAvatar, { backgroundColor: isUnifiedInbox ? '#FEF0EC' : selectedAccount ? getAvatarColor(selectedAccount.displayName) : '#6B7280' }]}>
-                  {isUnifiedInbox ? (
-                    <WeldMailLogo size={24} color={BRAND} />
-                  ) : (
-                    <Text style={styles.drawerHeaderAvatarText}>
-                      {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.drawerHeaderInfo}>
-                  <Text style={[styles.drawerTitle, { color: colors.text }]} numberOfLines={1}>{headerText}</Text>
-                  {!isUnifiedInbox && selectedAccount?.emailAddress && (
-                    <Text style={[styles.drawerSubtitle, { color: colors.muted }]} numberOfLines={1}>
-                      {selectedAccount.emailAddress}
-                    </Text>
-                  )}
-                  {isUnifiedInbox && (
-                    <Text style={[styles.drawerSubtitle, { color: colors.muted }]}>
-                      {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </View>
+            <DrawerHeader
+              paddingTop={insets.top + 17}
+              palette={palette}
+              colors={colors}
+              isUnifiedInbox={isUnifiedInbox}
+              selectedAccount={selectedAccount}
+              accountCount={accounts.length}
+            />
 
-            <ScrollView
-              style={styles.labelList}
-              contentContainerStyle={{ flexGrow: 1 }}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Main system labels */}
-              {mainLabels.map(renderSystemLabel)}
-
-              {!showMore && (
-                <TouchableOpacity
-                  style={styles.drawerItem}
-                  onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowMore(true); }}
-                  activeOpacity={0.7}
-                >
-                  <ChevronDown size={20} color={isDark ? '#636366' : '#6B7280'} />
-                  <Text style={[styles.drawerItemText, { color: isDark ? '#636366' : '#6B7280' }]}>
-                    More
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Secondary system labels (collapsible) */}
-              {showMore && secondaryLabels.map(renderSystemLabel)}
-
-              {showMore && (
-                <TouchableOpacity
-                  style={styles.drawerItem}
-                  onPress={() => { handleClose(); setTimeout(() => router.push('/subscriptions' as any), 250); }}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                >
-                  <MailX size={22} color={colors.muted} />
-                  <Text style={[styles.drawerItemText, { color: colors.text }]}>
-                    Subscriptions
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {showMore && (
-                <TouchableOpacity
-                  style={styles.drawerItem}
-                  onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowMore(false); }}
-                  activeOpacity={0.7}
-                >
-                  <ChevronUp size={20} color={isDark ? '#636366' : '#6B7280'} />
-                  <Text style={[styles.drawerItemText, { color: isDark ? '#636366' : '#6B7280' }]}>
-                    Less
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Custom labels section */}
-              <View style={[styles.sectionDivider, { backgroundColor: isDark ? '#38383A' : '#E5E7EB' }]} />
-              <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.sectionHeader, { color: isDark ? '#636366' : '#9CA3AF' }]}>Labels</Text>
-                {/* Personal inboxes have no label-create endpoint (personal-api is read-only for labels). */}
-                  {!isUnifiedInbox && selectedAccount && !isPersonalAccount(selectedAccount) && (
-                  <TouchableOpacity
-                    onPress={() => setShowCreateLabel(true)}
-                    style={styles.createLabelButton}
-                    activeOpacity={0.7}
-                  >
-                    <Plus size={16} color={isDark ? '#636366' : colors.muted} strokeWidth={2.5} />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {customLabels.map((label) => {
-                const isSelected = selectedLabel === label.slug;
-                const color = getLabelColor(label.name, label.color ? { [label.name]: label.color } : undefined);
-                return (
-                  <TouchableOpacity
-                    key={label.id || label.name}
-                    style={[styles.drawerItem, isSelected && { backgroundColor: isDark ? '#1A2744' : '#E8F0FE' }]}
-                    onPress={() => handleSelectLabel(label.slug)}
-                  >
-                    <View style={[styles.labelBadge, { backgroundColor: color + '26' }]}>
-                      <Text style={[styles.labelBadgeText, { color }]}>{label.name}</Text>
-                    </View>
-                    <View style={{ flex: 1 }} />
-                    {label.count != null && label.count > 0 && (
-                      <Text style={styles.drawerItemCount}>
-                        {label.count}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            <LabelList
+              colors={colors}
+              palette={palette}
+              mainLabels={mainLabels}
+              secondaryLabels={secondaryLabels}
+              customLabels={customLabels}
+              selectedLabel={selectedLabel}
+              showMore={showMore}
+              onSetShowMore={setShowMore}
+              canCreate={canCreateLabel(isUnifiedInbox, selectedAccount)}
+              onCreateLabel={() => setShowCreateLabel(true)}
+              onSelectLabel={handleSelectLabel}
+              onOpenSubscriptions={() => closeThenPush('/subscriptions')}
+            />
 
             {/* Create Label Dialog */}
             {selectedAccount && (
@@ -365,5 +571,3 @@ export default function LabelDrawer({ visible, onClose }: Readonly<LabelDrawerPr
     </Modal>
   );
 }
-
-
