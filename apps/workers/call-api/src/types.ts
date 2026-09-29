@@ -14,9 +14,11 @@ export interface Env extends KitEnv {
   /** R2 bucket for files and documents (number-porting documents, r2-port-docs.ts). */
   STORAGE?: R2Bucket;
 
-  /** Shared secret for service-to-service calls. Verifier side of
-   *  /api/internal/telephony (billing-worker's phone-number fulfilment
-   *  bearer). Must be SET with the same value the caller sends. */
+  /** Shared secret for service-to-service calls. Verifier side of the PUBLIC
+   *  /api/internal/telephony mount (billing-worker's phone-number fulfilment
+   *  bearer). billing-worker now calls the `CallInternal` entrypoint (no
+   *  secret); the public mount stays until it does everywhere. Must be SET with
+   *  the same value the caller sends while it does. */
   INTERNAL_API_SECRET?: string;
 
   /** Optional override for app-api's public base URL (e.g. a dev tunnel). The

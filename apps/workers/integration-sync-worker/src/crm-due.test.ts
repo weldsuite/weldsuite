@@ -20,7 +20,7 @@ function row(overrides: Partial<CrmSyncIndexRow> = {}): CrmSyncIndexRow {
 }
 
 describe('runCrmDueSweep', () => {
-  it('triggers APP_API sync for due rows and advances schedule', async () => {
+  it('triggers the connect sync for due rows and advances schedule', async () => {
     const urls: string[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       urls.push(String(input));

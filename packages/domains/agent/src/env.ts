@@ -45,12 +45,20 @@ export interface WeldAgentEnv extends DbEnv, NotificationEnv {
 
   // --- WeldAgent cloud computer (agent-runtime worker) ----------------------
   /**
+   * agent-runtime `AgentRuntimeInternal` entrypoint (service binding). Preferred
+   * path for computer/browser calls: reachable only over a binding, so no secret
+   * is sent. Falls back to AGENT_RUNTIME_URL + INTERNAL_API_SECRET when absent.
+   */
+  AGENT_RUNTIME?: Fetcher;
+  /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
-   * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
+   * Fallback path only (binding absent). Example: http://localhost:8795 or
+   * https://agent-runtime-test.weldsuite.org
    */
   AGENT_RUNTIME_URL?: string;
-  /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
+  /** When "false", computer/browser tools refuse calls. Default enabled if a binding or URL is set. */
   AGENT_COMPUTER_ENABLED?: string;
-  /** Shared secret the agent-runtime worker checks on computer/browser calls. */
+  /** Fallback path only: shared secret the agent-runtime worker checks on the
+   *  public computer/browser HTTP calls. */
   INTERNAL_API_SECRET?: string;
 }

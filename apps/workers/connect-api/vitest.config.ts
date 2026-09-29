@@ -13,6 +13,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Workers-only module; src/index.ts exports the ConnectInternal
+      // WorkerEntrypoint.
+      'cloudflare:workers': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-kit/src/testing/cloudflare-workers-stub.ts',
+      ),
       '@': path.resolve(__dirname, './src'),
       // Workers-only module; any worker that (transitively) imports
       // @weldsuite/worker-email needs this under vitest.

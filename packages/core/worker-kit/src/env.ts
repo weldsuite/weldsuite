@@ -53,4 +53,11 @@ export type KitVariables = {
   /** Canonical app code from the X-Weld-App header (appContextMiddleware). */
   app?: string;
   flags?: FlagContext;
+  /**
+   * Set only by a worker's named `WorkerEntrypoint` (`<Name>Internal`), which is
+   * reachable over a service binding and nothing else, so the request is
+   * trusted by topology. Internal-route secret checks accept it in place of
+   * the `INTERNAL_API_SECRET` bearer; the public paths never set it.
+   */
+  internalTrusted?: boolean;
 };

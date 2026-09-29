@@ -46,10 +46,16 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   // KV namespace for workspace caching
   WORKSPACE_CACHE: KVNamespace;
-  /** app-api base URL — used to order Telnyx numbers after phone checkout is paid. */
+  /** call-api `CallInternal` entrypoint (weldsuite-call-api[-test]) — orders Telnyx
+   *  numbers after phone checkout is paid (POST /api/internal/telephony/fulfill-number),
+   *  trusted by topology (no secret). */
+  CALL_INTERNAL?: Fetcher;
+  /** app-api base URL — FALLBACK path only (through app-api's forwarder) to order
+   *  Telnyx numbers while CALL_INTERNAL is unbound or the entrypoint is not deployed. */
   APP_API_URL?: string;
-  /** Shared with app-api and call-api; bearer for POST /api/internal/telephony/fulfill-number
-   *  (served by call-api; app-api forwards it there). */
+  /** Fallback path only; shared with app-api and call-api. Bearer for the public
+   *  POST /api/internal/telephony/fulfill-number (served by call-api; app-api
+   *  forwards it there). */
   INTERNAL_API_SECRET?: string;
   // Cloudflare Zones — create DNS zone before RTR register (NS hand-off)
   CLOUDFLARE_API_TOKEN?: string;

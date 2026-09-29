@@ -9,6 +9,7 @@
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
 
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { callIntelligenceRoutes } from './routes/call-intelligence';
 import { callsRoutes } from './routes/calls';
@@ -23,7 +24,8 @@ const app = createModuleApi<Env, Variables>({ service: 'call-api' });
 
 // Internal service-to-service phone-number fulfilment — PUBLIC mount (no
 // Clerk). Auth is the in-route `Authorization: Bearer <INTERNAL_API_SECRET>`
-// check. Caller: billing-worker. Must stay ABOVE the /api/* guard.
+// check. Caller: billing-worker, now over CallInternal (below); this mount
+// stays for the transition. Must stay ABOVE the /api/* guard.
 app.route('/api/internal/telephony', internalTelephonyRoutes);
 
 // Telnyx Call Control webhook — PUBLIC (no Clerk). Server-to-server events
@@ -44,3 +46,22 @@ app.route('/api/telephony', telephonyRoutes);
 export default {
   fetch: app.fetch,
 };
+
+// Internal entrypoint — bound as `CALL_INTERNAL` (entrypoint = "CallInternal") by
+// billing-worker. A named entrypoint is only reachable over a service binding,
+// so it is trusted by topology: the telephony router accepts `internalTrusted`
+// instead of the INTERNAL_API_SECRET bearer. Only that router is mounted here,
+// at the same path as on the public app, which stays until every caller uses
+// the entrypoint (docs/plans/app-api-module-split.md, rollout item 7).
+const internalApp = createModuleApi<Env, Variables>({ service: 'call-api' });
+internalApp.use('*', async (c, next) => {
+  c.set('internalTrusted', true);
+  await next();
+});
+internalApp.route('/api/internal/telephony', internalTelephonyRoutes);
+
+export class CallInternal extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    return internalApp.fetch(request, this.env, this.ctx);
+  }
+}

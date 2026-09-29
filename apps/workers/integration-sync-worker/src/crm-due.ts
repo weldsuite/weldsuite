@@ -1,7 +1,8 @@
 /**
- * CRM due sweep — D1 due rows only, then APP_API sync (opens one tenant).
+ * CRM due sweep — D1 due rows only, then connect-api sync (opens one tenant).
  */
 
+import { fetchConnectInternal, type ConnectInternalEnv } from './connect-internal';
 import {
   listDueCrmSyncIndex,
   markCrmSyncIndexTriggered,
@@ -9,10 +10,7 @@ import {
   type CrmSyncIndexRow,
 } from '@weldsuite/connectors';
 
-export interface CrmDueEnv {
-  APP_API: Fetcher;
-  INTERNAL_API_SECRET?: string;
-}
+export type CrmDueEnv = ConnectInternalEnv;
 
 export async function runCrmDueSweep(
   d1: CrmSyncIndexDb,
@@ -53,14 +51,14 @@ async function processCrmDueRow(
     row.renew_watch_at <= now
   ) {
     try {
-      const renewResponse = await env.APP_API.fetch(
-        `https://internal/api/integrations/connections/${row.connection_id}/renew-watch`,
+      const renewResponse = await fetchConnectInternal(
+        env,
+        `/api/integrations/connections/${row.connection_id}/renew-watch`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Workspace-Id': row.clerk_org_id,
-            'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
           },
         },
       );
@@ -76,14 +74,14 @@ async function processCrmDueRow(
   }
 
   try {
-    const response = await env.APP_API.fetch(
-      `https://internal/api/integrations/connections/${row.connection_id}/sync`,
+    const response = await fetchConnectInternal(
+      env,
+      `/api/integrations/connections/${row.connection_id}/sync`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Workspace-Id': row.clerk_org_id,
-          'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
         },
       },
     );

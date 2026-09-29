@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import worker from './index';
+import worker, { CallInternal } from './index';
 
 const env = { ENVIRONMENT: 'test' };
 
@@ -28,5 +28,23 @@ describe('call-api', () => {
     expect(
       (await worker.fetch(post({ Authorization: 'Bearer internal-secret' }), secretEnv as never)).status,
     ).toBe(400);
+  });
+
+  it('serves /api/internal/telephony over the CallInternal entrypoint without the secret', async () => {
+    const entrypoint = new CallInternal({} as ExecutionContext, env as never);
+    const res = await entrypoint.fetch(
+      new Request('https://internal/api/internal/telephony/fulfill-number', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+    );
+    // Trusted by topology: no 503/401; the body is validated (400) before any fulfilment.
+    expect(res.status).toBe(400);
+  });
+
+  it('exposes nothing but the internal telephony router on the entrypoint', async () => {
+    const entrypoint = new CallInternal({} as ExecutionContext, env as never);
+    expect((await entrypoint.fetch(new Request('https://internal/api/calls'))).status).toBe(404);
   });
 });
