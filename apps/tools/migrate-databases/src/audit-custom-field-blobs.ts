@@ -104,44 +104,63 @@ function record(into: Map<string, KeyStat>, table: string, key: string, rows: nu
   }
 }
 
+type Sql = ReturnType<typeof postgres>;
+
+/**
+ * Distinct top-level keys (with row counts) in `<table>.custom_fields`.
+ * Returns null when the table or column is absent in this tenant.
+ */
+async function fetchBlobKeyRows(sql: Sql, table: string): Promise<{ key: string; n: string }[] | null> {
+  try {
+    return (await sql.unsafe(
+      `SELECT kv.key AS key, count(*) AS n
+         FROM ${table} t, jsonb_each(t.custom_fields) AS kv(key, val)
+        WHERE t.custom_fields IS NOT NULL
+          AND jsonb_typeof(t.custom_fields) = 'object'
+        GROUP BY kv.key
+        ORDER BY n DESC`,
+    )) as unknown as { key: string; n: string }[];
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    // Table or column absent in this tenant — fine, skip.
+    if (code === '42P01' || code === '42703') return null;
+    throw err;
+  }
+}
+
+async function auditTable(
+  sql: Sql,
+  table: string,
+  entityType: string,
+  label: string,
+  options: CliOptions,
+  findings: string[],
+) {
+  const keyRows = await fetchBlobKeyRows(sql, table);
+  if (keyRows === null || keyRows.length === 0) return;
+
+  const defs = (await sql.unsafe(
+    `SELECT slug FROM custom_field_definitions
+      WHERE entity_type = $1 AND deleted_at IS NULL`,
+    [entityType] as never[],
+  )) as unknown as { slug: string }[];
+  const slugs = new Set(defs.map((d) => d.slug));
+
+  for (const { key, n } of keyRows) {
+    const isMapped = slugs.has(key);
+    record(isMapped ? mapped : unmapped, table, key, Number(n), label, isMapped);
+    if (!isMapped) findings.push(`      ${table}.${key} — ${n} row(s)`);
+    else if (options.showAllKeys) findings.push(`      ${table}.${key} — ${n} row(s) [defined]`);
+  }
+}
+
 async function auditTenant(label: string, databaseUrl: string, options: CliOptions) {
   const sql = postgres(databaseUrl, { max: 1, ssl: 'require', prepare: false });
   const findings: string[] = [];
 
   try {
     for (const { table, entityType } of TABLES) {
-      let keyRows: { key: string; n: string }[];
-      try {
-        keyRows = (await sql.unsafe(
-          `SELECT kv.key AS key, count(*) AS n
-             FROM ${table} t, jsonb_each(t.custom_fields) AS kv(key, val)
-            WHERE t.custom_fields IS NOT NULL
-              AND jsonb_typeof(t.custom_fields) = 'object'
-            GROUP BY kv.key
-            ORDER BY n DESC`,
-        )) as unknown as { key: string; n: string }[];
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        // Table or column absent in this tenant — fine, skip.
-        if (code === '42P01' || code === '42703') continue;
-        throw err;
-      }
-
-      if (keyRows.length === 0) continue;
-
-      const defs = (await sql.unsafe(
-        `SELECT slug FROM custom_field_definitions
-          WHERE entity_type = $1 AND deleted_at IS NULL`,
-        [entityType] as never[],
-      )) as unknown as { slug: string }[];
-      const slugs = new Set(defs.map((d) => d.slug));
-
-      for (const { key, n } of keyRows) {
-        const isMapped = slugs.has(key);
-        record(isMapped ? mapped : unmapped, table, key, Number(n), label, isMapped);
-        if (!isMapped) findings.push(`      ${table}.${key} — ${n} row(s)`);
-        else if (options.showAllKeys) findings.push(`      ${table}.${key} — ${n} row(s) [defined]`);
-      }
+      await auditTable(sql, table, entityType, label, options, findings);
     }
   } finally {
     await sql.end({ timeout: 5 });
@@ -155,21 +174,11 @@ async function auditTenant(label: string, databaseUrl: string, options: CliOptio
   }
 }
 
-async function main() {
-  const options = parseArgs();
-
-  const masterUrl = process.env.MASTER_DATABASE_URL;
-  const neonApiKey = process.env.NEON_API_KEY || '';
-  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
-  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
-  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
-
-  console.log('Custom-field blob audit — READ ONLY\n');
-
+async function loadActiveTenants(masterUrl: string, only: string | null) {
   const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
   const db = drizzle(masterClient);
   const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-  if (options.only) conditions.push(eq(workspaces.id, options.only));
+  if (only) conditions.push(eq(workspaces.id, only));
   const rows = await db
     .select({
       id: workspaces.id,
@@ -182,39 +191,76 @@ async function main() {
     .from(workspaces)
     .where(and(...conditions));
   await masterClient.end({ timeout: 5 });
+  return rows;
+}
 
-  console.log(`Tenants (${rows.length}):`);
+/** Audits every tenant in order; returns how many could not be audited. */
+async function auditAllTenants(
+  rows: Awaited<ReturnType<typeof loadActiveTenants>>,
+  neonApiKey: string,
+  keys: { v1: string | undefined; v2: string | undefined },
+  options: CliOptions,
+): Promise<number> {
   let failed = 0;
   for (const w of rows) {
     if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
     try {
-      const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keys);
       await auditTenant(w.id, url, options);
     } catch (err) {
       console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
       failed++;
     }
   }
+  return failed;
+}
 
+function printStatLine(s: KeyStat) {
+  console.log(`  ${s.table}.${s.key}`.padEnd(52) + `${s.rows} row(s) across ${s.tenants.size} tenant(s)`);
+}
+
+function printUnmapped(unmappedList: KeyStat[]) {
   console.log('\n============================================================');
   console.log('UNMAPPED KEYS — no active definition, NOT migrated by the');
   console.log('Phase 2 backfill, and DESTROYED if Phase 4 drops the column.');
   console.log('============================================================');
-  const unmappedList = [...unmapped.values()].sort((a, b) => b.rows - a.rows);
   if (unmappedList.length === 0) {
     console.log('  (none)');
-  } else {
-    for (const s of unmappedList) {
-      console.log(`  ${s.table}.${s.key}`.padEnd(52) + `${s.rows} row(s) across ${s.tenants.size} tenant(s)`);
-    }
+    return;
   }
+  for (const s of unmappedList) printStatLine(s);
+}
 
+function printMapped(mappedList: KeyStat[]) {
   console.log('\n--- mapped keys (have a definition; safely migrated) ---');
-  const mappedList = [...mapped.values()].sort((a, b) => b.rows - a.rows);
-  if (mappedList.length === 0) console.log('  (none)');
-  else for (const s of mappedList) {
-    console.log(`  ${s.table}.${s.key}`.padEnd(52) + `${s.rows} row(s) across ${s.tenants.size} tenant(s)`);
+  if (mappedList.length === 0) {
+    console.log('  (none)');
+    return;
   }
+  for (const s of mappedList) printStatLine(s);
+}
+
+async function main() {
+  const options = parseArgs();
+
+  const masterUrl = process.env.MASTER_DATABASE_URL;
+  const neonApiKey = process.env.NEON_API_KEY || '';
+  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
+  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
+  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
+
+  console.log('Custom-field blob audit — READ ONLY\n');
+
+  const rows = await loadActiveTenants(masterUrl, options.only);
+
+  console.log(`Tenants (${rows.length}):`);
+  const failed = await auditAllTenants(rows, neonApiKey, { v1, v2 }, options);
+
+  const unmappedList = [...unmapped.values()].sort((a, b) => b.rows - a.rows);
+  printUnmapped(unmappedList);
+
+  const mappedList = [...mapped.values()].sort((a, b) => b.rows - a.rows);
+  printMapped(mappedList);
 
   console.log(
     `\nVERDICT: ${unmappedList.length === 0

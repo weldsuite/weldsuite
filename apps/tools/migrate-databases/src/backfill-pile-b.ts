@@ -259,6 +259,135 @@ async function resolveDefinition(
   return created;
 }
 
+/** Mutable bookkeeping for one entity-type sweep. */
+interface SweepState {
+  counts: Counts;
+  entityType: string;
+  scoped: boolean;
+  execute: boolean;
+  globalBySlug: Map<string, DefinitionRow>;
+  scopedByType: Map<string, Map<string, DefinitionRow>>;
+  existingKeys: Set<string>;
+  autoCreated: { count: number; samples: Set<string> };
+  invalidSamples: string[];
+  defCache: Map<string, DefinitionRow | null>;
+  pending: PendingRow[];
+}
+
+type SourceRow = { id: string; ticket_type_id: string | null; custom_fields: Record<string, unknown> };
+
+/** Scoped definitions grouped by ticket_type_id (only meaningful for tickets). */
+function groupScopedDefinitions(defs: DefinitionRow[]): Map<string, Map<string, DefinitionRow>> {
+  const scopedByType = new Map<string, Map<string, DefinitionRow>>();
+  for (const d of defs) {
+    if (d.ticket_type_id === null) continue;
+    let m = scopedByType.get(d.ticket_type_id);
+    if (!m) scopedByType.set(d.ticket_type_id, (m = new Map()));
+    m.set(d.slug, d);
+  }
+  return scopedByType;
+}
+
+/**
+ * Classify one slug->value pair from a blob, updating the counters. Returns the
+ * row to insert, or null when there is nothing to write.
+ */
+async function classifyBlobValue(
+  sql: postgres.Sql,
+  state: SweepState,
+  scopedBySlug: Map<string, DefinitionRow>,
+  ticketTypeId: string | null,
+  rowId: string,
+  slug: string,
+  raw: unknown,
+): Promise<PendingRow | null> {
+  const { counts } = state;
+  counts.blobValues++;
+
+  if (raw === null || raw === undefined || raw === '') {
+    counts.empty++;
+    return null;
+  }
+
+  const def = await resolveDefinition(
+    sql, state.defCache, scopedBySlug, state.globalBySlug, state.entityType, slug, ticketTypeId, state.execute, state.autoCreated,
+  );
+
+  // Dry-run auto-create: no real definition, but the value WOULD migrate.
+  if (!def) {
+    counts.migratable++;
+    return null;
+  }
+
+  const result = validateCustomFieldValue(
+    { slug: def.slug, fieldType: def.field_type, options: def.options, required: def.required } as CustomFieldDefinitionLike,
+    raw,
+  );
+  if (!result.ok) {
+    counts.invalid++;
+    if (state.invalidSamples.length < 10) state.invalidSamples.push(`${rowId}.${slug}: ${result.error}`);
+    return null;
+  }
+  if (result.value === null || result.value === undefined) {
+    counts.empty++;
+    return null;
+  }
+
+  counts.migratable++;
+  if (state.existingKeys.has(`${rowId}:${def.id}`)) {
+    counts.alreadyPresent++;
+    return null;
+  }
+
+  return toPendingRow(def, state.entityType, rowId, result.value);
+}
+
+/** Classify every pair in one source row, flushing full batches when executing. */
+async function processSourceRow(sql: postgres.Sql, state: SweepState, row: SourceRow): Promise<void> {
+  state.counts.rows++;
+  const ticketTypeId = state.scoped ? row.ticket_type_id : null;
+  const scopedBySlug = (ticketTypeId && state.scopedByType.get(ticketTypeId)) || new Map<string, DefinitionRow>();
+
+  for (const [slug, raw] of Object.entries(row.custom_fields)) {
+    const pendingRow = await classifyBlobValue(sql, state, scopedBySlug, ticketTypeId, row.id, slug, raw);
+    if (!pendingRow) continue;
+
+    state.pending.push(pendingRow);
+    if (state.execute && state.pending.length >= WRITE_BATCH) {
+      state.counts.inserted += await insertBatch(sql, state.pending);
+      state.pending = [];
+    }
+  }
+}
+
+async function fetchSourceRows(sql: postgres.Sql, table: string, typeColumn: string, cursor: string): Promise<SourceRow[]> {
+  return (await sql.unsafe(
+    `SELECT id, ${typeColumn}, custom_fields
+       FROM ${table}
+      WHERE custom_fields IS NOT NULL
+        AND jsonb_typeof(custom_fields) = 'object'
+        AND custom_fields <> '{}'::jsonb
+        AND id > $1
+      ORDER BY id
+      LIMIT ${READ_BATCH}`,
+    [cursor] as never[],
+  )) as unknown as SourceRow[];
+}
+
+function logEntitySummary(entityType: string, table: string, state: SweepState) {
+  const { counts } = state;
+  if (counts.blobValues <= 0) return;
+  console.log(
+    `    ${entityType} (${table}): rows=${counts.rows} values=${counts.blobValues} ` +
+      `migratable=${counts.migratable} present=${counts.alreadyPresent} inserted=${counts.inserted} ` +
+      `autoCreatedDefs=${counts.autoCreatedDefs} invalid=${counts.invalid} empty=${counts.empty}`,
+  );
+  if (state.autoCreated.samples.size > 0) {
+    console.log(`      auto-created (text) defs for slugs: ${[...state.autoCreated.samples].join(', ')}`);
+  }
+  for (const sample of state.invalidSamples) console.log(`      invalid: ${sample}`);
+}
+
 async function sweepEntityType(sql: postgres.Sql, target: Target, execute: boolean, verbose: boolean): Promise<Counts> {
   const counts = newCounts();
   const { entityType, table, scoped } = target;
@@ -273,14 +402,7 @@ async function sweepEntityType(sql: postgres.Sql, target: Target, execute: boole
 
   // Global (ticket_type_id NULL) definitions, always usable as a fallback.
   const globalBySlug = new Map(defs.filter((d) => d.ticket_type_id === null).map((d) => [d.slug, d]));
-  // Scoped definitions grouped by ticket_type_id (only meaningful for tickets).
-  const scopedByType = new Map<string, Map<string, DefinitionRow>>();
-  for (const d of defs) {
-    if (d.ticket_type_id === null) continue;
-    let m = scopedByType.get(d.ticket_type_id);
-    if (!m) scopedByType.set(d.ticket_type_id, (m = new Map()));
-    m.set(d.slug, d);
-  }
+  const scopedByType = groupScopedDefinitions(defs);
 
   const existing = (await sql.unsafe(
     `SELECT entity_id, field_id FROM custom_field_values WHERE entity_type = $1`,
@@ -288,98 +410,39 @@ async function sweepEntityType(sql: postgres.Sql, target: Target, execute: boole
   )) as unknown as { entity_id: string; field_id: string }[];
   const existingKeys = new Set(existing.map((r) => `${r.entity_id}:${r.field_id}`));
 
-  const autoCreated = { count: 0, samples: new Set<string>() };
-  const invalidSamples: string[] = [];
-  const defCache = new Map<string, DefinitionRow | null>();
-  let pending: PendingRow[] = [];
+  const state: SweepState = {
+    counts,
+    entityType,
+    scoped,
+    execute,
+    globalBySlug,
+    scopedByType,
+    existingKeys,
+    autoCreated: { count: 0, samples: new Set<string>() },
+    invalidSamples: [],
+    defCache: new Map<string, DefinitionRow | null>(),
+    pending: [],
+  };
   let cursor = '';
 
   const typeColumn = scoped ? 'ticket_type_id' : `NULL::varchar AS ticket_type_id`;
 
   for (;;) {
-    const rows = (await sql.unsafe(
-      `SELECT id, ${typeColumn}, custom_fields
-         FROM ${table}
-        WHERE custom_fields IS NOT NULL
-          AND jsonb_typeof(custom_fields) = 'object'
-          AND custom_fields <> '{}'::jsonb
-          AND id > $1
-        ORDER BY id
-        LIMIT ${READ_BATCH}`,
-      [cursor] as never[],
-    )) as unknown as { id: string; ticket_type_id: string | null; custom_fields: Record<string, unknown> }[];
-
+    const rows = await fetchSourceRows(sql, table, typeColumn, cursor);
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      counts.rows++;
-      const ticketTypeId = scoped ? row.ticket_type_id : null;
-      const scopedBySlug = (ticketTypeId && scopedByType.get(ticketTypeId)) || new Map<string, DefinitionRow>();
-
-      for (const [slug, raw] of Object.entries(row.custom_fields)) {
-        counts.blobValues++;
-
-        if (raw === null || raw === undefined || raw === '') {
-          counts.empty++;
-          continue;
-        }
-
-        const def = await resolveDefinition(
-          sql, defCache, scopedBySlug, globalBySlug, entityType, slug, ticketTypeId, execute, autoCreated,
-        );
-
-        // Dry-run auto-create: no real definition, but the value WOULD migrate.
-        if (!def) {
-          counts.migratable++;
-          continue;
-        }
-
-        const result = validateCustomFieldValue(
-          { slug: def.slug, fieldType: def.field_type, options: def.options, required: def.required } as CustomFieldDefinitionLike,
-          raw,
-        );
-        if (!result.ok || result.value === null || result.value === undefined) {
-          if (!result.ok) {
-            counts.invalid++;
-            if (invalidSamples.length < 10) invalidSamples.push(`${row.id}.${slug}: ${result.error}`);
-          } else {
-            counts.empty++;
-          }
-          continue;
-        }
-
-        counts.migratable++;
-        if (existingKeys.has(`${row.id}:${def.id}`)) {
-          counts.alreadyPresent++;
-          continue;
-        }
-
-        pending.push(toPendingRow(def, entityType, row.id, result.value));
-        if (execute && pending.length >= WRITE_BATCH) {
-          counts.inserted += await insertBatch(sql, pending);
-          pending = [];
-        }
-      }
+      await processSourceRow(sql, state, row);
     }
 
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < READ_BATCH) break;
   }
 
-  if (execute && pending.length > 0) counts.inserted += await insertBatch(sql, pending);
-  counts.autoCreatedDefs = autoCreated.count;
+  if (execute && state.pending.length > 0) counts.inserted += await insertBatch(sql, state.pending);
+  counts.autoCreatedDefs = state.autoCreated.count;
 
-  if (verbose && counts.blobValues > 0) {
-    console.log(
-      `    ${entityType} (${table}): rows=${counts.rows} values=${counts.blobValues} ` +
-        `migratable=${counts.migratable} present=${counts.alreadyPresent} inserted=${counts.inserted} ` +
-        `autoCreatedDefs=${counts.autoCreatedDefs} invalid=${counts.invalid} empty=${counts.empty}`,
-    );
-    if (autoCreated.samples.size > 0) {
-      console.log(`      auto-created (text) defs for slugs: ${[...autoCreated.samples].join(', ')}`);
-    }
-    for (const sample of invalidSamples) console.log(`      invalid: ${sample}`);
-  }
+  if (verbose) logEntitySummary(entityType, table, state);
   return counts;
 }
 
@@ -423,25 +486,11 @@ async function sweepTenant(label: string, databaseUrl: string, options: CliOptio
   return counts;
 }
 
-async function main() {
-  const options = parseArgs();
-  const masterUrl = process.env.MASTER_DATABASE_URL;
-  const neonApiKey = process.env.NEON_API_KEY || '';
-  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
-  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
-
-  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
-  if (!v1 && !v2) console.log('No DATABASE_ENCRYPTION_KEY set — resolving tenant URLs via the Neon API.');
-
-  console.log(
-    `Custom fields Pile B backfill — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}` +
-      (options.entityType ? ` — entity type: ${options.entityType}` : ''),
-  );
-
+async function loadActiveTenants(masterUrl: string, only: string | null) {
   const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
   const db = drizzle(masterClient);
   const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-  if (options.only) conditions.push(eq(workspaces.id, options.only));
+  if (only) conditions.push(eq(workspaces.id, only));
   const rows = await db
     .select({
       id: workspaces.id, name: workspaces.name, neonProjectId: workspaces.neonProjectId,
@@ -451,20 +500,30 @@ async function main() {
     .from(workspaces)
     .where(and(...conditions));
   await masterClient.end({ timeout: 5 });
+  return rows;
+}
 
-  console.log(`\nTenant DBs (${rows.length}):`);
-  const total = newCounts();
+/** Sweeps every tenant in order, accumulating into `total`. */
+async function sweepAllTenants(
+  rows: Awaited<ReturnType<typeof loadActiveTenants>>,
+  neonApiKey: string,
+  keys: { v1: string | undefined; v2: string | undefined },
+  options: CliOptions,
+  total: Counts,
+): Promise<void> {
   for (const w of rows) {
     if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
     try {
-      const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keys);
       addCounts(total, await sweepTenant(w.id, url, options));
     } catch (err) {
       console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
       total.failedTenants++;
     }
   }
+}
 
+function printTotals(total: Counts, options: CliOptions) {
   const stored = total.alreadyPresent + total.inserted;
   console.log(
     `\nTOTAL: rows=${total.rows} values=${total.blobValues} migratable=${total.migratable} ` +
@@ -488,18 +547,43 @@ async function main() {
     );
   }
 
-  if (options.execute) {
-    if (stored === total.migratable && total.missingTable === 0 && total.failedTenants === 0 && total.invalid === 0) {
-      console.log('\nParity verified across all tenants — ticket/conversation/person blobs migrated.');
-    } else {
-      console.log('\nParity NOT clean. Re-run (the sweep is idempotent) and investigate.');
-    }
-  } else {
+  if (!options.execute) {
     console.log(
       `\nDry-run only. ${total.migratable - total.alreadyPresent} row(s) would be inserted, ` +
         `${total.autoCreatedDefs} definition(s) auto-created. Re-run with --execute to write.`,
     );
+    return;
   }
+
+  if (stored === total.migratable && total.missingTable === 0 && total.failedTenants === 0 && total.invalid === 0) {
+    console.log('\nParity verified across all tenants — ticket/conversation/person blobs migrated.');
+  } else {
+    console.log('\nParity NOT clean. Re-run (the sweep is idempotent) and investigate.');
+  }
+}
+
+async function main() {
+  const options = parseArgs();
+  const masterUrl = process.env.MASTER_DATABASE_URL;
+  const neonApiKey = process.env.NEON_API_KEY || '';
+  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
+  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
+
+  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
+  if (!v1 && !v2) console.log('No DATABASE_ENCRYPTION_KEY set — resolving tenant URLs via the Neon API.');
+
+  console.log(
+    `Custom fields Pile B backfill — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}` +
+      (options.entityType ? ` — entity type: ${options.entityType}` : ''),
+  );
+
+  const rows = await loadActiveTenants(masterUrl, options.only);
+
+  console.log(`\nTenant DBs (${rows.length}):`);
+  const total = newCounts();
+  await sweepAllTenants(rows, neonApiKey, { v1, v2 }, options, total);
+
+  printTotals(total, options);
 
   const clean = total.failedTenants === 0 && total.missingTable === 0;
   process.exit(clean ? 0 : 1);

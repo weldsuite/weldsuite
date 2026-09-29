@@ -135,6 +135,193 @@ async function tableExists(sql: postgres.Sql, table: string): Promise<boolean> {
   return Boolean(rows[0]?.reg);
 }
 
+/** Per-tenant state shared by the extraction phases. */
+interface TenantCtx {
+  sql: postgres.Sql;
+  execute: boolean;
+  counts: Counts;
+  lines: string[];
+}
+
+/**
+ * Execute mode runs the UPDATE and returns its affected-row count; dry-run runs
+ * the matching COUNT query instead. Returns the number of rows affected/matched.
+ */
+async function applyOrCount(ctx: TenantCtx, updateSql: string, countSql: string): Promise<number> {
+  if (ctx.execute) {
+    const res = await ctx.sql.unsafe(updateSql);
+    return (res as unknown as { count?: number }).count ?? 0;
+  }
+  const [row] = (await ctx.sql.unsafe(countSql)) as unknown as { n: string }[];
+  return Number(row?.n ?? 0);
+}
+
+/** One straight blob-key -> column move. */
+async function moveColumn(ctx: TenantCtx, move: ColumnMove): Promise<void> {
+  const { sql, counts, lines } = ctx;
+  if (!(await tableExists(sql, move.table))) return;
+  if (!(await columnExists(sql, move.table, move.column))) {
+    counts.missingColumns++;
+    lines.push(`    ${move.table}.${move.column} MISSING — apply migration 0169 first`);
+    return;
+  }
+
+  // `target IS NULL` makes this idempotent and stops a re-run from
+  // overwriting a value the application has written since.
+  const where =
+    `custom_fields ? '${move.blobKey}' ` +
+    `AND jsonb_typeof(custom_fields -> '${move.blobKey}') <> 'null' ` +
+    `AND ${move.column} IS NULL`;
+
+  const n = await applyOrCount(
+    ctx,
+    `UPDATE ${move.table} SET ${move.column} = ${readExpr(move.blobKey, move.cast)} WHERE ${where}`,
+    `SELECT count(*) AS n FROM ${move.table} WHERE ${where}`,
+  );
+  if (n > 0) lines.push(`    ${move.table}.${move.blobKey} -> ${move.column}: ${n}`);
+  counts.columnUpdates += n;
+}
+
+/** crm_activities change-log consolidation. */
+async function consolidateChangeLog(ctx: TenantCtx): Promise<void> {
+  const { sql, counts, lines } = ctx;
+  if (!((await tableExists(sql, 'crm_activities')) && (await columnExists(sql, 'crm_activities', 'change_log')))) return;
+
+  const keyList = CHANGELOG_KEYS.map((k) => `'${k}'`).join(', ');
+  const where = `custom_fields ?| array[${keyList}] AND change_log IS NULL`;
+  // Execute mode keeps only the change-log keys, preserving whatever subset is present.
+  const n = await applyOrCount(
+    ctx,
+    `UPDATE crm_activities
+        SET change_log = (
+          SELECT jsonb_object_agg(kv.key, kv.value)
+            FROM jsonb_each(custom_fields) AS kv
+           WHERE kv.key = ANY(array[${keyList}])
+        )
+      WHERE ${where}`,
+    `SELECT count(*) AS n FROM crm_activities WHERE ${where}`,
+  );
+  counts.changelogRows += n;
+  if (n > 0) lines.push(`    crm_activities change-log -> change_log: ${n}`);
+}
+
+/** Create the `files` row for one task attachment (execute mode only). */
+async function insertTaskAttachmentFile(
+  sql: postgres.Sql,
+  a: Record<string, string | null>,
+  storagePath: string,
+): Promise<void> {
+  // Preserve the blob's id when present so any existing reference to it
+  // still resolves; only invent one when the attachment had none.
+  const fileId = a.file_id || generateId('file');
+  await sql.unsafe(
+    `INSERT INTO files
+       (id, file_name, original_name, mime_type, file_size, file_type,
+        storage_path, file_key, url, entity_type, entity_id, created_at, updated_at)
+     VALUES ($1, $2, $2, $3, $4, 'file', $5, $6, $7, 'task', $8, now(), now())
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      fileId,
+      a.file_name ?? 'attachment',
+      a.mime_type ?? 'application/octet-stream',
+      Number(a.file_size ?? 0),
+      storagePath,
+      a.file_key ?? null,
+      a.url ?? null,
+      a.entity_id,
+    ] as never[],
+  );
+}
+
+/**
+ * tasks attachments -> files rows.
+ * The blob's attachment `id` values LOOK like file ids but have no matching
+ * `files` row (verified against live data), so real rows must be created.
+ */
+async function extractTaskAttachments(ctx: TenantCtx): Promise<void> {
+  const { sql, execute, counts, lines } = ctx;
+  if (!((await tableExists(sql, 'files')) && (await tableExists(sql, 'tasks')))) return;
+
+  const attachments = (await sql.unsafe(
+    `SELECT t.id AS entity_id,
+            a->>'id'       AS file_id,
+            a->>'url'      AS url,
+            a->>'fileKey'  AS file_key,
+            a->>'fileName' AS file_name,
+            a->>'fileSize' AS file_size,
+            a->>'mimeType' AS mime_type
+       FROM tasks t, jsonb_array_elements(t.custom_fields->'attachments') AS a
+      WHERE t.custom_fields ? 'attachments'
+        AND jsonb_typeof(t.custom_fields->'attachments') = 'array'`,
+  )) as unknown as Record<string, string | null>[];
+
+  for (const a of attachments) {
+    // Dedup on STABLE storage identity (entity + storage path), NOT the
+    // row id. The blob's `id` is optional, and when absent generateId()
+    // would mint a new value every run — so keying idempotency off the id
+    // would insert a duplicate on each re-run for idless attachments.
+    // storage_path is `file_key ?? url` (the same value written below), and
+    // is the stable handle for the object in R2.
+    const storagePath = a.file_key ?? a.url ?? '';
+    const dupe = (await sql.unsafe(
+      `SELECT 1 FROM files WHERE entity_type='task' AND entity_id=$1 AND storage_path=$2`,
+      [a.entity_id, storagePath] as never[],
+    )) as unknown as unknown[];
+    if (dupe.length > 0) continue; // idempotent on stable identity
+    counts.filesCreated++;
+    if (execute) await insertTaskAttachmentFile(sql, a, storagePath);
+  }
+  if (counts.filesCreated > 0) lines.push(`    tasks.attachments -> files: ${counts.filesCreated}`);
+}
+
+/** Create the `files` row for one crm_activities file (execute mode only). */
+async function insertActivityFile(sql: postgres.Sql, r: Record<string, string | null>): Promise<void> {
+  await sql.unsafe(
+    `INSERT INTO files
+       (id, file_name, original_name, mime_type, file_size, file_type,
+        storage_path, file_key, entity_type, entity_id, created_at, updated_at)
+     VALUES ($1, $2, $2, $3, $4, 'file', $5, $5, 'crm_activity', $6, now(), now())`,
+    [
+      generateId('file'),
+      r.file_name ?? 'attachment',
+      r.content_type ?? 'application/octet-stream',
+      Number(r.file_size ?? 0),
+      r.file_key ?? '',
+      r.entity_id,
+    ] as never[],
+  );
+}
+
+/** crm_activities file metadata -> files rows. */
+async function extractActivityFiles(ctx: TenantCtx): Promise<void> {
+  const { sql, execute, counts, lines } = ctx;
+  if (!((await tableExists(sql, 'files')) && (await tableExists(sql, 'crm_activities')))) return;
+
+  const rows = (await sql.unsafe(
+    `SELECT id AS entity_id,
+            custom_fields->>'fileKey'     AS file_key,
+            custom_fields->>'fileName'    AS file_name,
+            custom_fields->>'fileSize'    AS file_size,
+            custom_fields->>'contentType' AS content_type
+       FROM crm_activities
+      WHERE custom_fields ? 'fileKey'`,
+  )) as unknown as Record<string, string | null>[];
+
+  let created = 0;
+  for (const r of rows) {
+    // Keyed on (entity, storage path) so a re-run doesn't duplicate.
+    const dupe = (await sql.unsafe(
+      `SELECT 1 FROM files WHERE entity_type='crm_activity' AND entity_id=$1 AND file_key=$2`,
+      [r.entity_id, r.file_key] as never[],
+    )) as unknown as unknown[];
+    if (dupe.length > 0) continue;
+    created++;
+    if (execute) await insertActivityFile(sql, r);
+  }
+  counts.filesCreated += created;
+  if (created > 0) lines.push(`    crm_activities file metadata -> files: ${created}`);
+}
+
 async function migrateTenant(
   label: string,
   databaseUrl: string,
@@ -144,167 +331,22 @@ async function migrateTenant(
   const counts = newCounts();
   const sql = postgres(databaseUrl, { max: 1, ssl: 'require', prepare: false });
   const lines: string[] = [];
+  const ctx: TenantCtx = { sql, execute, counts, lines };
 
   try {
     // ---- straight column moves -------------------------------------------
     for (const move of COLUMN_MOVES) {
-      if (!(await tableExists(sql, move.table))) continue;
-      if (!(await columnExists(sql, move.table, move.column))) {
-        counts.missingColumns++;
-        lines.push(`    ${move.table}.${move.column} MISSING — apply migration 0169 first`);
-        continue;
-      }
-
-      // `target IS NULL` makes this idempotent and stops a re-run from
-      // overwriting a value the application has written since.
-      const where =
-        `custom_fields ? '${move.blobKey}' ` +
-        `AND jsonb_typeof(custom_fields -> '${move.blobKey}') <> 'null' ` +
-        `AND ${move.column} IS NULL`;
-
-      if (execute) {
-        const res = await sql.unsafe(
-          `UPDATE ${move.table} SET ${move.column} = ${readExpr(move.blobKey, move.cast)} WHERE ${where}`,
-        );
-        const n = (res as unknown as { count?: number }).count ?? 0;
-        if (n > 0) lines.push(`    ${move.table}.${move.blobKey} -> ${move.column}: ${n}`);
-        counts.columnUpdates += n;
-      } else {
-        const [row] = (await sql.unsafe(
-          `SELECT count(*) AS n FROM ${move.table} WHERE ${where}`,
-        )) as unknown as { n: string }[];
-        const n = Number(row?.n ?? 0);
-        if (n > 0) lines.push(`    ${move.table}.${move.blobKey} -> ${move.column}: ${n}`);
-        counts.columnUpdates += n;
-      }
+      await moveColumn(ctx, move);
     }
 
     // ---- crm_activities change-log consolidation --------------------------
-    if ((await tableExists(sql, 'crm_activities')) && (await columnExists(sql, 'crm_activities', 'change_log'))) {
-      const keyList = CHANGELOG_KEYS.map((k) => `'${k}'`).join(', ');
-      const where = `custom_fields ?| array[${keyList}] AND change_log IS NULL`;
-      if (execute) {
-        // Keep only the change-log keys, preserving whatever subset is present.
-        const res = await sql.unsafe(
-          `UPDATE crm_activities
-              SET change_log = (
-                SELECT jsonb_object_agg(kv.key, kv.value)
-                  FROM jsonb_each(custom_fields) AS kv
-                 WHERE kv.key = ANY(array[${keyList}])
-              )
-            WHERE ${where}`,
-        );
-        const n = (res as unknown as { count?: number }).count ?? 0;
-        counts.changelogRows += n;
-        if (n > 0) lines.push(`    crm_activities change-log -> change_log: ${n}`);
-      } else {
-        const [row] = (await sql.unsafe(
-          `SELECT count(*) AS n FROM crm_activities WHERE ${where}`,
-        )) as unknown as { n: string }[];
-        const n = Number(row?.n ?? 0);
-        counts.changelogRows += n;
-        if (n > 0) lines.push(`    crm_activities change-log -> change_log: ${n}`);
-      }
-    }
+    await consolidateChangeLog(ctx);
 
     // ---- attachments -> files rows ----------------------------------------
-    // The blob's attachment `id` values LOOK like file ids but have no matching
-    // `files` row (verified against live data), so real rows must be created.
-    if ((await tableExists(sql, 'files')) && (await tableExists(sql, 'tasks'))) {
-      const attachments = (await sql.unsafe(
-        `SELECT t.id AS entity_id,
-                a->>'id'       AS file_id,
-                a->>'url'      AS url,
-                a->>'fileKey'  AS file_key,
-                a->>'fileName' AS file_name,
-                a->>'fileSize' AS file_size,
-                a->>'mimeType' AS mime_type
-           FROM tasks t, jsonb_array_elements(t.custom_fields->'attachments') AS a
-          WHERE t.custom_fields ? 'attachments'
-            AND jsonb_typeof(t.custom_fields->'attachments') = 'array'`,
-      )) as unknown as Record<string, string | null>[];
-
-      for (const a of attachments) {
-        // Dedup on STABLE storage identity (entity + storage path), NOT the
-        // row id. The blob's `id` is optional, and when absent generateId()
-        // would mint a new value every run — so keying idempotency off the id
-        // would insert a duplicate on each re-run for idless attachments.
-        // storage_path is `file_key ?? url` (the same value written below), and
-        // is the stable handle for the object in R2.
-        const storagePath = a.file_key ?? a.url ?? '';
-        const dupe = (await sql.unsafe(
-          `SELECT 1 FROM files WHERE entity_type='task' AND entity_id=$1 AND storage_path=$2`,
-          [a.entity_id, storagePath] as never[],
-        )) as unknown as unknown[];
-        if (dupe.length > 0) continue; // idempotent on stable identity
-        counts.filesCreated++;
-        if (execute) {
-          // Preserve the blob's id when present so any existing reference to it
-          // still resolves; only invent one when the attachment had none.
-          const fileId = a.file_id || generateId('file');
-          await sql.unsafe(
-            `INSERT INTO files
-               (id, file_name, original_name, mime_type, file_size, file_type,
-                storage_path, file_key, url, entity_type, entity_id, created_at, updated_at)
-             VALUES ($1, $2, $2, $3, $4, 'file', $5, $6, $7, 'task', $8, now(), now())
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              fileId,
-              a.file_name ?? 'attachment',
-              a.mime_type ?? 'application/octet-stream',
-              Number(a.file_size ?? 0),
-              storagePath,
-              a.file_key ?? null,
-              a.url ?? null,
-              a.entity_id,
-            ] as never[],
-          );
-        }
-      }
-      if (counts.filesCreated > 0) lines.push(`    tasks.attachments -> files: ${counts.filesCreated}`);
-    }
+    await extractTaskAttachments(ctx);
 
     // ---- crm_activities file metadata -> files rows ------------------------
-    if ((await tableExists(sql, 'files')) && (await tableExists(sql, 'crm_activities'))) {
-      const rows = (await sql.unsafe(
-        `SELECT id AS entity_id,
-                custom_fields->>'fileKey'     AS file_key,
-                custom_fields->>'fileName'    AS file_name,
-                custom_fields->>'fileSize'    AS file_size,
-                custom_fields->>'contentType' AS content_type
-           FROM crm_activities
-          WHERE custom_fields ? 'fileKey'`,
-      )) as unknown as Record<string, string | null>[];
-
-      let created = 0;
-      for (const r of rows) {
-        // Keyed on (entity, storage path) so a re-run doesn't duplicate.
-        const dupe = (await sql.unsafe(
-          `SELECT 1 FROM files WHERE entity_type='crm_activity' AND entity_id=$1 AND file_key=$2`,
-          [r.entity_id, r.file_key] as never[],
-        )) as unknown as unknown[];
-        if (dupe.length > 0) continue;
-        created++;
-        if (execute) {
-          await sql.unsafe(
-            `INSERT INTO files
-               (id, file_name, original_name, mime_type, file_size, file_type,
-                storage_path, file_key, entity_type, entity_id, created_at, updated_at)
-             VALUES ($1, $2, $2, $3, $4, 'file', $5, $5, 'crm_activity', $6, now(), now())`,
-            [
-              generateId('file'),
-              r.file_name ?? 'attachment',
-              r.content_type ?? 'application/octet-stream',
-              Number(r.file_size ?? 0),
-              r.file_key ?? '',
-              r.entity_id,
-            ] as never[],
-          );
-        }
-      }
-      counts.filesCreated += created;
-      if (created > 0) lines.push(`    crm_activities file metadata -> files: ${created}`);
-    }
+    await extractActivityFiles(ctx);
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -316,6 +358,47 @@ async function migrateTenant(
     console.log(`  ${label}: nothing to move`);
   }
   return counts;
+}
+
+async function loadActiveTenants(masterUrl: string, only: string | null) {
+  const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
+  const db = drizzle(masterClient);
+  const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
+  if (only) conditions.push(eq(workspaces.id, only));
+  const rows = await db
+    .select({
+      id: workspaces.id,
+      neonProjectId: workspaces.neonProjectId,
+      neonBranchId: workspaces.neonBranchId,
+      neonRoleName: workspaces.neonRoleName,
+      neonDatabaseName: workspaces.neonDatabaseName,
+      databaseUrl: workspaces.databaseUrl,
+    })
+    .from(workspaces)
+    .where(and(...conditions));
+  await masterClient.end({ timeout: 5 });
+  return rows;
+}
+
+/** Migrates every tenant in order, accumulating into `total`. */
+async function migrateAllTenants(
+  rows: Awaited<ReturnType<typeof loadActiveTenants>>,
+  neonApiKey: string,
+  keys: { v1: string | undefined; v2: string | undefined },
+  execute: boolean,
+  verbose: boolean,
+  total: Counts,
+): Promise<void> {
+  for (const w of rows) {
+    if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
+    try {
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keys);
+      addCounts(total, await migrateTenant(w.id, url, execute, verbose));
+    } catch (err) {
+      console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
+      total.tenantsSkipped++;
+    }
+  }
 }
 
 async function main() {
@@ -334,35 +417,11 @@ async function main() {
   console.log(`Pile A blob extraction — mode: ${execute ? 'EXECUTE' : 'dry-run'}`);
   console.log('(the custom_fields blob is never modified — Phase 4 drops it)\n');
 
-  const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
-  const db = drizzle(masterClient);
-  const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-  if (only) conditions.push(eq(workspaces.id, only));
-  const rows = await db
-    .select({
-      id: workspaces.id,
-      neonProjectId: workspaces.neonProjectId,
-      neonBranchId: workspaces.neonBranchId,
-      neonRoleName: workspaces.neonRoleName,
-      neonDatabaseName: workspaces.neonDatabaseName,
-      databaseUrl: workspaces.databaseUrl,
-    })
-    .from(workspaces)
-    .where(and(...conditions));
-  await masterClient.end({ timeout: 5 });
+  const rows = await loadActiveTenants(masterUrl, only);
 
   console.log(`Tenants (${rows.length}):`);
   const total = newCounts();
-  for (const w of rows) {
-    if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
-    try {
-      const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
-      addCounts(total, await migrateTenant(w.id, url, execute, verbose));
-    } catch (err) {
-      console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
-      total.tenantsSkipped++;
-    }
-  }
+  await migrateAllTenants(rows, neonApiKey, { v1, v2 }, execute, verbose, total);
 
   console.log(
     `\nTOTAL: columnUpdates=${total.columnUpdates} filesCreated=${total.filesCreated} ` +
