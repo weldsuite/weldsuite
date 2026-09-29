@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { Loader2 } from 'lucide-react';
@@ -19,19 +19,9 @@ interface TimeSlotListProps {
   onSlotSelect: (slot: TimeSlot) => void;
 }
 
-export function TimeSlotList({
-  selectedDate,
-  initialLoading,
-  slotsLoading,
-  slots,
-  use24h,
-  timezone,
-  onUse24hChange,
-  onSlotSelect,
-}: Readonly<TimeSlotListProps>) {
-  const containerRef = useRef<HTMLDivElement>(null);
+/** Tracks whether the referenced element's content overflows its box. */
+function useOverflows(containerRef: RefObject<HTMLDivElement | null>): boolean {
   const [overflows, setOverflows] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -59,6 +49,77 @@ export function TimeSlotList({
       mo.disconnect();
     };
   });
+
+  return overflows;
+}
+
+interface SlotsBodyProps {
+  slotsLoading: boolean;
+  availableSlots: TimeSlot[];
+  containerRef: RefObject<HTMLDivElement | null>;
+  overflows: boolean;
+  formatTime: (date: Date) => string;
+  onScrolledChange: (scrolled: boolean) => void;
+  onSlotSelect: (slot: TimeSlot) => void;
+}
+
+function SlotsBody({
+  slotsLoading,
+  availableSlots,
+  containerRef,
+  overflows,
+  formatTime,
+  onScrolledChange,
+  onSlotSelect,
+}: Readonly<SlotsBodyProps>) {
+  if (slotsLoading) {
+    return (
+      <div className="flex items-center justify-center flex-1 text-sm text-gray-400 dark:text-[#6E6E76]">
+        <Loader2 className="h-4 w-4 animate-spin" aria-label="Loading slots" />
+      </div>
+    );
+  }
+  if (availableSlots.length === 0) {
+    return (
+      <p className="text-sm text-gray-400 dark:text-[#6E6E76] text-center mt-8 pr-5">
+        No available times
+      </p>
+    );
+  }
+  return (
+    <div
+      ref={containerRef}
+      className="space-y-2 overflow-y-auto flex-1 scrollbar-thin pr-6 md:pr-5"
+      style={overflows ? { paddingRight: 8 } : undefined}
+      onScroll={(e) => onScrolledChange(e.currentTarget.scrollTop > 0)}
+    >
+      {availableSlots.map((slot) => (
+        <button
+          type="button"
+          key={slot.start}
+          onClick={() => onSlotSelect(slot)}
+          className="w-full px-3 py-2.5 md:py-2 text-sm font-medium tabular-nums text-gray-700 dark:text-[#E4E4E7] bg-gray-200/30 dark:bg-[#1F1F23]/40 border border-gray-200 dark:border-[#2E2E33] rounded-lg hover:bg-gray-200/60 dark:hover:bg-[#2E2E33]/60 transition-colors text-center"
+        >
+          {formatTime(new Date(slot.start))}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function TimeSlotList({
+  selectedDate,
+  initialLoading,
+  slotsLoading,
+  slots,
+  use24h,
+  timezone,
+  onUse24hChange,
+  onSlotSelect,
+}: Readonly<TimeSlotListProps>) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const overflows = useOverflows(containerRef);
+  const [scrolled, setScrolled] = useState(false);
 
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
@@ -98,33 +159,15 @@ export function TimeSlotList({
               </TabsList>
             </Tabs>
           </div>
-          {slotsLoading ? (
-            <div className="flex items-center justify-center flex-1 text-sm text-gray-400 dark:text-[#6E6E76]">
-              <Loader2 className="h-4 w-4 animate-spin" aria-label="Loading slots" />
-            </div>
-          ) : availableSlots.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-[#6E6E76] text-center mt-8 pr-5">
-              No available times
-            </p>
-          ) : (
-            <div
-              ref={containerRef}
-              className="space-y-2 overflow-y-auto flex-1 scrollbar-thin pr-6 md:pr-5"
-              style={overflows ? { paddingRight: 8 } : undefined}
-              onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}
-            >
-              {availableSlots.map((slot) => (
-                <button
-                  type="button"
-                  key={slot.start}
-                  onClick={() => onSlotSelect(slot)}
-                  className="w-full px-3 py-2.5 md:py-2 text-sm font-medium tabular-nums text-gray-700 dark:text-[#E4E4E7] bg-gray-200/30 dark:bg-[#1F1F23]/40 border border-gray-200 dark:border-[#2E2E33] rounded-lg hover:bg-gray-200/60 dark:hover:bg-[#2E2E33]/60 transition-colors text-center"
-                >
-                  {formatTime(new Date(slot.start))}
-                </button>
-              ))}
-            </div>
-          )}
+          <SlotsBody
+            slotsLoading={slotsLoading}
+            availableSlots={availableSlots}
+            containerRef={containerRef}
+            overflows={overflows}
+            formatTime={formatTime}
+            onScrolledChange={setScrolled}
+            onSlotSelect={onSlotSelect}
+          />
         </>
       ) : (
         <div className="flex items-center justify-center flex-1 text-sm text-gray-400 dark:text-[#6E6E76] pr-5">
