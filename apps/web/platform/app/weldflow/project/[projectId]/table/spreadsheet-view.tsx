@@ -479,33 +479,53 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
   );
 }
 
+type CellBounds = { minCol: number; maxCol: number; minRow: number; maxRow: number };
+
+// Non-empty cell values inside the selection.
+function collectSelectionValues(
+  columns: { id: string; position: number }[],
+  rows: { id: string; position: number; data: Record<string, CellDataValue> }[],
+  selBounds: CellBounds,
+): CellDataValue[] {
+  const sortedCols = [...columns].sort((a, b) => a.position - b.position);
+  const rowMap = new Map(rows.map(r => [r.position, r]));
+  const values: CellDataValue[] = [];
+  for (let r = selBounds.minRow; r <= selBounds.maxRow; r++) {
+    for (let c = selBounds.minCol; c <= selBounds.maxCol; c++) {
+      const br = rowMap.get(r);
+      const bc = sortedCols[c];
+      const val = br && bc ? br.data?.[bc.id] : undefined;
+      if (val !== null && val !== undefined && val !== '') values.push(val);
+    }
+  }
+  return values;
+}
+
+function computeSelectionStats(
+  columns: { id: string; position: number }[],
+  rows: { id: string; position: number; data: Record<string, CellDataValue> }[],
+  selBounds: CellBounds | null,
+): { sum: number; avg: number | null; count: number } | null {
+  if (!selBounds) return null;
+  const values = collectSelectionValues(columns, rows, selBounds);
+  if (values.length === 0) return null;
+  let sum = 0;
+  let numCount = 0;
+  for (const val of values) {
+    const n = Number(val);
+    if (!Number.isNaN(n)) { sum += n; numCount++; }
+  }
+  const avg = numCount > 0 ? sum / numCount : null;
+  return { sum, avg, count: values.length };
+}
+
 // --- Status Bar ---
 function StatusBar({ columns, rows, selBounds }: Readonly<{
   columns: { id: string; position: number }[];
   rows: { id: string; position: number; data: Record<string, CellDataValue> }[];
   selBounds: { minCol: number; maxCol: number; minRow: number; maxRow: number } | null;
 }>) {
-  const stats = useMemo(() => {
-    if (!selBounds) return null;
-    const sortedCols = [...columns].sort((a, b) => a.position - b.position);
-    const rowMap = new Map(rows.map(r => [r.position, r]));
-    let sum = 0, count = 0, numCount = 0;
-    for (let r = selBounds.minRow; r <= selBounds.maxRow; r++) {
-      for (let c = selBounds.minCol; c <= selBounds.maxCol; c++) {
-        const br = rowMap.get(r); const bc = sortedCols[c];
-        if (!br || !bc) continue;
-        const val = br.data?.[bc.id];
-        if (val !== null && val !== undefined && val !== '') {
-          count++;
-          const n = Number(val);
-          if (!Number.isNaN(n)) { sum += n; numCount++; }
-        }
-      }
-    }
-    if (count === 0) return null;
-    const avg = numCount > 0 ? sum / numCount : null;
-    return { sum, avg, count };
-  }, [columns, rows, selBounds]);
+  const stats = useMemo(() => computeSelectionStats(columns, rows, selBounds), [columns, rows, selBounds]);
 
   if (!stats) return null;
 
@@ -516,6 +536,63 @@ function StatusBar({ columns, rows, selBounds }: Readonly<{
       {stats.avg !== null && <span>Sum: {stats.sum.toFixed(2)}</span>}
     </div>
   );
+}
+
+// Format keys that always apply to the whole cell, never to inline text
+const CELL_LEVEL_FORMAT_KEYS = new Set(['fillColor','textAlign','verticalAlign','numberFormat','decimalPlaces','currencySymbol','border','merge','textWrap','textRotation']);
+
+// Translate a toolbar format into a run format; boolean toggles flip based on the current selection.
+function buildInlineFormat(
+  format: Partial<CellFormat>,
+  runs: RichTextRun[],
+  start: number,
+  end: number,
+): Partial<RichTextRun> {
+  const inlineFormat: Partial<RichTextRun> = {};
+  for (const key of Object.keys(format) as (keyof CellFormat)[]) {
+    switch (key) {
+      case 'bold':
+        inlineFormat.bold = !isAllBold(runs, start, end);
+        break;
+      case 'italic':
+        inlineFormat.italic = !isAllItalic(runs, start, end);
+        break;
+      case 'strikethrough':
+        inlineFormat.strikethrough = !isAllStrikethrough(runs, start, end);
+        break;
+      case 'textColor':
+        inlineFormat.textColor = format.textColor;
+        break;
+      case 'fontFamily':
+        inlineFormat.fontFamily = format.fontFamily;
+        break;
+      case 'fontSize':
+        inlineFormat.fontSize = format.fontSize;
+        break;
+      default:
+        break;
+    }
+  }
+  return inlineFormat;
+}
+
+// Collapsed cursor: let the browser apply the format to the next typed characters.
+function applyNativeInlineFormat(format: Partial<CellFormat>): void {
+  if (format.bold !== undefined) document.execCommand('bold');
+  if (format.italic !== undefined) document.execCommand('italic');
+  if (format.strikethrough !== undefined) document.execCommand('strikeThrough');
+}
+
+// Format for one cell of "Convert to table": styled header, then banded rows.
+function tableCellFormat(isHeader: boolean, rowOffset: number): Partial<CellFormat> {
+  if (isHeader) return { bold: true, fillColor: '#1a73e826', textColor: '#1a3d7c' };
+  return rowOffset % 2 === 0 ? { fillColor: '#00000008' } : { fillColor: undefined };
+}
+
+// A missing or single-cell range means "use the whole occupied range".
+function expandToUsedRange(range: CellBounds | null, columnCount: number, maxRowPos: number): CellBounds {
+  if (range && !(range.minCol === range.maxCol && range.minRow === range.maxRow)) return range;
+  return { minCol: 0, maxCol: Math.max(0, columnCount - 1), minRow: 0, maxRow: Math.max(0, maxRowPos) };
 }
 
 // --- Main SpreadsheetView ---
@@ -662,79 +739,50 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
     }
   }, [rows, updateRow]);
 
-  // Toolbar format handler — supports both cell-level and inline rich text formatting
-  const cellLevelKeys = useMemo(() => new Set(['fillColor','textAlign','verticalAlign','numberFormat','decimalPlaces','currencySymbol','border','merge','textWrap','textRotation']), []);
+  // Inline (rich text) formatting of the text selected inside the cell being edited
+  const applyInlineTextFormat = useCallback((format: Partial<CellFormat>) => {
+    const gridEl = document.querySelector('[data-col][data-row] [contenteditable]') as HTMLDivElement | null;
 
-  const handleToolbarFormat = useCallback((format: Partial<CellFormat>) => {
-    if (!selectedCell) return;
+    // Get current selection from the contentEditable directly
+    const sel = gridEl ? saveSelection(gridEl) : inlineSelection;
+    if (!sel) return;
 
-    const isCellLevel = Object.keys(format).some(k => cellLevelKeys.has(k));
+    const runs = editingRunsRef.current.length > 0
+      ? editingRunsRef.current
+      : runsFromPlainText(editValue);
 
-    // If editing and format is inline (bold/italic/etc), apply to text selection
-    if (isEditing && !isCellLevel) {
-      const gridEl = document.querySelector('[data-col][data-row] [contenteditable]') as HTMLDivElement | null;
+    const { start, end } = sel;
+    const inlineFormat = buildInlineFormat(format, runs, start, end);
 
-      // Get current selection from the contentEditable directly
-      const sel = gridEl ? saveSelection(gridEl) : inlineSelection;
-      if (!sel) return;
-
-      const runs = editingRunsRef.current.length > 0
-        ? editingRunsRef.current
-        : runsFromPlainText(editValue);
-
-      const { start, end } = sel;
-
-      // For boolean toggles, check if selection is already formatted
-      const inlineFormat: Partial<RichTextRun> = {};
-      for (const key of Object.keys(format) as (keyof CellFormat)[]) {
-        if (key === 'bold') {
-          inlineFormat.bold = !isAllBold(runs, start, end);
-        } else if (key === 'italic') {
-          inlineFormat.italic = !isAllItalic(runs, start, end);
-        } else if (key === 'strikethrough') {
-          inlineFormat.strikethrough = !isAllStrikethrough(runs, start, end);
-        } else if (key === 'textColor') {
-          inlineFormat.textColor = format.textColor;
-        } else if (key === 'fontFamily') {
-          inlineFormat.fontFamily = format.fontFamily;
-        } else if (key === 'fontSize') {
-          inlineFormat.fontSize = format.fontSize;
-        }
-      }
-
-      // If cursor is collapsed (no selection), apply format via execCommand so the browser
-      // handles it for the next typed characters natively
-      if (start === end && gridEl) {
-        if (format.bold !== undefined) document.execCommand('bold');
-        if (format.italic !== undefined) document.execCommand('italic');
-        if (format.strikethrough !== undefined) document.execCommand('strikeThrough');
-        // Read back the new HTML
-        const newRuns = htmlToRuns(gridEl.innerHTML);
-        editingRunsRef.current = newRuns;
-        setEditValue(plainTextFromRuns(newRuns));
-        return;
-      }
-
-      const newRuns = applyFormatToRange(runs, start, end, inlineFormat);
+    // If cursor is collapsed (no selection), apply format via execCommand so the browser
+    // handles it for the next typed characters natively
+    if (start === end && gridEl) {
+      applyNativeInlineFormat(format);
+      // Read back the new HTML
+      const newRuns = htmlToRuns(gridEl.innerHTML);
       editingRunsRef.current = newRuns;
-
-      // Update the contentEditable with new HTML and restore selection
-      if (gridEl) {
-        const html = runsToHtml(newRuns);
-        gridEl.innerHTML = html;
-        restoreSelection(gridEl, { start, end });
-        // Read back to normalize
-        const finalRuns = htmlToRuns(gridEl.innerHTML);
-        editingRunsRef.current = finalRuns;
-      }
-
       setEditValue(plainTextFromRuns(newRuns));
       return;
     }
 
-    // Cell-level formatting path
-    const end = selectionEnd ?? selectedCell;
-    const sel = normRange({ start: selectedCell, end });
+    const newRuns = applyFormatToRange(runs, start, end, inlineFormat);
+    editingRunsRef.current = newRuns;
+
+    // Update the contentEditable with new HTML and restore selection
+    if (gridEl) {
+      gridEl.innerHTML = runsToHtml(newRuns);
+      restoreSelection(gridEl, { start, end });
+      // Read back to normalize
+      editingRunsRef.current = htmlToRuns(gridEl.innerHTML);
+    }
+
+    setEditValue(plainTextFromRuns(newRuns));
+  }, [inlineSelection, editValue]);
+
+  // Cell-level formatting of every cell in the current selection
+  const applyCellLevelFormat = useCallback((anchor: CellCoord, format: Partial<CellFormat>) => {
+    const end = selectionEnd ?? anchor;
+    const sel = normRange({ start: anchor, end });
     const sortedCols = [...columns].sort((a, b) => a.position - b.position);
     const positionMap = new Map(rows.map(r => [r.position, r]));
 
@@ -752,7 +800,22 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
     }
 
     if (cells.length > 0) applyFormat(cells, format);
-  }, [selectedCell, selectionEnd, columns, rows, applyFormat, createRow, isEditing, inlineSelection, editValue, cellLevelKeys]);
+  }, [selectionEnd, columns, rows, applyFormat, createRow]);
+
+  // Toolbar format handler — supports both cell-level and inline rich text formatting
+  const handleToolbarFormat = useCallback((format: Partial<CellFormat>) => {
+    if (!selectedCell) return;
+
+    const isCellLevel = Object.keys(format).some(k => CELL_LEVEL_FORMAT_KEYS.has(k));
+
+    // If editing and format is inline (bold/italic/etc), apply to text selection
+    if (isEditing && !isCellLevel) {
+      applyInlineTextFormat(format);
+      return;
+    }
+
+    applyCellLevelFormat(selectedCell, format);
+  }, [selectedCell, isEditing, applyInlineTextFormat, applyCellLevelFormat]);
 
   // Keep old name for context menu and paint format usage
   const handleFormatCells = applyFormat;
@@ -916,21 +979,14 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
 
   // --- Convert to table: style header + band rows, enable a filter -------
   const handleConvertToTable = useCallback(() => {
-    let range = getOpRange();
-    if (!range || (range.minCol === range.maxCol && range.minRow === range.maxRow)) {
-      range = { minCol: 0, maxCol: Math.max(0, columns.length - 1), minRow: 0, maxRow: Math.max(0, maxRowPos) };
-    }
+    const range = expandToUsedRange(getOpRange(), columns.length, maxRowPos);
     const posMap = new Map(rows.map((r) => [r.position, r]));
     for (let rr = range.minRow; rr <= range.maxRow; rr++) {
       const isHeader = rr === range.minRow;
       for (let cc = range.minCol; cc <= range.maxCol; cc++) {
         const col = columns[cc];
         if (!col) continue;
-        const fmt: Partial<CellFormat> = isHeader
-          ? { bold: true, fillColor: '#1a73e826', textColor: '#1a3d7c' }
-          : (rr - range.minRow) % 2 === 0
-            ? { fillColor: '#00000008' }
-            : { fillColor: undefined };
+        const fmt = tableCellFormat(isHeader, rr - range.minRow);
         const rowObj = posMap.get(rr);
         if (rowObj) {
           const merged = mergeFormat(getCellFormat(rowObj.data, col.id), fmt);
@@ -961,10 +1017,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
       updateSheetSettings.mutate({ sheetId: activeSheetId, settings: { filter: { ...existing, active: false } } });
       toast.success(t.projects.table.filterRemoved);
     } else {
-      let range = getOpRange();
-      if (!range || (range.minCol === range.maxCol && range.minRow === range.maxRow)) {
-        range = { minCol: 0, maxCol: Math.max(0, columns.length - 1), minRow: 0, maxRow: Math.max(0, maxRowPos) };
-      }
+      const range = expandToUsedRange(getOpRange(), columns.length, maxRowPos);
       updateSheetSettings.mutate({
         sheetId: activeSheetId,
         settings: { filter: { active: true, headerRow: range.minRow, ...range, criteria: {} } },

@@ -63,6 +63,22 @@ export function normalizeRuns(runs: RichTextRun[]): RichTextRun[] {
   return result;
 }
 
+function applyFormatKeys(target: RichTextRun, format: Partial<RichTextRun>): void {
+  for (const key of RUN_FORMAT_KEYS) {
+    if (!(key in format)) continue;
+    const value = format[key];
+    if (value === undefined || value === null) {
+      delete target[key];
+    } else if (key === 'bold' || key === 'italic' || key === 'strikethrough') {
+      target[key] = value as boolean;
+    } else if (key === 'fontSize') {
+      target[key] = value as number;
+    } else {
+      target[key] = value as string;
+    }
+  }
+}
+
 export function applyFormatToRange(
   runs: RichTextRun[],
   start: number,
@@ -94,19 +110,7 @@ export function applyFormatToRange(
     const selEnd = Math.min(run.text.length, end - runStart);
     const selectedRun: RichTextRun = { ...run, text: run.text.slice(selStart, selEnd) };
 
-    for (const key of RUN_FORMAT_KEYS) {
-      if (!(key in format)) continue;
-      const value = format[key];
-      if (value === undefined || value === null) {
-        delete selectedRun[key];
-      } else if (key === 'bold' || key === 'italic' || key === 'strikethrough') {
-        selectedRun[key] = value as boolean;
-      } else if (key === 'fontSize') {
-        selectedRun[key] = value as number;
-      } else {
-        selectedRun[key] = value as string;
-      }
-    }
+    applyFormatKeys(selectedRun, format);
     result.push(selectedRun);
 
     // After selection part
@@ -196,6 +200,24 @@ export function runsToHtml(runs: RichTextRun[]): string {
     .join('');
 }
 
+function applySemanticTag(tag: string, format: Partial<RichTextRun>): void {
+  if (tag === 'b' || tag === 'strong') format.bold = true;
+  if (tag === 'i' || tag === 'em') format.italic = true;
+  if (tag === 's' || tag === 'del' || tag === 'strike') format.strikethrough = true;
+}
+
+function applyInlineStyles(style: CSSStyleDeclaration, format: Partial<RichTextRun>): void {
+  if (style.fontWeight === 'bold' || Number.parseInt(style.fontWeight) >= 700) format.bold = true;
+  if (style.fontStyle === 'italic') format.italic = true;
+  if (style.textDecoration?.includes('line-through')) format.strikethrough = true;
+  if (style.color) format.textColor = style.color;
+  if (style.fontFamily) format.fontFamily = style.fontFamily;
+  if (style.fontSize) {
+    const size = Number.parseInt(style.fontSize);
+    if (!Number.isNaN(size)) format.fontSize = size;
+  }
+}
+
 export function htmlToRuns(html: string): RichTextRun[] {
   if (!html || html === '<br>') return [{ text: '' }];
 
@@ -214,27 +236,14 @@ export function htmlToRuns(html: string): RichTextRun[] {
     const el = node as HTMLElement;
     const format = { ...inheritedFormat };
 
-    // Handle semantic tags
     const tag = el.tagName.toLowerCase();
-    if (tag === 'b' || tag === 'strong') format.bold = true;
-    if (tag === 'i' || tag === 'em') format.italic = true;
-    if (tag === 's' || tag === 'del' || tag === 'strike') format.strikethrough = true;
+    applySemanticTag(tag, format);
     if (tag === 'br') {
       runs.push({ text: '\n', ...inheritedFormat });
       return;
     }
 
-    // Handle inline styles
-    const style = el.style;
-    if (style.fontWeight === 'bold' || Number.parseInt(style.fontWeight) >= 700) format.bold = true;
-    if (style.fontStyle === 'italic') format.italic = true;
-    if (style.textDecoration?.includes('line-through')) format.strikethrough = true;
-    if (style.color) format.textColor = style.color;
-    if (style.fontFamily) format.fontFamily = style.fontFamily;
-    if (style.fontSize) {
-      const size = Number.parseInt(style.fontSize);
-      if (!Number.isNaN(size)) format.fontSize = size;
-    }
+    applyInlineStyles(el.style, format);
 
     for (const child of Array.from(el.childNodes)) {
       walkNode(child, format);
