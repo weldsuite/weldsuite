@@ -108,6 +108,25 @@ const formatDate = (date: string | Date, naLabel: string) => {
   return new Date(date).toLocaleString();
 };
 
+const hasEntries = (obj: Record<string, unknown> | null | undefined) =>
+  !!obj && Object.keys(obj).length > 0;
+
+const isWarningLevel = (level: string) => level === 'warning' || level === 'warn';
+
+const logLevelClasses = (level: string) => {
+  if (level === 'error') return 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800';
+  if (isWarningLevel(level)) {
+    return 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-800';
+  }
+  return 'bg-gray-50 border-gray-200 dark:bg-secondary dark:border-border';
+};
+
+const logLevelBadgeVariant = (level: string) => {
+  if (level === 'error') return 'destructive' as const;
+  if (isWarningLevel(level)) return 'default' as const;
+  return 'secondary' as const;
+};
+
 const getStepStatusIcon = (status: string) => {
   switch (status) {
     case 'success':
@@ -649,8 +668,8 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                             <p className="text-sm text-red-700 dark:text-red-300">{selectedStep.error}</p>
                           </div>
                         )}
-                        {(!selectedStep?.input || Object.keys(selectedStep.input).length === 0) &&
-                         (!selectedStep?.output || Object.keys(selectedStep.output).length === 0) &&
+                        {!hasEntries(selectedStep?.input) &&
+                         !hasEntries(selectedStep?.output) &&
                          !selectedStep?.error && (
                           <p className="text-sm text-muted-foreground">{t.weldconnect.executionDetail.noInputOutputData}</p>
                         )}
@@ -664,7 +683,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.inputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.inputDataDescription}</p>
-                  {execution.input && Object.keys(execution.input).length > 0 ? (
+                  {hasEntries(execution.input) ? (
                     <pre className="bg-gray-50 dark:bg-secondary p-4 rounded-lg text-xs overflow-auto max-h-[600px]">
                       {JSON.stringify(execution.input, null, 2)}
                     </pre>
@@ -678,7 +697,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.outputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.outputDataDescription}</p>
-                  {execution.output && Object.keys(execution.output).length > 0 ? (
+                  {hasEntries(execution.output) ? (
                     <pre className="bg-gray-50 dark:bg-secondary p-4 rounded-lg text-xs overflow-auto max-h-[600px]">
                       {JSON.stringify(execution.output, null, 2)}
                     </pre>
@@ -699,17 +718,11 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                       {initialLogs.map((log, index: number) => (
                         <div
                           key={log.id || index}
-                          className={`p-3 rounded-lg border ${
-                            log.level === 'error'
-                              ? 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800'
-                              : log.level === 'warning' || log.level === 'warn'
-                              ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-800'
-                              : 'bg-gray-50 border-gray-200 dark:bg-secondary dark:border-border'
-                          }`}
+                          className={`p-3 rounded-lg border ${logLevelClasses(log.level)}`}
                         >
                           <div className="flex items-start gap-3">
                             <Badge
-                              variant={log.level === 'error' ? 'destructive' : log.level === 'warning' || log.level === 'warn' ? 'default' : 'secondary'}
+                              variant={logLevelBadgeVariant(log.level)}
                               className="text-xs"
                             >
                               {log.level}

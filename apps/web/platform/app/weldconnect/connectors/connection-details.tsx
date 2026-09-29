@@ -140,6 +140,263 @@ function triggerLabel(trigger: string, t: ReturnType<typeof useI18n>['t']): stri
   return trigger;
 }
 
+type Translations = ReturnType<typeof useI18n>['t'];
+type ConnectorsTranslations = Translations['weldconnect']['connectors'];
+type FormatFn = ReturnType<typeof useI18n>['format'];
+
+function DirectionSelectContent({ tc }: Readonly<{ tc: ConnectorsTranslations }>) {
+  return (
+    <SelectContent>
+      <SelectItem value="inbound">{tc.settings.directionInbound}</SelectItem>
+      <SelectItem value="outbound">{tc.settings.directionOutbound}</SelectItem>
+      <SelectItem value="bidirectional">{tc.settings.directionBidirectional}</SelectItem>
+    </SelectContent>
+  );
+}
+
+interface RecordsPanelProps {
+  records: ConnectorSyncedRecord[];
+  tc: ConnectorsTranslations;
+  language: string;
+  format: FormatFn;
+}
+
+function RecordsPanel({ records, tc, language, format }: Readonly<RecordsPanelProps>) {
+  if (records.length === 0) {
+    return <p className="text-muted-foreground py-10 text-center text-sm">{tc.records.empty}</p>;
+  }
+  return (
+    <>
+      <ul className="divide-y">
+        {records.map((record) => (
+          <li key={record.id} className="flex items-center justify-between gap-3 py-2.5">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{record.label}</p>
+              <p className="text-muted-foreground truncate text-[11px]">
+                {tc.types[recordTypeKey(record)]}
+                {record.lastSyncedAt ? ` · ${relativeTime(record.lastSyncedAt, language)}` : ''}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="text-muted-foreground mt-3 text-[11px]">
+        {format(tc.records.showingRecent, { count: records.length })}
+      </p>
+    </>
+  );
+}
+
+interface RunItemProps {
+  run: ConnectorSyncRun;
+  connection: ConnectorConnection;
+  t: Translations;
+  language: string;
+}
+
+function RunItem({ run, connection, t, language }: Readonly<RunItemProps>) {
+  const tc = t.weldconnect.connectors;
+  return (
+    <li className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{runLabel(run, connection, t)}</p>
+        <p className="text-muted-foreground mt-0.5 text-[11px]">
+          {run.recordsCreated} {tc.runs.created} · {run.recordsModified} {tc.runs.updated}
+          {run.recordsSkipped > 0 ? ` · ${run.recordsSkipped} ${tc.runs.skipped}` : ''}
+          {run.recordsFailed > 0 ? ` · ${run.recordsFailed} ${tc.runs.failed}` : ''}
+        </p>
+        <p className="text-muted-foreground mt-0.5 text-[11px]">
+          {relativeTime(run.startedAt, language)} · {triggerLabel(run.trigger, t)}
+        </p>
+        {run.error ? (
+          <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{run.error}</p>
+        ) : null}
+        {run.errorSamples && run.errorSamples.length > 0 ? (
+          <ul className="mt-1 space-y-0.5">
+            {run.errorSamples.slice(0, 3).map((sample) => (
+              <li
+                key={`${sample.externalId}:${sample.message}`}
+                className="text-[11px] text-red-600/90 dark:text-red-400/90"
+              >
+                {sample.externalId !== '-' ? `${sample.externalId}: ` : ''}
+                {sample.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <Badge variant="outline" className={`shrink-0 text-[11px] ${STATUS_CLASSES[run.status] ?? ''}`}>
+        {tc.health[run.status as keyof typeof tc.health] ?? run.status}
+      </Badge>
+    </li>
+  );
+}
+
+interface RunsPanelProps {
+  runs: ConnectorSyncRun[];
+  connection: ConnectorConnection;
+  t: Translations;
+  language: string;
+}
+
+function RunsPanel({ runs, connection, t, language }: Readonly<RunsPanelProps>) {
+  if (runs.length === 0) {
+    return (
+      <p className="text-muted-foreground py-10 text-center text-sm">
+        {t.weldconnect.connectors.runs.empty}
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-3">
+      {runs.map((run) => (
+        <RunItem key={run.id} run={run} connection={connection} t={t} language={language} />
+      ))}
+    </ul>
+  );
+}
+
+interface SyncObjectRowProps {
+  sync: ConnectorSyncDef;
+  on: boolean;
+  objectDirection: SyncDirection;
+  canManage: boolean;
+  tc: ConnectorsTranslations;
+  onToggle: (checked: boolean) => void;
+  onDirectionChange: (value: SyncDirection) => void;
+}
+
+function SyncObjectRow({
+  sync,
+  on,
+  objectDirection,
+  canManage,
+  tc,
+  onToggle,
+  onDirectionChange,
+}: Readonly<SyncObjectRowProps>) {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+        <p className="text-sm">
+          {(tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey}
+        </p>
+        <Switch checked={on} disabled={!canManage} onCheckedChange={onToggle} />
+      </div>
+      {on ? (
+        <Select
+          value={objectDirection}
+          disabled={!canManage}
+          onValueChange={(value) => onDirectionChange(value as SyncDirection)}
+        >
+          <SelectTrigger className="h-8 w-full sm:w-[160px]">
+            <SelectValue />
+          </SelectTrigger>
+          <DirectionSelectContent tc={tc} />
+        </Select>
+      ) : null}
+    </div>
+  );
+}
+
+interface ConnectionActionsBarProps {
+  connection: ConnectorConnection;
+  canManage: boolean;
+  tc: ConnectorsTranslations;
+  syncPending: boolean;
+  pausePending: boolean;
+  onSync: (full: boolean) => void;
+  onPause: (paused: boolean) => void;
+  onDisconnect: (connection: ConnectorConnection) => void;
+}
+
+function ConnectionActionsBar({
+  connection,
+  canManage,
+  tc,
+  syncPending,
+  pausePending,
+  onSync,
+  onPause,
+  onDisconnect,
+}: Readonly<ConnectionActionsBarProps>) {
+  const isPaused = connection.status === 'paused';
+  return (
+    <div className="flex items-center gap-2 border-b px-6 py-3">
+      <Button size="sm" onClick={() => onSync(false)} disabled={syncPending || !canManage}>
+        {syncPending ? (
+          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+        )}
+        {tc.syncNow}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" disabled={!canManage} aria-label={tc.moreActions}>
+            <EllipsisVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={() => onSync(true)} disabled={syncPending}>
+            <RefreshCw className="mr-2 h-3.5 w-3.5" />
+            {tc.fullResync}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onPause(!isPaused)} disabled={pausePending}>
+            {isPaused ? (
+              <Play className="mr-2 h-3.5 w-3.5" />
+            ) : (
+              <Pause className="mr-2 h-3.5 w-3.5" />
+            )}
+            {isPaused ? tc.resume : tc.pause}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => onDisconnect(connection)}
+          >
+            <Link2Off className="mr-2 h-3.5 w-3.5" />
+            {tc.disconnect}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+interface EntityFieldProps {
+  tc: ConnectorsTranslations;
+  activeEntities: Array<{ id: string; name: string }>;
+  currentEntityId: string;
+  canManage: boolean;
+  onChange: (entityId: string) => void;
+}
+
+function EntityField({ tc, activeEntities, currentEntityId, canManage, onChange }: Readonly<EntityFieldProps>) {
+  return (
+    <div className="mb-4 space-y-1.5">
+      <Label htmlFor="connection-entity">{tc.settings.entityLabel}</Label>
+      <p className="text-muted-foreground text-xs">{tc.settings.entityDescription}</p>
+      {activeEntities.length === 0 ? (
+        <p className="text-destructive text-xs">{tc.settings.entityMissing}</p>
+      ) : (
+        <Select value={currentEntityId} onValueChange={onChange} disabled={!canManage}>
+          <SelectTrigger id="connection-entity">
+            <SelectValue placeholder={tc.settings.entityPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {activeEntities.map((entity) => (
+              <SelectItem key={entity.id} value={entity.id}>
+                {entity.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
 interface ConnectionDetailsProps {
   connectionId: string | null;
   onOpenChange: (open: boolean) => void;
@@ -239,7 +496,6 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   };
 
   const lastSync = relativeTime(connection?.lastSyncAt, language);
-  const types = t.weldconnect.connectors.types;
 
   return (
     <Sheet
@@ -283,45 +539,16 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b px-6 py-3">
-              <Button size="sm" onClick={() => handleSync(false)} disabled={triggerSync.isPending || !canManage}>
-                {triggerSync.isPending ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {tc.syncNow}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" disabled={!canManage} aria-label={tc.moreActions}>
-                    <EllipsisVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => handleSync(true)} disabled={triggerSync.isPending}>
-                    <RefreshCw className="mr-2 h-3.5 w-3.5" />
-                    {tc.fullResync}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handlePause(connection.status !== 'paused')} disabled={setPaused.isPending}>
-                    {connection.status === 'paused' ? (
-                      <Play className="mr-2 h-3.5 w-3.5" />
-                    ) : (
-                      <Pause className="mr-2 h-3.5 w-3.5" />
-                    )}
-                    {connection.status === 'paused' ? tc.resume : tc.pause}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => onDisconnect(connection)}
-                  >
-                    <Link2Off className="mr-2 h-3.5 w-3.5" />
-                    {tc.disconnect}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <ConnectionActionsBar
+              connection={connection}
+              canManage={canManage}
+              tc={tc}
+              syncPending={triggerSync.isPending}
+              pausePending={setPaused.isPending}
+              onSync={handleSync}
+              onPause={handlePause}
+              onDisconnect={onDisconnect}
+            />
 
             {connection.lastError && (connection.status === 'sync_error' || connection.status === 'auth_error') ? (
               <p className="border-b bg-red-50 px-6 py-2.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
@@ -339,102 +566,22 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
               </div>
 
               <TabsContent value="records" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
-                {records.length === 0 ? (
-                  <p className="text-muted-foreground py-10 text-center text-sm">{tc.records.empty}</p>
-                ) : (
-                  <ul className="divide-y">
-                    {records.map((record) => (
-                      <li key={record.id} className="flex items-center justify-between gap-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{record.label}</p>
-                          <p className="text-muted-foreground truncate text-[11px]">
-                            {types[recordTypeKey(record)]}
-                            {record.lastSyncedAt ? ` · ${relativeTime(record.lastSyncedAt, language)}` : ''}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {records.length > 0 ? (
-                  <p className="text-muted-foreground mt-3 text-[11px]">
-                    {format(tc.records.showingRecent, { count: records.length })}
-                  </p>
-                ) : null}
+                <RecordsPanel records={records} tc={tc} language={language} format={format} />
               </TabsContent>
 
               <TabsContent value="activity" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
-                {runs.length === 0 ? (
-                  <p className="text-muted-foreground py-10 text-center text-sm">{tc.runs.empty}</p>
-                ) : (
-                  <ul className="space-y-3">
-                    {runs.map((run) => (
-                      <li key={run.id} className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{runLabel(run, connection, t)}</p>
-                          <p className="text-muted-foreground mt-0.5 text-[11px]">
-                            {run.recordsCreated} {tc.runs.created} · {run.recordsModified} {tc.runs.updated}
-                            {run.recordsSkipped > 0 ? ` · ${run.recordsSkipped} ${tc.runs.skipped}` : ''}
-                            {run.recordsFailed > 0 ? ` · ${run.recordsFailed} ${tc.runs.failed}` : ''}
-                          </p>
-                          <p className="text-muted-foreground mt-0.5 text-[11px]">
-                            {relativeTime(run.startedAt, language)} · {triggerLabel(run.trigger, t)}
-                          </p>
-                          {run.error ? (
-                            <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{run.error}</p>
-                          ) : null}
-                          {run.errorSamples && run.errorSamples.length > 0 ? (
-                            <ul className="mt-1 space-y-0.5">
-                              {run.errorSamples.slice(0, 3).map((sample) => (
-                                <li
-                                  key={`${sample.externalId}:${sample.message}`}
-                                  className="text-[11px] text-red-600/90 dark:text-red-400/90"
-                                >
-                                  {sample.externalId !== '-' ? `${sample.externalId}: ` : ''}
-                                  {sample.message}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={`shrink-0 text-[11px] ${STATUS_CLASSES[run.status] ?? ''}`}
-                        >
-                          {tc.health[run.status as keyof typeof tc.health] ?? run.status}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <RunsPanel runs={runs} connection={connection} t={t} language={language} />
               </TabsContent>
 
               <TabsContent value="settings" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
                 {needsEntity ? (
-                  <div className="mb-4 space-y-1.5">
-                    <Label htmlFor="connection-entity">{tc.settings.entityLabel}</Label>
-                    <p className="text-muted-foreground text-xs">{tc.settings.entityDescription}</p>
-                    {activeEntities.length === 0 ? (
-                      <p className="text-destructive text-xs">{tc.settings.entityMissing}</p>
-                    ) : (
-                      <Select
-                        value={currentEntityId}
-                        onValueChange={setSelectedEntityId}
-                        disabled={!canManage}
-                      >
-                        <SelectTrigger id="connection-entity">
-                          <SelectValue placeholder={tc.settings.entityPlaceholder} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeEntities.map((entity) => (
-                            <SelectItem key={entity.id} value={entity.id}>
-                              {entity.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
+                  <EntityField
+                    tc={tc}
+                    activeEntities={activeEntities}
+                    currentEntityId={currentEntityId}
+                    canManage={canManage}
+                    onChange={setSelectedEntityId}
+                  />
                 ) : null}
 
                 <div className="mb-4 space-y-1.5">
@@ -448,11 +595,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     <SelectTrigger id="connection-direction">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="inbound">{tc.settings.directionInbound}</SelectItem>
-                      <SelectItem value="outbound">{tc.settings.directionOutbound}</SelectItem>
-                      <SelectItem value="bidirectional">{tc.settings.directionBidirectional}</SelectItem>
-                    </SelectContent>
+                    <DirectionSelectContent tc={tc} />
                   </Select>
                 </div>
 
@@ -461,50 +604,28 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                   <p className="text-muted-foreground text-xs">{tc.settings.objectsDescription}</p>
                 </div>
                 <div className="divide-y rounded-lg border">
-                  {[...new Map(connection.syncs.map((sync) => [sync.settingKey, sync])).values()].map((sync) => {
-                    const on = settingEnabled(currentSyncs, sync);
-                    const objectDirection = currentObjectDirections[sync.settingKey] ?? currentDirection;
-                    return (
-                      <div key={sync.settingKey} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                          <p className="text-sm">
-                            {(tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey}
-                          </p>
-                          <Switch
-                            checked={on}
-                            disabled={!canManage}
-                            onCheckedChange={(checked) => {
-                              const without = currentSyncs.filter(
-                                (value) => value !== sync.settingKey && value !== sync.syncName,
-                              );
-                              setEnabledSyncs(checked ? [...without, sync.settingKey] : without);
-                            }}
-                          />
-                        </div>
-                        {on ? (
-                          <Select
-                            value={objectDirection}
-                            disabled={!canManage}
-                            onValueChange={(value) => {
-                              setObjectDirections({
-                                ...currentObjectDirections,
-                                [sync.settingKey]: value as SyncDirection,
-                              });
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-full sm:w-[160px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="inbound">{tc.settings.directionInbound}</SelectItem>
-                              <SelectItem value="outbound">{tc.settings.directionOutbound}</SelectItem>
-                              <SelectItem value="bidirectional">{tc.settings.directionBidirectional}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                  {[...new Map(connection.syncs.map((sync) => [sync.settingKey, sync])).values()].map((sync) => (
+                    <SyncObjectRow
+                      key={sync.settingKey}
+                      sync={sync}
+                      on={settingEnabled(currentSyncs, sync)}
+                      objectDirection={currentObjectDirections[sync.settingKey] ?? currentDirection}
+                      canManage={canManage}
+                      tc={tc}
+                      onToggle={(checked) => {
+                        const without = currentSyncs.filter(
+                          (value) => value !== sync.settingKey && value !== sync.syncName,
+                        );
+                        setEnabledSyncs(checked ? [...without, sync.settingKey] : without);
+                      }}
+                      onDirectionChange={(value) => {
+                        setObjectDirections({
+                          ...currentObjectDirections,
+                          [sync.settingKey]: value,
+                        });
+                      }}
+                    />
+                  ))}
                 </div>
                 {canManage ? (
                   <Button
