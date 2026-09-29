@@ -20,6 +20,8 @@ export interface TaskRow {
   parentTaskId?: string | null;
   stageId?: string | null;
   customerId?: string | null;
+  /** `customerId` resolved to its company record (null when unlinked or archived). */
+  linkedCompany?: { id: string; name: string; avatar?: string | null } | null;
   contactId?: string | null;
   status: string;
   priority: string;

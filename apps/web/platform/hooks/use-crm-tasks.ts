@@ -40,7 +40,7 @@ export interface Task {
   scheduledStart?: Date | null;
   scheduledEnd?: Date | null;
   autoScheduled?: boolean | null;
-  /** Minutes. Named `duration` on write payloads but `durationMinutes` on the wire read shape — see `RawTask`. */
+  /** Minutes. `duration` on both the write payload and the wire read shape. */
   duration?: number;
   /** GitHub Issues integration — set when this task is linked to an issue. */
   githubIssueNumber?: number | null;
@@ -52,11 +52,19 @@ export const crmTasksKeys = {
   list: () => [...crmTasksKeys.all, 'list'] as const,
 };
 
-export type RawTask = Omit<Task, 'dueDate' | 'createdAt' | 'completedAt' | 'duration'> & {
+export type RawTask = Omit<
+  Task,
+  'dueDate' | 'createdAt' | 'completedAt' | 'duration' | 'linkedCompany'
+> & {
   dueDate?: string | null;
   createdAt: string;
   completedAt?: string | null;
+  /** Minutes, as stored on the `tasks.duration` column. */
+  duration?: number | null;
+  /** Legacy alias some payloads (calendar events) use for the same value. */
   durationMinutes?: number | null;
+  /** Server-resolved CRM company for `customerId` (flow-api `/tasks`). */
+  linkedCompany?: { id: string; name: string; avatar?: string | null } | null;
 };
 
 function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): string | undefined {
@@ -66,13 +74,18 @@ function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): 
   return s;
 }
 
-function hydrate(task: RawTask): Task {
+export function hydrate(task: RawTask): Task {
+  const { linkedCompany, duration, durationMinutes, ...rest } = task;
   return {
-    ...task,
+    ...rest,
     dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
     createdAt: new Date(task.createdAt),
     completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
-    duration: task.durationMinutes ?? undefined,
+    duration: duration ?? durationMinutes ?? undefined,
+    // The API resolves `customerId` to the company record (id, name, avatar).
+    linkedCompany: linkedCompany
+      ? { id: linkedCompany.id, name: linkedCompany.name, avatar: linkedCompany.avatar ?? undefined }
+      : undefined,
   };
 }
 
@@ -114,6 +127,9 @@ export function useCreateTask() {
       priority?: Task['priority'];
       dueDate?: Date;
       assigneeId?: string;
+      assigneeIds?: string[];
+      /** Minutes. */
+      duration?: number;
       linkedCompanyId?: string;
       labels?: string[];
       repeat?: Task['repeat'];
@@ -126,7 +142,9 @@ export function useCreateTask() {
           status: crmStatusToTaskStatus(data.status),
           priority: data.priority,
           assigneeId: data.assigneeId,
+          assigneeIds: data.assigneeIds,
           customerId: data.linkedCompanyId,
+          duration: data.duration,
           dueDate: data.dueDate ? data.dueDate.toISOString() : undefined,
           labels: data.labels,
           repeat: data.repeat,
@@ -199,7 +217,10 @@ export function useUpdateTask() {
     }: {
       taskId: string;
       data: Partial<
-        Pick<Task, 'status' | 'dueDate' | 'priority' | 'title' | 'description' | 'repeat' | 'labels'>
+        Pick<
+          Task,
+          'status' | 'dueDate' | 'priority' | 'title' | 'description' | 'repeat' | 'labels' | 'duration'
+        >
       > & {
         assignee?: Task['assignee'] | null;
         assignees?: Task['assignees'] | null;

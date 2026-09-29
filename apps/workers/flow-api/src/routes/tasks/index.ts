@@ -168,8 +168,8 @@ export function taskCursorCondition(
 // ============================================================================
 
 /**
- * Enrich task rows with assignee info from workspaceMembers and the
- * currently-scheduled calendar slot (if any).
+ * Enrich task rows with assignee info from workspaceMembers, the
+ * currently-scheduled calendar slot (if any) and the linked CRM company.
  */
 export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
   if (taskResults.length === 0) return taskResults;
@@ -202,6 +202,33 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
     .filter((id: any): id is string => typeof id === 'string');
   const eventMap = await fetchTaskScheduledSlots(db, taskIds);
 
+  // CRM link: `tasks.customer_id` holds a company id. Resolve it to a display
+  // object in one batched query so list/detail views (CRM My Tasks, task panel)
+  // can show the linked record without a second round trip.
+  const companyIds = new Set<string>();
+  for (const row of taskResults) {
+    if (typeof row.customerId === 'string' && row.customerId) companyIds.add(row.customerId);
+  }
+  const companyMap = new Map<string, { id: string; name: string; avatar: string | null }>();
+  if (companyIds.size > 0) {
+    const { companies } = schema;
+    const companyRows = await db
+      .select({
+        id: companies.id,
+        name: companies.displayName,
+        avatar: companies.avatarUrl,
+      })
+      .from(companies)
+      .where(and(inArray(companies.id, [...companyIds]), isNull(companies.deletedAt)));
+    for (const company of companyRows) {
+      companyMap.set(company.id, {
+        id: company.id,
+        name: company.name,
+        avatar: company.avatar ?? null,
+      });
+    }
+  }
+
   return taskResults.map((task: any) => {
     const ids: string[] =
       Array.isArray(task.assigneeIds) && task.assigneeIds.length > 0
@@ -225,6 +252,7 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
       scheduledStart: scheduled?.startTime ?? null,
       scheduledEnd: scheduled?.endTime ?? null,
       autoScheduled: scheduled?.autoScheduled ?? null,
+      linkedCompany: task.customerId ? (companyMap.get(task.customerId) ?? null) : null,
     };
   });
 }

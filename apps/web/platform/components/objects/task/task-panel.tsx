@@ -63,6 +63,7 @@ import {
   useProjectMembers,
   useProjectTasksForDeps,
   useTaskById,
+  useTaskCompanyOptions,
   useTaskComments,
   useTaskSubtasks,
   useToggleSubtask,
@@ -115,7 +116,15 @@ function toCrmTask(
     scheduledStart: null,
     scheduledEnd: null,
     autoScheduled: null,
-    linkedCompany: api.projectId ? { id: api.projectId, name: '' } : null,
+    // `customerId` resolved server-side to the CRM company (id, name, avatar).
+    linkedCompany: api.linkedCompany
+      ? {
+          id: api.linkedCompany.id,
+          name: api.linkedCompany.name,
+          avatar: api.linkedCompany.avatar ?? undefined,
+        }
+      : null,
+    duration: api.duration ?? undefined,
     ...(api.customFields ? { customFields: api.customFields } : {}),
   } as CrmTask;
 }
@@ -335,6 +344,22 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
     return toCrmTask(apiTask, memberByUserId);
   }, [apiTask, memberByUserId]);
 
+  // The CRM record link belongs to tasks outside a project (CRM My Tasks).
+  // It is always shown there, and for a project task that happens to carry one.
+  const showCompanyField = !!task && (!projectId || !!task.linkedCompany);
+  const companyOptionsQuery = useTaskCompanyOptions(showCompanyField);
+  const availableCompanies = useMemo(() => {
+    const options = new Map<string, { id: string; name: string; avatar?: string }>();
+    if (task?.linkedCompany) {
+      options.set(task.linkedCompany.id, task.linkedCompany);
+    }
+    for (const company of companyOptionsQuery.data ?? []) {
+      const name = company.displayName || company.name;
+      if (name) options.set(company.id, { id: company.id, name, avatar: company.avatarUrl ?? undefined });
+    }
+    return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [task?.linkedCompany, companyOptionsQuery.data]);
+
   const availableAssignees = useMemo(() => {
     if (projectId && projectMembersQuery.data && projectMembersQuery.data.length > 0) {
       return projectMembersQuery.data.map((m) => {
@@ -446,6 +471,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
+    if (data.linkedCompany !== undefined) payload.customerId = data.linkedCompany?.id ?? null;
     if (data.assignees !== undefined) {
       const ids = (data.assignees ?? []).map((a) => a.id).filter(Boolean);
       payload.assigneeIds = ids;
@@ -683,7 +709,8 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
             projectId={projectId ?? undefined}
             onUpdate={handleUpdate}
             availableAssignees={availableAssignees}
-            availableCompanies={projectId ? [{ id: projectId, name: '' }] : []}
+            availableCompanies={availableCompanies}
+            alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}
             attachments={attachments}

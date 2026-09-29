@@ -332,6 +332,12 @@ export interface TaskDetailContentProps {
   onAddDependency?: (targetTaskId: string, type: 'blocks' | 'blockedBy') => void;
   onRemoveDependency?: (targetTaskId: string, type: 'blocks' | 'blockedBy') => void;
   hiddenFields?: string[];
+  /**
+   * Field ids shown regardless of the user's saved field-visibility
+   * preference. Used for fields that are the point of the task in some
+   * contexts (e.g. the CRM record link on a CRM task).
+   */
+  alwaysShowFields?: string[];
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -470,6 +476,7 @@ export function TaskDetailContent({
   onAddDependency,
   onRemoveDependency,
   hiddenFields,
+  alwaysShowFields,
 }: TaskDetailContentProps) {
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
@@ -486,9 +493,10 @@ export function TaskDetailContent({
   const isFieldVisible = useCallback(
     (fieldId: string) => {
       if (hiddenFields?.includes(fieldId)) return false;
+      if (alwaysShowFields?.includes(fieldId)) return true;
       return isFieldVisibleBase(fieldId);
     },
-    [hiddenFields, isFieldVisibleBase]
+    [hiddenFields, alwaysShowFields, isFieldVisibleBase]
   );
   // Repeat popover open state (controlled so we can close it after a preset
   // / Clear click, while keeping it open for Custom interval/unit tweaks).
