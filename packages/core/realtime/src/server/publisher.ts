@@ -233,6 +233,8 @@ export class RealtimePublisher {
       threadId?: string;
       attachments?: Attachment[];
       forwardedFrom?: unknown;
+      /** Inline (Discord-style) reply snapshot — `chat_messages.metadata.replyTo`. */
+      replyTo?: unknown;
     },
   ) {
     return this.chatPublish(channelId, {

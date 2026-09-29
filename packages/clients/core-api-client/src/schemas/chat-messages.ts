@@ -5,6 +5,10 @@ export const createChatMessageSchema = z.object({
   authorId: z.string().nullish(),
   body: z.string().optional(),
   parentId: z.string().nullish(),
+  /** Discord-style inline reply target — stays top-level, unlike `parentId`. */
+  replyToId: z.string().nullish(),
+  /** Ping the author of `replyToId` (default true). */
+  replyMention: z.boolean().optional(),
   attachments: z.unknown().optional(),
   metadata: z.unknown().optional(),
 }).passthrough();

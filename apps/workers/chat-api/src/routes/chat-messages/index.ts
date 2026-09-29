@@ -245,6 +245,8 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
           : undefined,
         mentions: Array.isArray(data.mentions) ? (data.mentions as string[]) : undefined,
         metadata: data.metadata as Record<string, unknown> | undefined,
+        replyToId: typeof data.replyToId === 'string' ? data.replyToId : null,
+        replyMention: typeof data.replyMention === 'boolean' ? data.replyMention : undefined,
       },
     );
     publishEntityEvent({

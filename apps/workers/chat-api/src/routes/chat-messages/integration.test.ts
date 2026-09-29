@@ -144,3 +144,89 @@ describe('/api/chat-messages · membership boundary', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('/api/chat-messages · inline (Discord-style) replies', () => {
+  const OTHER = 'user_other';
+
+  async function seedMessage(values: Partial<typeof schema.chatMessages.$inferInsert> = {}) {
+    const now = new Date();
+    const id = generateId('cmsg');
+    await db.insert(schema.chatMessages).values({
+      id,
+      channelId: publicChannelId,
+      authorId: OTHER,
+      authorName: 'Other',
+      content: 'original message',
+      createdAt: now,
+      updatedAt: now,
+      ...values,
+    });
+    return id;
+  }
+
+  async function post(payload: Record<string, unknown>) {
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: permissions('channels:create'), tenantDb: db },
+    });
+    const res = await request('/api/chat-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: publicChannelId, ...payload }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db
+      .select()
+      .from(schema.chatMessages)
+      .where(eq(schema.chatMessages.id, body.data.id))
+      .limit(1);
+    return row!;
+  }
+
+  it('keeps the reply top-level and snapshots the quoted message', async () => {
+    const targetId = await seedMessage();
+    const row = await post({ body: 'on it', replyToId: targetId });
+
+    expect(row.parentId).toBeNull();
+    const replyTo = (row.metadata as Record<string, any>).replyTo;
+    expect(replyTo).toMatchObject({
+      messageId: targetId,
+      rootId: targetId,
+      depth: 1,
+      authorId: OTHER,
+      authorName: 'Other',
+      content: 'original message',
+    });
+    // Pings the quoted author by default, without a token in the body.
+    expect(row.content).toBe('on it');
+    expect(row.mentions).toEqual([OTHER]);
+  });
+
+  it('tracks the chain depth and root across replies to replies', async () => {
+    const rootId = await seedMessage();
+    const first = await post({ body: 'one', replyToId: rootId });
+    const second = await post({ body: 'two', replyToId: first.id });
+
+    const replyTo = (second.metadata as Record<string, any>).replyTo;
+    expect(replyTo.depth).toBe(2);
+    expect(replyTo.rootId).toBe(rootId);
+    expect(replyTo.messageId).toBe(first.id);
+  });
+
+  it('does not ping when replyMention is false', async () => {
+    const targetId = await seedMessage();
+    const row = await post({ body: 'quiet', replyToId: targetId, replyMention: false });
+    expect(row.mentions).toBeNull();
+  });
+
+  it('ignores a reply target from another channel and forged metadata', async () => {
+    const foreignId = await seedMessage({ channelId: privateChannelId, content: 'top secret' });
+    const row = await post({
+      body: 'sneaky',
+      replyToId: foreignId,
+      metadata: { replyTo: { messageId: 'forged', content: 'fake quote' } },
+    });
+    expect((row.metadata as Record<string, unknown> | null)?.replyTo).toBeUndefined();
+    expect(row.mentions).toBeNull();
+  });
+});

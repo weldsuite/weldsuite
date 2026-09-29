@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { useOrganization , useAuth } from '@clerk/expo';
+import { useOrganization, useAuth, useUser } from '@clerk/expo';
 import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
@@ -41,9 +41,18 @@ import { ReactionBar } from './ReactionBar';
 import { MessageActions } from './MessageActions';
 import { EmojiPicker } from './EmojiPicker';
 import { MentionPicker } from './MentionPicker';
+import { renderMessageText } from './MessageText';
 import { AudioPlayer } from './AudioPlayer';
 import { ImageViewer } from './ImageViewer';
 import { appApi, appApiClient } from '@/services/app-api';
+import {
+  detectMentionQuery,
+  hasMentionTokens,
+  insertMention,
+  mentionLabel,
+  mentionTokenRegex,
+  mentionsToPlainText,
+} from '@/lib/chat/mentions';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 interface ChatAttachment {
@@ -94,41 +103,57 @@ interface Message {
   parentId?: string;
   attachments?: ChatAttachment[];
   hasAttachments?: boolean;
+  metadata?: { replyTo?: ChatReplyReference } | null;
+  /** Optimistic row shown while the send request is in flight. */
+  pending?: boolean;
 }
 
-/** Render message text with <@userId> mention badges */
-function renderMessageText(content: string, members: Map<string, string>, colors: ThemeColors) {
-  const mentionRegex = /<@([^>]+)>/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = mentionRegex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(<Text key={`t${match.index}`} style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content.substring(lastIndex, match.index)}</Text>);
-    }
-    const uid = match[1];
-    const name = uid.includes(':') ? uid.split(':')[1] : (members.get(uid) ?? uid);
-    parts.push(
-      <Text key={`m${match.index}`} style={{ fontSize: 14, fontWeight: '700', color: '#dee0fc', backgroundColor: 'rgba(88, 101, 242, 0.3)', borderRadius: 4, paddingHorizontal: 2, overflow: 'hidden' }}>@{name}</Text>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(<Text key="end" style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content.substring(lastIndex)}</Text>);
-  }
-
-  if (parts.length === 0) {
-    return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content}</Text>;
-  }
-
-  return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{parts}</Text>;
+/**
+ * Discord-style inline reply reference, built by the server from `replyToId`
+ * and stored at `metadata.replyTo`. `depth` is the reply's position in the
+ * chain, `rootId` the message that started it.
+ */
+interface ChatReplyReference {
+  messageId: string;
+  rootId: string;
+  depth: number;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string | null;
+  content: string;
+  hasAttachments?: boolean;
 }
 
-/** Check if text contains <@...> mention tokens */
-function hasMentionTokens(text: string): boolean {
-  return /<@[^>]+>/.test(text);
+/** The message the composer is replying to. */
+interface ReplyTarget {
+  messageId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string | null;
+  content: string;
+  /** Chain depth of the target itself (0 for a plain message). */
+  depth: number;
+  rootId: string;
+}
+
+/**
+ * Replying to a message that is already this deep in a reply chain (the new
+ * message would be the 4th in it) suggests moving the conversation to a
+ * thread, like Discord does.
+ */
+const THREAD_SUGGESTION_DEPTH = 2;
+
+function replyTargetFor(message: Message): ReplyTarget {
+  const ref = message.metadata?.replyTo;
+  return {
+    messageId: message.id,
+    authorId: message.authorId,
+    authorName: message.authorName,
+    authorAvatar: message.authorAvatar ?? null,
+    content: message.content,
+    depth: ref?.depth ?? 0,
+    rootId: ref?.rootId ?? message.id,
+  };
 }
 
 /**
@@ -154,7 +179,7 @@ function formatFileSize(bytes: number): string {
 
 /** Render input text with inline mention badges (overlay on TextInput) */
 function renderInputWithBadges(text: string, members: Map<string, string>, colors: ThemeColors) {
-  const mentionRegex = /<@([^>]+)>/g;
+  const mentionRegex = mentionTokenRegex();
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
@@ -167,8 +192,7 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
         </Text>
       );
     }
-    const uid = match[1];
-    const name = uid.includes(':') ? uid.split(':')[1] : (members.get(uid) ?? uid);
+    const name = mentionLabel(match[1], members);
     parts.push(
       <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', color: '#dee0fc', backgroundColor: 'rgba(88, 101, 242, 0.3)', borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden' }}>@{name}</Text>
     );
@@ -377,6 +401,7 @@ interface ChannelViewProps {
 export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<ChannelViewProps>) {
   const { markInteractive } = useObserve();
   const { userId } = useAuth();
+  const { user } = useUser();
   const { organization } = useOrganization();
   const workspaceId = organization?.id ?? null;
   const toast = useToast();
@@ -456,7 +481,6 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [input, setInput] = useState('');
   const [channel, setChannel] = useState<any>(null);
-  const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showActions, setShowActions] = useState(false);
@@ -467,10 +491,16 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
   const [pinDuration, setPinDuration] = useState<string | null>(null);
   const [messageToPin, setMessageToPin] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentions, setMentions] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<{ name: string; uri: string; mimeType: string }[]>([]);
-  const [replyTo, setReplyTo] = useState<{ messageId: string; authorId: string; authorName: string; content: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const [replyMention, setReplyMention] = useState(true);
+  // Reply chains (by root message id) whose "continue in a thread?" prompt the
+  // user dismissed — don't nag again for the same conversation.
+  const [dismissedThreadSuggestions, setDismissedThreadSuggestions] = useState<Set<string>>(new Set());
+  // Optimistic sends still waiting to show up in a server fetch, keyed by their
+  // temporary id. `serverId` is filled in once the POST answers, so the next
+  // fetch that contains it can retire the placeholder without a flicker.
+  const pendingSendsRef = useRef(new Map<string, { message: Message; serverId?: string }>());
   const [membersMap, setMembersMap] = useState<Map<string, string>>(new Map());
   // userId → workspace membership status ('ACTIVE' ⇒ online). The roster has no
   // real last-seen feed, so this is the same coarse presence proxy the profile
@@ -607,6 +637,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     setChannel(null);
     setInput('');
     setEditingMessage(null);
+    setReplyTo(null);
+    setMentionQuery(null);
+    pendingSendsRef.current.clear();
     draftIdRef.current = null;
     setMessagesLoading(true);
     loadChannel();
@@ -673,9 +706,15 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         ...m,
         isPinned: m.isPinned || localPinnedIds.has(m.id),
       }));
+      // Keep optimistic sends on screen until the server copy is in the list.
+      const fetchedIds = new Set(msgs.map((m) => m.id));
+      for (const [tempId, entry] of pendingSendsRef.current) {
+        if (entry.serverId && fetchedIds.has(entry.serverId)) pendingSendsRef.current.delete(tempId);
+      }
+      const pending = [...pendingSendsRef.current.values()].map((entry) => entry.message);
       setMessages((prev) => {
         const localSystemMsgs = prev.filter((m) => m.type === 'system' && m.id.startsWith('pin-'));
-        return [...merged, ...localSystemMsgs];
+        return [...merged, ...localSystemMsgs, ...pending];
       });
       // We're viewing this channel, so mark it read — advances our lastReadAt
       // past the latest message (incl. one we just sent). Without this the
@@ -759,70 +798,97 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       return;
     }
 
-    if ((!input.trim() && pendingFiles.length === 0) || sending || uploading) return;
-    setSending(true);
+    const trimmed = input.trim();
+    if ((!trimmed && pendingFiles.length === 0) || uploading) return;
+
+    // Handle /ask slash command — the AI chat agent has been removed along
+    // with the AI backend, so surface an unavailable notice instead of
+    // calling the (removed) endpoint.
+    if (trimmed.startsWith('/ask ') && trimmed.substring(5).trim()) {
+      toast.info('AI is currently unavailable');
+      return;
+    }
+
+    const files = pendingFiles;
+    const reply = replyTo;
+    const pingReplyAuthor = replyMention;
+
+    // Clear the composer immediately and show the message optimistically —
+    // the request finishes in the background (restored below if it fails).
+    setInput('');
+    setMentionQuery(null);
+    setReplyTo(null);
+    setPendingFiles([]);
+    clearDraft();
+    onSend();
+
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ownLast = messages.find((m) => m.authorId === userId && !m.pending);
+    const optimistic: Message = {
+      id: tempId,
+      authorId: userId ?? '',
+      authorName: (userId && membersMap.get(userId)) || user?.fullName || ownLast?.authorName || 'You',
+      authorAvatar: user?.imageUrl ?? ownLast?.authorAvatar,
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+      hasAttachments: files.length > 0,
+      pending: true,
+      metadata: reply
+        ? {
+            replyTo: {
+              messageId: reply.messageId,
+              rootId: reply.rootId,
+              depth: reply.depth + 1,
+              authorId: reply.authorId,
+              authorName: reply.authorName,
+              authorAvatar: reply.authorAvatar,
+              content: reply.content,
+            },
+          }
+        : null,
+    };
+    pendingSendsRef.current.set(tempId, { message: optimistic });
+    setMessages((prev) => [...prev, optimistic]);
+    // Scroll to bottom (index 0 on inverted list) after the state update settles
+    setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 50);
+
     try {
-      const trimmed = input.trim();
-
-      // Handle /ask slash command — the AI chat agent has been removed along
-      // with the AI backend, so surface an unavailable notice instead of
-      // calling the (removed) endpoint.
-      if (trimmed.startsWith('/ask ')) {
-        const question = trimmed.substring(5).trim();
-        if (question) {
-          toast.info('AI is currently unavailable');
-          setSending(false);
-          return;
-        }
-      }
-
-      // Upload pending files first
-      let uploadedAttachments: ChatAttachment[] = [];
-      if (pendingFiles.length > 0) {
+      let attachments: ChatAttachment[] | undefined;
+      if (files.length > 0) {
         setUploading(true);
         try {
-          const results = await Promise.all(
-            pendingFiles.map((f) => uploadChatAttachment(channelId, f)),
-          );
-          uploadedAttachments = results.filter((r): r is NonNullable<typeof r> => r !== null);
-        } catch (uploadErr) {
-          console.error('[WeldChat] File upload failed:', uploadErr);
+          const results = await Promise.all(files.map((f) => uploadChatAttachment(channelId, f)));
+          attachments = results.filter((r): r is NonNullable<typeof r> => r !== null);
+        } finally {
           setUploading(false);
-          setSending(false);
-          return;
         }
-        setUploading(false);
+        if (attachments.length === 0) throw new Error('Attachment upload failed');
       }
 
-      const attachmentsPayload = uploadedAttachments.length > 0 ? uploadedAttachments : undefined;
-
-      // HTTP-first: POST to API, server persists + publishes via @weldsuite/realtime
-      if (replyTo) {
-        const body = replyMention ? `<@${replyTo.authorId}> ${trimmed}` : trimmed;
-        await appApi.chatMessages.create({
-          channelId,
-          body,
-          parentId: replyTo.messageId,
-          attachments: attachmentsPayload,
-        });
-      } else {
-        await appApi.chatMessages.create({ channelId, body: trimmed, attachments: attachmentsPayload });
-      }
-      setInput('');
-      setMentions([]);
-      setReplyTo(null);
-      setPendingFiles([]);
-      clearDraft();
-      onSend();
+      // HTTP-first: POST to API, server persists + publishes via @weldsuite/realtime.
+      // A reply stays in the channel (Discord-style) instead of becoming a
+      // thread reply; the server pings the replied-to author when asked.
+      const res = await appApi.chatMessages.create({
+        channelId,
+        body: trimmed,
+        attachments,
+        replyToId: reply?.messageId,
+        replyMention: reply ? pingReplyAuthor : undefined,
+      });
+      const entry = pendingSendsRef.current.get(tempId);
+      if (entry) entry.serverId = res.data?.id;
       loadMessages();
-      // Scroll to bottom (index 0 on inverted list) after the state update settles
-      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } catch (err) {
-      console.error(err);
-    } finally {
-      setSending(false);
+      console.error('[WeldChat] Send failed:', err);
+      pendingSendsRef.current.delete(tempId);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      // Hand the message back so nothing typed is lost.
+      setInput((current) => current || trimmed);
+      if (reply) setReplyTo((current) => current ?? reply);
+      if (files.length > 0) setPendingFiles((current) => (current.length > 0 ? current : files));
+      toast.error('Message failed to send');
     }
-  }, [editingMessage, handleEditSubmit, input, channelId, sending, uploading, onSend, userId, membersMap, mentions, replyTo, replyMention, pendingFiles, clearDraft]);
+  }, [editingMessage, handleEditSubmit, input, channelId, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast]);
 
   const handleReaction = useCallback(async (emoji: string) => {
     if (!selectedMessage) return;
@@ -992,6 +1058,50 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     router.push({ pathname: '/thread/[messageId]', params: { messageId: message.id, channelId } } as any);
   }, [channelId]);
 
+  const startReply = useCallback((message: Message) => {
+    setReplyTo(replyTargetFor(message));
+    setReplyMention(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
+
+  // Discord-style "this is becoming a conversation" nudge: shown while replying
+  // deep into a reply chain, offers to continue in a thread on the chain's root.
+  const showThreadSuggestion =
+    !!replyTo &&
+    !editingMessage &&
+    channel?.threadsEnabled !== false &&
+    replyTo.depth >= THREAD_SUGGESTION_DEPTH &&
+    !dismissedThreadSuggestions.has(replyTo.rootId);
+
+  const continueInThread = useCallback(() => {
+    if (!replyTo) return;
+    const draft = input;
+    setReplyTo(null);
+    setInput('');
+    setMentionQuery(null);
+    clearDraft();
+    router.push({
+      pathname: '/thread/[messageId]',
+      params: { messageId: replyTo.rootId, channelId, draft },
+    } as any);
+  }, [replyTo, input, channelId, clearDraft, router]);
+
+  const dismissThreadSuggestion = useCallback(() => {
+    if (!replyTo) return;
+    const rootId = replyTo.rootId;
+    setDismissedThreadSuggestions((prev) => new Set(prev).add(rootId));
+  }, [replyTo]);
+
+  /** Scroll to a message (e.g. the original of a reply) if it's loaded. */
+  const jumpToMessage = useCallback((messageId: string) => {
+    const idx = reversedMessages.findIndex((m) => m.id === messageId);
+    if (idx >= 0) {
+      flatListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    } else {
+      toast.info('The original message is further back in the conversation');
+    }
+  }, [reversedMessages, toast]);
+
   const formatDateLabel = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -1051,26 +1161,52 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       prev.type !== 'system' &&
       prev.authorId === item.authorId &&
       !item.parentId &&
+      // A reply always shows its full header, with the quote above it.
+      !item.metadata?.replyTo &&
       !Number.isNaN(timeDiff) &&
       timeDiff >= 0 &&
       timeDiff < 300000;
 
+    // An optimistic row has no server id yet — nothing to act on.
     const onLongPress = () => {
+      if (item.pending) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setSelectedMessage(item);
       setShowActions(true);
     };
 
     const onSwipeReply = () => {
-      setReplyTo({
-        messageId: item.id,
-        authorId: item.authorId,
-        authorName: item.authorName,
-        content: item.content,
-      });
-      setReplyMention(true);
-      setTimeout(() => inputRef.current?.focus(), 0);
+      if (item.pending) return;
+      startReply(item);
     };
+
+    const replyRef = item.metadata?.replyTo;
+    const replyQuote = replyRef ? (
+      <TouchableOpacity
+        style={styles.replyQuote}
+        activeOpacity={0.6}
+        onPress={() => jumpToMessage(replyRef.messageId)}
+      >
+        <View style={styles.replyQuoteSpine} />
+        {replyRef.authorAvatar ? (
+          <Image source={{ uri: replyRef.authorAvatar }} style={styles.replyQuoteAvatar} />
+        ) : (
+          <View style={[styles.replyQuoteAvatar, styles.replyQuoteAvatarFallback]}>
+            <Text style={styles.replyQuoteAvatarText}>{(replyRef.authorName || '?')[0].toUpperCase()}</Text>
+          </View>
+        )}
+        <Text style={styles.replyQuoteAuthor} numberOfLines={1}>
+          {replyRef.authorName}
+        </Text>
+        <Text style={styles.replyQuoteText} numberOfLines={1}>
+          {replyRef.content
+            ? mentionsToPlainText(replyRef.content, membersMap).replace(/\s+/g, ' ')
+            : replyRef.hasAttachments
+              ? 'Attachment'
+              : 'Original message'}
+        </Text>
+      </TouchableOpacity>
+    ) : null;
 
     const reactions = item.reactions && Object.keys(item.reactions).length > 0;
     const hasThread = (item.threadReplyCount ?? 0) > 0;
@@ -1131,7 +1267,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       return (
         <>
           <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
-            <View style={styles.messageCompact}>
+            <View style={[styles.messageCompact, item.pending && styles.messagePending]}>
               {item.content ? renderMessageText(item.content, membersMap, colors) : null}
               {item.editedAt ? <Text style={styles.editedLabel}>(edited)</Text> : null}
               {item.attachments && item.attachments.length > 0 && renderAttachments(item.attachments)}
@@ -1152,7 +1288,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     return (
       <>
         <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
-          <View style={styles.message}>
+          <View style={item.pending && styles.messagePending}>
+          {replyQuote}
+          <View style={[styles.message, replyQuote ? styles.messageAfterQuote : null]}>
             {item.authorAvatar ? (
               <Image source={{ uri: item.authorAvatar }} style={styles.msgAvatarImg} />
             ) : (
@@ -1191,6 +1329,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
                 </TouchableOpacity>
               )}
             </View>
+          </View>
           </View>
         </SwipeableMessage>
         {dateSeparator}
@@ -1432,6 +1571,17 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
             setShowScrollToBottom(e.nativeEvent.contentOffset.y > 320);
           }}
           scrollEventThrottle={32}
+          onScrollToIndexFailed={(info) => {
+            // Rows have variable heights: scroll near the target first, then
+            // retry once it has been laid out.
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * info.index,
+              animated: true,
+            });
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
+            }, 250);
+          }}
           initialNumToRender={20}
           maxToRenderPerBatch={10}
           windowSize={10}
@@ -1448,19 +1598,6 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           }
         />
       </Animated.View>
-
-      {/* Mention picker */}
-      <MentionPicker
-        query={mentionQuery ?? ''}
-        visible={mentionQuery !== null}
-        onSelect={(member) => {
-          const atIndex = input.lastIndexOf('@');
-          const before = input.substring(0, atIndex);
-          setInput(`${before}<@${member.userId}> `);
-          setMentions((prev) => [...prev, member.userId]);
-          setMentionQuery(null);
-        }}
-      />
 
       <KeyboardStickyView
         style={styles.bottomStack}
@@ -1496,6 +1633,17 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           <ChevronDown size={21} color={colors.text} strokeWidth={2.5} />
         </TouchableOpacity>
       )}
+      {/* Mention picker — lives in the keyboard-sticky stack so it sits right
+          above the composer. Rendered in the page flow it ended up behind the
+          absolutely positioned composer and the keyboard, i.e. invisible. */}
+      <MentionPicker
+        query={mentionQuery ?? ''}
+        visible={mentionQuery !== null && !isRecording}
+        onSelect={(member) => {
+          setInput((prev) => insertMention(prev, member.userId));
+          setMentionQuery(null);
+        }}
+      />
       {/* Edit mode banner */}
       {editingMessage && (
         <View style={styles.editBar}>
@@ -1512,6 +1660,26 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <X size={14} color={colors.text} strokeWidth={3} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Long reply chain → suggest continuing in a thread (Discord-style) */}
+      {showThreadSuggestion && (
+        <View style={styles.threadSuggest}>
+          <MessageSquare size={16} color={BRAND} strokeWidth={2.2} />
+          <Text style={styles.threadSuggestText} numberOfLines={2}>
+            Looks like a conversation. Continue it in a thread?
+          </Text>
+          <TouchableOpacity style={styles.threadSuggestBtn} onPress={continueInThread} activeOpacity={0.8}>
+            <Text style={styles.threadSuggestBtnText}>Create thread</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={dismissThreadSuggestion}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Dismiss thread suggestion"
+          >
+            <X size={14} color={colors.muted} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
       )}
@@ -1666,17 +1834,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
                       clearDraft();
                     }
                   }
-                  const atIndex = text.lastIndexOf('@');
-                  if (atIndex >= 0 && (atIndex === 0 || text[atIndex - 1] === ' ')) {
-                    const query = text.substring(atIndex + 1);
-                    if (!query.includes(' ')) {
-                      setMentionQuery(query);
-                    } else {
-                      setMentionQuery(null);
-                    }
-                  } else {
-                    setMentionQuery(null);
-                  }
+                  setMentionQuery(detectMentionQuery(text));
                 }}
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
@@ -1706,9 +1864,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
               </TouchableOpacity>
               <View style={styles.composerActionsRight}>
                 <TouchableOpacity
-                  style={[styles.composerSolidBtn, (sending || uploading) && styles.sendBtnDisabled]}
+                  style={[styles.composerSolidBtn, uploading && styles.sendBtnDisabled]}
                   onPress={(input.trim() || pendingFiles.length > 0) ? handleSend : handleStartRecording}
-                  disabled={sending || uploading}
+                  disabled={uploading}
                   activeOpacity={0.85}
                 >
                   {uploading ? (
@@ -1764,15 +1922,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         message={selectedMessage}
         onClose={() => { setShowActions(false); setSelectedMessage(null); }}
         onReply={() => {
-          if (selectedMessage) {
-            setReplyTo({
-              messageId: selectedMessage.id,
-              authorId: selectedMessage.authorId,
-              authorName: selectedMessage.authorName,
-              content: selectedMessage.content,
-            });
-            setReplyMention(true);
-          }
+          if (selectedMessage) startReply(selectedMessage);
         }}
         onReact={() => setShowEmojiPicker(true)}
         onThread={() => selectedMessage && openThread(selectedMessage)}
@@ -1979,6 +2129,34 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
     // same-author (compact) messages sit tightly under the first one.
     message: { flexDirection: 'row', marginTop: 12, marginBottom: 0 },
     messageCompact: { paddingLeft: 42, marginTop: 3, marginBottom: 0 },
+    messagePending: { opacity: 0.55 },
+    messageAfterQuote: { marginTop: 2 },
+    // Discord-style quote of the replied-to message, above the reply's header.
+    // The spine curves from the avatar column up into the quote.
+    replyQuote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginTop: 12,
+      paddingLeft: 15,
+      paddingRight: 8,
+      minHeight: 20,
+    },
+    replyQuoteSpine: {
+      width: 18,
+      height: 9,
+      marginTop: 9,
+      marginRight: 2,
+      borderLeftWidth: 2,
+      borderTopWidth: 2,
+      borderTopLeftRadius: 6,
+      borderColor: c.border,
+    },
+    replyQuoteAvatar: { width: 16, height: 16, borderRadius: 6 },
+    replyQuoteAvatarFallback: { backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' },
+    replyQuoteAvatarText: { fontSize: 9, fontWeight: '700', color: '#fff' },
+    replyQuoteAuthor: { fontSize: 13, fontWeight: '600', color: c.text, maxWidth: '40%' },
+    replyQuoteText: { flex: 1, fontSize: 13, color: c.muted },
     messagePressed: { backgroundColor: c.cardBackground, marginHorizontal: -16, paddingHorizontal: 16 },
     dateSeparator: {
       flexDirection: 'row', alignItems: 'center', marginVertical: 16, gap: 12,
@@ -2216,6 +2394,24 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       fontStyle: 'italic',
       marginTop: 2,
     },
+    threadSuggest: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      backgroundColor: c.cardBackground,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+    },
+    threadSuggestText: { flex: 1, fontSize: 13, color: c.text },
+    threadSuggestBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 8,
+      backgroundColor: BRAND,
+    },
+    threadSuggestBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
     replyBar: {
       position: 'relative',
       backgroundColor: c.cardBackground,
