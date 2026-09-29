@@ -12,7 +12,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { cn } from '@weldsuite/ui/lib/utils';
-import { ChevronUp, CircleAlert, Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { ChevronUp, CircleAlert, Mic, MicOff, Video, VideoOff, type LucideIcon } from 'lucide-react';
 
 import { PermissionHelp } from './permission-help';
 
@@ -38,6 +38,141 @@ interface Props {
   changeVideoDevice: (deviceId: string) => void;
 }
 
+interface DeviceKindConfig {
+  permissionKind: 'microphone' | 'camera';
+  blockedLabel: string;
+  menuLabel: string;
+  emptyLabel: string;
+  fallbackLabelPrefix: string;
+  OnIcon: LucideIcon;
+  OffIcon: LucideIcon;
+}
+
+const MIC_CONFIG: DeviceKindConfig = {
+  permissionKind: 'microphone',
+  blockedLabel: 'Microphone access blocked — click for help',
+  menuLabel: 'Microphone',
+  emptyLabel: 'No microphones detected',
+  fallbackLabelPrefix: 'Microphone',
+  OnIcon: Mic,
+  OffIcon: MicOff,
+};
+
+const CAMERA_CONFIG: DeviceKindConfig = {
+  permissionKind: 'camera',
+  blockedLabel: 'Camera access blocked — click for help',
+  menuLabel: 'Camera',
+  emptyLabel: 'No cameras detected',
+  fallbackLabelPrefix: 'Camera',
+  OnIcon: Video,
+  OffIcon: VideoOff,
+};
+
+interface DeviceControlProps {
+  config: DeviceKindConfig;
+  permission: PermState;
+  enabled: boolean;
+  inputs: MediaDeviceInfo[];
+  selectedInput: string;
+  onToggle: () => void;
+  onChangeDevice: (deviceId: string) => void;
+}
+
+function BlockedDeviceControl({ config }: Readonly<{ config: DeviceKindConfig }>) {
+  const { OnIcon } = config;
+  return (
+    <div className="relative">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label={config.blockedLabel}
+            className="h-12 w-12 rounded-[18px] ring-1 ring-border border-0 transition-all focus-visible:ring-1 focus-visible:ring-border [&]:hover:brightness-95 dark:[&]:hover:brightness-110 cursor-pointer"
+          >
+            <OnIcon className="!h-[20px] !w-[20px]" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent side="top" align="center" sideOffset={10} className="w-72 p-4">
+          <PermissionHelp kind={config.permissionKind} />
+        </PopoverContent>
+      </Popover>
+      <CircleAlert className="pointer-events-none absolute top-[5px] right-[5px] h-[14px] w-[14px] text-amber-500 fill-background dark:fill-background" strokeWidth={2.5} />
+    </div>
+  );
+}
+
+function DeviceMenuBody({
+  config,
+  permission,
+  inputs,
+  selectedInput,
+  onChangeDevice,
+}: Readonly<Omit<DeviceControlProps, 'enabled' | 'onToggle'>>) {
+  if (inputs.length === 0) {
+    const permissionNeeded = permission === 'prompt' || permission === 'unknown';
+    return (
+      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+        {permissionNeeded ? 'Permission required.' : config.emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <DropdownMenuRadioGroup value={selectedInput} onValueChange={onChangeDevice}>
+      {inputs.map((d) => (
+        <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
+          <span className="truncate">{d.label || `${config.fallbackLabelPrefix} ${d.deviceId.slice(0, 8)}`}</span>
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  );
+}
+
+/** One split button (toggle + device picker) for either the mic or the camera. */
+function DeviceControl(props: Readonly<DeviceControlProps>) {
+  const { config, permission, enabled, onToggle } = props;
+  if (permission === 'denied') return <BlockedDeviceControl config={config} />;
+
+  const off = !enabled;
+  const { OnIcon, OffIcon } = config;
+  const ToggleIcon = off ? OffIcon : OnIcon;
+
+  return (
+    <div className={cn('flex items-center rounded-[18px] overflow-hidden ring-1', off ? 'ring-red-400/40' : 'ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all focus-visible:ring-0 focus-visible:border-transparent',
+          off ? RED_TOGGLE : NORMAL_TOGGLE,
+        )}
+        onClick={onToggle}
+      >
+        <ToggleIcon className="!h-[20px] !w-[20px]" />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="secondary"
+            size="icon"
+            className={cn(
+              'group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors focus-visible:ring-0 focus-visible:border-transparent',
+              off ? RED_ARROW : NORMAL_ARROW,
+            )}
+          >
+            <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
+          <DropdownMenuLabel>{config.menuLabel}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DeviceMenuBody {...props} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 /**
  * Shared mic/camera split-button + device-picker pair, used by both the
  * landing and the waitlisted screen. Matches the platform CallControlsBar
@@ -57,150 +192,26 @@ export function PrejoinMediaControls({
   changeAudioDevice,
   changeVideoDevice,
 }: Readonly<Props>) {
-  const audioBlocked = audioPermission === 'denied';
-  const videoBlocked = videoPermission === 'denied';
-  const audioOff = !previewAudioEnabled && !audioBlocked;
-  const videoOff = !previewVideoEnabled && !videoBlocked;
-
   return (
     <>
-      {/* Mic */}
-      {audioBlocked ? (
-        <div className="relative">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                aria-label="Microphone access blocked — click for help"
-                className="h-12 w-12 rounded-[18px] ring-1 ring-border border-0 transition-all focus-visible:ring-1 focus-visible:ring-border [&]:hover:brightness-95 dark:[&]:hover:brightness-110 cursor-pointer"
-              >
-                <Mic className="!h-[20px] !w-[20px]" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="center" sideOffset={10} className="w-72 p-4">
-              <PermissionHelp kind="microphone" />
-            </PopoverContent>
-          </Popover>
-          <CircleAlert className="pointer-events-none absolute top-[5px] right-[5px] h-[14px] w-[14px] text-amber-500 fill-background dark:fill-background" strokeWidth={2.5} />
-        </div>
-      ) : (
-        <div className={cn('flex items-center rounded-[18px] overflow-hidden ring-1', audioOff ? 'ring-red-400/40' : 'ring-border')}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn(
-              'h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all focus-visible:ring-0 focus-visible:border-transparent',
-              audioOff ? RED_TOGGLE : NORMAL_TOGGLE,
-            )}
-            onClick={togglePreviewAudio}
-          >
-            {audioOff ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className={cn(
-                  'group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors focus-visible:ring-0 focus-visible:border-transparent',
-                  audioOff ? RED_ARROW : NORMAL_ARROW,
-                )}
-              >
-                <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-              <DropdownMenuLabel>Microphone</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {audioInputs.length === 0 ? (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {audioPermission === 'prompt' || audioPermission === 'unknown'
-                    ? 'Permission required.'
-                    : 'No microphones detected'}
-                </div>
-              ) : (
-                <DropdownMenuRadioGroup value={selectedAudioInput} onValueChange={changeAudioDevice}>
-                  {audioInputs.map((d) => (
-                    <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                      <span className="truncate">{d.label || `Microphone ${d.deviceId.slice(0, 8)}`}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-
-      {/* Camera */}
-      {videoBlocked ? (
-        <div className="relative">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                aria-label="Camera access blocked — click for help"
-                className="h-12 w-12 rounded-[18px] ring-1 ring-border border-0 transition-all focus-visible:ring-1 focus-visible:ring-border [&]:hover:brightness-95 dark:[&]:hover:brightness-110 cursor-pointer"
-              >
-                <Video className="!h-[20px] !w-[20px]" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="center" sideOffset={10} className="w-72 p-4">
-              <PermissionHelp kind="camera" />
-            </PopoverContent>
-          </Popover>
-          <CircleAlert className="pointer-events-none absolute top-[5px] right-[5px] h-[14px] w-[14px] text-amber-500 fill-background dark:fill-background" strokeWidth={2.5} />
-        </div>
-      ) : (
-        <div className={cn('flex items-center rounded-[18px] overflow-hidden ring-1', videoOff ? 'ring-red-400/40' : 'ring-border')}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn(
-              'h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all focus-visible:ring-0 focus-visible:border-transparent',
-              videoOff ? RED_TOGGLE : NORMAL_TOGGLE,
-            )}
-            onClick={togglePreviewVideo}
-          >
-            {videoOff ? <VideoOff className="!h-[20px] !w-[20px]" /> : <Video className="!h-[20px] !w-[20px]" />}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className={cn(
-                  'group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors focus-visible:ring-0 focus-visible:border-transparent',
-                  videoOff ? RED_ARROW : NORMAL_ARROW,
-                )}
-              >
-                <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-              <DropdownMenuLabel>Camera</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {videoInputs.length === 0 ? (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {videoPermission === 'prompt' || videoPermission === 'unknown'
-                    ? 'Permission required.'
-                    : 'No cameras detected'}
-                </div>
-              ) : (
-                <DropdownMenuRadioGroup value={selectedVideoInput} onValueChange={changeVideoDevice}>
-                  {videoInputs.map((d) => (
-                    <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                      <span className="truncate">{d.label || `Camera ${d.deviceId.slice(0, 8)}`}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
+      <DeviceControl
+        config={MIC_CONFIG}
+        permission={audioPermission}
+        enabled={previewAudioEnabled}
+        inputs={audioInputs}
+        selectedInput={selectedAudioInput}
+        onToggle={togglePreviewAudio}
+        onChangeDevice={changeAudioDevice}
+      />
+      <DeviceControl
+        config={CAMERA_CONFIG}
+        permission={videoPermission}
+        enabled={previewVideoEnabled}
+        inputs={videoInputs}
+        selectedInput={selectedVideoInput}
+        onToggle={togglePreviewVideo}
+        onChangeDevice={changeVideoDevice}
+      />
     </>
   );
 }

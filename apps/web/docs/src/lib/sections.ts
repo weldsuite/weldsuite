@@ -62,6 +62,29 @@ export type Section = H2Node['attributes'] & {
   children: Array<Subsection>
 }
 
+function addHeadingSection(
+  sections: Array<Section>,
+  node: H2Node | H3Node,
+  slugify: ReturnType<typeof slugifyWithCounter>,
+) {
+  let title = getNodeText(node)
+  if (!title) return
+
+  let id = slugify(title)
+  if (!isH3Node(node)) {
+    sections.push({ ...node.attributes, id, title, children: [] })
+    return
+  }
+
+  let parent = sections[sections.length - 1]
+  if (!parent) {
+    throw new Error(
+      'Cannot add `h3` to table of contents without a preceding `h2`',
+    )
+  }
+  parent.children.push({ ...node.attributes, id, title })
+}
+
 export function collectSections(
   nodes: Array<Node>,
   slugify = slugifyWithCounter(),
@@ -70,24 +93,7 @@ export function collectSections(
 
   for (let node of nodes) {
     if (isH2Node(node) || isH3Node(node)) {
-      let title = getNodeText(node)
-      if (title) {
-        let id = slugify(title)
-        if (isH3Node(node)) {
-          if (!sections[sections.length - 1]) {
-            throw new Error(
-              'Cannot add `h3` to table of contents without a preceding `h2`',
-            )
-          }
-          sections[sections.length - 1].children.push({
-            ...node.attributes,
-            id,
-            title,
-          })
-        } else {
-          sections.push({ ...node.attributes, id, title, children: [] })
-        }
-      }
+      addHeadingSection(sections, node, slugify)
     }
 
     sections.push(...collectSections(node.children ?? [], slugify))

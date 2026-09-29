@@ -9,6 +9,162 @@ import { findOrCreatePersonByEmail } from '@/lib/people';
 import { guestJoinInputSchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
 
+type TenantDb = Awaited<ReturnType<typeof getTenantDb>>['db'];
+type Meeting = typeof meetings.$inferSelect;
+type MeetingSession = typeof meetingSessions.$inferSelect;
+
+function apiError(code: string, message: string, status: number) {
+  return NextResponse.json({ error: { code, message } }, { status });
+}
+
+function waitingResponse(meeting: Meeting, reason?: string) {
+  return NextResponse.json({
+    data: {
+      status: 'waiting' as const,
+      ...(reason ? { reason } : {}),
+      meetingId: meeting.id,
+      meetingTitle: meeting.title,
+    },
+  });
+}
+
+function hasAttendee(attendees: MeetingAttendee[] | null | undefined, email: string): boolean {
+  const wanted = email.toLowerCase();
+  return (attendees ?? []).some((a) => a.email.toLowerCase() === wanted);
+}
+
+/**
+ * Static access policy for a guest join: cancelled / completed meetings and
+ * workspace-only or invite-only access. Returns the refusal response, or null
+ * when the guest may continue.
+ */
+function checkMeetingAccess(meeting: Meeting, email: string): NextResponse | null {
+  if (meeting.status === 'cancelled') {
+    return apiError('BAD_REQUEST', 'Meeting is cancelled', 400);
+  }
+
+  // The host has closed the meeting (endSession sets status='completed' and
+  // clears activeSessionId). Return a terminal 'ended' status rather than
+  // falling through to the "no active session" → 'waiting' branch below,
+  // which would leave a rejoining guest polling/"Connecting" forever with no
+  // idea the meeting is over.
+  if (meeting.status === 'completed') {
+    return NextResponse.json({
+      data: { status: 'ended' as const, meetingId: meeting.id, meetingTitle: meeting.title },
+    });
+  }
+
+  if (meeting.accessType === 'workspace') {
+    return apiError('FORBIDDEN', 'This meeting is restricted to workspace members', 403);
+  }
+
+  if (meeting.accessType === 'invited_only' && !hasAttendee(meeting.attendees, email)) {
+    return apiError('FORBIDDEN', 'You are not invited to this meeting', 403);
+  }
+
+  return null;
+}
+
+/**
+ * Host-control policy: "Host must join first". Block guest joins until the
+ * organizer is present in an active session.
+ */
+async function checkHostPresent(db: TenantDb, meeting: Meeting): Promise<NextResponse | null> {
+  if (!meeting.hostMustJoinFirst) return null;
+
+  const waiting = waitingResponse(meeting, 'host_must_join_first');
+  if (!meeting.activeSessionId) return waiting;
+
+  const [activeSession] = await db
+    .select()
+    .from(meetingSessions)
+    .where(eq(meetingSessions.id, meeting.activeSessionId))
+    .limit(1);
+  const hostPresent = !!activeSession?.participants?.some?.(
+    (p: { userId?: string }) => p.userId === meeting.organizerId,
+  );
+  return hostPresent ? null : waiting;
+}
+
+/**
+ * Host-control policy: "Lock after start". Once an active session is running,
+ * only previously-invited attendees may join. Walk-up guests are refused with
+ * 403.
+ */
+async function checkLockAfterStart(
+  db: TenantDb,
+  meeting: Meeting,
+  email: string,
+): Promise<NextResponse | null> {
+  if (!meeting.lockAfterStart) return null;
+
+  const [activeSession] = meeting.activeSessionId
+    ? await db.select().from(meetingSessions).where(eq(meetingSessions.id, meeting.activeSessionId)).limit(1)
+    : [null];
+  const sessionIsActive = !!activeSession && activeSession.status === 'active';
+  if (sessionIsActive && !hasAttendee(meeting.attendees, email)) {
+    return apiError('FORBIDDEN', 'This meeting is locked. New participants are not allowed.', 403);
+  }
+  return null;
+}
+
+/** Add the guest to the meeting attendees if not already present. */
+async function addGuestAttendee(
+  db: TenantDb,
+  meeting: Meeting,
+  email: string,
+  name: string,
+): Promise<void> {
+  if (hasAttendee(meeting.attendees, email)) return;
+
+  const guest: MeetingAttendee = {
+    userId: '',
+    email,
+    name,
+    status: 'accepted',
+    role: 'attendee',
+  };
+  await db.update(meetings).set({
+    attendees: [...(meeting.attendees ?? []), guest],
+    updatedAt: new Date(),
+  }).where(eq(meetings.id, meeting.id));
+}
+
+async function loadActiveSession(db: TenantDb, meeting: Meeting): Promise<MeetingSession | null> {
+  if (!meeting.activeSessionId) return null;
+  const [session] = await db
+    .select()
+    .from(meetingSessions)
+    .where(eq(meetingSessions.id, meeting.activeSessionId))
+    .limit(1);
+  return session ?? null;
+}
+
+/** Record the guest in the session participants and activate a waiting session. */
+async function saveSessionParticipant(
+  db: TenantDb,
+  session: MeetingSession,
+  participant: MeetingSessionParticipant,
+): Promise<void> {
+  const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+  const filtered = participants.filter((p) => p.userId !== participant.userId);
+  filtered.push(participant);
+
+  const now = new Date();
+  const updates: Record<string, unknown> = {
+    participants: filtered,
+    maxParticipants: Math.max(session.maxParticipants ?? 0, filtered.length),
+    updatedAt: now,
+  };
+
+  if (session.status === 'waiting') {
+    updates.status = 'active';
+    updates.startedAt = now;
+  }
+
+  await db.update(meetingSessions).set(updates).where(eq(meetingSessions.id, session.id));
+}
+
 /**
  * POST /api/meeting/join
  * Guest joins a meeting session.
@@ -18,10 +174,7 @@ export async function POST(request: NextRequest) {
   try {
     raw = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } },
-      { status: 400 },
-    );
+    return apiError('BAD_REQUEST', 'Invalid JSON body', 400);
   }
 
   const parsed = guestJoinInputSchema.safeParse(raw);
@@ -37,93 +190,13 @@ export async function POST(request: NextRequest) {
       .where(and(eq(meetings.joinCode, joinCode), isNull(meetings.deletedAt)))
       .limit(1);
 
-    if (!meeting) {
-      return NextResponse.json(
-        { error: { code: 'NOT_FOUND', message: 'Meeting not found' } },
-        { status: 404 },
-      );
-    }
+    if (!meeting) return apiError('NOT_FOUND', 'Meeting not found', 404);
 
-    if (meeting.status === 'cancelled') {
-      return NextResponse.json(
-        { error: { code: 'BAD_REQUEST', message: 'Meeting is cancelled' } },
-        { status: 400 },
-      );
-    }
-
-    // The host has closed the meeting (endSession sets status='completed' and
-    // clears activeSessionId). Return a terminal 'ended' status rather than
-    // falling through to the "no active session" → 'waiting' branch below,
-    // which would leave a rejoining guest polling/"Connecting" forever with no
-    // idea the meeting is over.
-    if (meeting.status === 'completed') {
-      return NextResponse.json({
-        data: { status: 'ended' as const, meetingId: meeting.id, meetingTitle: meeting.title },
-      });
-    }
-
-    if (meeting.accessType === 'workspace') {
-      return NextResponse.json(
-        { error: { code: 'FORBIDDEN', message: 'This meeting is restricted to workspace members' } },
-        { status: 403 },
-      );
-    }
-
-    if (meeting.accessType === 'invited_only') {
-      const attendees: MeetingAttendee[] = meeting.attendees ?? [];
-      const isInvited = attendees.some(
-        (a) => a.email.toLowerCase() === email.toLowerCase(),
-      );
-      if (!isInvited) {
-        return NextResponse.json(
-          { error: { code: 'FORBIDDEN', message: 'You are not invited to this meeting' } },
-          { status: 403 },
-        );
-      }
-    }
-
-    // Host-control policy: "Host must join first". Block guest joins until
-    // the organizer is present in an active session.
-    if (meeting.hostMustJoinFirst) {
-      if (!meeting.activeSessionId) {
-        return NextResponse.json({
-          data: { status: 'waiting' as const, reason: 'host_must_join_first', meetingId: meeting.id, meetingTitle: meeting.title },
-        });
-      }
-      const [activeSession] = await db
-        .select()
-        .from(meetingSessions)
-        .where(eq(meetingSessions.id, meeting.activeSessionId))
-        .limit(1);
-      const hostPresent = !!activeSession?.participants?.some?.(
-        (p: { userId?: string }) => p.userId === meeting.organizerId,
-      );
-      if (!hostPresent) {
-        return NextResponse.json({
-          data: { status: 'waiting' as const, reason: 'host_must_join_first', meetingId: meeting.id, meetingTitle: meeting.title },
-        });
-      }
-    }
-
-    // Host-control policy: "Lock after start". Once an active session is
-    // running, only previously-invited attendees may join. Walk-up guests
-    // are refused with 403.
-    if (meeting.lockAfterStart) {
-      const [activeSession] = meeting.activeSessionId
-        ? await db.select().from(meetingSessions).where(eq(meetingSessions.id, meeting.activeSessionId)).limit(1)
-        : [null];
-      const sessionIsActive = !!activeSession && activeSession.status === 'active';
-      const attendees: MeetingAttendee[] = meeting.attendees ?? [];
-      const isPreInvited = attendees.some(
-        (a) => a.email.toLowerCase() === email.toLowerCase(),
-      );
-      if (sessionIsActive && !isPreInvited) {
-        return NextResponse.json(
-          { error: { code: 'FORBIDDEN', message: 'This meeting is locked. New participants are not allowed.' } },
-          { status: 403 },
-        );
-      }
-    }
+    const blocked =
+      checkMeetingAccess(meeting, email) ??
+      (await checkHostPresent(db, meeting)) ??
+      (await checkLockAfterStart(db, meeting, email));
+    if (blocked) return blocked;
 
     // Host-control policy: "Waiting room". When enabled, guests join RTK with
     // the GUEST_WAITING preset (waiting_room_type = SKIP_ON_ACCEPT), so the
@@ -133,55 +206,18 @@ export async function POST(request: NextRequest) {
     // portal reacts to the RTK `waitlisted` / `roomJoined` / `roomLeft(rejected)`
     // events. Pre-invited attendees are trusted on the attendees list already
     // and skip straight in with the standard GUEST preset.
-    const isPreInvited = (meeting.attendees ?? []).some(
-      (a: MeetingAttendee) => a.email.toLowerCase() === email.toLowerCase(),
-    );
+    const isPreInvited = hasAttendee(meeting.attendees, email);
     const guestPreset =
       meeting.waitingRoom && !isPreInvited ? RTK_PRESETS.GUEST_WAITING : RTK_PRESETS.GUEST;
 
-    // Add guest to meeting attendees if not already present
-    const attendees: MeetingAttendee[] = [...(meeting.attendees ?? [])];
-    const alreadyAttendee = attendees.some(
-      (a) => a.email.toLowerCase() === email.toLowerCase(),
-    );
-    if (!alreadyAttendee) {
-      attendees.push({
-        userId: '',
-        email,
-        name,
-        status: 'accepted',
-        role: 'attendee',
-      });
-      await db.update(meetings).set({
-        attendees,
-        updatedAt: new Date(),
-      }).where(eq(meetings.id, meeting.id));
-    }
+    await addGuestAttendee(db, meeting, email, name);
 
     // Check for active session
-    if (!meeting.activeSessionId) {
-      return NextResponse.json({
-        data: { status: 'waiting' as const, meetingId: meeting.id, meetingTitle: meeting.title },
-      });
-    }
-
-    const [session] = await db
-      .select()
-      .from(meetingSessions)
-      .where(eq(meetingSessions.id, meeting.activeSessionId))
-      .limit(1);
-
-    if (!session || session.status === 'ended') {
-      return NextResponse.json({
-        data: { status: 'waiting' as const, meetingId: meeting.id, meetingTitle: meeting.title },
-      });
-    }
+    const session = await loadActiveSession(db, meeting);
+    if (!session || session.status === 'ended') return waitingResponse(meeting);
 
     if (!session.cfAppId) {
-      return NextResponse.json(
-        { error: { code: 'INTERNAL', message: 'Session has no RTK meeting ID' } },
-        { status: 500 },
-      );
+      return apiError('INTERNAL', 'Session has no RTK meeting ID', 500);
     }
 
     await ensurePresets();
@@ -217,8 +253,7 @@ export async function POST(request: NextRequest) {
       picture: guestAvatarUrl,
     });
 
-    // Update session participants
-    const participant: MeetingSessionParticipant = {
+    await saveSessionParticipant(db, session, {
       userId: guestUserId,
       userName: name,
       userAvatar: guestAvatarUrl,
@@ -228,25 +263,7 @@ export async function POST(request: NextRequest) {
       hasVideo: false,
       hasScreenShare: false,
       personId,
-    };
-
-    const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
-    const filtered = participants.filter((p) => p.userId !== guestUserId);
-    filtered.push(participant);
-
-    const now = new Date();
-    const updates: Record<string, unknown> = {
-      participants: filtered,
-      maxParticipants: Math.max(session.maxParticipants ?? 0, filtered.length),
-      updatedAt: now,
-    };
-
-    if (session.status === 'waiting') {
-      updates.status = 'active';
-      updates.startedAt = now;
-    }
-
-    await db.update(meetingSessions).set(updates).where(eq(meetingSessions.id, session.id));
+    });
 
     return NextResponse.json({
       data: {
@@ -259,9 +276,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('[MeetingPortal] Failed to join meeting:', err);
-    return NextResponse.json(
-      { error: { code: 'INTERNAL', message: 'Failed to join meeting' } },
-      { status: 500 },
-    );
+    return apiError('INTERNAL', 'Failed to join meeting', 500);
   }
 }
