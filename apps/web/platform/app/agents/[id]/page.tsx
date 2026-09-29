@@ -44,6 +44,92 @@ function agentNeedsSetup(systemPrompt: string | null | undefined): boolean {
   return !systemPrompt?.trim();
 }
 
+type AgentDetail = NonNullable<ReturnType<typeof useAgent>['data']>;
+
+interface SyncedForm {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  permissions: string[];
+}
+
+interface FormFields {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  permissions: string[];
+}
+
+function toSyncedForm(source: {
+  id: string;
+  name: string;
+  description?: string | null;
+  systemPrompt: string;
+  permissions?: string[] | null;
+}): SyncedForm {
+  return {
+    id: source.id,
+    name: source.name,
+    description: source.description ?? '',
+    systemPrompt: source.systemPrompt,
+    permissions: source.permissions ?? [],
+  };
+}
+
+function formMatches(synced: FormFields, current: FormFields): boolean {
+  return (
+    synced.name === current.name &&
+    synced.description === current.description &&
+    synced.systemPrompt === current.systemPrompt &&
+    synced.permissions.join('|') === current.permissions.join('|')
+  );
+}
+
+function AgentEventSubscriptions({ events }: { events: AgentDetail['eventSubscriptions'] }) {
+  const t = getTranslations('common');
+  return (
+    <div className="flex flex-wrap gap-2">
+      {(events ?? []).length === 0 ? (
+        <span className="text-sm text-muted-foreground">
+          {t.agents.detail.sections.listening.empty}
+        </span>
+      ) : (
+        events.map((ev) => (
+          <Badge key={ev} variant="outline">
+            {ev}
+          </Badge>
+        ))
+      )}
+    </div>
+  );
+}
+
+function AgentRecentRuns({ runs }: { runs: AgentDetail['recentRuns'] }) {
+  const t = getTranslations('common');
+  if ((runs ?? []).length === 0) {
+    return <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {runs.map((run) => (
+        <div key={run.id} className="rounded-md border p-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{run.status}</Badge>
+            <span className="text-xs text-muted-foreground">
+              {run.triggerType} · {new Date(run.createdAt).toLocaleString()}
+            </span>
+          </div>
+          {run.result?.summary && (
+            <p className="mt-2 text-muted-foreground line-clamp-3">{run.result.summary}</p>
+          )}
+          {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AgentDetailPage() {
   const t = getTranslations('common');
   const router = useRouter();
@@ -77,40 +163,18 @@ export default function AgentDetailPage() {
   // Sync the form from the server, but never clobber unsaved edits: refetches
   // (Run now, window focus, setup finishing in chat) only update the form
   // when it still matches what was last loaded.
-  const lastSynced = useRef<{
-    id: string;
-    name: string;
-    description: string;
-    systemPrompt: string;
-    permissions: string[];
-  } | null>(null);
+  const lastSynced = useRef<SyncedForm | null>(null);
   const formSnapshot = { name, description, systemPrompt, permissions };
-  const isDirty =
-    !!lastSynced.current &&
-    (lastSynced.current.name !== name ||
-      lastSynced.current.description !== description ||
-      lastSynced.current.systemPrompt !== systemPrompt ||
-      lastSynced.current.permissions.join('|') !== permissions.join('|'));
+  const isDirty = !!lastSynced.current && !formMatches(lastSynced.current, formSnapshot);
 
   useEffect(() => {
     if (!agent) return;
     const prev = lastSynced.current;
     const sameAgent = prev?.id === agent.id;
     const current = formSnapshot;
-    const untouched =
-      !prev ||
-      (prev.name === current.name &&
-        prev.description === current.description &&
-        prev.systemPrompt === current.systemPrompt &&
-        prev.permissions.join('|') === current.permissions.join('|'));
+    const untouched = !prev || formMatches(prev, current);
     if (sameAgent && !untouched) return;
-    const next = {
-      id: agent.id,
-      name: agent.name,
-      description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt,
-      permissions: agent.permissions ?? [],
-    };
+    const next = toSyncedForm(agent);
     lastSynced.current = next;
     setName(next.name);
     setDescription(next.description);
@@ -167,13 +231,7 @@ export default function AgentDetailPage() {
       });
       const data = (saved as { data?: typeof agent })?.data;
       if (data) {
-        lastSynced.current = {
-          id: data.id,
-          name: data.name,
-          description: data.description ?? '',
-          systemPrompt: data.systemPrompt,
-          permissions: data.permissions ?? [],
-        };
+        lastSynced.current = toSyncedForm(data);
         setName(data.name);
         setDescription(data.description ?? '');
         setSystemPrompt(data.systemPrompt);
@@ -426,43 +484,12 @@ export default function AgentDetailPage() {
 
             <section className="space-y-3">
               <h2 className="text-sm font-medium">{t.agents.detail.sections.listening.label}</h2>
-              <div className="flex flex-wrap gap-2">
-                {(agent.eventSubscriptions ?? []).length === 0 ? (
-                  <span className="text-sm text-muted-foreground">
-                    {t.agents.detail.sections.listening.empty}
-                  </span>
-                ) : (
-                  agent.eventSubscriptions.map((ev) => (
-                    <Badge key={ev} variant="outline">
-                      {ev}
-                    </Badge>
-                  ))
-                )}
-              </div>
+              <AgentEventSubscriptions events={agent.eventSubscriptions} />
             </section>
 
             <section className="space-y-3">
               <h2 className="text-sm font-medium">{t.agents.detail.tabs.activity}</h2>
-              {(agent.recentRuns ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>
-              ) : (
-                <div className="space-y-2">
-                  {agent.recentRuns.map((run) => (
-                    <div key={run.id} className="rounded-md border p-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{run.status}</Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {run.triggerType} · {new Date(run.createdAt).toLocaleString()}
-                        </span>
-                      </div>
-                      {run.result?.summary && (
-                        <p className="mt-2 text-muted-foreground line-clamp-3">{run.result.summary}</p>
-                      )}
-                      {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <AgentRecentRuns runs={agent.recentRuns} />
             </section>
 
             <section className="space-y-3 rounded-lg border border-destructive/30 p-4">

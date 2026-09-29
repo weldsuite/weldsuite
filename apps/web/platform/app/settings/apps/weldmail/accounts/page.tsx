@@ -13,6 +13,30 @@ import { useMailAppSettings } from '@/hooks/queries/use-app-settings-queries';
 import { PageLoader } from '@/components/page-loader';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 
+type MailAccount = NonNullable<ReturnType<typeof useMailAppSettings>['data']>['accounts'][number];
+
+function matchesSearch(account: MailAccount, query: string): boolean {
+  if (!query) return true;
+  return (
+    account.email.toLowerCase().includes(query) ||
+    (account.displayName ?? '').toLowerCase().includes(query)
+  );
+}
+
+function matchesFilter(account: MailAccount, filter: ActiveFilter): boolean {
+  if (!filter.value) return true;
+  switch (filter.field) {
+    case 'provider':
+      return account.provider === filter.value;
+    case 'status':
+      return account.status === filter.value;
+    case 'isShared':
+      return !!account.isShared === (filter.value === 'true');
+    default:
+      return true;
+  }
+}
+
 export default function EmailAccountsSettingsPage() {
   const { data, isLoading } = useMailAppSettings();
   const ts = getTranslations('settings');
@@ -61,21 +85,9 @@ export default function EmailAccountsSettingsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   const q = searchQuery.trim().toLowerCase();
-  const filteredAccounts = accounts.filter((a) => {
-    if (q && !a.email.toLowerCase().includes(q) && !(a.displayName ?? '').toLowerCase().includes(q)) {
-      return false;
-    }
-    for (const f of activeFilters) {
-      if (!f.value) continue;
-      if (f.field === 'provider' && a.provider !== f.value) return false;
-      if (f.field === 'status' && a.status !== f.value) return false;
-      if (f.field === 'isShared') {
-        const truthy = f.value === 'true';
-        if (!!a.isShared !== truthy) return false;
-      }
-    }
-    return true;
-  });
+  const filteredAccounts = accounts.filter(
+    (a) => matchesSearch(a, q) && activeFilters.every((f) => matchesFilter(a, f)),
+  );
 
   if (accounts.length === 0) {
     return (

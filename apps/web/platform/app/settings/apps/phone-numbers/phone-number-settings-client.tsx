@@ -67,48 +67,79 @@ interface PhoneNumberSettingsClientProps {
   isConfigured: boolean;
 }
 
+interface PhoneNumberFormat {
+  prefix: string;
+  accepts: (length: number) => boolean;
+  format: (cleaned: string) => string;
+}
+
+// First matching entry wins, so the order mirrors the country-code precedence.
+const PHONE_NUMBER_FORMATS: PhoneNumberFormat[] = [
+  {
+    prefix: '+1',
+    accepts: (length) => length === 12,
+    format: (cleaned) => `+1 (${cleaned.slice(2, 5)}) ${cleaned.slice(5, 8)}-${cleaned.slice(8)}`,
+  },
+  {
+    prefix: '+44',
+    accepts: (length) => length >= 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('7')) {
+        return `+44 ${national.slice(0, 4)} ${national.slice(4, 7)} ${national.slice(7)}`;
+      }
+      return `+44 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
+    },
+  },
+  {
+    prefix: '+31',
+    accepts: (length) => length >= 11,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('6')) {
+        return `+31 6 ${national.slice(1, 5)} ${national.slice(5)}`;
+      }
+      return `+31 ${national.slice(0, 2)} ${national.slice(2, 5)} ${national.slice(5)}`;
+    },
+  },
+  {
+    prefix: '+49',
+    accepts: (length) => length >= 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('1')) {
+        return `+49 ${national.slice(0, 3)} ${national.slice(3, 7)} ${national.slice(7)}`;
+      }
+      return `+49 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
+    },
+  },
+  {
+    prefix: '+33',
+    accepts: (length) => length === 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      return `+33 ${national.slice(0, 1)} ${national.slice(1, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
+    },
+  },
+  {
+    prefix: '+32',
+    accepts: (length) => length >= 11,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      return `+32 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
+    },
+  },
+];
+
 function formatPhoneNumber(number: string): string {
   if (!number) return '';
 
   const cleaned = number.replace(/[^\d+]/g, '');
 
-  if (cleaned.startsWith('+1') && cleaned.length === 12) {
-    return `+1 (${cleaned.slice(2, 5)}) ${cleaned.slice(5, 8)}-${cleaned.slice(8)}`;
-  }
-
-  if (cleaned.startsWith('+44') && cleaned.length >= 12) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('7')) {
-      return `+44 ${national.slice(0, 4)} ${national.slice(4, 7)} ${national.slice(7)}`;
-    }
-    return `+44 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
-  }
-
-  if (cleaned.startsWith('+31') && cleaned.length >= 11) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('6')) {
-      return `+31 6 ${national.slice(1, 5)} ${national.slice(5)}`;
-    }
-    return `+31 ${national.slice(0, 2)} ${national.slice(2, 5)} ${national.slice(5)}`;
-  }
-
-  if (cleaned.startsWith('+49') && cleaned.length >= 12) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('1')) {
-      return `+49 ${national.slice(0, 3)} ${national.slice(3, 7)} ${national.slice(7)}`;
-    }
-    return `+49 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
-  }
-
-  if (cleaned.startsWith('+33') && cleaned.length === 12) {
-    const national = cleaned.slice(3);
-    return `+33 ${national.slice(0, 1)} ${national.slice(1, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
-  }
-
-  if (cleaned.startsWith('+32') && cleaned.length >= 11) {
-    const national = cleaned.slice(3);
-    return `+32 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
-  }
+  const known = PHONE_NUMBER_FORMATS.find(
+    (entry) => cleaned.startsWith(entry.prefix) && entry.accepts(cleaned.length),
+  );
+  if (known) return known.format(cleaned);
 
   if (cleaned.startsWith('+') && cleaned.length > 7) {
     const countryCode = cleaned.slice(0, cleaned.length > 12 ? 3 : 2);
