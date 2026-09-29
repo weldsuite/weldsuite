@@ -1,7 +1,7 @@
 import { useCallback, useEffect, lazy, Suspense } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useParams } from '@tanstack/react-router';
+import { useParams } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -37,7 +37,7 @@ import {
 export default function ChannelPage() {
   const { t } = useI18n();
   const st = useTranslations();
-  const { channelId } = useParams({ from: '/weldchat/$channelId/' });
+  const { channelId } = useParams<{ channelId: string }>();
   const { data, isLoading } = useChannel(channelId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();

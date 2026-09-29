@@ -1,6 +1,7 @@
 import { Callout } from '@/components/Callout'
 import { Figure } from '@/components/Figure'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
+import { Video } from '@/components/Video'
 
 const tags = {
   callout: {
@@ -23,6 +24,16 @@ const tags = {
       caption: { type: String },
     },
     render: Figure,
+  },
+  video: {
+    selfClosing: true,
+    attributes: {
+      src: { type: String },
+      poster: { type: String },
+      title: { type: String },
+      caption: { type: String },
+    },
+    render: Video,
   },
   'quick-links': {
     render: QuickLinks,

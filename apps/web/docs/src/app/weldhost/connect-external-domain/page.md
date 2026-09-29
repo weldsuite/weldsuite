@@ -12,35 +12,38 @@ Connect a domain registered elsewhere (GoDaddy, Namecheap, Cloudflare, etc.) so 
 
 ## Add the domain
 
-1. Open **WeldHost** → **External Domains** (or **Add External Domain** from the domains list).
+1. Open **WeldHost** → **External Domains** (or click **Add External Domain** in the domains list).
 2. Enter the full domain name (for example `example.com`).
-3. Submit the form.
+3. Optionally enter your current registrar, then click **Continue**.
 
-WeldHost creates a pending zone and shows the verification steps you need at your registrar.
+WeldHost shows the verification record you need to add at your current DNS provider.
+
+{% video src="/videos/help/weldhost-connect-external-domain.mp4" poster="/videos/help/weldhost-connect-external-domain.jpg" title="How to connect an external domain" caption="Add the domain, verify ownership, import existing records and note the nameservers to set at your registrar. The registrar-side steps happen on your registrar's own website and are not shown." /%}
 
 ---
 
 ## Verify ownership
 
-Depending on the domain, WeldHost may ask you to:
+WeldHost gives you a **TXT** record (name, type and value). Add it at your current DNS provider, wait a minute for it to propagate, then click **Verify ownership**. If the first check fails, wait a moment and try again.
 
-- Add a **TXT** verification record at your current DNS provider, **or**
-- Temporarily confirm control through your registrar's API
+---
 
-Follow the on-screen instructions exactly. Verification can take a few minutes to propagate.
+## Import existing records
+
+WeldHost scans public DNS for the domain and lists the records it found. Keep the ones you want ticked and click **Import records** to copy them into your new zone, or choose **Skip for now** and add them later.
 
 ---
 
 ## Point nameservers to WeldHost
 
-After verification, update **nameservers** at your registrar to the values WeldHost shows (for example `ns1.weldhost.net` and `ns2.weldhost.net`).
+After the import step, WeldHost shows two **nameservers** (for example `ada.ns.cloudflare.com` and `ken.ns.cloudflare.com`). Update the nameservers at your registrar to exactly those values.
 
 1. Log in to your registrar (where you bought the domain).
 2. Find **Nameservers** or **DNS** settings for the domain.
-3. Replace existing nameservers with the WeldHost pair.
+3. Replace existing nameservers with the pair WeldHost shows.
 4. Save changes.
 
-Propagation can take up to 48 hours, though it is often much faster. The domain status in WeldHost changes to **Active** when cutover completes.
+Propagation can take up to 48 hours, though it is often much faster. The domain status in WeldHost changes to **Active** when cutover completes. Use **Go to domain** to open it.
 
 ---
 

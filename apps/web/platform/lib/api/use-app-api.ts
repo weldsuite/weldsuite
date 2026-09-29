@@ -62,6 +62,7 @@ import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/acces
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { getApiOriginForPath } from '@/lib/api/public-env';
+import { usePreviewMode } from '@/contexts/preview-mode-context';
 
 /**
  * Returns a token-aware ClientApi instance pointing at the app-api worker.
@@ -69,11 +70,14 @@ import { getApiOriginForPath } from '@/lib/api/public-env';
  */
 export function useAppApiClient() {
   const { getToken } = useAuth();
+  // Preview routes have no Clerk session; a placeholder token lets requests
+  // go out so fixtures can answer them (see contexts/preview-mode-context).
+  const previewToken = usePreviewMode()?.token;
   const clientRef = useRef<ClientApi | null>(null);
   const tokenRef = useRef<string | null>(null);
 
   const getClient = useCallback(async () => {
-    const token = await getToken();
+    const token = previewToken ?? (await getToken());
     if (token !== tokenRef.current || !clientRef.current) {
       tokenRef.current = token;
       clientRef.current = createClientApi({
@@ -82,7 +86,7 @@ export function useAppApiClient() {
       });
     }
     return clientRef.current;
-  }, [getToken]);
+  }, [getToken, previewToken]);
 
   return { getClient };
 }
