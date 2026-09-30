@@ -56,38 +56,37 @@ export default function ActivityScreen() {
     void load();
   }, [load]);
 
-  return (
-    <Screen header={<ScreenHeader title={t.activity.title} />}>
-      {error && !loading ? (
-        <ErrorState message={error} onRetry={() => void load()} />
-      ) : loading ? (
-        <ListSkeleton />
-      ) : runs.length === 0 ? (
-        <EmptyState title={t.activity.emptyTitle} subtitle={t.activity.emptySub} />
-      ) : (
-        <ScrollView
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
-          }
-        >
-          {runs.map((run) => (
-            <RecordRow
-              key={run.id}
-              title={run.agentName}
-              subtitle={run.result?.summary ?? run.error ?? t.common.dash}
-              meta={`${triggerLabel(run.triggerType)} · ${formatRelativeTime(run.createdAt, t.relativeTime, format)}`}
-              leading={
-                <IconTile
-                  icon={run.triggerType === 'chat' ? Sparkles : Bot}
-                  color={ACCENTS.activity}
-                />
-              }
-              badge={<StatusBadge status={run.status} />}
-              onPress={() => router.push(`/agent/${run.agentId}`)}
-            />
-          ))}
-        </ScrollView>
-      )}
-    </Screen>
-  );
+  const renderBody = () => {
+    if (error && !loading) return <ErrorState message={error} onRetry={() => void load()} />;
+    if (loading) return <ListSkeleton />;
+    if (runs.length === 0) {
+      return <EmptyState title={t.activity.emptyTitle} subtitle={t.activity.emptySub} />;
+    }
+    return (
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
+        }
+      >
+        {runs.map((run) => (
+          <RecordRow
+            key={run.id}
+            title={run.agentName}
+            subtitle={run.result?.summary ?? run.error ?? t.common.dash}
+            meta={`${triggerLabel(run.triggerType)} · ${formatRelativeTime(run.createdAt, t.relativeTime, format)}`}
+            leading={
+              <IconTile
+                icon={run.triggerType === 'chat' ? Sparkles : Bot}
+                color={ACCENTS.activity}
+              />
+            }
+            badge={<StatusBadge status={run.status} />}
+            onPress={() => router.push(`/agent/${run.agentId}`)}
+          />
+        ))}
+      </ScrollView>
+    );
+  };
+
+  return <Screen header={<ScreenHeader title={t.activity.title} />}>{renderBody()}</Screen>;
 }
