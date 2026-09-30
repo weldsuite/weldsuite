@@ -7,7 +7,8 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   hasContextPermission,
   requirePermission,
@@ -38,19 +39,20 @@ async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Pr
   return c.get('userId');
 }
 
-app.get('/', requirePermission('opportunities:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-  const scope = await scopeFor(c);
-
-  const conditions: any[] = [isNull(t.deletedAt)];
+/** WHERE conditions for the list endpoint's query-string filters (no cursor). */
+function buildListFilters(q: Record<string, string>, scope: string | undefined): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.ownerId, scope));
-  if (q.status) conditions.push(eq(t.status, q.status));
-  if (q.stage) conditions.push(eq(t.stage, q.stage));
-  if (q.pipeline) conditions.push(eq(t.pipeline, q.pipeline));
-  if (q.ownerId) conditions.push(eq(t.ownerId, q.ownerId));
-  if (q.customerId) conditions.push(eq(t.customerId, q.customerId));
+  const equalityFilters: Array<[string | undefined, AnyPgColumn]> = [
+    [q.status, t.status],
+    [q.stage, t.stage],
+    [q.pipeline, t.pipeline],
+    [q.ownerId, t.ownerId],
+    [q.customerId, t.customerId],
+  ];
+  for (const [value, column] of equalityFilters) {
+    if (value) conditions.push(eq(column, value));
+  }
   // Filter by a linked Person — the `personIds` JSONB array stores the
   // canonical Person FKs; `contactIds` is the legacy back-reference and we
   // match against both for migration overlap.
@@ -64,18 +66,30 @@ app.get('/', requirePermission('opportunities:read'), async (c) => {
     const term = `%${q.search}%`;
     conditions.push(or(like(t.name, term), like(t.customerName, term), like(t.description, term))!);
   }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = and(...conditions);
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
+  return conditions;
+}
+
+/** Keyset condition that resumes after the row identified by `cursorId`, if it exists. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursorId: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+app.get('/', requirePermission('opportunities:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const scope = await scopeFor(c);
+
+  const filterConditions = buildListFilters(q, scope);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCondition);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -184,23 +198,67 @@ app.post('/', requirePermission('opportunities:create'), zValidator('json', crea
   }
 });
 
+/** Coerce one PATCH field to its column representation (numerics as strings, dates as Date). */
+function toColumnValue(key: string, value: unknown): unknown {
+  if (NUMERIC_FIELDS.has(key) && typeof value === 'number') return String(value);
+  if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
+  return value;
+}
+
+/** Build the `set` payload for a PATCH, skipping undefined fields. */
+function buildUpdatePayload(data: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) update[k] = toColumnValue(k, v);
+  }
+  return update;
+}
+
+type OpportunityRow = typeof t.$inferSelect;
+
+/**
+ * Publish the `updated` event plus the derived `stage_changed` / `won` / `lost`
+ * events for a PATCH, comparing the new values against the pre-update row.
+ */
+function publishUpdateEvents(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  id: string,
+  existing: OpportunityRow,
+  update: Record<string, unknown>,
+): void {
+  const newStage = (update.stage as string | undefined) ?? existing.stage;
+  const newStageId = (update.stageId as string | null | undefined) ?? existing.stageId;
+  const newStatus = (update.status as string | undefined) ?? existing.status;
+  const eventData = {
+    id,
+    name: (update.name as string | undefined) ?? existing.name,
+    amount: (update.amount as string | undefined) ?? existing.amount ?? '0',
+    stage: newStage,
+    stageId: newStageId,
+    status: newStatus,
+    customerId: (update.customerId as string | null | undefined) ?? existing.customerId,
+    ownerId: (update.ownerId as string | null | undefined) ?? existing.ownerId,
+  };
+  const publish = (action: 'updated' | 'stage_changed' | 'won' | 'lost') =>
+    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action, data: eventData });
+
+  publish('updated');
+  if (newStage !== existing.stage || newStageId !== existing.stageId) publish('stage_changed');
+  if (newStatus === 'won' && existing.status !== 'won') publish('won');
+  else if (newStatus === 'lost' && existing.status !== 'lost') publish('lost');
+}
+
 app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', updateOpportunitySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json');
   const scope = await scopeFor(c);
-  const conditions: any[] = [eq(t.id, id), isNull(t.deletedAt)];
+  const conditions: SQL[] = [eq(t.id, id), isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.ownerId, scope));
   try {
     const [existing] = await db.select().from(t).where(and(...conditions)).limit(1);
     if (!existing) return error.notFound(c, 'Opportunity', id);
-    const update: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      if (NUMERIC_FIELDS.has(k) && typeof v === 'number') update[k] = String(v);
-      else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
-      else update[k] = v;
-    }
+    const update = buildUpdatePayload(data);
     // `stageId` (a crm_pipeline_stages row) is what the board and the deal
     // panel place a deal by; `stage` is the legacy free-text twin. Moving a
     // deal by `stageId` alone used to leave `stage` stale, so the two
@@ -218,52 +276,7 @@ app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', 
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     // Phase 1 dual-write: mirror the customFields blob into the typed values table.
     await syncValuesForEntity(db, 'opportunity', id, data.customFields as Record<string, unknown> | null | undefined);
-    const newStage = (update.stage as string | undefined) ?? existing.stage;
-    const newStageId = (update.stageId as string | null | undefined) ?? existing.stageId;
-    const newStatus = (update.status as string | undefined) ?? existing.status;
-    const eventData = {
-      id,
-      name: (update.name as string | undefined) ?? existing.name,
-      amount: (update.amount as string | undefined) ?? existing.amount ?? '0',
-      stage: newStage,
-      stageId: newStageId,
-      status: newStatus,
-      customerId: (update.customerId as string | null | undefined) ?? existing.customerId,
-      ownerId: (update.ownerId as string | null | undefined) ?? existing.ownerId,
-    };
-    publishEntityEvent({
-      c,
-      entityType: 'opportunity',
-      entityId: id,
-      action: 'updated',
-      data: eventData,
-    });
-    if (newStage !== existing.stage || newStageId !== existing.stageId) {
-      publishEntityEvent({
-        c,
-        entityType: 'opportunity',
-        entityId: id,
-        action: 'stage_changed',
-        data: eventData,
-      });
-    }
-    if (newStatus === 'won' && existing.status !== 'won') {
-      publishEntityEvent({
-        c,
-        entityType: 'opportunity',
-        entityId: id,
-        action: 'won',
-        data: eventData,
-      });
-    } else if (newStatus === 'lost' && existing.status !== 'lost') {
-      publishEntityEvent({
-        c,
-        entityType: 'opportunity',
-        entityId: id,
-        action: 'lost',
-        data: eventData,
-      });
-    }
+    publishUpdateEvents(c, id, existing, update);
     return success(c, { id });
   } catch (err) {
     console.error('[app-api/opportunities] update failed:', err);

@@ -7,7 +7,8 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -41,25 +42,65 @@ import {
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.pickLists;
 
-function mapPickError(c: Parameters<typeof error.badRequest>[0], err: unknown, fallback: string) {
-  if (err instanceof PickListError) {
-    if (err.code === 'ORDER_NOT_FOUND') return error.notFound(c, 'Order');
-    if (err.code === 'WAREHOUSE_NOT_FOUND') return error.notFound(c, 'Warehouse');
-    if (err.code === 'ITEM_NOT_FOUND') return error.notFound(c, 'Pick list item');
-    if (err.code === 'ALREADY_PICKING') return error.conflict(c, err.message, { code: err.code });
-    if (err.code === 'SHIPPING_NOT_CONFIGURED') return error.conflict(c, err.message, { code: err.code });
-    if (err.code === 'SENDCLOUD_FAILED') return error.conflict(c, err.message, { code: err.code });
-    return error.badRequest(c, err.message, { code: err.code });
-  }
-  if (err instanceof StockLedgerError) {
-    if (err.code === 'PRODUCT_NOT_FOUND') return error.notFound(c, 'Product');
-    if (err.code === 'INSUFFICIENT_STOCK' || err.code === 'INSUFFICIENT_AVAILABLE') {
-      return error.conflict(c, err.message, { code: err.code });
-    }
-    return error.badRequest(c, err.message, { code: err.code });
-  }
+type ErrorContext = Parameters<typeof error.badRequest>[0];
+
+/** PickListError codes that map to a 404, with the resource label to report. */
+const PICK_LIST_NOT_FOUND_LABELS = new Map<string, string>([
+  ['ORDER_NOT_FOUND', 'Order'],
+  ['WAREHOUSE_NOT_FOUND', 'Warehouse'],
+  ['ITEM_NOT_FOUND', 'Pick list item'],
+]);
+
+/** PickListError codes that map to a 409. */
+const PICK_LIST_CONFLICT_CODES = new Set(['ALREADY_PICKING', 'SHIPPING_NOT_CONFIGURED', 'SENDCLOUD_FAILED']);
+
+/** StockLedgerError codes that map to a 409. */
+const STOCK_LEDGER_CONFLICT_CODES = new Set(['INSUFFICIENT_STOCK', 'INSUFFICIENT_AVAILABLE']);
+
+function mapPickListError(c: ErrorContext, err: PickListError) {
+  const notFoundLabel = PICK_LIST_NOT_FOUND_LABELS.get(err.code);
+  if (notFoundLabel) return error.notFound(c, notFoundLabel);
+  if (PICK_LIST_CONFLICT_CODES.has(err.code)) return error.conflict(c, err.message, { code: err.code });
+  return error.badRequest(c, err.message, { code: err.code });
+}
+
+function mapStockLedgerError(c: ErrorContext, err: StockLedgerError) {
+  if (err.code === 'PRODUCT_NOT_FOUND') return error.notFound(c, 'Product');
+  if (STOCK_LEDGER_CONFLICT_CODES.has(err.code)) return error.conflict(c, err.message, { code: err.code });
+  return error.badRequest(c, err.message, { code: err.code });
+}
+
+function mapPickError(c: ErrorContext, err: unknown, fallback: string) {
+  if (err instanceof PickListError) return mapPickListError(c, err);
+  if (err instanceof StockLedgerError) return mapStockLedgerError(c, err);
   console.error(`[app-api/pick-lists] ${fallback}:`, err);
   return error.internal(c, fallback);
+}
+
+/** WHERE conditions for the list endpoint's query-string filters (no cursor). */
+function buildListFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  const equalityFilters: Array<[string | undefined, AnyPgColumn]> = [
+    [q.warehouseId, t.warehouseId],
+    [q.status, t.status],
+    [q.assignedTo, t.assignedTo],
+  ];
+  for (const [value, column] of equalityFilters) {
+    if (value) conditions.push(eq(column, value));
+  }
+  return conditions;
+}
+
+/** Keyset condition that resumes after the row identified by `cursorId`, if it exists. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursorId: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
 }
 
 app.get('/', requirePermission('picklists:read'), async (c) => {
@@ -67,23 +108,10 @@ app.get('/', requirePermission('picklists:read'), async (c) => {
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: ReturnType<typeof eq>[] = [isNull(t.deletedAt)] as never[];
-  if (q.warehouseId !== undefined && q.warehouseId !== '') conditions.push(eq(t.warehouseId, q.warehouseId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.assignedTo !== undefined && q.assignedTo !== '') conditions.push(eq(t.assignedTo, q.assignedTo));
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))` as never,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = buildListFilters(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCondition);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([

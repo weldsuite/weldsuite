@@ -15,7 +15,7 @@
  * Permissions: banking:read | banking:create | banking:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
@@ -98,6 +98,124 @@ app.get('/:id', requirePermission('banking:read'), async (c) => {
   }
 });
 
+type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
+
+/**
+ * Not-found / wrong-entity response for a document linked to a new payment, or
+ * undefined when the document exists and belongs to the payment's entity.
+ */
+function linkedDocumentProblem(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  label: 'Invoice' | 'Bill',
+  documentId: string,
+  document: { entityId: string } | undefined,
+  entityId: string,
+): Response | undefined {
+  if (!document) return error.notFound(c, label, documentId);
+  if (document.entityId !== entityId) {
+    return error.badRequest(c, `Linked ${label.toLowerCase()} belongs to a different accounting entity`);
+  }
+  return undefined;
+}
+
+/**
+ * Validate the invoice / bill linked to a new payment and derive the payment
+ * currency from them when the caller did not send one. Returns the error
+ * response to send, or the (possibly still undefined) currency.
+ */
+async function resolveLinkedDocumentCurrency(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: Database,
+  data: CreatePaymentInput,
+  entityId: string,
+): Promise<{ response: Response } | { currency: string | undefined }> {
+  const { invoices, bills } = schema;
+  let currency = data.currency;
+
+  if (data.invoiceId) {
+    const [linkedInvoice] = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.id, data.invoiceId))
+      .limit(1);
+    const problem = linkedDocumentProblem(c, 'Invoice', data.invoiceId, linkedInvoice, entityId);
+    if (problem) return { response: problem };
+    if (!currency) currency = linkedInvoice.currency ?? undefined;
+  }
+  if (data.billId) {
+    const [linkedBill] = await db
+      .select()
+      .from(bills)
+      .where(eq(bills.id, data.billId))
+      .limit(1);
+    const problem = linkedDocumentProblem(c, 'Bill', data.billId, linkedBill, entityId);
+    if (problem) return { response: problem };
+    if (!currency) currency = linkedBill.currency ?? undefined;
+  }
+  return { currency };
+}
+
+/** New paid/due amounts and status for an invoice or bill after a payment is applied. */
+function computeSettlement(
+  document: { amountPaid: string | null; total: string | null },
+  paymentAmount: number,
+) {
+  const newAmountPaid = Number.parseFloat(document.amountPaid || '0') + paymentAmount;
+  const newBalanceDue = Number.parseFloat(document.total || '0') - newAmountPaid;
+  const isFullyPaid = newBalanceDue <= 0.01;
+  return {
+    isFullyPaid,
+    values: {
+      amountPaid: newAmountPaid.toFixed(2),
+      balanceDue: Math.max(0, newBalanceDue).toFixed(2),
+      status: isFullyPaid ? ('paid' as const) : ('partial' as const),
+      paidAt: isFullyPaid ? new Date() : null,
+      updatedAt: new Date(),
+    },
+  };
+}
+
+/** Apply a payment to its linked invoice and flag the payment as partial when it does not clear it. */
+async function settleInvoice(
+  db: Database,
+  invoiceId: string,
+  entityId: string,
+  paymentId: string,
+  paymentAmount: number,
+): Promise<void> {
+  const { invoices, payments } = schema;
+  const [invoice] = await db.select().from(invoices)
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.entityId, entityId)))
+    .limit(1);
+  if (!invoice) return;
+
+  const { isFullyPaid, values } = computeSettlement(invoice, paymentAmount);
+  await db.update(invoices).set(values)
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.entityId, entityId)));
+
+  // Update payment isPartial
+  if (!isFullyPaid) {
+    await db.update(payments).set({ isPartial: true }).where(eq(payments.id, paymentId));
+  }
+}
+
+/** Apply a payment to its linked bill. */
+async function settleBill(
+  db: Database,
+  billId: string,
+  entityId: string,
+  paymentAmount: number,
+): Promise<void> {
+  const { bills } = schema;
+  const [bill] = await db.select().from(bills)
+    .where(and(eq(bills.id, billId), eq(bills.entityId, entityId)))
+    .limit(1);
+  if (!bill) return;
+
+  await db.update(bills).set(computeSettlement(bill, paymentAmount).values)
+    .where(and(eq(bills.id, billId), eq(bills.entityId, entityId)));
+}
+
 // POST /
 app.post('/', requirePermission('banking:create'), zValidator('json', createPaymentSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -118,32 +236,9 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
 
     const paymentExchangeRate = data.exchangeRate ?? '1';
 
-    let currency = data.currency;
-
-    if (data.invoiceId) {
-      const [linkedInvoice] = await db
-        .select()
-        .from(invoices)
-        .where(eq(invoices.id, data.invoiceId))
-        .limit(1);
-      if (!linkedInvoice) return error.notFound(c, 'Invoice', data.invoiceId);
-      if (linkedInvoice.entityId !== entityId) {
-        return error.badRequest(c, 'Linked invoice belongs to a different accounting entity');
-      }
-      if (!currency) currency = linkedInvoice.currency ?? undefined;
-    }
-    if (data.billId) {
-      const [linkedBill] = await db
-        .select()
-        .from(bills)
-        .where(eq(bills.id, data.billId))
-        .limit(1);
-      if (!linkedBill) return error.notFound(c, 'Bill', data.billId);
-      if (linkedBill.entityId !== entityId) {
-        return error.badRequest(c, 'Linked bill belongs to a different accounting entity');
-      }
-      if (!currency) currency = linkedBill.currency ?? undefined;
-    }
+    const linked = await resolveLinkedDocumentCurrency(c, db, data, entityId);
+    if ('response' in linked) return linked.response;
+    let currency = linked.currency;
     if (!currency) {
       currency = await resolveEntityBaseCurrency(db, entityId);
     }
@@ -172,44 +267,10 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
 
     // Update invoice/bill balance if linked
     if (data.invoiceId) {
-      const [invoice] = await db.select().from(invoices)
-        .where(and(eq(invoices.id, data.invoiceId), eq(invoices.entityId, entityId)))
-        .limit(1);
-      if (invoice) {
-        const newAmountPaid = Number.parseFloat(invoice.amountPaid || '0') + paymentAmount;
-        const newBalanceDue = Number.parseFloat(invoice.total || '0') - newAmountPaid;
-        const isFullyPaid = newBalanceDue <= 0.01;
-        await db.update(invoices).set({
-          amountPaid: newAmountPaid.toFixed(2),
-          balanceDue: Math.max(0, newBalanceDue).toFixed(2),
-          status: isFullyPaid ? 'paid' : 'partial',
-          paidAt: isFullyPaid ? new Date() : null,
-          updatedAt: new Date(),
-        }).where(and(eq(invoices.id, data.invoiceId), eq(invoices.entityId, entityId)));
-
-        // Update payment isPartial
-        if (!isFullyPaid) {
-          await db.update(payments).set({ isPartial: true }).where(eq(payments.id, paymentId));
-        }
-      }
+      await settleInvoice(db, data.invoiceId, entityId, paymentId, paymentAmount);
     }
-
     if (data.billId) {
-      const [bill] = await db.select().from(bills)
-        .where(and(eq(bills.id, data.billId), eq(bills.entityId, entityId)))
-        .limit(1);
-      if (bill) {
-        const newAmountPaid = Number.parseFloat(bill.amountPaid || '0') + paymentAmount;
-        const newBalanceDue = Number.parseFloat(bill.total || '0') - newAmountPaid;
-        const isFullyPaid = newBalanceDue <= 0.01;
-        await db.update(bills).set({
-          amountPaid: newAmountPaid.toFixed(2),
-          balanceDue: Math.max(0, newBalanceDue).toFixed(2),
-          status: isFullyPaid ? 'paid' : 'partial',
-          paidAt: isFullyPaid ? new Date() : null,
-          updatedAt: new Date(),
-        }).where(and(eq(bills.id, data.billId), eq(bills.entityId, entityId)));
-      }
+      await settleBill(db, data.billId, entityId, paymentAmount);
     }
 
     // Realized FX gain/loss — post a journal entry for the delta when the payment rate
@@ -249,6 +310,30 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
   }
 });
 
+/** Booking exchange rate of the invoice (or bill) a payment settles; undefined when there is none. */
+async function loadSettledDocumentRate(
+  db: Database,
+  args: { invoiceId?: string; billId?: string },
+): Promise<number | undefined> {
+  if (args.invoiceId) {
+    const [inv] = await db
+      .select({ rate: schema.invoices.exchangeRate })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.id, args.invoiceId))
+      .limit(1);
+    return inv ? Number.parseFloat(inv.rate ?? '1') : undefined;
+  }
+  if (args.billId) {
+    const [bill] = await db
+      .select({ rate: schema.bills.exchangeRate })
+      .from(schema.bills)
+      .where(eq(schema.bills.id, args.billId))
+      .limit(1);
+    return bill ? Number.parseFloat(bill.rate ?? '1') : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Post a realized FX gain/loss journal entry when the settlement exchange rate
  * differs from the rate the invoice/bill was booked at. The delta clears the
@@ -277,27 +362,7 @@ async function maybePostFxAdjustment(
   if (!paymentRate || paymentRate === 0) return;
 
   // Load the settled document to fetch its booking rate.
-  let docRate = 1;
-  if (args.invoiceId) {
-    const [inv] = await db
-      .select({ rate: schema.invoices.exchangeRate })
-      .from(schema.invoices)
-      .where(eq(schema.invoices.id, args.invoiceId))
-      .limit(1);
-    if (!inv) return;
-    docRate = Number.parseFloat(inv.rate ?? '1');
-  } else if (args.billId) {
-    const [bill] = await db
-      .select({ rate: schema.bills.exchangeRate })
-      .from(schema.bills)
-      .where(eq(schema.bills.id, args.billId))
-      .limit(1);
-    if (!bill) return;
-    docRate = Number.parseFloat(bill.rate ?? '1');
-  } else {
-    return;
-  }
-
+  const docRate = await loadSettledDocumentRate(db, args);
   if (!docRate || docRate === paymentRate) return;
 
   const delta = calculateFxGainLoss(args.paymentAmountForeign, paymentRate, docRate);

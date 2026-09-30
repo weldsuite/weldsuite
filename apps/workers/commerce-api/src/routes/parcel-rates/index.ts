@@ -27,6 +27,43 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const { carriers, shippingPrices, parcels } = schema;
 
+type ShippingPriceRow = typeof shippingPrices.$inferSelect;
+
+/**
+ * Base price for a shipping price config: the flat rate, overridden by the
+ * first weight range that contains the chargeable weight.
+ */
+function resolveBasePrice(price: ShippingPriceRow, chargeableWeight: number): number {
+  const flatRate = price.flatRate as { amount?: number; currency?: string } | null;
+  let basePrice = flatRate?.amount ? flatRate.amount : 0;
+
+  const weightRanges = (price.weightRanges as Array<{
+    minWeight: number;
+    maxWeight: number;
+    price: { amount: number; currency: string };
+  }>) || [];
+
+  for (const range of weightRanges) {
+    if (chargeableWeight >= (range.minWeight || 0) && chargeableWeight <= (range.maxWeight || Infinity)) {
+      basePrice = range.price?.amount || basePrice;
+      break;
+    }
+  }
+  return basePrice;
+}
+
+/** Apply the percentage markup, handling fee and fuel surcharge to a base price. */
+function applyRateSurcharges(price: ShippingPriceRow, basePrice: number): number {
+  let totalAmount = basePrice;
+  if (price.percentageMarkup) totalAmount *= 1 + Number(price.percentageMarkup) / 100;
+
+  const handlingFee = price.handlingFee as { amount?: number } | null;
+  if (handlingFee?.amount) totalAmount += handlingFee.amount;
+
+  if (price.fuelSurcharge) totalAmount *= 1 + Number(price.fuelSurcharge) / 100;
+  return totalAmount;
+}
+
 /**
  * POST /calculate — Calculate available shipping rates for a parcel.
  * Reads active carriers and shipping prices; applies weight, volumetric,
@@ -67,30 +104,7 @@ app.post('/calculate', requirePermission('orders:read'), zValidator('json', calc
       const carrier = activeCarriers.find((car) => car.id === price.carrierId);
       if (!carrier) continue;
 
-      let basePrice = 0;
-      const flatRate = price.flatRate as { amount?: number; currency?: string } | null;
-      if (flatRate?.amount) basePrice = flatRate.amount;
-
-      const weightRanges = (price.weightRanges as Array<{
-        minWeight: number;
-        maxWeight: number;
-        price: { amount: number; currency: string };
-      }>) || [];
-
-      for (const range of weightRanges) {
-        if (chargeableWeight >= (range.minWeight || 0) && chargeableWeight <= (range.maxWeight || Infinity)) {
-          basePrice = range.price?.amount || basePrice;
-          break;
-        }
-      }
-
-      let totalAmount = basePrice;
-      if (price.percentageMarkup) totalAmount *= 1 + Number(price.percentageMarkup) / 100;
-
-      const handlingFee = price.handlingFee as { amount?: number } | null;
-      if (handlingFee?.amount) totalAmount += handlingFee.amount;
-
-      if (price.fuelSurcharge) totalAmount *= 1 + Number(price.fuelSurcharge) / 100;
+      const totalAmount = applyRateSurcharges(price, resolveBasePrice(price, chargeableWeight));
 
       rates.push({
         id: `${price.id}-${price.serviceType ?? 'standard'}`,
