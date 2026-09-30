@@ -50,6 +50,17 @@ interface RuleFormDialogProps {
   rule?: ReconciliationRule | null;
 }
 
+/** Content-based row keys (field + operator + occurrence counter) so rows are not keyed by array index. */
+function conditionRowKeys(conditions: ReconciliationRuleCondition[]): string[] {
+  const seen = new Map<string, number>();
+  return conditions.map((c) => {
+    const base = `${c.field}:${c.operator}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return `${base}:${occurrence}`;
+  });
+}
+
 function newEmptyCondition(): ReconciliationRuleCondition {
   return { field: 'description', operator: 'contains', value: '' };
 }
@@ -143,6 +154,10 @@ export function ReconciliationRuleFormDialog({
     (c) => c.value === '' || c.value === null || c.value === undefined,
   );
   const canSubmit = !!name && !actionsEmpty && !conditionsInvalid && !pending;
+  const rowKeys = conditionRowKeys(conditions);
+  const saveLabel = isEdit
+    ? st('sweep.weldbooks.reconciliationRuleForm.saveRule')
+    : st('sweep.weldbooks.reconciliationRuleForm.createRule');
 
   const updateCondition = (idx: number, patch: Partial<ReconciliationRuleCondition>) => {
     setConditions((prev) =>
@@ -239,10 +254,11 @@ export function ReconciliationRuleFormDialog({
           <div className="space-y-2">
             <Label>{st('sweep.weldbooks.reconciliationRuleForm.conditionsLabel')}</Label>
             {conditions.map((c, idx) => {
+              const rowKey = rowKeys[idx];
               const fieldDef = FIELDS.find((f) => f.value === c.field)!;
               const operators = fieldDef.type === 'number' ? NUMBER_OPERATORS : TEXT_OPERATORS;
               return (
-                <div key={idx} className="flex items-start gap-2">
+                <div key={rowKey} className="flex items-start gap-2">
                   <Select
                     value={c.field}
                     onValueChange={(v) => {
@@ -412,10 +428,8 @@ export function ReconciliationRuleFormDialog({
           <Button onClick={handleSubmit} disabled={!canSubmit}>
             {pending ? (
               <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{st('sweep.weldbooks.saving')}</>
-            ) : isEdit ? (
-              st('sweep.weldbooks.reconciliationRuleForm.saveRule')
             ) : (
-              st('sweep.weldbooks.reconciliationRuleForm.createRule')
+              saveLabel
             )}
           </Button>
         </DialogFooter>

@@ -384,8 +384,19 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state
   );
 }
 
+/** Content-based keys (label + occurrence counter) for menu entries that have no id. */
+function menuEntryKeys(menu: readonly { label: string }[]): string[] {
+  const seen = new Map<string, number>();
+  return menu.map((entry) => {
+    const occurrence = seen.get(entry.label) ?? 0;
+    seen.set(entry.label, occurrence + 1);
+    return `${entry.label}:${occurrence}`;
+  });
+}
+
 function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
   const menu = group.groupContextMenu ?? [];
+  const menuKeys = menuEntryKeys(menu);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -422,7 +433,7 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
                   const Icon = item.icon;
                   return (
                     <DropdownMenuItem
-                      key={i}
+                      key={menuKeys[i]}
                       onClick={item.onClick}
                       className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
                     >
@@ -441,7 +452,7 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
           const Icon = item.icon;
           return (
             <ContextMenuItem
-              key={i}
+              key={menuKeys[i]}
               onClick={item.onClick}
               className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
             >
@@ -456,6 +467,23 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
 }
 
 function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
+  let addButton: React.ReactNode = null;
+  if (group.customAddButton) {
+    addButton = group.customAddButton;
+  } else if (group.onAdd) {
+    addButton = (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={group.onAdd}
+        className="opacity-0 group-hover/label:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20"
+        style={{ marginLeft: '-12px' }}
+      >
+        <Plus className="w-4 h-4" />
+        <span className="sr-only">Add {group.group}</span>
+      </Button>
+    );
+  }
   return (
     <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
       {group.onToggleCollapse && (
@@ -476,20 +504,7 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
       >
         {group.group}
       </SidebarGroupLabel>
-      {group.customAddButton ? (
-        group.customAddButton
-      ) : group.onAdd ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={group.onAdd}
-          className="opacity-0 group-hover/label:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20"
-          style={{ marginLeft: '-12px' }}
-        >
-          <Plus className="w-4 h-4" />
-          <span className="sr-only">Add {group.group}</span>
-        </Button>
-      ) : null}
+      {addButton}
     </div>
   );
 }

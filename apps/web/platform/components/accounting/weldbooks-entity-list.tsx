@@ -91,7 +91,20 @@ export function WeldbooksEntityList<T extends { id: string }>({
       renderRow={(item) => (
         <div
           key={item.id}
+          role={onRowClick ? 'button' : undefined}
+          tabIndex={onRowClick ? 0 : undefined}
           onClick={onRowClick ? () => onRowClick(item) : undefined}
+          onKeyDown={
+            onRowClick
+              ? (e) => {
+                  // Ignore keys pressed on interactive cell content (buttons, inputs).
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    onRowClick(item);
+                  }
+                }
+              : undefined
+          }
           className={cn(
             'group flex items-center gap-4 px-4 py-3 border-b border-border/70',
             onRowClick && 'cursor-pointer hover:bg-muted/40',
