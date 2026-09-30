@@ -34,7 +34,8 @@ function CategoriesPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldcommerce/categories${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldcommerce/categories${query}`);
     },
     [router, searchParams],
   );

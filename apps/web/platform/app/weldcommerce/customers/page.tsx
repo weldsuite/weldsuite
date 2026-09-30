@@ -32,7 +32,8 @@ function CustomersPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldcommerce/customers${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldcommerce/customers${query}`);
     },
     [router, searchParams],
   );
