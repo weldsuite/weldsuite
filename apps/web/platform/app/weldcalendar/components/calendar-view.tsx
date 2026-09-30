@@ -231,7 +231,7 @@ function computeQuickCreatePosForClick(
   const leftBound = getCalendarLeftBound(calBody);
   const rect = cell.getBoundingClientRect();
 
-  if (cell.hasAttribute('data-date')) {
+  if (cell.dataset.date !== undefined) {
     // Month view: position next to the clicked cell. Align Y with the last
     // event button, where the preview will appear.
     const eventBtns = cell.querySelectorAll('button');
@@ -1276,6 +1276,36 @@ function getQuickCreateInitialValues(
   };
 }
 
+/** "When" summary for the event preview: the date for all-day events, else date + time range. */
+function formatEventWhen(event: CalendarEvent): string {
+  if (event.allDay) return format(new Date(event.startTime), 'EEEE, MMMM d');
+  const start = format(new Date(event.startTime), 'EEE, MMM d · h:mm a');
+  const end = event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : '';
+  return `${start}${end}`;
+}
+
+/** Time column of the schedule list: the all-day label, a start – end range, or just the start. */
+function formatScheduleTime(start: Date, end: Date | null, allDayLabel: string | null): string {
+  if (allDayLabel) return allDayLabel;
+  const startLabel = format(start, 'h:mma').toLowerCase();
+  if (!end) return startLabel;
+  return `${startLabel} – ${format(end, 'h:mma').toLowerCase()}`;
+}
+
+/**
+ * Keyboard handler that makes a clickable row behave like a button: Enter / Space
+ * activate it. Ignores key events bubbling up from inputs nested inside the row.
+ */
+function activateOnKey(activate: () => void) {
+  return (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      activate();
+    }
+  };
+}
+
 /** Task labels row: inline input while active, otherwise the chips or a placeholder. */
 function TaskLabelsRow({
   labels,
@@ -1293,11 +1323,27 @@ function TaskLabelsRow({
   onRemoveLabel: (label: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const summary =
+    labels.length > 0 ? (
+      <div className="flex items-center gap-1 flex-wrap">
+        {labels.map((l) => (
+          <span key={l} className="text-xs bg-accent px-2 py-0.5 rounded">{l}</span>
+        ))}
+      </div>
+    ) : (
+      <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.labelsLabel}</span>
+    );
   return (
-    <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={onToggle}>
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={onToggle}
+      onKeyDown={activateOnKey(onToggle)}
+    >
       <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
       {isActive ? (
-        <div className="flex-1" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="flex-1" onClick={(e) => e.stopPropagation()}>
           <Input
             placeholder={t.quickCreate.labelsPlaceholder}
             className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
@@ -1324,14 +1370,8 @@ function TaskLabelsRow({
             </div>
           )}
         </div>
-      ) : labels.length > 0 ? (
-        <div className="flex items-center gap-1 flex-wrap">
-          {labels.map((l) => (
-            <span key={l} className="text-xs bg-accent px-2 py-0.5 rounded">{l}</span>
-          ))}
-        </div>
       ) : (
-        <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.labelsLabel}</span>
+        summary
       )}
     </div>
   );
@@ -1361,14 +1401,29 @@ function PeopleRow({
 }) {
   if (people.length === 0 && !isActive) {
     return (
-      <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={onActivate}>
+      <div
+        role="button"
+        tabIndex={0}
+        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onActivate}
+        onKeyDown={activateOnKey(onActivate)}
+      >
         <Users className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-sm text-foreground h-7 flex items-center">{emptyLabel}</span>
       </div>
     );
   }
+  const activateIfIdle = () => {
+    if (!isActive) onActivate();
+  };
   return (
-    <div className="px-4 py-[10px] cursor-pointer" onClick={() => !isActive && onActivate()}>
+    <div
+      role="button"
+      tabIndex={0}
+      className="px-4 py-[10px] cursor-pointer"
+      onClick={activateIfIdle}
+      onKeyDown={activateOnKey(activateIfIdle)}
+    >
       <div className="flex gap-3">
         <Users className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
         <div className="flex-1 min-w-0 space-y-1">
@@ -1427,10 +1482,18 @@ function DescriptionRow({
   onDeactivate: () => void;
   onChange: (value: string) => void;
 }) {
+  const summary = description ? (
+    <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
+  ) : (
+    <span className="flex-1 text-sm text-foreground leading-7">{emptyPlaceholder}</span>
+  );
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
       onClick={onActivate}
+      onKeyDown={activateOnKey(onActivate)}
     >
       <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
       {isActive ? (
@@ -1444,10 +1507,8 @@ function DescriptionRow({
           className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
           autoFocus
         />
-      ) : description ? (
-        <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
       ) : (
-        <span className="flex-1 text-sm text-foreground leading-7">{emptyPlaceholder}</span>
+        summary
       )}
     </div>
   );
@@ -1484,16 +1545,19 @@ function EventTimeRow({
   const t = getTranslations('weldcalendar');
   return (
     <div
+      role="button"
+      tabIndex={0}
       className={cn(
         'flex items-start gap-3 px-4 py-[10px] cursor-pointer transition-colors',
         !isActive && 'hover:bg-accent/50',
       )}
       onClick={onToggle}
+      onKeyDown={activateOnKey(onToggle)}
     >
       <Clock className="h-4 w-4 text-muted-foreground shrink-0 mt-[5px]" />
       <div className="flex-1 min-w-0 space-y-2">
         {isActive ? (
-          <div onClick={(e) => e.stopPropagation()} className="space-y-2.5">
+          <div role="presentation" onClick={(e) => e.stopPropagation()} className="space-y-2.5">
             <div className="flex items-center gap-2">
               <DatePickerField
                 value={new Date(startDate)}
@@ -1576,13 +1640,17 @@ function MeetingRow({
 }) {
   const t = getTranslations('weldcalendar');
   const canCreate = !isCreating && !meetingUrl;
+  // The row is only a button while it still offers "add WeldMeet".
+  const buttonProps = canCreate
+    ? { role: 'button', tabIndex: 0, onClick: onCreate, onKeyDown: activateOnKey(onCreate) }
+    : {};
   return (
     <div
       className={cn(
         'group flex items-center gap-3 px-4 py-[10px]',
         canCreate && 'cursor-pointer hover:bg-accent/50 transition-colors',
       )}
-      onClick={canCreate ? onCreate : undefined}
+      {...buttonProps}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -1599,12 +1667,13 @@ function MeetingRow({
           d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
         />
       </svg>
-      {isCreating ? (
+      {isCreating && (
         <div className="flex items-center gap-2 h-7">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
           <span className="text-sm text-muted-foreground">{t.quickCreate.creatingMeetingLink}</span>
         </div>
-      ) : meetingUrl ? (
+      )}
+      {!isCreating && meetingUrl && (
         <div className="flex items-center justify-between flex-1 h-7 min-w-0 gap-2">
           <span className="text-sm text-primary truncate">{meetingUrl}</span>
           <div className="flex items-center gap-0.5 shrink-0">
@@ -1703,7 +1772,8 @@ function MeetingRow({
             </Button>
           </div>
         </div>
-      ) : (
+      )}
+      {canCreate && (
         <span className="text-sm text-foreground h-7 flex items-center">
           {t.quickCreate.addWeldMeet}
         </span>
@@ -1727,8 +1797,19 @@ function LocationRow({
   onChange: (value: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const summary = location ? (
+    <span className="text-sm text-foreground h-7 flex items-center truncate">{location}</span>
+  ) : (
+    <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addLocation}</span>
+  );
   return (
-    <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={onActivate}>
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={onActivate}
+      onKeyDown={activateOnKey(onActivate)}
+    >
       <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
       {isActive ? (
         <LocationAutocomplete
@@ -1739,10 +1820,8 @@ function LocationRow({
           autoFocus
           onBlurAfterGrace={onDeactivate}
         />
-      ) : location ? (
-        <span className="text-sm text-foreground h-7 flex items-center truncate">{location}</span>
       ) : (
-        <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addLocation}</span>
+        summary
       )}
     </div>
   );
@@ -2057,6 +2136,7 @@ export function QuickCreateCard({
 
   return (
     <div
+      role="presentation"
       className="overflow-y-auto max-h-[80vh]"
       onClick={() => setActiveField(null)}
       onKeyDown={(e) => {
@@ -2095,7 +2175,7 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Rows */}
-      <div className="divide-y" onClick={(e) => e.stopPropagation()}>
+      <div role="presentation" className="divide-y" onClick={(e) => e.stopPropagation()}>
         {isTask ? (
           <>
             {/* Task: Status row */}
@@ -2264,7 +2344,7 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Footer */}
-      <div className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
+      <div role="presentation" className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1.5">
           <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />
           <Button
@@ -2600,6 +2680,13 @@ function MonthView({
 // we swap the desktop grids for these compact equivalents.
 // ============================================================================
 
+/** Inline colour for a mobile day number: filled blue when today is selected, blue text when only today. */
+function mobileDayNumberStyle(selected: boolean, today: boolean): React.CSSProperties | undefined {
+  if (selected && today) return { backgroundColor: TODAY_BLUE };
+  if (today) return { color: TODAY_BLUE };
+  return undefined;
+}
+
 /** A horizontal 7-day strip used as the header on mobile week / day views.
  *  Single-letter day initials, large date number, today in brand blue,
  *  selected day filled, a dot underneath if there are events that day. */
@@ -2647,13 +2734,7 @@ function MobileWeekDayStrip({
                 !selected && today && 'font-semibold',
                 !selected && !today && 'text-foreground',
               )}
-              style={
-                selected && today
-                  ? { backgroundColor: TODAY_BLUE }
-                  : !selected && today
-                  ? { color: TODAY_BLUE }
-                  : undefined
-              }
+              style={mobileDayNumberStyle(selected, today)}
             >
               <span className="translate-y-px">{format(day, 'd')}</span>
             </span>
@@ -2918,13 +2999,7 @@ function MobileMonthBlock({
                       selected && today && 'text-white',
                       selected && !today && 'bg-foreground text-background',
                     )}
-                    style={
-                      selected && today
-                        ? { backgroundColor: TODAY_BLUE }
-                        : today && !selected
-                        ? { color: TODAY_BLUE }
-                        : undefined
-                    }
+                    style={mobileDayNumberStyle(selected, today)}
                   >
                     <span className="translate-y-px">{format(day, 'd')}</span>
                   </span>
@@ -3392,6 +3467,10 @@ function TimeSlotEvent({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
   const holdCleanupRef = useRef<(() => void) | null>(null);
 
+  let scheduleIcon: React.ReactNode = null;
+  if (event.autoScheduled === false) scheduleIcon = <Pin className="h-2.5 w-2.5 text-white" />;
+  else if (event.autoScheduled === true) scheduleIcon = <Sparkles className="h-2.5 w-2.5 text-white" />;
+
   return (
     <div
       className={cn(
@@ -3460,11 +3539,7 @@ function TimeSlotEvent({
       {/* Auto-schedule / pin state indicator */}
       {(event.sourceType === 'task' || event.sourceType === 'activity') && (
         <span className="absolute top-1 right-1.5 opacity-70" aria-hidden>
-          {event.autoScheduled === false ? (
-            <Pin className="h-2.5 w-2.5 text-white" />
-          ) : event.autoScheduled === true ? (
-            <Sparkles className="h-2.5 w-2.5 text-white" />
-          ) : null}
+          {scheduleIcon}
         </span>
       )}
       <span className="font-semibold truncate block pr-4">{event.title}</span>
@@ -4003,9 +4078,7 @@ function EventDetailPanel({
                   className="h-8 text-sm inline-flex items-center self-start group/field text-left"
                 >
                   <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 h-[22px] inline-flex items-center transition-shadow">
-                    {event.allDay
-                      ? format(new Date(event.startTime), 'EEEE, MMMM d')
-                      : `${format(new Date(event.startTime), 'EEE, MMM d · h:mm a')}${event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : ''}`}
+                    {formatEventWhen(event)}
                   </span>
                 </Button>
               </div>
@@ -4713,15 +4786,18 @@ function InlineSelectRow({
     <>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">{displayValue}</span>
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[160px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -4795,8 +4871,11 @@ function InlineDateTimeRow({
     <>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">
@@ -4806,7 +4885,7 @@ function InlineDateTimeRow({
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 overflow-hidden"
             style={{ top: pos.top, left: pos.left }}
@@ -4871,8 +4950,11 @@ function CalendarSelectRow({
     <div>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         <div className="h-3 w-3 rounded-[4px] shrink-0" style={{ backgroundColor: selected?.color || '#3b82f6' }} />
         <div className="h-7 flex items-center gap-2">
@@ -4881,7 +4963,7 @@ function CalendarSelectRow({
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[200px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -5214,9 +5296,7 @@ function ScheduleView({
         date: format(start, 'yyyy-MM-dd'),
         dateLabel: `${format(start, 'd')} ${format(start, 'MMM, EEE').toUpperCase()}`,
         dateGroup: getDateGroup(start),
-        time: evt.allDay ? t.calendarView.allDay : end
-          ? `${format(start, 'h:mma').toLowerCase()} – ${format(end, 'h:mma').toLowerCase()}`
-          : format(start, 'h:mma').toLowerCase(),
+        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null),
         color: getEventColor(evt, calendarColorMap),
         isToday: isToday(start),
         allDay: evt.allDay || false,
