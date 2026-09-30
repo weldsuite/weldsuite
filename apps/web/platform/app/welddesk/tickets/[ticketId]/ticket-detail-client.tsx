@@ -94,6 +94,17 @@ function isGroupedPair(a: ChatMessage | undefined, b: ChatMessage): boolean {
   return diffInMinutes <= GROUP_WINDOW_MINUTES;
 }
 
+// Pairs each string with a key derived from its content plus its occurrence count,
+// so repeated values (e.g. blank lines) still get unique keys without using the array index.
+function withOccurrenceKeys(values: string[]): { key: string; value: string }[] {
+  const seen = new Map<string, number>();
+  return values.map((value) => {
+    const count = (seen.get(value) ?? 0) + 1;
+    seen.set(value, count);
+    return { key: `${value}#${count}`, value };
+  });
+}
+
 function getBubbleRadiusClass(sender: ChatMessage['sender'], isGroupedWithPrev: boolean): string {
   if (sender === 'agent') {
     return isGroupedWithPrev ? 'rounded-l-2xl rounded-tr-sm rounded-br-sm' : 'rounded-2xl rounded-br-sm';
@@ -160,11 +171,11 @@ function ChatMessageRow({
               ? "text-gray-900 dark:text-gray-900"
               : "text-gray-700 dark:text-foreground"
           )}>
-            {lines.map((line, i) => {
+            {withOccurrenceKeys(lines).map(({ key, value: line }, i) => {
               const isLastLine = i === lines.length - 1;
               if (isLastLine && !shouldPutTimestampBelow) {
                 return (
-                  <div key={i} className="flex items-end gap-2">
+                  <div key={key} className="flex items-end gap-2">
                     <span className="flex-1">{line}</span>
                     <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
                       <ChatMessageTimestamp message={message} />
@@ -172,7 +183,7 @@ function ChatMessageRow({
                   </div>
                 );
               }
-              return <div key={i}>{line || <br />}</div>;
+              return <div key={key}>{line || <br />}</div>;
             })}
             {shouldPutTimestampBelow && (
               <div className="flex items-center gap-1.5 justify-end mt-1">
@@ -314,6 +325,26 @@ function getActionLabel(type: InternalNote['type']) {
   }
 }
 
+const ASSIGNED_PREFIX = 'Assigned to ';
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+
+// Splits "Assigned to Mark Johnson (Finance)" into [full, prefix, name, " (Finance)"].
+// Linear-time equivalent of /^(Assigned to )(.+?)(\s*\(.+\))$/ (which backtracks super-linearly).
+function splitAssignment(text: string): [string, string, string, string] | null {
+  if (!text.startsWith(ASSIGNED_PREFIX) || !text.endsWith(')')) return null;
+  const rest = text.slice(ASSIGNED_PREFIX.length);
+  // The name needs at least one character; the parenthetical needs "(" + 1+ chars + ")".
+  for (let open = 1; open <= rest.length - 3; open++) {
+    if (rest[open] !== '(') continue;
+    let nameEnd = open;
+    while (nameEnd > 1 && /\s/.test(rest[nameEnd - 1])) nameEnd--;
+    // "." in the original pattern never matched line terminators (only "\s*" could).
+    if (LINE_TERMINATOR.test(rest.slice(0, nameEnd)) || LINE_TERMINATOR.test(rest.slice(open + 1, -1))) continue;
+    return [text, ASSIGNED_PREFIX, rest.slice(0, nameEnd), rest.slice(nameEnd)];
+  }
+  return null;
+}
+
 function highlightSystemText(text: string, type: InternalNote['type']): React.ReactNode {
   if (type === 'status_change') {
     // "Status changed from Open to In Progress"
@@ -324,7 +355,7 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
   }
   if (type === 'assignment') {
     // "Assigned to Mark Johnson (Finance)"
-    const assignMatch = text.match(/^(Assigned to )(.+?)(\s*\(.+\))$/);
+    const assignMatch = splitAssignment(text);
     if (assignMatch) {
       return <>{assignMatch[1]}<span className="text-foreground font-medium">{assignMatch[2]}</span><span className="text-muted-foreground">{assignMatch[3]}</span></>;
     }
@@ -337,8 +368,8 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
     // Highlight ticket references like #tkt_002
     const parts = text.split(/(#[a-zA-Z0-9_-]+)/g);
     if (parts.length > 1) {
-      return <>{parts.map((part, i) =>
-        part.startsWith('#') ? <span key={i} className="text-foreground font-medium">{part}</span> : part
+      return <>{withOccurrenceKeys(parts).map(({ key, value: part }) =>
+        part.startsWith('#') ? <span key={key} className="text-foreground font-medium">{part}</span> : <React.Fragment key={key}>{part}</React.Fragment>
       )}</>;
     }
   }
@@ -507,11 +538,16 @@ function BackOfficeView({
 
   const handleSubmit = (attachments?: AttachmentPreview[]) => {
     if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    const text = noteText.trim()
-      ? attachments && attachments.length > 0
-        ? `${noteText}\n\n📎 ${attachments.map(a => a.name).join(', ')}`
-        : noteText
-      : `📎 ${attachments!.map(a => a.name).join(', ')}`;
+    const hasAttachments = !!attachments && attachments.length > 0;
+    const attachmentList = attachments?.map(a => a.name).join(', ') ?? '';
+    let text: string;
+    if (!noteText.trim()) {
+      text = `📎 ${attachmentList}`;
+    } else if (hasAttachments) {
+      text = `${noteText}\n\n📎 ${attachmentList}`;
+    } else {
+      text = noteText;
+    }
     onAddNote(text);
     setNoteText('');
   };

@@ -125,7 +125,16 @@ export function TeamsClient({ teams }: Readonly<TeamsClientProps>) {
     return (
       <div
         key={team.id}
+        role="button"
+        tabIndex={0}
         onClick={() => router.push(`/welddesk/teams/${team.id}`)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            router.push(`/welddesk/teams/${team.id}`);
+          }
+        }}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Team Name */}
@@ -166,7 +175,7 @@ export function TeamsClient({ teams }: Readonly<TeamsClientProps>) {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

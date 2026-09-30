@@ -20,24 +20,31 @@ export default function TicketPage() {
   const { data: ticketData, isLoading } = useTicket(ticketId);
   const ticket = ticketData?.data;
 
+  let detailContent: React.ReactNode;
+  if (isLoading) {
+    detailContent = (
+      <div className="flex items-center justify-center gap-2 py-8">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t.helpdesk.inbox.loading}</span>
+      </div>
+    );
+  } else if (ticket) {
+    detailContent = <TicketDetailClient key={ticketId} ticket={ticket} />;
+  } else {
+    detailContent = (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">{t.helpdesk.ticketDetailPage.ticketNotFound}</p>
+      </div>
+    );
+  }
+
   return (
     <ListDetailLayout
       listWidth={420}
       basePath="/welddesk/tickets"
       list={<TicketListClient />}
     >
-      {isLoading ? (
-        <div className="flex items-center justify-center gap-2 py-8">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">{t.helpdesk.inbox.loading}</span>
-        </div>
-      ) : !ticket ? (
-        <div className="flex items-center justify-center h-full">
-          <p className="text-sm text-muted-foreground">{t.helpdesk.ticketDetailPage.ticketNotFound}</p>
-        </div>
-      ) : (
-        <TicketDetailClient key={ticketId} ticket={ticket} />
-      )}
+      {detailContent}
     </ListDetailLayout>
   );
 }
