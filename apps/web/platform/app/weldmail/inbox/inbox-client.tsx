@@ -94,7 +94,6 @@ import {
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 
 type EmailMessage = MailTypes.Email;
-type EmailFolder = string;
 
 // `from` may be a plain "Name <email>" string (legacy) or a structured
 // Mail.EmailAddress object (some app-api routes already return one); collapse
@@ -117,12 +116,44 @@ type ComposeTag = { id: string; name: string; color: string };
 type AiMessage = { role: 'user' | 'assistant'; content: string };
 type ChatHistoryItem = { id: string; title: string; timestamp: Date };
 
+/**
+ * Pairs each item with a stable, content-based React key. Identical content
+ * gets an occurrence counter so keys stay unique without using the index.
+ * `index` is still returned for callers that need the position itself.
+ */
+function withOccurrenceKeys<T>(
+  items: readonly T[],
+  baseOf: (item: T) => string,
+): Array<{ item: T; key: string; index: number }> {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const base = baseOf(item);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { item, key: `${base}#${occurrence}`, index };
+  });
+}
+
+function fileKeyBase(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
 interface CollapsedListRowHeaderProps {
   email: EmailMessage;
   formatEmailDate: (date: Date | undefined) => string;
   hoverTimeoutRefList: TimeoutRef;
   hoveredWeldMailTeamList: boolean;
   setHoveredWeldMailTeamList: SetState<boolean>;
+}
+
+function getEmailRowStateClass(isSelected: boolean, isCompleted: boolean): string {
+  if (isSelected) {
+    return "bg-accent !border-accent border-l-transparent pl-4 -mr-1 pr-4 rounded-none";
+  }
+  if (isCompleted) {
+    return "bg-gray-50 dark:bg-secondary -mx-3 px-6 rounded-lg hover:bg-gray-100 dark:hover:bg-accent";
+  }
+  return "hover:bg-gray-50 dark:hover:bg-accent pl-4 -mr-3 pr-6";
 }
 
 function CollapsedListRowHeader({ email, formatEmailDate, hoverTimeoutRefList, hoveredWeldMailTeamList, setHoveredWeldMailTeamList }: Readonly<CollapsedListRowHeaderProps>) {
@@ -212,7 +243,7 @@ function CollapsedListRowHeader({ email, formatEmailDate, hoverTimeoutRefList, h
                     <Globe className="h-4 w-4 text-gray-400 dark:text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                       <div className="text-[13px] font-medium text-gray-700 dark:text-foreground">{t.mail.inboxPage.senderWebsite}</div>
-                      <a href="#" className="text-[13px] text-blue-600 hover:underline">weldmail.com</a>
+                      <button type="button" className="text-[13px] text-blue-600 hover:underline">weldmail.com</button>
                     </div>
                   </div>
 
@@ -643,6 +674,39 @@ interface EmailCardProps {
   showAllRecipients: boolean;
 }
 
+interface EmailBodyContentProps {
+  isLoadingEmail: boolean;
+  selectedEmail: EmailMessage;
+}
+
+function EmailBodyContent({ isLoadingEmail, selectedEmail }: Readonly<EmailBodyContentProps>) {
+  const { t } = useI18n();
+  if (isLoadingEmail) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t.mail.inboxPage.loadingEmailContent}</span>
+      </div>
+    );
+  }
+  if (selectedEmail.bodyHtml) {
+    // SECURITY: email HTML is attacker-controlled and stored
+    // unsanitized. Render it through the sandboxed iframe (no
+    // allow-scripts) — NEVER via dangerouslySetInnerHTML, which
+    // executes inline event handlers (onerror/onload) in the app
+    // origin with the user's session. Matches message-detail.tsx.
+    return <IsolatedHtmlContent html={selectedEmail.bodyHtml} />;
+  }
+  if (selectedEmail.bodyText) {
+    return (
+      <div className="whitespace-pre-wrap">
+        {selectedEmail.bodyText}
+      </div>
+    );
+  }
+  return <div className="text-gray-400 dark:text-muted-foreground italic">{t.mail.inboxPage.noContent}</div>;
+}
+
 function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailTeam, hoveredWeldMailTeamCollapsed, isEmailCollapsed, isLoadingEmail, isReplying, selectedEmail, setComposeData, setHoveredWeldMailTeam, setHoveredWeldMailTeamCollapsed, setIsEmailCollapsed, setIsReplying, setShowAllRecipients, showAllRecipients }: Readonly<EmailCardProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -743,7 +807,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                           <Globe className="h-4 w-4 text-gray-400 dark:text-muted-foreground mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
                             <div className="text-[13px] font-medium text-gray-700 dark:text-foreground">{t.mail.inboxPage.senderWebsite}</div>
-                            <a href="#" className="text-[13px] text-blue-600 hover:underline">weldmail.com</a>
+                            <button type="button" className="text-[13px] text-blue-600 hover:underline">weldmail.com</button>
                           </div>
                         </div>
 
@@ -817,8 +881,11 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
               )}
               <span className="text-[#007aff] text-sm ml-1">
                 to{' '}
-                {selectedEmail.to.map((recipient: string | MailTypes.EmailAddress, index: number) => (
-                  <span key={index}>
+                {withOccurrenceKeys<string | MailTypes.EmailAddress>(
+                  selectedEmail.to,
+                  (recipient) => (typeof recipient === 'string' ? recipient : recipient.email),
+                ).map(({ item: recipient, key, index }) => (
+                  <span key={key}>
                     <Button variant="ghost"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -853,9 +920,9 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                         { email: 'john.doe@company.com', name: 'John Doe', color: '#10b981' },
                         { email: 'jane.smith@org.com', name: 'Jane Smith', color: '#f59e0b' },
                         { email: 'mike.wilson@mail.com', name: 'Mike Wilson', color: '#8b5cf6' }
-                      ].map((recipient, index) => (
+                      ].map((recipient) => (
                         <Button variant="ghost"
-                          key={index}
+                          key={recipient.email}
                           onClick={(e) => {
                             e.stopPropagation();
                             toast.success(t.mail.inboxPage.clickedOn.replace('{name}', recipient.name));
@@ -969,7 +1036,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                         <Globe className="h-4 w-4 text-gray-400 dark:text-muted-foreground mt-0.5 flex-shrink-0" />
                         <div className="flex-1">
                           <div className="text-[13px] font-medium text-gray-700 dark:text-foreground">{t.mail.inboxPage.senderWebsite}</div>
-                          <a href="#" className="text-[13px] text-blue-600 hover:underline">weldmail.com</a>
+                          <button type="button" className="text-[13px] text-blue-600 hover:underline">weldmail.com</button>
                         </div>
                       </div>
 
@@ -1170,25 +1237,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
     {!isEmailCollapsed && (
     <div className="pl-[18px] pr-[18px] pt-0 pb-4">
     <div className="text-gray-700 dark:text-foreground text-[14px] leading-[1.7]">
-      {isLoadingEmail ? (
-        <div className="flex items-center justify-center gap-2 py-8">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">{t.mail.inboxPage.loadingEmailContent}</span>
-        </div>
-      ) : selectedEmail.bodyHtml ? (
-        // SECURITY: email HTML is attacker-controlled and stored
-        // unsanitized. Render it through the sandboxed iframe (no
-        // allow-scripts) — NEVER via dangerouslySetInnerHTML, which
-        // executes inline event handlers (onerror/onload) in the app
-        // origin with the user's session. Matches message-detail.tsx.
-        <IsolatedHtmlContent html={selectedEmail.bodyHtml} />
-      ) : selectedEmail.bodyText ? (
-        <div className="whitespace-pre-wrap">
-          {selectedEmail.bodyText}
-        </div>
-      ) : (
-        <div className="text-gray-400 dark:text-muted-foreground italic">{t.mail.inboxPage.noContent}</div>
-      )}
+      <EmailBodyContent isLoadingEmail={isLoadingEmail} selectedEmail={selectedEmail} />
     </div>
 
     {/* Attachments */}
@@ -1405,9 +1454,9 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
           "px-4 py-6 space-y-6 mx-auto",
           isAiPanelFullscreen && "max-w-3xl"
         )}>
-          {aiMessages.map((message, index) => (
+          {withOccurrenceKeys(aiMessages, (m) => `${m.role}:${m.content}`).map(({ item: message, key }) => (
             <div
-              key={index}
+              key={key}
               className={cn(
                 "flex gap-3",
                 message.role === 'user' ? "justify-end" : "justify-start"
@@ -1536,16 +1585,17 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                     <div className="my-1.5 mx-2 border-t border-gray-100 dark:border-border" />
 
                     {/* Manage preferences */}
-                    <div
+                    <button
+                      type="button"
                       onClick={() => {
                         setDropdownOpen(false);
                         setShowPreferencesModal(true);
                       }}
-                      className="flex items-center gap-3 px-3 py-2.5 mx-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-accent/50 rounded-lg"
+                      className="flex items-center gap-3 px-3 py-2.5 mx-1 w-[calc(100%-0.5rem)] text-left cursor-pointer hover:bg-gray-50 dark:hover:bg-accent/50 rounded-lg"
                     >
                       <Settings className="h-4 w-4 text-gray-700 dark:text-muted-foreground" />
                       <span className="text-sm font-medium text-gray-900 dark:text-foreground">{t.mail.inboxPage.managePreferences}</span>
-                    </div>
+                    </button>
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -1741,8 +1791,8 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               <div className="mb-3 p-2 bg-gray-50 dark:bg-secondary rounded-lg border border-gray-200 dark:border-border">
                 <div className="text-xs font-medium text-gray-600 dark:text-muted-foreground mb-2">{t.mail.inboxPage.attachmentsLabel}</div>
                 <div className="space-y-1">
-                  {attachedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between p-1 hover:bg-gray-100 dark:hover:bg-accent rounded">
+                  {withOccurrenceKeys(attachedFiles, fileKeyBase).map(({ item: file, key, index }) => (
+                    <div key={key} className="flex items-center justify-between p-1 hover:bg-gray-100 dark:hover:bg-accent rounded">
                       <div className="flex items-center gap-2">
                         <Paperclip className="h-3 w-3 text-gray-400 dark:text-muted-foreground" />
                         <span className="text-sm text-gray-700 dark:text-foreground">{file.name}</span>
@@ -1948,8 +1998,8 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
 
 interface InboxClientProps {
   initialMessages: EmailMessage[];
-  folders: EmailFolder[];
-  currentFolder: EmailFolder | null;
+  folders: string[];
+  currentFolder: string | null;
   activeAccount: {
     id: string;
     email: string;
@@ -2791,11 +2841,7 @@ export function InboxClient({
                   <div
                     className={cn(
                       "group cursor-pointer border border-transparent relative z-0 py-2.5",
-                      selectedEmail?.id === email.id
-                        ? "bg-accent !border-accent border-l-transparent pl-4 -mr-1 pr-4 rounded-none"
-                        : completedEmails.has(email.id)
-                        ? "bg-gray-50 dark:bg-secondary -mx-3 px-6 rounded-lg hover:bg-gray-100 dark:hover:bg-accent"
-                        : "hover:bg-gray-50 dark:hover:bg-accent pl-4 -mr-3 pr-6"
+                      getEmailRowStateClass(selectedEmail?.id === email.id, completedEmails.has(email.id))
                     )}
                     onClick={() => openEmail(email)}
                   >
@@ -2887,20 +2933,21 @@ export function InboxClient({
             "bg-white dark:bg-background flex flex-col h-full overflow-hidden",
             showAiPanel ? "flex-1" : "w-full"
           )}>
-          {isComposing ? (
+          {isComposing && (
             /* Compose Header */
             <ComposeHeader handleSendEmail={handleSendEmail} isSending={isSending} setComposeData={setComposeData} setIsComposeMinimized={setIsComposeMinimized} setIsComposing={setIsComposing} />
-          ) : selectedEmail ? (
+          )}
+          {!isComposing && selectedEmail && (
             /* Email Header - Minimal Spark Mail Style */
             <EmailToolbar completedEmails={completedEmails} getDateLabel={getDateLabel} groupedMessages={groupedMessages} handleArchive={handleArchive} handleDelete={handleDelete} handlePin={handlePin} handleSnooze={handleSnooze} handleSnoozeCalendarMouseEnter={handleSnoozeCalendarMouseEnter} handleSnoozeCalendarMouseLeave={handleSnoozeCalendarMouseLeave} handleToggleStar={handleToggleStar} pinnedEmails={pinnedEmails} selectedEmail={selectedEmail} setCompletedEmails={setCompletedEmails} setMessages={setMessages} setSelectedEmail={setSelectedEmail} setSnoozeCalendarOpen={setSnoozeCalendarOpen} setSnoozeCustomDate={setSnoozeCustomDate} showCompletedEmails={showCompletedEmails} snoozeCalendarOpen={snoozeCalendarOpen} snoozeCustomDate={snoozeCustomDate} snoozedEmails={snoozedEmails} />
-          ) : null}
+          )}
 
           {/* Email Thread or Compose Content */}
           <div className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-background px-6">
             {/* Email or Compose Card with Border */}
             {(isComposing || selectedEmail) && (
             <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border">
-              {isComposing ? (
+              {isComposing && (
                 /* Compose Interface */
                 <div className="flex flex-col h-full">
                   {/* Subject Field */}
@@ -2964,8 +3011,8 @@ export function InboxClient({
                       <div className="mb-3 p-2 bg-gray-50 dark:bg-secondary rounded-lg border border-gray-200 dark:border-border">
                         <div className="text-xs font-medium text-gray-600 dark:text-muted-foreground mb-2">{t.mail.inboxPage.attachmentsLabel}</div>
                         <div className="space-y-1">
-                          {attachedFiles.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between p-1 hover:bg-gray-100 dark:hover:bg-accent rounded">
+                          {withOccurrenceKeys(attachedFiles, fileKeyBase).map(({ item: file, key, index }) => (
+                            <div key={key} className="flex items-center justify-between p-1 hover:bg-gray-100 dark:hover:bg-accent rounded">
                               <div className="flex items-center gap-2">
                                 <Paperclip className="h-3 w-3 text-gray-400 dark:text-muted-foreground" />
                                 <span className="text-sm text-gray-700 dark:text-foreground">{file.name}</span>
@@ -3165,10 +3212,11 @@ export function InboxClient({
                     </div>
                   </div>
                 </div>
-              ) : selectedEmail ? (
+              )}
+              {!isComposing && selectedEmail && (
                 /* Email Content */
                 <EmailCard hoverTimeoutRef={hoverTimeoutRef} hoverTimeoutRefCollapsed={hoverTimeoutRefCollapsed} hoveredWeldMailTeam={hoveredWeldMailTeam} hoveredWeldMailTeamCollapsed={hoveredWeldMailTeamCollapsed} isEmailCollapsed={isEmailCollapsed} isLoadingEmail={isLoadingEmail} isReplying={isReplying} selectedEmail={selectedEmail} setComposeData={setComposeData} setHoveredWeldMailTeam={setHoveredWeldMailTeam} setHoveredWeldMailTeamCollapsed={setHoveredWeldMailTeamCollapsed} setIsEmailCollapsed={setIsEmailCollapsed} setIsReplying={setIsReplying} setShowAllRecipients={setShowAllRecipients} showAllRecipients={showAllRecipients} />
-              ) : null}
+              )}
             </div>
             )}
 
@@ -3277,9 +3325,9 @@ export function InboxClient({
                   />
                   {attachedFiles.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {attachedFiles.map((file, index) => (
+                      {withOccurrenceKeys(attachedFiles, fileKeyBase).map(({ item: file, key, index }) => (
                         <div
-                          key={`${file.name}-${index}`}
+                          key={key}
                           className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
                         >
                           <span className="truncate">{file.name}</span>
@@ -3476,7 +3524,7 @@ export function InboxClient({
             <div className="mb-6">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-foreground">{t.mail.inboxPage.connectors}</h2>
               <p className="text-sm text-gray-500 dark:text-muted-foreground mt-1">
-                {t.mail.inboxPage.connectorsDescription} <a href="#" className="text-blue-600 hover:underline">{t.mail.inboxPage.connectorsMoreInfo}</a>
+                {t.mail.inboxPage.connectorsDescription} <button type="button" className="text-blue-600 hover:underline">{t.mail.inboxPage.connectorsMoreInfo}</button>
               </p>
             </div>
             
@@ -3680,16 +3728,16 @@ export function InboxClient({
                   <span className="text-gray-900 dark:text-foreground">WeldSuite</span>
 
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.senderWebsite}</span>
-                  <a href="#" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
+                  <button type="button" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
                     commerce.weldsuite.com
                     <ExternalLink className="h-3 w-3" />
-                  </a>
+                  </button>
 
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.connectorsPrivacyPolicy}</span>
-                  <a href="#" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
+                  <button type="button" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
                     {st('sweep.weldmail.footer.privacyPolicy')}
                     <ExternalLink className="h-3 w-3" />
-                  </a>
+                  </button>
                 </div>
               </div>
               
@@ -3716,7 +3764,8 @@ export function InboxClient({
       
       {/* Text Selection Popup */}
       {showSelectionPopup && selectedText && (
-        <div 
+        <button
+          type="button"
           className="selection-popup fixed z-[100] bg-gray-800 text-white px-3 py-2 rounded-lg shadow-xl flex items-center gap-2 text-sm font-medium cursor-pointer hover:bg-gray-700 transition-colors"
           style={{
             left: `${popupPosition.x}px`,
@@ -3736,7 +3785,7 @@ export function InboxClient({
         >
           <MessageSquare className="h-4 w-4" />
           <span>{t.mail.inboxPage.askWeldAgent}</span>
-        </div>
+        </button>
       )}
 
       {/* Popup Reply Window - Floating */}
