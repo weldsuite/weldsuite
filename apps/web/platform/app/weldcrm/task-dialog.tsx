@@ -97,12 +97,9 @@ function resolveLabelColor(color: string | null | undefined): string {
  */
 function readableLabelTextColor(bgHex: string): string {
   const raw = bgHex.replace('#', '').trim();
-  const hex =
-    raw.length === 3
-      ? raw.split('').map((c) => c + c).join('')
-      : raw.length === 6
-        ? raw
-        : null;
+  let hex: string | null = null;
+  if (raw.length === 3) hex = raw.split('').map((c) => c + c).join('');
+  else if (raw.length === 6) hex = raw;
   if (!hex) return '#ffffff';
   const r = Number.parseInt(hex.slice(0, 2), 16);
   const g = Number.parseInt(hex.slice(2, 4), 16);
@@ -171,7 +168,7 @@ function markdownToHtml(md: string): string {
     // Images: ![alt](url) → <img>
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;max-height:200px;border-radius:6px;margin:4px 0;display:block;" />')
     // Links: [text](url) → <a>
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--primary);text-decoration:underline;">$1</a>')
+    .replace(/\[([^[\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--primary);text-decoration:underline;">$1</a>')
     // Newlines to <br>
     .replace(/\n/g, '<br>');
 }
@@ -222,7 +219,8 @@ const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
 function formatMinutes(mins: number): string {
   if (mins < 60) return `${mins}m`;
   const rest = mins % 60;
-  return `${Math.floor(mins / 60)}h${rest ? ` ${rest}m` : ''}`;
+  const restLabel = rest ? ` ${rest}m` : '';
+  return `${Math.floor(mins / 60)}h${restLabel}`;
 }
 
 function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
@@ -1285,9 +1283,19 @@ export function TaskDialog({
     }
   };
 
+  const submitLabel = editingTask ? tCrm.taskDialog.save : tCrm.taskDialog.createTask;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
+      <DialogContent
+        className="sm:max-w-[600px] p-0 gap-0 overflow-hidden"
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          // Focus the task name field when the dialog opens.
+          e.preventDefault();
+          titleTextareaRef.current?.focus();
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
           <DialogTitle className="text-base font-semibold">{editingTask ? tCrm.taskDialog.titleEdit : tCrm.taskDialog.titleCreate}</DialogTitle>
@@ -1314,7 +1322,6 @@ export function TaskDialog({
             placeholder={tCrm.taskDialog.placeholderTaskName}
             className="w-full text-sm font-medium border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] block break-words [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
             rows={1}
-            autoFocus
           />
         </div>
 
@@ -1489,13 +1496,7 @@ export function TaskDialog({
               disabled={!title.trim() || isPending || (recordRequired && !record)}
               className="h-[30px] text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              {isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : editingTask ? (
-                tCrm.taskDialog.save
-              ) : (
-                tCrm.taskDialog.createTask
-              )}
+              {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : submitLabel}
             </Button>
           </div>
         </div>
