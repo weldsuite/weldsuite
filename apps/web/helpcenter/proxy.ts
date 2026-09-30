@@ -31,7 +31,8 @@ export function proxy(request: NextRequest) {
 
   // Rewrite to /[domain]/... route structure
   const searchParams = request.nextUrl.searchParams.toString();
-  const path = `${request.nextUrl.pathname}${searchParams ? `?${searchParams}` : ''}`;
+  const query = searchParams ? `?${searchParams}` : '';
+  const path = `${request.nextUrl.pathname}${query}`;
   const rewritePath = `/${domain}${path === '/' ? '' : path}`;
 
   const response = NextResponse.rewrite(new URL(rewritePath, request.url));
