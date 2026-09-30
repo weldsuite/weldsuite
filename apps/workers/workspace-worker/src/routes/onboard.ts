@@ -105,6 +105,104 @@ async function resolveUniqueSlug(
 }
 
 /**
+ * Create the workspace row for a brand-new Clerk org on the Free plan and sync
+ * the plan's seat limit to Clerk. Returns the new workspace id.
+ */
+async function createWorkspaceRow(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  data: OnboardData,
+  clerkOrgId: string,
+  clerkOrgSlug: string,
+): Promise<string> {
+  // New workspaces start on Free (single seat, no time limit). There is no
+  // trial any more — Free is how people try WeldSuite.
+  const [defaultPlan] = await masterDb
+    .select({ id: plans.id, maxUsers: plans.maxUsers })
+    .from(plans)
+    .where(and(eq(plans.slug, 'free'), isNull(plans.deletedAt)))
+    .limit(1);
+
+  const workspaceId = generateId('ws');
+
+  const baseSlug = clerkOrgSlug || data.workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
+  const slug = await resolveUniqueSlug(masterDb, baseSlug, workspaceId);
+
+  await masterDb.insert(workspaces).values({
+    id: workspaceId,
+    clerkOrgId,
+    name: data.workspaceName,
+    slug,
+    planId: defaultPlan?.id || null,
+    isActive: true,
+    // Free is open-ended, so new signups are NOT subject to the "add payment
+    // or workspace is deleted in 30 days" policy. That policy existed to
+    // catch expiring trials; with no trial there is nothing to expire.
+    // See packages/core/db/src/schema/master.ts.
+    paidPlanRequired: false,
+  });
+
+  console.log(`[Onboard] Created workspace ${workspaceId} for org ${clerkOrgId}`);
+
+  // Sync default plan seat limit to Clerk
+  if (defaultPlan?.maxUsers && defaultPlan.maxUsers > 0) {
+    syncClerkSeatLimit(env.CLERK_SECRET_KEY, clerkOrgId, defaultPlan.maxUsers).catch((err) => {
+      console.warn('[Onboard] Failed to sync Clerk seat limit (non-blocking):', err);
+    });
+  }
+
+  return workspaceId;
+}
+
+/**
+ * Provision the workspace database (idempotent). Instant path: a warm
+ * pre-migrated pool slot is claimed and personalized inline (ready=true, no
+ * waiting). Slow path: the Neon database is created on-demand and the
+ * ProvisionWorkspaceWorkflow migrates it asynchronously. If the kickoff
+ * itself fails we record 'failed' so the onboarding UI can surface a retry
+ * instead of spinning. Returns whether the workspace is ready immediately.
+ */
+async function provisionDatabaseForWorkspace(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  data: OnboardData,
+  workspaceId: string,
+  clerkOrgSlug: string,
+): Promise<boolean> {
+  const initialMember = data.initialMember ? {
+    userId: data.clerkUserId,
+    email: data.initialMember.email,
+    name: data.initialMember.name,
+    picture: data.initialMember.picture,
+  } : { userId: data.clerkUserId };
+
+  const provisionResult = await provisionWorkspaceDatabase(
+    env,
+    masterDb,
+    workspaceId,
+    data.workspaceName,
+    initialMember,
+    data.region,
+    data.selectedApps,
+    clerkOrgSlug,
+    data.seedSampleData,
+  );
+
+  if (!provisionResult.ok) {
+    await masterDb
+      .update(workspaces)
+      .set({
+        provisioningStatus: 'failed',
+        provisioningError: (provisionResult.error || 'Provisioning failed to start').slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, workspaceId));
+  }
+
+  return provisionResult.ready === true;
+}
+
+/**
  * Upsert workspace row, provision database, and set up billing.
  * Shared by both the new-org and existing-org code paths.
  */
@@ -155,83 +253,13 @@ async function upsertAndProvision(
       })
       .where(eq(workspaces.id, existing.id));
   } else {
-    // New workspaces start on Free (single seat, no time limit). There is no
-    // trial any more — Free is how people try WeldSuite.
-    const [defaultPlan] = await masterDb
-      .select({ id: plans.id, maxUsers: plans.maxUsers })
-      .from(plans)
-      .where(and(eq(plans.slug, 'free'), isNull(plans.deletedAt)))
-      .limit(1);
-
-    workspaceId = generateId('ws');
-
-    const baseSlug = clerkOrgSlug || data.workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
-    const slug = await resolveUniqueSlug(masterDb, baseSlug, workspaceId);
-
-    await masterDb.insert(workspaces).values({
-      id: workspaceId,
-      clerkOrgId,
-      name: data.workspaceName,
-      slug,
-      planId: defaultPlan?.id || null,
-      isActive: true,
-      // Free is open-ended, so new signups are NOT subject to the "add payment
-      // or workspace is deleted in 30 days" policy. That policy existed to
-      // catch expiring trials; with no trial there is nothing to expire.
-      // See packages/core/db/src/schema/master.ts.
-      paidPlanRequired: false,
-    });
-
-    console.log(`[Onboard] Created workspace ${workspaceId} for org ${clerkOrgId}`);
-
-    // Sync default plan seat limit to Clerk
-    if (defaultPlan?.maxUsers && defaultPlan.maxUsers > 0) {
-      syncClerkSeatLimit(env.CLERK_SECRET_KEY, clerkOrgId, defaultPlan.maxUsers).catch((err) => {
-        console.warn('[Onboard] Failed to sync Clerk seat limit (non-blocking):', err);
-      });
-    }
+    workspaceId = await createWorkspaceRow(env, masterDb, data, clerkOrgId, clerkOrgSlug);
   }
 
-  // Provision database (idempotent). Instant path: a warm pre-migrated pool
-  // slot is claimed and personalized inline (ready=true, no waiting). Slow
-  // path: the Neon database is created on-demand and the
-  // ProvisionWorkspaceWorkflow migrates it asynchronously. If the kickoff
-  // itself fails we record 'failed' so the onboarding UI can surface a retry
-  // instead of spinning.
-  let ready = false;
-  if (env.NEON_API_KEY) {
-    const initialMember = data.initialMember ? {
-      userId: data.clerkUserId,
-      email: data.initialMember.email,
-      name: data.initialMember.name,
-      picture: data.initialMember.picture,
-    } : { userId: data.clerkUserId };
-
-    const provisionResult = await provisionWorkspaceDatabase(
-      env,
-      masterDb,
-      workspaceId,
-      data.workspaceName,
-      initialMember,
-      data.region,
-      data.selectedApps,
-      clerkOrgSlug,
-      data.seedSampleData,
-    );
-
-    if (!provisionResult.ok) {
-      await masterDb
-        .update(workspaces)
-        .set({
-          provisioningStatus: 'failed',
-          provisioningError: (provisionResult.error || 'Provisioning failed to start').slice(0, 1000),
-          updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, workspaceId));
-    }
-
-    ready = provisionResult.ready === true;
-  }
+  // Provision database (idempotent); see provisionDatabaseForWorkspace.
+  const ready = env.NEON_API_KEY
+    ? await provisionDatabaseForWorkspace(env, masterDb, data, workspaceId, clerkOrgSlug)
+    : false;
 
   // Auto-provision {slug}.weldmail.com email domain (non-blocking)
   if (env.CLOUDFLARE_API_TOKEN) {
@@ -255,6 +283,73 @@ async function upsertAndProvision(
 }
 
 /**
+ * Best-effort guard against double-submits creating duplicate orgs/workspaces.
+ * KV is eventually consistent, so this is not a hard lock — it narrows the
+ * race window; the Clerk membership check is the real dedupe for the common
+ * (sequential) case. Fails open: if KV is unavailable we still proceed.
+ * Returns true when this call took the lock (and must release it).
+ */
+async function acquireOnboardLock(env: Env, lockKey: string, clerkUserId: string): Promise<boolean> {
+  try {
+    const inFlight = await env.WORKSPACE_CACHE.get(lockKey);
+    if (inFlight) {
+      // A concurrent onboarding for this user is in flight. Pause briefly so the
+      // other request can register its Clerk org, then fall through — the
+      // membership check reuses it instead of creating a second org.
+      console.warn(`[Onboard] Concurrent onboarding for user ${clerkUserId}; waiting before dedupe`);
+      await new Promise((r) => setTimeout(r, 1500));
+      return false;
+    }
+    await env.WORKSPACE_CACHE.put(lockKey, '1', { expirationTtl: 120 });
+    return true;
+  } catch (lockErr) {
+    console.warn('[Onboard] Concurrency guard unavailable (proceeding):', lockErr);
+    return false;
+  }
+}
+
+/** Refresh the name + public metadata of a Clerk org the user already belongs to. */
+async function updateExistingClerkOrg(env: Env, data: OnboardData, orgId: string): Promise<void> {
+  // Update org metadata in case this is a retry with different data
+  const patchMetadata = {
+    region: data.region,
+    country: data.country,
+    organizationType: data.organizationType,
+    organizationSize: data.organizationSize,
+    referralSource: data.referralSource,
+    selectedApps: data.selectedApps,
+  };
+  console.log('[Onboard] PATCH public_metadata:', JSON.stringify(patchMetadata));
+
+  // Update org name
+  await fetch(`https://api.clerk.com/v1/organizations/${orgId}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name: data.workspaceName }),
+  });
+
+  // Use /metadata endpoint (merges instead of replacing)
+  const patchRes = await fetch(`https://api.clerk.com/v1/organizations/${orgId}/metadata`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ public_metadata: patchMetadata }),
+  });
+
+  if (!patchRes.ok) {
+    const err = await patchRes.text();
+    console.error('[Onboard] Failed to PATCH Clerk org metadata:', err);
+  } else {
+    console.log('[Onboard] PATCH org metadata succeeded');
+  }
+}
+
+/**
  * Core onboarding logic, decoupled from the HTTP layer so it runs identically
  * from the public `/api/onboard` route and the RPC entrypoint. `data` must
  * already be validated against `onboardSchema`.
@@ -266,27 +361,8 @@ export async function runOnboard(
 ): Promise<OnboardResult> {
   const masterDb = getMasterDb(env);
 
-  // Best-effort guard against double-submits creating duplicate orgs/workspaces.
-  // KV is eventually consistent, so this is not a hard lock — it narrows the
-  // race window; the Clerk membership check below is the real dedupe for the
-  // common (sequential) case. Fails open: if KV is unavailable we still proceed.
   const lockKey = `onboard:inflight:${data.clerkUserId}`;
-  let heldLock = false;
-  try {
-    const inFlight = await env.WORKSPACE_CACHE.get(lockKey);
-    if (inFlight) {
-      // A concurrent onboarding for this user is in flight. Pause briefly so the
-      // other request can register its Clerk org, then fall through — the
-      // membership check reuses it instead of creating a second org.
-      console.warn(`[Onboard] Concurrent onboarding for user ${data.clerkUserId}; waiting before dedupe`);
-      await new Promise((r) => setTimeout(r, 1500));
-    } else {
-      await env.WORKSPACE_CACHE.put(lockKey, '1', { expirationTtl: 120 });
-      heldLock = true;
-    }
-  } catch (lockErr) {
-    console.warn('[Onboard] Concurrency guard unavailable (proceeding):', lockErr);
-  }
+  const heldLock = await acquireOnboardLock(env, lockKey, data.clerkUserId);
 
   try {
     // 0. Check if user already has an organization (prevents duplicates from double-submit).
@@ -308,43 +384,7 @@ export async function runOnboard(
         const existingOrg = memberships.data[0].organization;
         console.log(`[Onboard] User ${data.clerkUserId} already has org ${existingOrg.id}, reusing`);
 
-        // Update org metadata in case this is a retry with different data
-        const patchMetadata = {
-          region: data.region,
-          country: data.country,
-          organizationType: data.organizationType,
-          organizationSize: data.organizationSize,
-          referralSource: data.referralSource,
-          selectedApps: data.selectedApps,
-        };
-        console.log('[Onboard] PATCH public_metadata:', JSON.stringify(patchMetadata));
-
-        // Update org name
-        await fetch(`https://api.clerk.com/v1/organizations/${existingOrg.id}`, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ name: data.workspaceName }),
-        });
-
-        // Use /metadata endpoint (merges instead of replacing)
-        const patchRes = await fetch(`https://api.clerk.com/v1/organizations/${existingOrg.id}/metadata`, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ public_metadata: patchMetadata }),
-        });
-
-        if (!patchRes.ok) {
-          const err = await patchRes.text();
-          console.error('[Onboard] Failed to PATCH Clerk org metadata:', err);
-        } else {
-          console.log('[Onboard] PATCH org metadata succeeded');
-        }
+        await updateExistingClerkOrg(env, data, existingOrg.id);
 
         return await upsertAndProvision(env, masterDb, data, existingOrg.id, existingOrg.slug);
       }

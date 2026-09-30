@@ -2,7 +2,7 @@
  * Control / utility actions: set_variable, log, condition, loop, delay.
  */
 
-import type { ActionHandler } from '../types';
+import type { ActionContext, ActionHandler } from '../types';
 
 export const handleSetVariable: ActionHandler = async (inputs, ctx) => {
   const varName = String(inputs.name || inputs.variableName || '');
@@ -28,29 +28,37 @@ export const handleLog: ActionHandler = async (inputs) => {
   return { logged: true, message };
 };
 
+/** Walk a dotted property path (already split) through a value, tolerating gaps. */
+function getPath(root: unknown, props: string[]): unknown {
+  return props.reduce<unknown>((obj, prop) => (obj as Record<string, unknown> | null | undefined)?.[prop], root);
+}
+
+/** Resolve a condition `field` reference (steps./trigger./variables./loop./input) to its value. */
+function resolveConditionField(
+  field: unknown,
+  inputs: Record<string, unknown>,
+  ctx: ActionContext,
+): unknown {
+  if (!field || typeof field !== 'string') return undefined;
+  if (field.startsWith('steps.')) {
+    const [, stepId, ...rest] = field.split('.');
+    return getPath(ctx.previousResults[stepId], rest);
+  }
+  if (field.startsWith('trigger.')) return getPath(ctx.triggerData, field.slice(8).split('.'));
+  if (field.startsWith('variables.')) return ctx.variables[field.slice(10)];
+  if (field.startsWith('loop.')) {
+    const prop = field.slice(5);
+    if (prop === 'item') return ctx.loopItem;
+    return prop === 'index' ? ctx.loopIndex : undefined;
+  }
+  return inputs[field];
+}
+
 export const handleCondition: ActionHandler = async (inputs, ctx) => {
-  const field = inputs.field as string;
   const operator = String(inputs.operator || 'eq');
   const value = inputs.value;
 
-  let fieldValue: unknown;
-  if (field && typeof field === 'string') {
-    if (field.startsWith('steps.')) {
-      const [, stepId, ...rest] = field.split('.');
-      const stepOutput = ctx.previousResults[stepId] as Record<string, unknown>;
-      fieldValue = rest.reduce((obj: any, prop) => obj?.[prop], stepOutput);
-    } else if (field.startsWith('trigger.')) {
-      const props = field.slice(8).split('.');
-      fieldValue = props.reduce((obj: any, prop) => obj?.[prop], ctx.triggerData);
-    } else if (field.startsWith('variables.')) {
-      fieldValue = ctx.variables[field.slice(10)];
-    } else if (field.startsWith('loop.')) {
-      const prop = field.slice(5);
-      fieldValue = prop === 'item' ? ctx.loopItem : prop === 'index' ? ctx.loopIndex : undefined;
-    } else {
-      fieldValue = inputs[field];
-    }
-  }
+  const fieldValue = resolveConditionField(inputs.field, inputs, ctx);
 
   let passed = false;
   switch (operator) {

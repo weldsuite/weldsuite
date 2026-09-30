@@ -10,6 +10,7 @@
 
 import type {
   WorkflowDefinition,
+  WorkflowStep,
   WorkflowRunContext,
   ExecuteStepsDeps,
   ExecuteStepsResult,
@@ -38,13 +39,86 @@ export interface ResumeState {
   seedOutput?: Record<string, unknown>;
 }
 
+type StepAttemptResult =
+  | { succeeded: true; result: unknown; attempts: number }
+  | { succeeded: false; lastError: unknown; attempts: number };
+
+/**
+ * Execute one step's action with retry. maxAttempts comes from retryPolicy or
+ * onError=retry; sleeps between attempts follow the retry policy's backoff.
+ */
+async function runStepWithRetry(
+  step: WorkflowStep,
+  index: number,
+  inputs: Record<string, unknown>,
+  actionCtx: ActionContext,
+  deps: ExecuteStepsDeps,
+): Promise<StepAttemptResult> {
+  const { runtime, executeAction } = deps;
+  const maxAttempts =
+    step.retryPolicy?.maxAttempts ??
+    (step.onError?.action === 'retry' ? (step.onError.retryCount ?? 0) + 1 : 1);
+  const limit = Math.max(1, maxAttempts);
+  const baseDelay = step.retryPolicy?.delayMs ?? 0;
+  const backoff = step.retryPolicy?.backoffMultiplier ?? 1;
+
+  let attempts = 0;
+  let lastError: unknown;
+
+  while (attempts < limit) {
+    attempts++;
+    try {
+      const result = await runtime.do(`step-${index}-${step.id}-attempt-${attempts}`, () =>
+        executeAction(step.type, inputs, actionCtx),
+      );
+      return { succeeded: true, result, attempts };
+    } catch (err) {
+      lastError = err;
+      if (attempts < limit) {
+        const delay = baseDelay * Math.pow(backoff, attempts - 1);
+        if (delay > 0) await runtime.sleep(`retry-${index}-${attempts}`, delay);
+      }
+    }
+  }
+  return { succeeded: false, lastError, attempts };
+}
+
+/**
+ * Failure handling for a step that exhausted its attempts. Returns the failed
+ * run result to halt with, or null when the step is configured to continue.
+ */
+async function handleStepFailure(
+  step: WorkflowStep,
+  index: number,
+  attempt: Extract<StepAttemptResult, { succeeded: false }>,
+  output: Record<string, unknown>,
+  hooks: ExecuteStepsDeps['hooks'],
+): Promise<ExecuteStepsResult | null> {
+  const { lastError, attempts } = attempt;
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const continueOnError = step.continueOnError === true || step.onError?.action === 'continue';
+  if (continueOnError) {
+    output[step.id] = { error: message };
+    await hooks?.onStepResult?.(step, index, { status: 'failed', error: message, attempts });
+    return null;
+  }
+  const failResult: ExecuteStepsResult = {
+    status: 'failed',
+    output,
+    error: { stepId: step.id, message },
+  };
+  await hooks?.onStepResult?.(step, index, { status: 'failed', error: message, attempts });
+  await hooks?.onComplete?.(failResult);
+  return failResult;
+}
+
 export async function executeWorkflowSteps(
   workflow: WorkflowDefinition,
   context: WorkflowRunContext,
   deps: ExecuteStepsDeps,
   resume?: ResumeState,
 ): Promise<ExecuteStepsResult> {
-  const { runtime, executeAction, hooks } = deps;
+  const { runtime, hooks } = deps;
   const steps = workflow.steps ?? [];
   const variables: Record<string, unknown> = { ...(context.variables ?? {}) };
   const contactData = (context.contactData ?? {}) as Record<string, unknown>;
@@ -57,13 +131,10 @@ export async function executeWorkflowSteps(
     await hooks?.onStepStart?.(step, i);
 
     // 1. Condition — skip the step (and its action) when it evaluates false.
-    if (step.condition) {
-      const pass = evaluateCondition(step.condition, output, triggerData, variables, contactData);
-      if (!pass) {
-        output[step.id] = { skipped: true };
-        await hooks?.onStepResult?.(step, i, { status: 'skipped' });
-        continue;
-      }
+    if (step.condition && !evaluateCondition(step.condition, output, triggerData, variables, contactData)) {
+      output[step.id] = { skipped: true };
+      await hooks?.onStepResult?.(step, i, { status: 'skipped' });
+      continue;
     }
 
     // 2. Resolve inputs (UI persists to `config`; fall back to `inputs`).
@@ -90,53 +161,16 @@ export async function executeWorkflowSteps(
       chainDepth: context.chainDepth ?? 0,
     };
 
-    // 3. Execute with retry. maxAttempts comes from retryPolicy or onError=retry.
-    const maxAttempts =
-      step.retryPolicy?.maxAttempts ??
-      (step.onError?.action === 'retry' ? (step.onError.retryCount ?? 0) + 1 : 1);
-    const baseDelay = step.retryPolicy?.delayMs ?? 0;
-    const backoff = step.retryPolicy?.backoffMultiplier ?? 1;
-
-    let attempts = 0;
-    let lastError: unknown;
-    let result: unknown;
-    let succeeded = false;
-
-    while (attempts < Math.max(1, maxAttempts)) {
-      attempts++;
-      try {
-        result = await runtime.do(`step-${i}-${step.id}-attempt-${attempts}`, () =>
-          executeAction(step.type, inputs, actionCtx),
-        );
-        succeeded = true;
-        break;
-      } catch (err) {
-        lastError = err;
-        if (attempts < Math.max(1, maxAttempts)) {
-          const delay = baseDelay * Math.pow(backoff, attempts - 1);
-          if (delay > 0) await runtime.sleep(`retry-${i}-${attempts}`, delay);
-        }
-      }
-    }
+    // 3. Execute with retry.
+    const attempt = await runStepWithRetry(step, i, inputs, actionCtx, deps);
 
     // 4. Failure handling.
-    if (!succeeded) {
-      const message = lastError instanceof Error ? lastError.message : String(lastError);
-      const continueOnError = step.continueOnError === true || step.onError?.action === 'continue';
-      if (continueOnError) {
-        output[step.id] = { error: message };
-        await hooks?.onStepResult?.(step, i, { status: 'failed', error: message, attempts });
-        continue;
-      }
-      const failResult: ExecuteStepsResult = {
-        status: 'failed',
-        output,
-        error: { stepId: step.id, message },
-      };
-      await hooks?.onStepResult?.(step, i, { status: 'failed', error: message, attempts });
-      await hooks?.onComplete?.(failResult);
-      return failResult;
+    if (!attempt.succeeded) {
+      const failResult = await handleStepFailure(step, i, attempt, output, hooks);
+      if (failResult) return failResult;
+      continue;
     }
+    const { result, attempts } = attempt;
 
     // 5. Waiting-for-input — halt; the durable wrapper resumes us later.
     if (isWaitingForInput(result)) {
