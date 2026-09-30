@@ -4,6 +4,7 @@ import {
   ReactNode,
   useCallback,
   useEffect,
+  useMemo,
 } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
@@ -240,31 +241,54 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     setSelectedAgentProfileId(null);
   }, [currentChannelId]);
 
+  const chatContextValue = useMemo(
+    () => ({
+      activeChannelId,
+      setActiveChannelId,
+      rightPanel,
+      setRightPanel,
+      threadMessageId,
+      openThread,
+      closeThread,
+      replyTo,
+      setReplyTo,
+      editingMessage,
+      setEditingMessage,
+      filters,
+      setFilters,
+      selectedProfileUserId,
+      openUserProfile,
+      closeUserProfile,
+      selectedAgentProfileId,
+      openAgentProfile,
+      closeAgentProfile,
+    }),
+    [
+      activeChannelId,
+      setActiveChannelId,
+      rightPanel,
+      setRightPanel,
+      threadMessageId,
+      openThread,
+      closeThread,
+      replyTo,
+      setReplyTo,
+      editingMessage,
+      setEditingMessage,
+      filters,
+      setFilters,
+      selectedProfileUserId,
+      openUserProfile,
+      closeUserProfile,
+      selectedAgentProfileId,
+      openAgentProfile,
+      closeAgentProfile,
+    ],
+  );
+
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: st('sweep.weldchat.breadcrumb.chat'), href: '/weldchat' }]}>
-      <ChatContext.Provider
-        value={{
-          activeChannelId,
-          setActiveChannelId,
-          rightPanel,
-          setRightPanel,
-          threadMessageId,
-          openThread,
-          closeThread,
-          replyTo,
-          setReplyTo,
-          editingMessage,
-          setEditingMessage,
-          filters,
-          setFilters,
-          selectedProfileUserId,
-          openUserProfile,
-          closeUserProfile,
-          selectedAgentProfileId,
-          openAgentProfile,
-          closeAgentProfile,
-        }}
-      >
+      <ChatContext.Provider value={chatContextValue}>
         <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
           <ChatHeader />
 

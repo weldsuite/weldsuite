@@ -45,6 +45,13 @@ interface RawChatFilterMessage {
   attachments?: RawChatFilterAttachment[];
 }
 
+function getMessageCategoryIcon(msg: RawChatFilterMessage) {
+  if (msg.attachments?.some((a) => a.mimeType?.startsWith('image/'))) return ImageIcon;
+  if (msg.attachments?.some((a) => !a.mimeType?.startsWith('image/'))) return File;
+  if (msg.content && /https?:\/\/[^\s]+/.test(msg.content)) return Link2;
+  return MessagesSquare;
+}
+
 function applyFilters(messages: RawChatFilterMessage[], filters: ChatFilters): RawChatFilterMessage[] {
   let out = messages;
   if (filters.type === 'messages') {
@@ -258,6 +265,7 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
             <PopoverAnchor asChild>
               <div
                 data-from-anchor
+                role="presentation"
                 onClick={(e) => {
                   const input = (e.currentTarget as HTMLElement).querySelector(
                     'input',
@@ -450,32 +458,17 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
           </div>
         )}
         {hasActiveFilters && activeChannelId && filteredMessages.map((msg) => {
-          const hasImage = msg.attachments?.some((a) => a.mimeType?.startsWith('image/'));
-          const hasFile = msg.attachments?.some((a) => !a.mimeType?.startsWith('image/'));
-          const hasLink = msg.content && /https?:\/\/[^\s]+/.test(msg.content);
-          const CategoryIcon =
-            hasImage ? ImageIcon :
-            hasFile ? File :
-            hasLink ? Link2 :
-            MessagesSquare;
+          const CategoryIcon = getMessageCategoryIcon(msg);
           return (
-            <div
+            <button
               key={msg.id}
-              role="button"
-              tabIndex={0}
+              type="button"
               onClick={() => {
                 navigate({ to: '/weldchat/$channelId', params: { channelId: activeChannelId } });
                 jumpToMessageInList(msg.id);
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  navigate({ to: '/weldchat/$channelId', params: { channelId: activeChannelId } });
-                  jumpToMessageInList(msg.id);
-                }
-              }}
               className={cn(
-                'flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group/msg relative',
+                'flex w-full text-left items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group/msg relative',
               )}
             >
               <div className="flex-1 min-w-0 flex items-start gap-3">
@@ -519,7 +512,7 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
                   )}
                 </div>
               </div>
-            </div>
+            </button>
           );
         })}
         {hasActiveFilters && activeChannelId && hasNextPage && (

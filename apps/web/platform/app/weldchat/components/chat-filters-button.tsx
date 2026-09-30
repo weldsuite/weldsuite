@@ -174,6 +174,7 @@ export function ChatFiltersButton() {
               <PopoverAnchor asChild>
                 <div
                   data-from-anchor
+                  role="presentation"
                   onClick={(e) => {
                     const input = (e.currentTarget as HTMLElement).querySelector(
                       'input',
