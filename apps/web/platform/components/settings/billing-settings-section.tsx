@@ -545,6 +545,1187 @@ const CheckoutDialog = memo(function CheckoutDialog({
   );
 });
 
+type PlanLimitsInfo = Billing.PlanLimits | null;
+
+const formatCurrency = (cents: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD'
+  }).format(cents / 100);
+};
+
+const formatDate = (date: Date | string | null | undefined) => {
+  // Invoice periods are nullable. Without this guard `new Date(null)` renders
+  // the epoch ("Jan 01, 1970") rather than signalling a missing value.
+  if (!date) return '—';
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  return format(dateObj, 'MMM dd, yyyy');
+};
+
+const isContactPlan = (plan: Billing.BillingPlan) =>
+  plan.requiresContact || plan.name.toLowerCase() === 'enterprise';
+
+const isPlanCurrent = (currentApiPlan: Billing.BillingPlan | undefined, plan: Billing.BillingPlan) => {
+  return currentApiPlan?.id === plan.id;
+};
+
+const getPlanButtonText = (
+  t: ReturnType<typeof useTranslations>,
+  currentApiPlan: Billing.BillingPlan | undefined,
+  plan: Billing.BillingPlan,
+) => {
+  if (currentApiPlan?.id === plan.id) return t('settings.billing.currentPlan');
+  if (!currentApiPlan) return t('sweep.settings.billing.getStarted');
+  if (plan.monthlyPrice < currentApiPlan.monthlyPrice) return t('sweep.settings.billing.downgrade');
+  if (plan.monthlyPrice > currentApiPlan.monthlyPrice) return t('sweep.settings.billing.upgrade');
+  return t('sweep.settings.billing.getStarted');
+};
+
+// The plans-page payload marks the Scale plan as highlighted.
+const withScaleHighlight = (plans: Billing.BillingPlan[] | undefined) =>
+  (plans || []).map(p => ({
+    ...p,
+    highlighted: p.highlighted || p.slug === 'scale',
+  }));
+
+function InvoiceStatusBadge({ status }: { status: string }) {
+  const t = useTranslations();
+  if (status === 'paid' || status === 'succeeded') {
+    return (
+      <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-400">
+        {t('settings.billing.paid')}
+      </Badge>
+    );
+  }
+  if (status === 'pending') {
+    return <Badge variant="secondary">{t('sweep.settings.billing.status.pending')}</Badge>;
+  }
+  if (status === 'failed') {
+    return <Badge variant="destructive">{t('sweep.settings.billing.status.failed')}</Badge>;
+  }
+  return <Badge variant="outline">{status}</Badge>;
+
+}
+
+function PlansHeaderBar({
+  isAnnual,
+  onToggleAnnual,
+}: {
+  isAnnual: boolean;
+  onToggleAnnual: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-[18px] h-[53px] px-4 md:px-5 bg-card rounded-2xl border">
+      {/* App icons */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.appsIncluded')}</span>
+        <div className="flex items-center gap-1.5">
+          {includedApps.map((app) => (
+            <div
+              key={app.id}
+              className="relative group"
+            >
+              <div className="w-8 h-8 flex items-center justify-center border rounded-[10px] bg-card hover:border-muted-foreground/30 transition-colors cursor-pointer">
+                <img
+                  src={app.logo}
+                  alt={app.name}
+                  className={`${app.logoClass} object-contain`}
+                />
+              </div>
+              {/* Tooltip */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-10">
+                <div className="bg-foreground text-background text-xs rounded-lg py-2 px-3 whitespace-nowrap">
+                  <div className="font-medium">{app.name}</div>
+                </div>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Annual/Monthly toggle */}
+      <div className="flex items-center gap-3 w-full md:w-auto">
+        <span className="text-sm font-medium">{isAnnual ? t('sweep.settings.billing.annual') : t('sweep.settings.billing.monthly')}</span>
+        {isAnnual && <span className="text-sm font-medium text-green-600 -ml-1.5">({t('sweep.settings.billing.save17')})</span>}
+        <Button
+          variant="ghost"
+          onClick={onToggleAnnual}
+          className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
+            isAnnual ? 'bg-foreground' : 'bg-muted-foreground/20'
+          }`}
+        >
+          <span
+            className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
+              isAnnual ? 'translate-x-3' : 'translate-x-0'
+            }`}
+          />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Decorative grid lines + corner plus icons around the pricing cards.
+function PlanGridDecorations() {
+  return (
+    <>
+      {/* Vertical lines between packages */}
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block -left-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(25% - 4.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(75% + 3.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block -right-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+
+      {/* Horizontal lines */}
+      <div className="absolute -top-[9px] -left-2 -right-2 h-px hidden lg:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
+      <div className="absolute -bottom-[9px] -left-2 -right-2 h-px hidden lg:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
+
+      {/* Corner plus icons */}
+      <Plus className="absolute -top-[9px] -left-2 w-3 h-3 text-border hidden lg:block -translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
+      <Plus className="absolute -top-[9px] -right-2 w-3 h-3 text-border hidden lg:block translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
+      <Plus className="absolute -bottom-[9px] -left-2 w-3 h-3 text-border hidden lg:block -translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
+      <Plus className="absolute -bottom-[9px] -right-2 w-3 h-3 text-border hidden lg:block translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
+    </>
+  );
+}
+
+function PlanCardPrice({
+  plan,
+  isAnnual,
+}: {
+  plan: Billing.BillingPlan;
+  isAnnual: boolean;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="mb-1">
+      <div className="flex items-center gap-2">
+        <span className="text-3xl font-semibold">
+          {isContactPlan(plan)
+            ? t('sweep.settings.billing.custom')
+            : (
+              <NumberFlow
+                value={isAnnual
+                  ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
+                  : plan.monthlyPrice / 100}
+                format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
+                transformTiming={{ duration: 400, easing: 'ease-out' }}
+              />
+            )}
+        </span>
+        {!isContactPlan(plan) && plan.monthlyPrice > 0 && isAnnual && (
+          <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
+            {t('sweep.settings.billing.save17')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlanCardCta({
+  plan,
+  isCurrent,
+  processing,
+  buttonText,
+  onSelect,
+}: {
+  plan: Billing.BillingPlan;
+  isCurrent: boolean;
+  processing: boolean;
+  buttonText: string;
+  onSelect: (plan: Billing.BillingPlan) => void;
+}) {
+  const t = useTranslations();
+  if (isContactPlan(plan)) {
+    return (
+      <EnterpriseContactForm
+        trigger={
+          <Button
+            variant="ghost"
+            className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 bg-card border hover:bg-muted disabled:opacity-50"
+            disabled={isCurrent}
+          >
+            {isCurrent ? t('settings.billing.currentPlan') : t('sweep.settings.billing.contactSales')}
+          </Button>
+        }
+      />
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      className={`block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 disabled:opacity-50 ${
+        plan.highlighted
+          ? 'bg-foreground text-background hover:bg-foreground/90'
+          : 'bg-card border hover:bg-muted'
+      }`}
+      disabled={isCurrent || processing}
+      onClick={() => onSelect(plan)}
+    >
+      {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />}
+      {buttonText}
+    </Button>
+  );
+}
+
+function PlanPricingCard({
+  plan,
+  isAnnual,
+  isCurrent,
+  processing,
+  buttonText,
+  onSelect,
+}: {
+  plan: Billing.BillingPlan;
+  isAnnual: boolean;
+  isCurrent: boolean;
+  processing: boolean;
+  buttonText: string;
+  onSelect: (plan: Billing.BillingPlan) => void;
+}) {
+  const t = useTranslations();
+  const features = formatPlanFeatures(plan);
+  return (
+    <div
+      className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
+        plan.highlighted
+          ? 'border border-blue-200 ring-4 ring-blue-50 dark:border-blue-800 dark:ring-blue-950'
+          : 'border'
+      }`}
+    >
+      {/* Plan name */}
+      <h3 className="text-base font-medium mb-[21px]">{plan.name}</h3>
+
+      <PlanCardPrice plan={plan} isAnnual={isAnnual} />
+
+
+      {/* Price subtitle */}
+      <p className="text-sm text-muted-foreground mb-1">
+        {isContactPlan(plan)
+          ? t('sweep.settings.billing.billedAnnually')
+          : (isAnnual ? t('sweep.settings.billing.perUserMonthBilledAnnually') : t('sweep.settings.billing.perUserMonth'))}
+      </p>
+
+
+      {/* Description */}
+      {plan.description && (
+        <p className="text-sm font-medium mb-[10px]">{plan.description}</p>
+      )}
+
+      {/* Features */}
+      <div className="space-y-3 flex-1">
+        {features.map((feature, featureIndex) => (
+          <div key={featureIndex} className="flex items-start gap-2">
+            <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
+              <Check className="h-3 w-3 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">{feature}</span>
+          </div>
+        ))}
+      </div>
+
+      <PlanCardCta
+        plan={plan}
+        isCurrent={isCurrent}
+        processing={processing}
+        buttonText={buttonText}
+        onSelect={onSelect}
+      />
+    </div>
+  );
+}
+
+function ComparisonPlanColumn({
+  plan,
+  isLast,
+  isAnnual,
+  isCurrent,
+  processing,
+  buttonText,
+  onSelect,
+}: {
+  plan: Billing.BillingPlan;
+  isLast: boolean;
+  isAnnual: boolean;
+  isCurrent: boolean;
+  processing: boolean;
+  buttonText: string;
+  onSelect: (plan: Billing.BillingPlan) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className={isLast ? 'pl-4 pr-0' : 'px-4'}>
+      <div className="flex items-center gap-2">
+        <h3 className="text-xl font-semibold">{plan.name}</h3>
+        {plan.badge && (
+          <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-md dark:bg-blue-950 dark:text-blue-400">
+            {plan.badge}
+          </span>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground mt-1">
+        {isContactPlan(plan) ? (
+          <>{t('sweep.settings.billing.customQuoteLine1')}<br />{t('sweep.settings.billing.customQuoteLine2')}</>
+        ) : (
+          <>
+            {formatPlanPrice(isAnnual ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) : plan.monthlyPrice, 'USD')} {t('sweep.settings.billing.perUserMonthComma')}<br />
+            {isAnnual ? t('sweep.settings.billing.billedAnnuallyLower') : t('sweep.settings.billing.billedMonthlyLower')}
+          </>
+        )}
+      </p>
+      {isContactPlan(plan) ? (
+        <EnterpriseContactForm
+          trigger={
+            <Button variant="outline" className="mt-4 w-full rounded-lg">
+              {t('sweep.settings.billing.talkToSales')}
+            </Button>
+          }
+        />
+      ) : (
+        <Button
+          variant={plan.highlighted ? 'default' : 'outline'}
+          className={`mt-4 w-full rounded-lg ${plan.highlighted ? 'bg-foreground hover:bg-foreground/90 text-background' : ''}`}
+          disabled={isCurrent || processing}
+          onClick={() => onSelect(plan)}
+        >
+          {isCurrent ? t('settings.billing.currentPlan') : buttonText}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ComparisonValue({ val }: { val: string | boolean }) {
+  if (val === true) return <Check className="w-4 h-4 text-primary mx-auto" />;
+  if (val === false) return <span className="text-muted-foreground/40">{'\u2715'}</span>;
+  return <span className="text-muted-foreground">{val}</span>;
+}
+
+function ComparisonSectionBlock({
+  section,
+  plans,
+}: {
+  section: ComparisonSection;
+  plans: Billing.BillingPlan[];
+}) {
+  return (
+    <div className="mt-10">
+      <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{section.title}</h4>
+      {section.rows.map((row) => (
+        <div key={row.label} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
+          <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{row.label}</div>
+          {plans.map((plan, index) => {
+            const key = plan.name.toLowerCase();
+            const val = row.values[key] ?? '';
+            return (
+              <div
+                key={plan.id}
+                className={`text-center text-sm ${
+                  plan.highlighted ? 'bg-blue-50 dark:bg-blue-950/30 py-4 -my-4 flex items-center justify-center' : ''
+                } ${index === plans.length - 1 ? 'pl-4 pr-0' : 'px-4'}`}
+              >
+                <ComparisonValue val={val} />
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanComparisonTable({
+  plans,
+  currentApiPlan,
+  isAnnual,
+  onToggleAnnual,
+  processing,
+  onSelect,
+}: {
+  plans: Billing.BillingPlan[];
+  currentApiPlan: Billing.BillingPlan | undefined;
+  isAnnual: boolean;
+  onToggleAnnual: () => void;
+  processing: boolean;
+  onSelect: (plan: Billing.BillingPlan) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="hidden md:block mt-52">
+      {/* Sticky Table Header */}
+      <div className="sticky top-0 z-40 bg-background pt-8 pb-8 border-b">
+        <div className="grid gap-0" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
+          {/* Billing toggle */}
+          <div className="flex flex-col justify-end">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.annual')}</span>
+              <span className="text-sm font-medium text-green-600">({t('sweep.settings.billing.save17')})</span>
+              <Button
+                variant="ghost"
+                onClick={onToggleAnnual}
+                className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
+                  isAnnual ? 'bg-foreground' : 'bg-muted-foreground/20'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
+                    isAnnual ? 'translate-x-3' : 'translate-x-0'
+                  }`}
+                />
+              </Button>
+            </div>
+          </div>
+
+          {/* Plan columns */}
+          {plans.map((plan, index) => (
+            <ComparisonPlanColumn
+              key={plan.id}
+              plan={plan}
+              isLast={index === plans.length - 1}
+              isAnnual={isAnnual}
+              isCurrent={isPlanCurrent(currentApiPlan, plan)}
+              processing={processing}
+              buttonText={getPlanButtonText(t, currentApiPlan, plan)}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Comparison sections rendered from data */}
+      {COMPARISON_SECTIONS.map((section) => (
+        <ComparisonSectionBlock key={section.title} section={section} plans={plans} />
+      ))}
+    </div>
+  );
+}
+
+function PlansView({
+  plans,
+  subscription,
+  planLimits,
+  selectedPlan,
+  onCloseCheckout,
+  onConfirmCheckout,
+  processing,
+  error,
+  downgradeBlockers,
+  isAnnual,
+  onToggleAnnual,
+  onSelectPlan,
+}: {
+  plans: Billing.BillingPlan[];
+  subscription: Billing.Subscription | null;
+  planLimits: PlanLimitsInfo;
+  selectedPlan: Billing.BillingPlan | null;
+  onCloseCheckout: () => void;
+  onConfirmCheckout: (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually') => void;
+  processing: boolean;
+  error: string | null;
+  downgradeBlockers: string[];
+  isAnnual: boolean;
+  onToggleAnnual: () => void;
+  onSelectPlan: (plan: Billing.BillingPlan) => void;
+}) {
+  const t = useTranslations();
+  const currentApiPlan = plans.find(p => p.id === subscription?.planId);
+  const minSeats = Math.max(1, planLimits?.currentUsage.memberCount || 1);
+
+  return (
+    <div className="max-w-5xl mx-auto overflow-visible space-y-8">
+      {/* Checkout Dialog */}
+      <CheckoutDialog
+        selectedPlan={selectedPlan}
+        onClose={onCloseCheckout}
+        minSeats={minSeats}
+        onConfirmCheckout={onConfirmCheckout}
+        processing={processing}
+      />
+
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.billing.plansTitle')}</h1>
+        <p className="text-muted-foreground">{t('sweep.settings.billing.plansDescription')}</p>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Downgrade Blockers */}
+      {downgradeBlockers.length > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-medium">{t('sweep.settings.billing.downgradeBlockersTitle')}</p>
+              <ul className="list-disc list-inside space-y-1">
+                {downgradeBlockers.map((blocker, idx) => (
+                  <li key={idx}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Pricing Header Bar */}
+      <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} />
+
+      {/* Pricing Cards with decorative lines */}
+      <div className="relative overflow-visible">
+        <PlanGridDecorations />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {plans.map((plan) => (
+            <PlanPricingCard
+              key={plan.id}
+              plan={plan}
+              isAnnual={isAnnual}
+              isCurrent={isPlanCurrent(currentApiPlan, plan)}
+              processing={processing}
+              buttonText={getPlanButtonText(t, currentApiPlan, plan)}
+              onSelect={onSelectPlan}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Pricing Comparison Table - hidden on mobile */}
+      {plans.length > 0 && (
+        <PlanComparisonTable
+          plans={plans}
+          currentApiPlan={currentApiPlan}
+          isAnnual={isAnnual}
+          onToggleAnnual={onToggleAnnual}
+          processing={processing}
+          onSelect={onSelectPlan}
+        />
+      )}
+    </div>
+  );
+}
+
+function InvoicesListView({
+  invoices,
+  onBack,
+  onViewInvoice,
+}: {
+  invoices: InvoiceInfo[];
+  onBack: () => void;
+  onViewInvoice: (invoice: InvoiceInfo) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          {t('sweep.settings.billing.back')}
+        </Button>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold">{t('sweep.settings.billing.invoicesTitle')}</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          {t('sweep.settings.billing.invoicesSubtitle')}
+        </p>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          {invoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              {t('settings.billing.noInvoices')}
+            </p>
+          ) : (
+            <div className="divide-y">
+              {invoices.map((invoice) => (
+                <div
+                  key={invoice.id}
+                  className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => onViewInvoice(invoice)}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="rounded-full bg-primary/10 p-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{invoice.id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">{formatCurrency(invoice.amount)}</p>
+                      <div className="mt-1"><InvoiceStatusBadge status={invoice.status} /></div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InvoiceDetailView({
+  invoice,
+  onBack,
+}: {
+  invoice: InvoiceInfo;
+  onBack: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          {t('sweep.settings.billing.backToInvoices')}
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle>{invoice.id}</CardTitle>
+              <CardDescription className="mt-2">
+                {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
+              </CardDescription>
+            </div>
+            <InvoiceStatusBadge status={invoice.status} />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            {invoice.subtotalAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{t('sweep.settings.billing.subtotal')}</span>
+                <span className="font-medium">{formatCurrency(invoice.subtotalAmount)}</span>
+              </div>
+            )}
+            {invoice.taxAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {t('sweep.settings.billing.tax')}
+                  {invoice.customerCountry && (
+                    <span className="ml-1">({invoice.customerCountry})</span>
+                  )}
+                </span>
+                <span className="font-medium">{formatCurrency(invoice.taxAmount)}</span>
+              </div>
+            )}
+            {invoice.customerTaxExempt === 'reverse' && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{t('sweep.settings.billing.tax')}</span>
+                <span className="text-muted-foreground text-xs">{t('sweep.settings.billing.reverseCharge')}</span>
+              </div>
+            )}
+            <Separator />
+            <div className="flex justify-between text-base">
+              <span className="font-semibold">{t('settings.billing.total')}</span>
+              <span className="font-bold">{formatCurrency(invoice.amount)}</span>
+            </div>
+          </div>
+
+          {invoice.pdfUrl && (
+            <Button variant="outline" className="w-full" asChild>
+              <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
+                <Download className="h-4 w-4 mr-2" />
+                {t('sweep.settings.billing.downloadInvoice')}
+              </a>
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ManageSeatsDialog({
+  open,
+  onOpenChange,
+  subscription,
+  planLimits,
+  seatCount,
+  onSeatCountChange,
+  min,
+  max,
+  perSeatPrice,
+  processing,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  subscription: Billing.Subscription | null;
+  planLimits: PlanLimitsInfo;
+  seatCount: number;
+  onSeatCountChange: (count: number) => void;
+  min: number;
+  max: number | undefined;
+  perSeatPrice: number;
+  processing: boolean;
+  onConfirm: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('sweep.settings.billing.manageSeatsDialog.title')}</DialogTitle>
+          <DialogDescription>
+            {t('sweep.settings.billing.manageSeatsDialog.description', { name: subscription?.planName })}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Seat counter */}
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div>
+              <p className="font-medium">{t('sweep.settings.billing.seats')}</p>
+              <p className="text-sm text-muted-foreground">
+                {t('sweep.settings.billing.manageSeatsDialog.currentlyInUse', { count: planLimits?.currentUsage.memberCount || 0 })}
+              </p>
+            </div>
+            <div className="flex items-center border rounded-md overflow-hidden">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+                onClick={() => onSeatCountChange(Math.max(min, seatCount - 1))}
+                disabled={seatCount <= min}
+              >
+                <Minus className="h-4 w-4" />
+              </Button>
+              <span className="w-8 text-center text-sm font-medium">{seatCount}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+                onClick={() => onSeatCountChange(max ? Math.min(max, seatCount + 1) : seatCount + 1)}
+                disabled={!!max && seatCount >= max}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary line */}
+          {perSeatPrice > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: seatCount })} &times;{' '}
+              {formatPlanPrice(perSeatPrice, 'USD')}/{t('sweep.settings.billing.seat')} ={' '}
+              <span className="font-medium text-foreground">
+                {formatPlanPrice(seatCount * perSeatPrice, 'USD')}/{subscription?.cycle === Billing.BillingCycle.Yearly ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
+              </span>
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={processing}>
+            {t('sweep.settings.billing.cancel')}
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={processing || seatCount === (subscription?.purchasedSeats || 0)}
+          >
+            {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {t('sweep.settings.billing.updateSeats')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PlanStatusBadge({
+  subscription,
+  isTrialing,
+}: {
+  subscription: Billing.Subscription | null;
+  isTrialing: boolean;
+}) {
+  const t = useTranslations();
+  if (isTrialing) {
+    return <Badge variant="secondary" className="rounded-sm">{t('sweep.settings.billing.freeTrial')}</Badge>;
+  }
+  if (!subscription || subscription.pricePerCycle <= 0) return null;
+  return (
+    <Badge variant={subscription.status === Billing.SubscriptionStatus.Active ? "default" : "secondary"} className="rounded-sm">
+      {subscription.status === Billing.SubscriptionStatus.Active ? t('sweep.settings.billing.activeBadge') : subscription.status}
+    </Badge>
+  );
+}
+
+function PlanSubtitle({
+  subscription,
+  isTrialing,
+  trialEndsAt,
+}: {
+  subscription: Billing.Subscription | null;
+  isTrialing: boolean;
+  trialEndsAt: string | Date | null;
+}) {
+  const t = useTranslations();
+  if (isTrialing) {
+    return trialEndsAt
+      ? <>{t('sweep.settings.billing.trialEndsOn', { date: formatDate(trialEndsAt) })}</>
+      : t('sweep.settings.billing.onFreeTrialNoEndDate');
+  }
+  if (!subscription) {
+    // The permanent free plan has been retired — a workspace with
+    // no subscription record yet is pre-trial, not "free forever".
+    return t('sweep.settings.billing.choosePlanToStart');
+  }
+  if (subscription.pricePerCycle === 0) {
+    // Legacy workspaces may still carry a $0 subscription from
+    // before the free plan was retired from `GET /billing/plans`.
+    return t('sweep.settings.billing.noActivePlan');
+  }
+  return (
+    <>
+      {formatCurrency(subscription.pricePerCycle)}/{subscription.cycle === Billing.BillingCycle.Monthly ? t('sweep.settings.billing.month') : t('sweep.settings.billing.year')}
+      {subscription.currentPeriodEnd && (
+        <span> &bull; {t('settings.billing.renews', { date: formatDate(subscription.currentPeriodEnd) })}</span>
+      )}
+    </>
+  );
+}
+
+function CurrentPlanHeader({
+  subscription,
+  isTrialing,
+  trialEndsAt,
+  onChangePlan,
+  onUpgrade,
+}: {
+  subscription: Billing.Subscription | null;
+  isTrialing: boolean;
+  trialEndsAt: string | Date | null;
+  onChangePlan: () => void;
+  onUpgrade: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="p-6 border-b">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold">{subscription?.planName?.replace(/\s*\d+$/, '') || subscription?.planName}</h2>
+            <PlanStatusBadge subscription={subscription} isTrialing={isTrialing} />
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            <PlanSubtitle subscription={subscription} isTrialing={isTrialing} trialEndsAt={trialEndsAt} />
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {subscription && subscription.pricePerCycle > 0 ? (
+            <Button variant="outline" size="sm" onClick={onChangePlan}>
+              {t('settings.billing.changePlan')}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onUpgrade}>
+              {t('sweep.settings.billing.upgrade')}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamMembersSection({
+  subscription,
+  planLimits,
+  onOpenManageSeats,
+}: {
+  subscription: Billing.Subscription | null;
+  planLimits: PlanLimitsInfo;
+  onOpenManageSeats: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div className="rounded-lg border">
+      <div className="p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="rounded-full bg-primary/10 p-3">
+              <Users className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-semibold">{t('sweep.settings.billing.teamMembers')}</h3>
+              <p className="text-sm text-muted-foreground">
+                {planLimits ? (
+                  <>
+                    {t('sweep.settings.billing.memberCount', { count: planLimits.currentUsage.memberCount })}
+                    {planLimits.maxMembers && (
+                      <span> {t('sweep.settings.billing.ofMaxAllowed', { max: planLimits.maxMembers })}</span>
+                    )}
+                  </>
+                ) : (
+                  t('sweep.settings.billing.manageYourTeam')
+                )}
+              </p>
+            </div>
+          </div>
+          {subscription && subscription.pricePerCycle > 0 && (
+            <Button variant="outline" size="sm" onClick={onOpenManageSeats}>
+              {t('sweep.settings.billing.manageSeatsButton')}
+            </Button>
+          )}
+        </div>
+
+        {/* Members progress bar */}
+        {planLimits && planLimits.maxMembers && (
+          <div className="mt-4 space-y-2">
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  planLimits.currentUsage.memberCount >= (planLimits.maxMembers || 999) ? 'bg-amber-500' : 'bg-primary'
+                }`}
+                style={{
+                  width: `${Math.min(100, (planLimits.currentUsage.memberCount / (planLimits.maxMembers || planLimits.currentUsage.memberCount)) * 100)}%`
+                }}
+              />
+            </div>
+            {planLimits.currentUsage.memberCount >= planLimits.maxMembers && (
+              <p className="text-xs text-amber-600">
+                {t('sweep.settings.billing.memberLimitReached')}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecentInvoicesSection({
+  invoices,
+  onViewAll,
+  onViewInvoice,
+}: {
+  invoices: InvoiceInfo[];
+  onViewAll: () => void;
+  onViewInvoice: (invoice: InvoiceInfo) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">{t('sweep.settings.billing.invoicesTitle')}</h3>
+        <Button variant="ghost" size="sm" onClick={onViewAll}>
+          {t('sweep.settings.billing.viewAll')}
+        </Button>
+      </div>
+      <div className="rounded-lg border divide-y">
+        {invoices.slice(0, 5).map((invoice) => (
+          <div
+            key={invoice.id}
+            className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+            onClick={() => onViewInvoice(invoice)}
+          >
+            <div className="flex items-center gap-3">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">{invoice.id}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(invoice.periodStart)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium">{formatCurrency(invoice.amount)}</span>
+              <InvoiceStatusBadge status={invoice.status} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function InvoiceHistorySection({ invoices }: { invoices: InvoiceInfo[] }) {
+  const t = useTranslations();
+  return (
+    <div>
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold">{t('settings.billing.history')}</h3>
+        <p className="text-sm text-muted-foreground">{t('settings.billing.historyDescription')}</p>
+      </div>
+      <div className="rounded-lg border">
+        {/* Table Header */}
+        <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-3 border-b bg-muted/30 text-sm text-muted-foreground">
+          <div>{t('settings.billing.reference')}</div>
+          <div>{t('settings.billing.total')}</div>
+          <div>{t('settings.billing.date')}</div>
+          <div></div>
+          <div></div>
+        </div>
+        {/* Table Rows */}
+        <div className="divide-y">
+          {invoices.map((invoice) => (
+            <div
+              key={invoice.id}
+              className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-3 items-center text-sm hover:bg-muted/50 transition-colors"
+            >
+              <div className="font-medium">{invoice.id}</div>
+              <div>
+                {formatCurrency(invoice.amount)}
+                {invoice.taxAmount > 0 && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    {t('sweep.settings.billing.inclTax', { amount: formatCurrency(invoice.taxAmount) })}
+                  </span>
+                )}
+              </div>
+              <div>{invoice.periodStart ? format(new Date(invoice.periodStart), 'do MMM yyyy') : '—'}</div>
+              <div>
+                <InvoiceStatusBadge status={invoice.status} />
+              </div>
+              <div>
+                {invoice.pdfUrl && (
+                  <a
+                    href={invoice.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillingOverview({
+  subscription,
+  plans,
+  planLimits,
+  invoices,
+  error,
+  isTrialing,
+  trialEndsAt,
+  manageSeatsOpen,
+  onManageSeatsOpenChange,
+  manageSeatCount,
+  onManageSeatCountChange,
+  processing,
+  onConfirmUpdateSeats,
+  onChangePlan,
+  onUpgrade,
+  onOpenManageSeats,
+  onViewAllInvoices,
+  onViewInvoice,
+}: {
+  subscription: Billing.Subscription | null;
+  plans: Billing.BillingPlan[];
+  planLimits: PlanLimitsInfo;
+  invoices: InvoiceInfo[];
+  error: string | null;
+  isTrialing: boolean;
+  trialEndsAt: string | Date | null;
+  manageSeatsOpen: boolean;
+  onManageSeatsOpenChange: (open: boolean) => void;
+  manageSeatCount: number;
+  onManageSeatCountChange: (count: number) => void;
+  processing: boolean;
+  onConfirmUpdateSeats: () => void;
+  onChangePlan: () => void;
+  onUpgrade: () => void;
+  onOpenManageSeats: () => void;
+  onViewAllInvoices: () => void;
+  onViewInvoice: (invoice: InvoiceInfo) => void;
+}) {
+  const t = useTranslations();
+  const currentPlanForSeats = plans.find(p => p.id === subscription?.planId);
+  const manageSeatsMin = Math.max(1, planLimits?.currentUsage.memberCount || 1);
+  const manageSeatsMax = currentPlanForSeats?.maxMembers || undefined;
+  const perSeatPrice = currentPlanForSeats
+    ? (subscription?.cycle === Billing.BillingCycle.Yearly
+        ? (currentPlanForSeats.yearlyPrice || Math.round(currentPlanForSeats.monthlyPrice * 10))
+        : currentPlanForSeats.monthlyPrice)
+    : 0;
+
+  return (
+    <div className="space-y-8 max-w-4xl mx-auto">
+      {/* Manage Seats Dialog */}
+      <ManageSeatsDialog
+        open={manageSeatsOpen}
+        onOpenChange={onManageSeatsOpenChange}
+        subscription={subscription}
+        planLimits={planLimits}
+        seatCount={manageSeatCount}
+        onSeatCountChange={onManageSeatCountChange}
+        min={manageSeatsMin}
+        max={manageSeatsMax}
+        perSeatPrice={perSeatPrice}
+        processing={processing}
+        onConfirm={onConfirmUpdateSeats}
+      />
+
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.billing.plansTitle')}</h1>
+        <p className="text-muted-foreground">{t('sweep.settings.billing.overviewDescription')}</p>
+      </div>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Current Plan Section */}
+      <div className="rounded-lg border">
+        <CurrentPlanHeader
+          subscription={subscription}
+          isTrialing={isTrialing}
+          trialEndsAt={trialEndsAt}
+          onChangePlan={onChangePlan}
+          onUpgrade={onUpgrade}
+        />
+
+        {/* Team Members Section */}
+        <TeamMembersSection
+          subscription={subscription}
+          planLimits={planLimits}
+          onOpenManageSeats={onOpenManageSeats}
+        />
+      </div>
+
+      {/* Invoices Section */}
+      {invoices.length > 0 && (
+        <RecentInvoicesSection invoices={invoices} onViewAll={onViewAllInvoices} onViewInvoice={onViewInvoice} />
+      )}
+
+      {/* History Section */}
+      {invoices.length > 0 && <InvoiceHistorySection invoices={invoices} />}
+    </div>
+  );
+}
+
 export function BillingSettingsSection() {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
@@ -589,10 +1770,7 @@ export function BillingSettingsSection() {
         data?: { plans: Billing.BillingPlan[]; subscription: Billing.Subscription | null };
       }>('/billing/plans-page');
       if (plansResult.data) {
-        setPlans((plansResult.data.plans || []).map(p => ({
-          ...p,
-          highlighted: p.highlighted || p.slug === 'scale',
-        })));
+        setPlans(withScaleHighlight(plansResult.data.plans));
         setSubscription(plansResult.data.subscription);
         setError(null);
 
@@ -622,10 +1800,7 @@ export function BillingSettingsSection() {
       }>('/billing/plans-page');
 
       if (plansResult.data) {
-        setPlans((plansResult.data.plans || []).map(p => ({
-          ...p,
-          highlighted: p.highlighted || p.slug === 'scale',
-        })));
+        setPlans(withScaleHighlight(plansResult.data.plans));
         if (plansResult.data.subscription) {
           setSubscription(plansResult.data.subscription);
         }
@@ -664,38 +1839,39 @@ export function BillingSettingsSection() {
     setSelectedPlan(plan);
   };
 
-  const handleConfirmCheckout = async (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually' = 'annually') => {
-    setProcessing(true);
-    setError(null);
-    setDowngradeBlockers([]);
-
+  // Validate a downgrade / seat limit before checkout. Returns true when the
+  // checkout must stop (blockers or a validation failure were surfaced).
+  const isCheckoutBlocked = async (plan: Billing.BillingPlan): Promise<boolean> => {
     const currentPlan = plans.find(p => p.id === subscription?.planId);
 
     // Check if this is a downgrade or if the target plan has a lower seat limit than current members
     const isDowngrade = currentPlan && plan.monthlyPrice < currentPlan.monthlyPrice;
     const needsValidation = isDowngrade || (plan.maxMembers != null && (planLimits?.currentUsage.memberCount ?? 0) > plan.maxMembers);
+    if (!needsValidation) return false;
 
-    // Validate downgrade / seat limit before proceeding
-    if (needsValidation) {
-      const client = await getClient();
-      // app-api POST /api/billing/validate-downgrade — `{ data }` envelope.
-      const validationResult = await client.post<{
-        data?: { canDowngrade: boolean; blockers: string[] };
-      }>(`/billing/validate-downgrade`, { planId: plan.id });
-      if (validationResult.data) {
-        if (!validationResult.data.canDowngrade) {
-          setDowngradeBlockers(validationResult.data.blockers);
-          setProcessing(false);
-          setSelectedPlan(null);
-          return;
-        }
-      } else {
-        setError(t('sweep.settings.billing.errors.validateDowngradeFailed'));
-        setProcessing(false);
-        setSelectedPlan(null);
-        return;
-      }
+    const client = await getClient();
+    // app-api POST /api/billing/validate-downgrade — `{ data }` envelope.
+    const validationResult = await client.post<{
+      data?: { canDowngrade: boolean; blockers: string[] };
+    }>(`/billing/validate-downgrade`, { planId: plan.id });
+    if (validationResult.data?.canDowngrade) return false;
+
+    if (validationResult.data) {
+      setDowngradeBlockers(validationResult.data.blockers);
+    } else {
+      setError(t('sweep.settings.billing.errors.validateDowngradeFailed'));
     }
+    setProcessing(false);
+    setSelectedPlan(null);
+    return true;
+  };
+
+  const handleConfirmCheckout = async (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually' = 'annually') => {
+    setProcessing(true);
+    setError(null);
+    setDowngradeBlockers([]);
+
+    if (await isCheckoutBlocked(plan)) return;
 
     // Create Stripe Checkout session via billing worker
     try {
@@ -767,43 +1943,11 @@ export function BillingSettingsSection() {
     setSelectedInvoice(null);
   };
 
-  const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(cents / 100);
-  };
-
-  const formatDate = (date: Date | string | null | undefined) => {
-    // Invoice periods are nullable. Without this guard `new Date(null)` renders
-    // the epoch ("Jan 01, 1970") rather than signalling a missing value.
-    if (!date) return '—';
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    return format(dateObj, 'MMM dd, yyyy');
-  };
-
   // The plans-page subscription reports the raw Stripe status; during a trial
   // it is 'trialing' and currentPeriodEnd marks the trial end date.
   const isTrialing = String(subscription?.status ?? '').toLowerCase() === 'trialing';
   const trialEndsAt = subscription?.currentPeriodEnd ?? null;
 
-
-  const getInvoiceStatusBadge = (status: string) => {
-    if (status === 'paid' || status === 'succeeded') {
-      return (
-        <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-400">
-          {t('settings.billing.paid')}
-        </Badge>
-      );
-    }
-    if (status === 'pending') {
-      return <Badge variant="secondary">{t('sweep.settings.billing.status.pending')}</Badge>;
-    }
-    if (status === 'failed') {
-      return <Badge variant="destructive">{t('sweep.settings.billing.status.failed')}</Badge>;
-    }
-    return <Badge variant="outline">{status}</Badge>;
-  };
 
   if (loading) {
     return <PageLoader fullScreen={false} />;
@@ -818,768 +1962,59 @@ export function BillingSettingsSection() {
     );
   }
 
-  // Plans View
   if (viewMode === 'plans') {
-    const currentApiPlan = plans.find(p => p.id === subscription?.planId);
-
-    const isContactPlan = (plan: Billing.BillingPlan) =>
-      plan.requiresContact || plan.name.toLowerCase() === 'enterprise';
-
-    const getButtonText = (plan: Billing.BillingPlan) => {
-      if (currentApiPlan?.id === plan.id) return t('settings.billing.currentPlan');
-      if (!currentApiPlan) return t('sweep.settings.billing.getStarted');
-      if (plan.monthlyPrice < currentApiPlan.monthlyPrice) return t('sweep.settings.billing.downgrade');
-      if (plan.monthlyPrice > currentApiPlan.monthlyPrice) return t('sweep.settings.billing.upgrade');
-      return t('sweep.settings.billing.getStarted');
-    };
-
-    const isPlanCurrent = (plan: Billing.BillingPlan) => {
-      return currentApiPlan?.id === plan.id;
-    };
-
-    const minSeats = Math.max(1, planLimits?.currentUsage.memberCount || 1);
-
     return (
-      <div className="max-w-5xl mx-auto overflow-visible space-y-8">
-        {/* Checkout Dialog */}
-        <CheckoutDialog
-          selectedPlan={selectedPlan}
-          onClose={() => setSelectedPlan(null)}
-          minSeats={minSeats}
-          onConfirmCheckout={handleConfirmCheckout}
-          processing={processing}
-        />
-
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.billing.plansTitle')}</h1>
-          <p className="text-muted-foreground">{t('sweep.settings.billing.plansDescription')}</p>
-        </div>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Downgrade Blockers */}
-        {downgradeBlockers.length > 0 && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <div className="space-y-2">
-                <p className="font-medium">{t('sweep.settings.billing.downgradeBlockersTitle')}</p>
-                <ul className="list-disc list-inside space-y-1">
-                  {downgradeBlockers.map((blocker, idx) => (
-                    <li key={idx}>{blocker}</li>
-                  ))}
-                </ul>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Pricing Header Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-[18px] h-[53px] px-4 md:px-5 bg-card rounded-2xl border">
-          {/* App icons */}
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.appsIncluded')}</span>
-            <div className="flex items-center gap-1.5">
-              {includedApps.map((app) => (
-                <div
-                  key={app.id}
-                  className="relative group"
-                >
-                  <div className="w-8 h-8 flex items-center justify-center border rounded-[10px] bg-card hover:border-muted-foreground/30 transition-colors cursor-pointer">
-                    <img
-                      src={app.logo}
-                      alt={app.name}
-                      className={`${app.logoClass} object-contain`}
-                    />
-                  </div>
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-10">
-                    <div className="bg-foreground text-background text-xs rounded-lg py-2 px-3 whitespace-nowrap">
-                      <div className="font-medium">{app.name}</div>
-                    </div>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Annual/Monthly toggle */}
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <span className="text-sm font-medium">{isAnnual ? t('sweep.settings.billing.annual') : t('sweep.settings.billing.monthly')}</span>
-            {isAnnual && <span className="text-sm font-medium text-green-600 -ml-1.5">({t('sweep.settings.billing.save17')})</span>}
-            <Button
-              variant="ghost"
-              onClick={() => setIsAnnual(!isAnnual)}
-              className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
-                isAnnual ? 'bg-foreground' : 'bg-muted-foreground/20'
-              }`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
-                  isAnnual ? 'translate-x-3' : 'translate-x-0'
-                }`}
-              />
-            </Button>
-          </div>
-        </div>
-
-        {/* Pricing Cards with decorative lines */}
-        <div className="relative overflow-visible">
-          {/* Vertical lines between packages */}
-          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block -left-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(25% - 4.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block bg-border/50" style={{ left: 'calc(75% + 3.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden lg:block -right-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-
-          {/* Horizontal lines */}
-          <div className="absolute -top-[9px] -left-2 -right-2 h-px hidden lg:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
-          <div className="absolute -bottom-[9px] -left-2 -right-2 h-px hidden lg:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
-
-          {/* Corner plus icons */}
-          <Plus className="absolute -top-[9px] -left-2 w-3 h-3 text-border hidden lg:block -translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
-          <Plus className="absolute -top-[9px] -right-2 w-3 h-3 text-border hidden lg:block translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
-          <Plus className="absolute -bottom-[9px] -left-2 w-3 h-3 text-border hidden lg:block -translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
-          <Plus className="absolute -bottom-[9px] -right-2 w-3 h-3 text-border hidden lg:block translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {plans.map((plan) => {
-            const isCurrent = isPlanCurrent(plan);
-            const buttonText = getButtonText(plan);
-            const features = formatPlanFeatures(plan);
-
-            return (
-              <div
-                key={plan.id}
-                className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
-                  plan.highlighted
-                    ? 'border border-blue-200 ring-4 ring-blue-50 dark:border-blue-800 dark:ring-blue-950'
-                    : 'border'
-                }`}
-              >
-                {/* Plan name */}
-                <h3 className="text-base font-medium mb-[21px]">{plan.name}</h3>
-
-                {/* Price */}
-                <div className="mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-3xl font-semibold">
-                      {isContactPlan(plan)
-                        ? t('sweep.settings.billing.custom')
-                        : (
-                          <NumberFlow
-                            value={isAnnual
-                              ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
-                              : plan.monthlyPrice / 100}
-                            format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
-                            transformTiming={{ duration: 400, easing: 'ease-out' }}
-                          />
-                        )}
-                    </span>
-                    {!isContactPlan(plan) && plan.monthlyPrice > 0 && isAnnual && (
-                      <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
-                        {t('sweep.settings.billing.save17')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Price subtitle */}
-                <p className="text-sm text-muted-foreground mb-1">
-                  {isContactPlan(plan)
-                    ? t('sweep.settings.billing.billedAnnually')
-                    : (isAnnual ? t('sweep.settings.billing.perUserMonthBilledAnnually') : t('sweep.settings.billing.perUserMonth'))}
-                </p>
-
-
-                {/* Description */}
-                {plan.description && (
-                  <p className="text-sm font-medium mb-[10px]">{plan.description}</p>
-                )}
-
-                {/* Features */}
-                <div className="space-y-3 flex-1">
-                  {features.map((feature, featureIndex) => (
-                    <div key={featureIndex} className="flex items-start gap-2">
-                      <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
-                        <Check className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <span className="text-sm text-muted-foreground">{feature}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* CTA Button */}
-                {isContactPlan(plan) ? (
-                  <EnterpriseContactForm
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 bg-card border hover:bg-muted disabled:opacity-50"
-                        disabled={isCurrent}
-                      >
-                        {isCurrent ? t('settings.billing.currentPlan') : t('sweep.settings.billing.contactSales')}
-                      </Button>
-                    }
-                  />
-                ) : (
-                  <Button
-                    variant="ghost"
-                    className={`block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 disabled:opacity-50 ${
-                      plan.highlighted
-                        ? 'bg-foreground text-background hover:bg-foreground/90'
-                        : 'bg-card border hover:bg-muted'
-                    }`}
-                    disabled={isCurrent || processing}
-                    onClick={() => handleSelectPlan(plan)}
-                  >
-                    {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />}
-                    {buttonText}
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-          </div>
-        </div>
-
-        {/* Pricing Comparison Table - hidden on mobile */}
-        {plans.length > 0 && (
-        <div className="hidden md:block mt-52">
-          {/* Sticky Table Header */}
-          <div className="sticky top-0 z-40 bg-background pt-8 pb-8 border-b">
-            <div className="grid gap-0" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
-              {/* Billing toggle */}
-              <div className="flex flex-col justify-end">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.annual')}</span>
-                  <span className="text-sm font-medium text-green-600">({t('sweep.settings.billing.save17')})</span>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setIsAnnual(!isAnnual)}
-                    className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
-                      isAnnual ? 'bg-foreground' : 'bg-muted-foreground/20'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
-                        isAnnual ? 'translate-x-3' : 'translate-x-0'
-                      }`}
-                    />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Plan columns */}
-              {plans.map((plan, index) => (
-                <div key={plan.id} className={index === plans.length - 1 ? 'pl-4 pr-0' : 'px-4'}>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-semibold">{plan.name}</h3>
-                    {plan.badge && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-md dark:bg-blue-950 dark:text-blue-400">
-                        {plan.badge}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {isContactPlan(plan) ? (
-                      <>{t('sweep.settings.billing.customQuoteLine1')}<br />{t('sweep.settings.billing.customQuoteLine2')}</>
-                    ) : (
-                      <>
-                        {formatPlanPrice(isAnnual ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) : plan.monthlyPrice, 'USD')} {t('sweep.settings.billing.perUserMonthComma')}<br />
-                        {isAnnual ? t('sweep.settings.billing.billedAnnuallyLower') : t('sweep.settings.billing.billedMonthlyLower')}
-                      </>
-                    )}
-                  </p>
-                  {isContactPlan(plan) ? (
-                    <EnterpriseContactForm
-                      trigger={
-                        <Button variant="outline" className="mt-4 w-full rounded-lg">
-                          {t('sweep.settings.billing.talkToSales')}
-                        </Button>
-                      }
-                    />
-                  ) : (
-                    <Button
-                      variant={plan.highlighted ? 'default' : 'outline'}
-                      className={`mt-4 w-full rounded-lg ${plan.highlighted ? 'bg-foreground hover:bg-foreground/90 text-background' : ''}`}
-                      disabled={isPlanCurrent(plan) || processing}
-                      onClick={() => handleSelectPlan(plan)}
-                    >
-                      {isPlanCurrent(plan) ? t('settings.billing.currentPlan') : getButtonText(plan)}
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Comparison sections rendered from data */}
-          {COMPARISON_SECTIONS.map((section) => (
-            <div key={section.title} className="mt-10">
-              <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{section.title}</h4>
-              {section.rows.map((row) => (
-                <div key={row.label} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
-                  <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{row.label}</div>
-                  {plans.map((plan, index) => {
-                    const key = plan.name.toLowerCase();
-                    const val = row.values[key] ?? '';
-                    return (
-                      <div
-                        key={plan.id}
-                        className={`text-center text-sm ${
-                          plan.highlighted ? 'bg-blue-50 dark:bg-blue-950/30 py-4 -my-4 flex items-center justify-center' : ''
-                        } ${index === plans.length - 1 ? 'pl-4 pr-0' : 'px-4'}`}
-                      >
-                        {val === true ? (
-                          <Check className="w-4 h-4 text-primary mx-auto" />
-                        ) : val === false ? (
-                          <span className="text-muted-foreground/40">{'\u2715'}</span>
-                        ) : (
-                          <span className="text-muted-foreground">{val}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-        )}
-
-      </div>
+      <PlansView
+        plans={plans}
+        subscription={subscription}
+        planLimits={planLimits}
+        selectedPlan={selectedPlan}
+        onCloseCheckout={() => setSelectedPlan(null)}
+        onConfirmCheckout={handleConfirmCheckout}
+        processing={processing}
+        error={error}
+        downgradeBlockers={downgradeBlockers}
+        isAnnual={isAnnual}
+        onToggleAnnual={() => setIsAnnual(!isAnnual)}
+        onSelectPlan={handleSelectPlan}
+      />
     );
   }
 
-  // Invoices List View
   if (viewMode === 'invoices') {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleBackToOverview}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            {t('sweep.settings.billing.back')}
-          </Button>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-semibold">{t('sweep.settings.billing.invoicesTitle')}</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t('sweep.settings.billing.invoicesSubtitle')}
-          </p>
-        </div>
-
-        <Card>
-          <CardContent className="p-0">
-            {invoices.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                {t('settings.billing.noInvoices')}
-              </p>
-            ) : (
-              <div className="divide-y">
-                {invoices.map((invoice) => (
-                  <div
-                    key={invoice.id}
-                    className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => handleViewInvoice(invoice)}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="rounded-full bg-primary/10 p-2">
-                        <FileText className="h-4 w-4 text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{invoice.id}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm font-semibold">{formatCurrency(invoice.amount)}</p>
-                        <div className="mt-1">{getInvoiceStatusBadge(invoice.status)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <InvoicesListView
+        invoices={invoices}
+        onBack={handleBackToOverview}
+        onViewInvoice={handleViewInvoice}
+      />
     );
   }
 
-  // Invoice Detail View
   if (viewMode === 'invoice-detail' && selectedInvoice) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setViewMode('invoices')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            {t('sweep.settings.billing.backToInvoices')}
-          </Button>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between">
-              <div>
-                <CardTitle>{selectedInvoice.id}</CardTitle>
-                <CardDescription className="mt-2">
-                  {formatDate(selectedInvoice.periodStart)} - {formatDate(selectedInvoice.periodEnd)}
-                </CardDescription>
-              </div>
-              {getInvoiceStatusBadge(selectedInvoice.status)}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
-              {selectedInvoice.subtotalAmount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{t('sweep.settings.billing.subtotal')}</span>
-                  <span className="font-medium">{formatCurrency(selectedInvoice.subtotalAmount)}</span>
-                </div>
-              )}
-              {selectedInvoice.taxAmount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {t('sweep.settings.billing.tax')}
-                    {selectedInvoice.customerCountry && (
-                      <span className="ml-1">({selectedInvoice.customerCountry})</span>
-                    )}
-                  </span>
-                  <span className="font-medium">{formatCurrency(selectedInvoice.taxAmount)}</span>
-                </div>
-              )}
-              {selectedInvoice.customerTaxExempt === 'reverse' && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{t('sweep.settings.billing.tax')}</span>
-                  <span className="text-muted-foreground text-xs">{t('sweep.settings.billing.reverseCharge')}</span>
-                </div>
-              )}
-              <Separator />
-              <div className="flex justify-between text-base">
-                <span className="font-semibold">{t('settings.billing.total')}</span>
-                <span className="font-bold">{formatCurrency(selectedInvoice.amount)}</span>
-              </div>
-            </div>
-
-            {selectedInvoice.pdfUrl && (
-              <Button variant="outline" className="w-full" asChild>
-                <a href={selectedInvoice.pdfUrl} target="_blank" rel="noopener noreferrer">
-                  <Download className="h-4 w-4 mr-2" />
-                  {t('sweep.settings.billing.downloadInvoice')}
-                </a>
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <InvoiceDetailView invoice={selectedInvoice} onBack={() => setViewMode('invoices')} />;
   }
-
-  // Overview (Default View)
-  const currentPlanForSeats = plans.find(p => p.id === subscription?.planId);
-  const manageSeatsMin = Math.max(1, planLimits?.currentUsage.memberCount || 1);
-  const manageSeatsMax = currentPlanForSeats?.maxMembers || undefined;
-  const perSeatPrice = currentPlanForSeats
-    ? (subscription?.cycle === Billing.BillingCycle.Yearly
-        ? (currentPlanForSeats.yearlyPrice || Math.round(currentPlanForSeats.monthlyPrice * 10))
-        : currentPlanForSeats.monthlyPrice)
-    : 0;
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
-      {/* Manage Seats Dialog */}
-      <Dialog open={manageSeatsOpen} onOpenChange={setManageSeatsOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('sweep.settings.billing.manageSeatsDialog.title')}</DialogTitle>
-            <DialogDescription>
-              {t('sweep.settings.billing.manageSeatsDialog.description', { name: subscription?.planName })}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Seat counter */}
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">{t('sweep.settings.billing.seats')}</p>
-                <p className="text-sm text-muted-foreground">
-                  {t('sweep.settings.billing.manageSeatsDialog.currentlyInUse', { count: planLimits?.currentUsage.memberCount || 0 })}
-                </p>
-              </div>
-              <div className="flex items-center border rounded-md overflow-hidden">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                  onClick={() => setManageSeatCount(Math.max(manageSeatsMin, manageSeatCount - 1))}
-                  disabled={manageSeatCount <= manageSeatsMin}
-                >
-                  <Minus className="h-4 w-4" />
-                </Button>
-                <span className="w-8 text-center text-sm font-medium">{manageSeatCount}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                  onClick={() => setManageSeatCount(manageSeatsMax ? Math.min(manageSeatsMax, manageSeatCount + 1) : manageSeatCount + 1)}
-                  disabled={!!manageSeatsMax && manageSeatCount >= manageSeatsMax}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Summary line */}
-            {perSeatPrice > 0 && (
-              <p className="text-sm text-muted-foreground">
-                {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: manageSeatCount })} &times;{' '}
-                {formatPlanPrice(perSeatPrice, 'USD')}/{t('sweep.settings.billing.seat')} ={' '}
-                <span className="font-medium text-foreground">
-                  {formatPlanPrice(manageSeatCount * perSeatPrice, 'USD')}/{subscription?.cycle === Billing.BillingCycle.Yearly ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
-                </span>
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setManageSeatsOpen(false)} disabled={processing}>
-              {t('sweep.settings.billing.cancel')}
-            </Button>
-            <Button
-              onClick={handleConfirmUpdateSeats}
-              disabled={processing || manageSeatCount === (subscription?.purchasedSeats || 0)}
-            >
-              {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {t('sweep.settings.billing.updateSeats')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.billing.plansTitle')}</h1>
-        <p className="text-muted-foreground">{t('sweep.settings.billing.overviewDescription')}</p>
-      </div>
-
-      {/* Error Alert */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Current Plan Section */}
-      <div className="rounded-lg border">
-        <div className="p-6 border-b">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <h2 className="text-xl font-semibold">{subscription?.planName?.replace(/\s*\d+$/, '') || subscription?.planName}</h2>
-                {isTrialing ? (
-                  <Badge variant="secondary" className="rounded-sm">{t('sweep.settings.billing.freeTrial')}</Badge>
-                ) : subscription && subscription.pricePerCycle > 0 && (
-                  <Badge variant={subscription.status === Billing.SubscriptionStatus.Active ? "default" : "secondary"} className="rounded-sm">
-                    {subscription.status === Billing.SubscriptionStatus.Active ? t('sweep.settings.billing.activeBadge') : subscription.status}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                {isTrialing ? (
-                  trialEndsAt
-                    ? <>{t('sweep.settings.billing.trialEndsOn', { date: formatDate(trialEndsAt) })}</>
-                    : t('sweep.settings.billing.onFreeTrialNoEndDate')
-                ) : !subscription ? (
-                  // The permanent free plan has been retired — a workspace with
-                  // no subscription record yet is pre-trial, not "free forever".
-                  t('sweep.settings.billing.choosePlanToStart')
-                ) : subscription.pricePerCycle === 0 ? (
-                  // Legacy workspaces may still carry a $0 subscription from
-                  // before the free plan was retired from `GET /billing/plans`.
-                  t('sweep.settings.billing.noActivePlan')
-                ) : (
-                  <>
-                    {formatCurrency(subscription.pricePerCycle)}/{subscription.cycle === Billing.BillingCycle.Monthly ? t('sweep.settings.billing.month') : t('sweep.settings.billing.year')}
-                    {subscription.currentPeriodEnd && (
-                      <span> &bull; {t('settings.billing.renews', { date: formatDate(subscription.currentPeriodEnd) })}</span>
-                    )}
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {subscription && subscription.pricePerCycle > 0 ? (
-                <Button variant="outline" size="sm" onClick={handleChangePlan}>
-                  {t('settings.billing.changePlan')}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={handleUpgrade}>
-                  {t('sweep.settings.billing.upgrade')}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Team Members Section */}
-        <div className="rounded-lg border">
-          <div className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="rounded-full bg-primary/10 p-3">
-                  <Users className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t('sweep.settings.billing.teamMembers')}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {planLimits ? (
-                      <>
-                        {t('sweep.settings.billing.memberCount', { count: planLimits.currentUsage.memberCount })}
-                        {planLimits.maxMembers && (
-                          <span> {t('sweep.settings.billing.ofMaxAllowed', { max: planLimits.maxMembers })}</span>
-                        )}
-                      </>
-                    ) : (
-                      t('sweep.settings.billing.manageYourTeam')
-                    )}
-                  </p>
-                </div>
-              </div>
-              {subscription && subscription.pricePerCycle > 0 && (
-                <Button variant="outline" size="sm" onClick={handleOpenManageSeats}>
-                  {t('sweep.settings.billing.manageSeatsButton')}
-                </Button>
-              )}
-            </div>
-
-            {/* Members progress bar */}
-            {planLimits && planLimits.maxMembers && (
-              <div className="mt-4 space-y-2">
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      planLimits.currentUsage.memberCount >= (planLimits.maxMembers || 999) ? 'bg-amber-500' : 'bg-primary'
-                    }`}
-                    style={{
-                      width: `${Math.min(100, (planLimits.currentUsage.memberCount / (planLimits.maxMembers || planLimits.currentUsage.memberCount)) * 100)}%`
-                    }}
-                  />
-                </div>
-                {planLimits.currentUsage.memberCount >= planLimits.maxMembers && (
-                  <p className="text-xs text-amber-600">
-                    {t('sweep.settings.billing.memberLimitReached')}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Invoices Section */}
-      {invoices.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">{t('sweep.settings.billing.invoicesTitle')}</h3>
-            <Button variant="ghost" size="sm" onClick={handleViewAllInvoices}>
-              {t('sweep.settings.billing.viewAll')}
-            </Button>
-          </div>
-          <div className="rounded-lg border divide-y">
-            {invoices.slice(0, 5).map((invoice) => (
-              <div
-                key={invoice.id}
-                className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                onClick={() => handleViewInvoice(invoice)}
-              >
-                <div className="flex items-center gap-3">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">{invoice.id}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDate(invoice.periodStart)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium">{formatCurrency(invoice.amount)}</span>
-                  {getInvoiceStatusBadge(invoice.status)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* History Section */}
-      {invoices.length > 0 && (
-        <div>
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold">{t('settings.billing.history')}</h3>
-            <p className="text-sm text-muted-foreground">{t('settings.billing.historyDescription')}</p>
-          </div>
-          <div className="rounded-lg border">
-            {/* Table Header */}
-            <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-3 border-b bg-muted/30 text-sm text-muted-foreground">
-              <div>{t('settings.billing.reference')}</div>
-              <div>{t('settings.billing.total')}</div>
-              <div>{t('settings.billing.date')}</div>
-              <div></div>
-              <div></div>
-            </div>
-            {/* Table Rows */}
-            <div className="divide-y">
-              {invoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-3 items-center text-sm hover:bg-muted/50 transition-colors"
-                >
-                  <div className="font-medium">{invoice.id}</div>
-                  <div>
-                    {formatCurrency(invoice.amount)}
-                    {invoice.taxAmount > 0 && (
-                      <span className="text-xs text-muted-foreground ml-1">
-                        {t('sweep.settings.billing.inclTax', { amount: formatCurrency(invoice.taxAmount) })}
-                      </span>
-                    )}
-                  </div>
-                  <div>{invoice.periodStart ? format(new Date(invoice.periodStart), 'do MMM yyyy') : '—'}</div>
-                  <div>
-                    {getInvoiceStatusBadge(invoice.status)}
-                  </div>
-                  <div>
-                    {invoice.pdfUrl && (
-                      <a
-                        href={invoice.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <Download className="h-4 w-4" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <BillingOverview
+      subscription={subscription}
+      plans={plans}
+      planLimits={planLimits}
+      invoices={invoices}
+      error={error}
+      isTrialing={isTrialing}
+      trialEndsAt={trialEndsAt}
+      manageSeatsOpen={manageSeatsOpen}
+      onManageSeatsOpenChange={setManageSeatsOpen}
+      manageSeatCount={manageSeatCount}
+      onManageSeatCountChange={setManageSeatCount}
+      processing={processing}
+      onConfirmUpdateSeats={handleConfirmUpdateSeats}
+      onChangePlan={handleChangePlan}
+      onUpgrade={handleUpgrade}
+      onOpenManageSeats={handleOpenManageSeats}
+      onViewAllInvoices={handleViewAllInvoices}
+      onViewInvoice={handleViewInvoice}
+    />
   );
 }

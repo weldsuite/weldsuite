@@ -488,43 +488,15 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) return;
 
       // Walk up to the editor's direct child — that's the "block".
-      let node: Node | null = sel.anchorNode;
-      let blockEl: HTMLElement | null = null;
-      while (node && node !== el) {
-        if (node.parentNode === el && node instanceof HTMLElement) { blockEl = node; break; }
-        node = node.parentNode;
-      }
-      const tag = blockEl?.tagName ?? 'P';
-      const block: BlockKind =
-        tag === 'H1' ? 'heading1'
-        : tag === 'H2' ? 'heading2'
-        : tag === 'H3' ? 'heading3'
-        : tag === 'UL' ? 'bulletList'
-        : tag === 'OL' ? 'numberedList'
-        : tag === 'BLOCKQUOTE' ? 'quote'
-        : 'paragraph';
+      const blockEl = findTopLevelBlock(el, sel.anchorNode);
+      const block: BlockKind = BLOCK_KIND_BY_TAG[blockEl?.tagName ?? 'P'] ?? 'paragraph';
 
       // Current font family + size, read from the element at the selection's
       // start (the actual styled text — not just the parent block), so the
       // toolbar mirrors the caret/selection like Bold/Italic do.
-      let fontName = 'Arial';
-      let fontSize = 11;
-      const range = sel.getRangeAt(0);
-      let probe: Node | null = range.startContainer;
-      if (probe && probe.nodeType === Node.ELEMENT_NODE) {
-        const kids = probe.childNodes;
-        probe = kids[Math.min(range.startOffset, Math.max(0, kids.length - 1))] ?? probe;
-      }
-      const probeEl = probe instanceof HTMLElement ? probe : probe?.parentElement ?? null;
-      if (probeEl && el.contains(probeEl)) {
-        const cs = window.getComputedStyle(probeEl);
-        const fam = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
-        if (fam) fontName = fam;
-        const px = Number.parseFloat(cs.fontSize);
-        if (px) fontSize = Math.round((px * 72) / 96); // px → pt
-      }
+      const { fontName, fontSize } = readFontAtSelection(el, sel.getRangeAt(0));
 
-      const q = (cmd: string) => { try { return document.queryCommandState(cmd); } catch { return false; } };
+      const q = queryCommandStateSafe;
       setTb({
         bold: q('bold'),
         italic: q('italic'),
@@ -733,6 +705,56 @@ const INITIAL_TOOLBAR_STATE: ToolbarState = {
   fontName: 'Arial',
   fontSize: 11,
 };
+
+const BLOCK_KIND_BY_TAG: Record<string, BlockKind> = {
+  H1: 'heading1',
+  H2: 'heading2',
+  H3: 'heading3',
+  UL: 'bulletList',
+  OL: 'numberedList',
+  BLOCKQUOTE: 'quote',
+};
+
+/** Walk up from `anchor` to the editor's direct child element (the "block"). */
+function findTopLevelBlock(root: HTMLElement, anchor: Node | null): HTMLElement | null {
+  let node: Node | null = anchor;
+  while (node && node !== root) {
+    if (node.parentNode === root && node instanceof HTMLElement) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+/** Font family + size (pt) of the element at the start of `range`. */
+function readFontAtSelection(
+  root: HTMLElement,
+  range: Range,
+): { fontName: string; fontSize: number } {
+  let fontName = 'Arial';
+  let fontSize = 11;
+  let probe: Node | null = range.startContainer;
+  if (probe && probe.nodeType === Node.ELEMENT_NODE) {
+    const kids = probe.childNodes;
+    probe = kids[Math.min(range.startOffset, Math.max(0, kids.length - 1))] ?? probe;
+  }
+  const probeEl = probe instanceof HTMLElement ? probe : probe?.parentElement ?? null;
+  if (probeEl && root.contains(probeEl)) {
+    const cs = window.getComputedStyle(probeEl);
+    const fam = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    if (fam) fontName = fam;
+    const px = Number.parseFloat(cs.fontSize);
+    if (px) fontSize = Math.round((px * 72) / 96); // px → pt
+  }
+  return { fontName, fontSize };
+}
+
+function queryCommandStateSafe(cmd: string): boolean {
+  try {
+    return document.queryCommandState(cmd);
+  } catch {
+    return false;
+  }
+}
 
 function ToolbarDivider() {
   return <div className="w-px h-5 bg-border mx-1" />;

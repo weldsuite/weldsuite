@@ -151,6 +151,111 @@ export interface WorkspaceApiKey {
   lastUsedAt?: string;
 }
 
+type PermissionEntity = typeof PERMISSION_ENTITIES[number]
+
+// Consecutive entities that share a group are rendered as one table.
+function groupPermissionEntities(): { group: string; entities: PermissionEntity[] }[] {
+  const groups: { group: string; entities: PermissionEntity[] }[] = [];
+  for (const entity of PERMISSION_ENTITIES) {
+    const last = groups[groups.length - 1];
+    if (last && last.group === entity.group) {
+      last.entities.push(entity);
+    } else {
+      groups.push({ group: entity.group, entities: [entity] });
+    }
+  }
+  return groups;
+}
+
+// One permission group: a table of entities with read/write scope checkboxes.
+function PermissionGroupTable({
+  group,
+  entities,
+  selectedScopes,
+  onToggleScope,
+}: {
+  group: string;
+  entities: PermissionEntity[];
+  selectedScopes: string[];
+  onToggleScope: (scopeId: string) => void;
+}) {
+  const t = useTranslations();
+  const groupLogo = GROUP_LOGOS[group];
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
+        <span className="inline-flex items-center gap-1.5">
+          {groupLogo && <img src={groupLogo} alt="" className="h-3.5 w-3.5" />}
+          {group}
+        </span>
+      </div>
+      <table className="w-full text-sm border-collapse">
+        <thead className="bg-background">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium border-b border-border/40">{t('sweep.settings.apiKeys.table.entity')}</th>
+            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.read')}</th>
+            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.write')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entities.map((entity, idx) => {
+            const isLast = idx === entities.length - 1;
+            const cellBorder = isLast ? '' : 'border-b border-border/40';
+            return (
+              <tr key={entity.entity} className="bg-background">
+                <td className={cn('px-3 py-2', cellBorder)}>
+                  <div className="font-medium">{entity.entity}</div>
+                  <div className="text-xs text-muted-foreground">{entity.description}</div>
+                </td>
+                {(['read', 'write'] as const).map((action) => (
+                  <PermissionScopeCell
+                    key={action}
+                    entity={entity}
+                    action={action}
+                    cellBorder={cellBorder}
+                    selectedScopes={selectedScopes}
+                    onToggleScope={onToggleScope}
+                  />
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Read or write scope checkbox cell for an entity ("—" when the scope does not exist).
+function PermissionScopeCell({
+  entity,
+  action,
+  cellBorder,
+  selectedScopes,
+  onToggleScope,
+}: {
+  entity: PermissionEntity;
+  action: 'read' | 'write';
+  cellBorder: string;
+  selectedScopes: string[];
+  onToggleScope: (scopeId: string) => void;
+}) {
+  const t = useTranslations();
+  const scope = entity.scopes.find((s) => s.id.endsWith(`:${action}`));
+  return (
+    <td className={cn('text-center px-3 py-2', cellBorder)}>
+      {scope ? (
+        <Checkbox
+          checked={selectedScopes.includes(scope.id)}
+          onCheckedChange={() => onToggleScope(scope.id)}
+        />
+      ) : (
+        <span className="text-muted-foreground/40" title={t('sweep.settings.apiKeys.notAvailable')}>—</span>
+      )}
+    </td>
+  );
+}
+
 // Permissions selector component
 function PermissionsSelector({
   selectedScopes,
@@ -191,68 +296,15 @@ function PermissionsSelector({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
         <div className="space-y-3">
-        {(() => {
-          const groups: { group: string; entities: typeof PERMISSION_ENTITIES[number][] }[] = [];
-          for (const entity of PERMISSION_ENTITIES) {
-            const last = groups[groups.length - 1];
-            if (last && last.group === entity.group) {
-              last.entities.push(entity);
-            } else {
-              groups.push({ group: entity.group, entities: [entity] });
-            }
-          }
-          return groups.map(({ group, entities }) => {
-            const groupLogo = GROUP_LOGOS[group];
-            return (
-              <div key={group} className="border rounded-md overflow-hidden">
-                <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
-                  <span className="inline-flex items-center gap-1.5">
-                    {groupLogo && <img src={groupLogo} alt="" className="h-3.5 w-3.5" />}
-                    {group}
-                  </span>
-                </div>
-                <table className="w-full text-sm border-collapse">
-                  <thead className="bg-background">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-medium border-b border-border/40">{t('sweep.settings.apiKeys.table.entity')}</th>
-                      <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.read')}</th>
-                      <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.write')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entities.map((entity, idx) => {
-                      const isLast = idx === entities.length - 1;
-                      const cellBorder = isLast ? '' : 'border-b border-border/40';
-                      return (
-                        <tr key={entity.entity} className="bg-background">
-                          <td className={cn('px-3 py-2', cellBorder)}>
-                            <div className="font-medium">{entity.entity}</div>
-                            <div className="text-xs text-muted-foreground">{entity.description}</div>
-                          </td>
-                          {(['read', 'write'] as const).map((action) => {
-                            const scope = entity.scopes.find((s) => s.id.endsWith(`:${action}`));
-                            return (
-                              <td key={action} className={cn('text-center px-3 py-2', cellBorder)}>
-                                {scope ? (
-                                  <Checkbox
-                                    checked={selectedScopes.includes(scope.id)}
-                                    onCheckedChange={() => onToggleScope(scope.id)}
-                                  />
-                                ) : (
-                                  <span className="text-muted-foreground/40" title={t('sweep.settings.apiKeys.notAvailable')}>—</span>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            );
-          });
-        })()}
+        {groupPermissionEntities().map(({ group, entities }) => (
+          <PermissionGroupTable
+            key={group}
+            group={group}
+            entities={entities}
+            selectedScopes={selectedScopes}
+            onToggleScope={onToggleScope}
+          />
+        ))}
         </div>
       </div>
       {selectedScopes.length > 0 && (
@@ -471,6 +523,27 @@ function AnimatedCodePreview() {
   );
 }
 
+// "usage" filter pill: keep used keys ('used') or never-used keys ('unused').
+function matchesUsageFilter(key: WorkspaceApiKey, value: string): boolean {
+  const used = !!key.lastUsedAt
+  if (value === 'used' && !used) return false
+  if (value === 'unused' && used) return false
+  return true
+}
+
+// True when `key` passes every active filter pill and the (lower-cased) search query.
+function matchesApiKeyFilters(key: WorkspaceApiKey, activeFilters: ActiveFilter[], query: string): boolean {
+  for (const f of activeFilters) {
+    if (!f.value) continue
+    if (f.field === 'usage' && !matchesUsageFilter(key, f.value)) return false
+  }
+  if (query) {
+    const haystack = [key.name, key.description, key.keyPrefix].filter(Boolean).join(' ').toLowerCase()
+    if (!haystack.includes(query)) return false
+  }
+  return true
+}
+
 export function ApiKeysSection() {
   const t = useTranslations()
   const [error, setError] = React.useState<string | null>(null)
@@ -506,21 +579,7 @@ export function ApiKeysSection() {
   const filteredApiKeys = React.useMemo(() => {
     const apiKeys = (apiKeysData?.data as WorkspaceApiKey[]) ?? []
     const q = searchQuery.trim().toLowerCase()
-    return apiKeys.filter((k) => {
-      for (const f of activeFilters) {
-        if (!f.value) continue
-        if (f.field === 'usage') {
-          const used = !!k.lastUsedAt
-          if (f.value === 'used' && !used) return false
-          if (f.value === 'unused' && used) return false
-        }
-      }
-      if (q) {
-        const haystack = [k.name, k.description, k.keyPrefix].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
-      return true
-    })
+    return apiKeys.filter((k) => matchesApiKeyFilters(k, activeFilters, q))
   }, [apiKeysData, activeFilters, searchQuery])
 
   // Create key dialog state
