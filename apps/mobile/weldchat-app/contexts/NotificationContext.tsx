@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -58,17 +66,22 @@ function testPushResult(sent: number): { ok: boolean; message: string } {
   return { ok: true, message: `Test push accepted by Expo (${sent} ${devices}).` };
 }
 
+function pushTokenType(isExpoToken: boolean): 'expo' | 'fcm' | 'apns' {
+  if (isExpoToken) return 'expo';
+  return Platform.OS === 'android' ? 'fcm' : 'apns';
+}
+
 /** Register the Expo push token with app-api's push-tokens endpoint. */
 async function registerPushToken(token: string): Promise<boolean> {
   const deviceId = await getDeviceId();
   const isExpoToken = token.startsWith('ExponentPushToken[');
-  const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
+  const tokenType = pushTokenType(isExpoToken);
   const body = {
     token,
     platform: Platform.OS as 'ios' | 'android',
     deviceId,
     appCode: APP_CODE,
-    tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+    tokenType,
     deviceModel: Device.modelName || undefined,
     osVersion: Device.osVersion || undefined,
     appVersion: Application.nativeApplicationVersion || undefined,
@@ -249,7 +262,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     return next;
   }, []);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -264,12 +277,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [refreshRegistrationStatus]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
   const sendTestPush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     try {
@@ -423,22 +436,32 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [user, organizationId, navigateFromNotificationData, refreshRegistrationStatus]);
 
-  return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        isConnected,
-        isPermissionGranted,
-        registrationStatus,
-        requestPermissions,
-        openNotificationSettings,
-        refreshRegistrationStatus,
-        sendTestPush,
-        unregisterDevice,
-        prepareWorkspaceSwitch,
-      }}
-    >
-      {children}
-    </NotificationContext.Provider>
+  const contextValue = useMemo<NotificationContextType>(
+    () => ({
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      registrationStatus,
+      requestPermissions,
+      openNotificationSettings,
+      refreshRegistrationStatus,
+      sendTestPush,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    }),
+    [
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      registrationStatus,
+      requestPermissions,
+      openNotificationSettings,
+      refreshRegistrationStatus,
+      sendTestPush,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    ],
   );
+
+  return <NotificationContext.Provider value={contextValue}>{children}</NotificationContext.Provider>;
 }

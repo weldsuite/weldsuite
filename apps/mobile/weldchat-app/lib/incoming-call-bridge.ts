@@ -38,6 +38,15 @@ export function presentIncomingCallFromPush(payload: IncomingCallPushPayload): v
   pending = payload;
 }
 
+function channelIdFromPushData(data: Record<string, unknown>): string {
+  if (typeof data.chatChannelId === 'string') return data.chatChannelId;
+  if (typeof data.channelId === 'string') return data.channelId;
+  if (typeof data.actionUrl === 'string') {
+    return data.actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/)?.[1] ?? '';
+  }
+  return '';
+}
+
 /** Parse Expo notification `data` into a ring payload, or null if incomplete. */
 export function incomingCallPayloadFromNotificationData(
   data: Record<string, unknown>,
@@ -47,14 +56,7 @@ export function incomingCallPayloadFromNotificationData(
   const callId = typeof data.entityId === 'string' ? data.entityId : '';
   if (!/^[A-Za-z0-9_-]+$/.test(callId)) return null;
 
-  const channelId =
-    typeof data.chatChannelId === 'string'
-      ? data.chatChannelId
-      : typeof data.channelId === 'string'
-        ? data.channelId
-      : typeof data.actionUrl === 'string'
-        ? (data.actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/)?.[1] ?? '')
-        : '';
+  const channelId = channelIdFromPushData(data);
   if (!channelId) return null;
 
   const callType = data.callType === 'video' ? 'video' : 'voice';
