@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getTranslations } from '@/lib/i18n';
+import { getTranslations, type TranslationNamespaces } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Input } from '@weldsuite/ui/components/input';
@@ -22,6 +22,7 @@ import {
 import { FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { VoipPhoneNumber } from '@/lib/api/domains/call-intelligence';
+import type { ProviderAddress } from '@/app/settings/apps/phone-numbers/new-number/new-number-client';
 import {
   useAddresses,
   usePhoneOrderRequirements,
@@ -80,6 +81,56 @@ export function PendingNumberDocuments({ phoneNumbers, onActivated }: Readonly<P
         }}
       />
     </>
+  );
+}
+
+type PhoneNumberStrings = TranslationNamespaces['settings']['phoneNumbers'];
+
+function RequirementField({
+  req,
+  value,
+  addresses,
+  tp,
+  onUpload,
+  onValueChange,
+}: Readonly<{
+  req: PhoneOrderRequirement;
+  value: string;
+  addresses: ProviderAddress[];
+  tp: PhoneNumberStrings;
+  onUpload: (file: File | undefined) => void;
+  onValueChange: (value: string) => void;
+}>) {
+  if (req.fieldType === 'document') {
+    return (
+      <div className="flex items-center gap-2">
+        <Input type="file" onChange={(e) => onUpload(e.target.files?.[0])} />
+        {value ? <Badge variant="secondary">{tp.fileUploaded}</Badge> : null}
+      </div>
+    );
+  }
+  if (req.fieldType === 'address') {
+    return (
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger>
+          <SelectValue placeholder={tp.selectAddressForRequirement} />
+        </SelectTrigger>
+        <SelectContent>
+          {addresses.map((addr) => (
+            <SelectItem key={addr.id} value={addr.id}>
+              {addr.business_name || addr.friendly_name || addr.customer_name || addr.id}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
+  return (
+    <Input
+      value={value}
+      placeholder={req.example || tp.requirementTextPlaceholder}
+      onChange={(e) => onValueChange(e.target.value)}
+    />
   );
 }
 
@@ -156,56 +207,31 @@ function DocumentsDialog({
           {phone && (
             <p className="font-mono text-sm">{phone.formattedNumber || phone.phoneNumber}</p>
           )}
-          {isLoading ? (
+          {isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {tp.documentsWaiting}
             </div>
-          ) : requirements.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{tp.documentsWaiting}</p>
-          ) : (
-            requirements.map((req) => (
-              <div key={req.id} className="space-y-2">
-                <Label>{req.name}</Label>
-                {req.description ? (
-                  <p className="text-xs text-muted-foreground">{req.description}</p>
-                ) : null}
-                {req.fieldType === 'document' ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="file"
-                      onChange={(e) => void handleUpload(req, e.target.files?.[0])}
-                    />
-                    {values[req.id] ? (
-                      <Badge variant="secondary">{tp.fileUploaded}</Badge>
-                    ) : null}
-                  </div>
-                ) : req.fieldType === 'address' ? (
-                  <Select
-                    value={values[req.id] || ''}
-                    onValueChange={(v) => setValues((prev) => ({ ...prev, [req.id]: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={tp.selectAddressForRequirement} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(addresses ?? []).map((addr) => (
-                        <SelectItem key={addr.id} value={addr.id}>
-                          {addr.business_name || addr.friendly_name || addr.customer_name || addr.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    value={values[req.id] || ''}
-                    placeholder={req.example || tp.requirementTextPlaceholder}
-                    onChange={(e) => setValues((prev) => ({ ...prev, [req.id]: e.target.value }))}
-                  />
-                )}
-              </div>
-            ))
           )}
+          {!isLoading && requirements.length === 0 && (
+            <p className="text-sm text-muted-foreground">{tp.documentsWaiting}</p>
+          )}
+          {!isLoading && requirements.map((req) => (
+            <div key={req.id} className="space-y-2">
+              <Label>{req.name}</Label>
+              {req.description ? (
+                <p className="text-xs text-muted-foreground">{req.description}</p>
+              ) : null}
+              <RequirementField
+                req={req}
+                value={values[req.id] || ''}
+                addresses={addresses ?? []}
+                tp={tp}
+                onUpload={(file) => void handleUpload(req, file)}
+                onValueChange={(v) => setValues((prev) => ({ ...prev, [req.id]: v }))}
+              />
+            </div>
+          ))}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
