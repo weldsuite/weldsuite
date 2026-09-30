@@ -71,6 +71,30 @@ function toResponse(row: typeof t.$inferSelect | undefined): Preferences {
   };
 }
 
+type PreferencesInput = z.infer<typeof updatePreferencesSchema>;
+
+/** Only the preference fields the caller sent; `uiPreferences` is merged into the stored JSONB. */
+function buildPreferencesUpdate(
+  data: PreferencesInput,
+  existing: typeof t.$inferSelect,
+): Record<string, unknown> {
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.theme !== undefined) updateData.theme = data.theme;
+  if (data.fontSize !== undefined) updateData.fontSize = data.fontSize;
+  if (data.language !== undefined) updateData.language = data.language;
+  if (data.dateFormat !== undefined) updateData.dateFormat = data.dateFormat;
+  if (data.timeFormat !== undefined) updateData.timeFormat = data.timeFormat;
+  if (data.timezone !== undefined) updateData.timezone = data.timezone;
+  if (data.notifications !== undefined) updateData.notifications = data.notifications;
+  if (data.uiPreferences !== undefined) {
+    // Merge — preserves homeWidgets, profile, sidebarAppOrder, etc.
+    const current = (existing.uiPreferences as Record<string, unknown>) || {};
+    updateData.uiPreferences = { ...current, ...data.uiPreferences };
+  }
+  if (data.workingHours !== undefined) updateData.workingHours = data.workingHours;
+  return updateData;
+}
+
 /** GET /api/user-preferences — current user's preferences. Returns defaults when no row exists. */
 app.get('/', async (c) => {
   const userId = c.get('userId');
@@ -107,20 +131,7 @@ app.put('/', zValidator('json', updatePreferencesSchema), async (c) => {
       .limit(1);
 
     if (existing) {
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      if (data.theme !== undefined) updateData.theme = data.theme;
-      if (data.fontSize !== undefined) updateData.fontSize = data.fontSize;
-      if (data.language !== undefined) updateData.language = data.language;
-      if (data.dateFormat !== undefined) updateData.dateFormat = data.dateFormat;
-      if (data.timeFormat !== undefined) updateData.timeFormat = data.timeFormat;
-      if (data.timezone !== undefined) updateData.timezone = data.timezone;
-      if (data.notifications !== undefined) updateData.notifications = data.notifications;
-      if (data.uiPreferences !== undefined) {
-        // Merge — preserves homeWidgets, profile, sidebarAppOrder, etc.
-        const current = (existing.uiPreferences as Record<string, unknown>) || {};
-        updateData.uiPreferences = { ...current, ...data.uiPreferences };
-      }
-      if (data.workingHours !== undefined) updateData.workingHours = data.workingHours;
+      const updateData = buildPreferencesUpdate(data, existing);
 
       await db.update(t).set(updateData).where(eq(t.id, existing.id));
 

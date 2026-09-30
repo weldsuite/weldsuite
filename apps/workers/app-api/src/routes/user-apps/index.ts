@@ -31,7 +31,7 @@ import type { UserApp } from '@weldsuite/db/schema/master';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getMasterDb, getWorkspaceForOrg, masterSchema, schema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { getMasterDb, getWorkspaceForOrg, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import {
   adoptOfficialSystemInstallsForTenant,
   sweepAdoptSystemInstallsForApp,
@@ -754,6 +754,102 @@ app.get('/:id/versions', requirePermission('weldapps:read'), async (c) => {
 // POST /:id/versions — upload a bundle version (multipart)
 // ============================================================================
 
+type VersionManifest = ReturnType<typeof userAppManifestSchema.parse>;
+
+type VersionUploadParse =
+  | { manifest: VersionManifest; changelog: string | null; files: File[]; bundleSize: number }
+  | { failure: { message: string; details?: unknown } };
+
+/** Validate the bundle file list; returns the 400 message, or null when valid. */
+function validateBundleFiles(files: File[], bundleSize: number): string | null {
+  if (files.length === 0) return 'At least one bundle file is required';
+  if (files.length > MAX_BUNDLE_FILES) {
+    return `Bundle exceeds the ${MAX_BUNDLE_FILES}-file limit`;
+  }
+  if (bundleSize > MAX_BUNDLE_BYTES) {
+    return `Bundle exceeds the ${MAX_BUNDLE_BYTES / (1024 * 1024)}MB size limit`;
+  }
+  const seen = new Set<string>();
+  for (const f of files) {
+    if (!isSafeBundlePath(f.name)) return `Invalid bundle file path: '${f.name}'`;
+    if (seen.has(f.name)) return `Duplicate bundle file path: '${f.name}'`;
+    seen.add(f.name);
+  }
+  return null;
+}
+
+/** Parse + validate the multipart body of POST /:id/versions. */
+async function parseVersionUpload(
+  readForm: () => Promise<FormData>,
+  appCode: string,
+): Promise<VersionUploadParse> {
+  let form: FormData;
+  try {
+    form = await readForm();
+  } catch {
+    return { failure: { message: 'Expected multipart/form-data' } };
+  }
+
+  const manifestRaw = form.get('manifest');
+  if (typeof manifestRaw !== 'string') {
+    return { failure: { message: "Missing 'manifest' field (JSON string)" } };
+  }
+  let manifestJson: unknown;
+  try {
+    manifestJson = JSON.parse(manifestRaw);
+  } catch {
+    return { failure: { message: "Field 'manifest' is not valid JSON" } };
+  }
+  const parsed = userAppManifestSchema.safeParse(manifestJson);
+  if (!parsed.success) {
+    return { failure: { message: 'Invalid manifest', details: parsed.error.flatten() } };
+  }
+  const manifest = parsed.data;
+  if (manifest.code !== appCode) {
+    return {
+      failure: {
+        message: `Manifest code '${manifest.code}' does not match app code '${appCode}'`,
+      },
+    };
+  }
+  const changelogRaw = form.get('changelog');
+  const changelog = typeof changelogRaw === 'string' && changelogRaw ? changelogRaw : null;
+
+  // workers-types types FormData entries as string; multipart file parts are File at runtime
+  const files = (form.getAll('files') as unknown as (string | File)[]).filter(
+    (f): f is File => typeof f !== 'string',
+  );
+  const bundleSize = files.reduce((sum, f) => sum + f.size, 0);
+  const filesFailure = validateBundleFiles(files, bundleSize);
+  if (filesFailure) return { failure: { message: filesFailure } };
+
+  return { manifest, changelog, files, bundleSize };
+}
+
+/**
+ * Mirror the owner workspace's tenant row (other tenants sync lazily —
+ * pendingScopes stays master-side; the tenant row keeps the granted copy).
+ */
+async function mirrorOwnerInstallScopes(
+  master: MasterDatabase,
+  db: Database,
+  appId: string,
+  workspaceId: string,
+  installsNeedingConsent: Array<{ workspaceId: string; installId: string }>,
+): Promise<void> {
+  const ownerPending = installsNeedingConsent.find((i) => i.workspaceId === workspaceId);
+  if (!ownerPending) return;
+  const [ownerInstall] = await master
+    .select({ grantedScopes: uInstalls.grantedScopes })
+    .from(uInstalls)
+    .where(eq(uInstalls.id, ownerPending.installId))
+    .limit(1);
+  await db
+    .update(wsApps)
+    .set({ grantedScopes: ownerInstall?.grantedScopes ?? [], updatedAt: new Date() })
+    .where(and(eq(wsApps.userAppId, appId), isNull(wsApps.deletedAt)));
+}
+
 app.post('/:id/versions', requirePermission('weldapps:develop'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
@@ -766,52 +862,11 @@ app.post('/:id/versions', requirePermission('weldapps:develop'), async (c) => {
     if (!appRow) return error.notFound(c, 'App', id);
     if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
 
-    let form: FormData;
-    try {
-      form = await c.req.formData();
-    } catch {
-      return error.badRequest(c, 'Expected multipart/form-data');
+    const upload = await parseVersionUpload(() => c.req.formData(), appRow.code);
+    if ('failure' in upload) {
+      return error.badRequest(c, upload.failure.message, upload.failure.details);
     }
-
-    const manifestRaw = form.get('manifest');
-    if (typeof manifestRaw !== 'string') {
-      return error.badRequest(c, "Missing 'manifest' field (JSON string)");
-    }
-    let manifestJson: unknown;
-    try {
-      manifestJson = JSON.parse(manifestRaw);
-    } catch {
-      return error.badRequest(c, "Field 'manifest' is not valid JSON");
-    }
-    const parsed = userAppManifestSchema.safeParse(manifestJson);
-    if (!parsed.success) {
-      return error.badRequest(c, 'Invalid manifest', parsed.error.flatten());
-    }
-    const manifest = parsed.data;
-    if (manifest.code !== appRow.code) {
-      return error.badRequest(c, `Manifest code '${manifest.code}' does not match app code '${appRow.code}'`);
-    }
-    const changelogRaw = form.get('changelog');
-    const changelog = typeof changelogRaw === 'string' && changelogRaw ? changelogRaw : null;
-
-    // workers-types types FormData entries as string; multipart file parts are File at runtime
-    const files = (form.getAll('files') as unknown as (string | File)[]).filter(
-      (f): f is File => typeof f !== 'string',
-    );
-    if (files.length === 0) return error.badRequest(c, 'At least one bundle file is required');
-    if (files.length > MAX_BUNDLE_FILES) {
-      return error.badRequest(c, `Bundle exceeds the ${MAX_BUNDLE_FILES}-file limit`);
-    }
-    const bundleSize = files.reduce((sum, f) => sum + f.size, 0);
-    if (bundleSize > MAX_BUNDLE_BYTES) {
-      return error.badRequest(c, `Bundle exceeds the ${MAX_BUNDLE_BYTES / (1024 * 1024)}MB size limit`);
-    }
-    const seen = new Set<string>();
-    for (const f of files) {
-      if (!isSafeBundlePath(f.name)) return error.badRequest(c, `Invalid bundle file path: '${f.name}'`);
-      if (seen.has(f.name)) return error.badRequest(c, `Duplicate bundle file path: '${f.name}'`);
-      seen.add(f.name);
-    }
+    const { manifest, changelog, files, bundleSize } = upload;
 
     const [dupe] = await master
       .select({ id: uVersions.id })
@@ -866,20 +921,7 @@ app.post('/:id/versions', requirePermission('weldapps:develop'), async (c) => {
       });
     } else {
       const { installsNeedingConsent } = await publishAppVersion(master, appRow, version);
-      // Mirror the owner workspace's tenant row (other tenants sync lazily —
-      // pendingScopes stays master-side; the tenant row keeps the granted copy).
-      const ownerPending = installsNeedingConsent.find((i) => i.workspaceId === workspaceId);
-      if (ownerPending) {
-        const [ownerInstall] = await master
-          .select({ grantedScopes: uInstalls.grantedScopes })
-          .from(uInstalls)
-          .where(eq(uInstalls.id, ownerPending.installId))
-          .limit(1);
-        await db
-          .update(wsApps)
-          .set({ grantedScopes: ownerInstall?.grantedScopes ?? [], updatedAt: new Date() })
-          .where(and(eq(wsApps.userAppId, appRow.id), isNull(wsApps.deletedAt)));
-      }
+      await mirrorOwnerInstallScopes(master, db, appRow.id, workspaceId, installsNeedingConsent);
       publishEntityEvent({
         c,
         entityType: 'user_app',

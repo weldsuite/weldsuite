@@ -6,39 +6,46 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createTicketMessageSchema, updateTicketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskTicketMessages;
+
+/** Keyset condition for "rows after this cursor row"; null when the cursor row is gone. */
+async function buildCursorCondition(db: Database, cursor: string): Promise<SQL | null> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+/** List filters from the query string (always excludes soft-deleted rows). */
+function buildFilterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.ticketId !== undefined && q.ticketId !== '') conditions.push(eq(t.ticketId, q.ticketId));
+  if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
+  if (q.search) {
+    conditions.push(like(t.subject, `%${q.search}%`));
+  }
+  return conditions;
+}
 
 app.get('/', requirePermission('tickets:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.ticketId !== undefined && q.ticketId !== '') conditions.push(eq(t.ticketId, q.ticketId));
-  if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
-  if (q.search) {
-    conditions.push(like(t.subject, `%${q.search}%`));
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const conditions = buildFilterConditions(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : null;
+  if (cursorCondition) conditions.push(cursorCondition);
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;

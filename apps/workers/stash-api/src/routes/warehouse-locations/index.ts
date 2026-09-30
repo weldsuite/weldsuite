@@ -8,7 +8,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -18,40 +18,56 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.warehouseLocations;
+
+/** Push `column = value` when the query param is present and non-empty. */
+function pushEqFilter(conditions: SQL[], column: AnyColumn, value: string | undefined): void {
+  if (value) conditions.push(eq(column, value));
+}
+
+/** Push `column = (param === 'true')` when the boolean query param is present. */
+function pushBooleanFilter(conditions: SQL[], column: AnyColumn, value: string | undefined): void {
+  if (value !== undefined) conditions.push(eq(column, value === 'true'));
+}
+
+/** List filters from the query string (always excludes soft-deleted rows). */
+function buildFilterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.name, term), like(t.code, term), like(t.barcode, term))!);
+  }
+  pushEqFilter(conditions, t.warehouseId, q.warehouseId);
+  pushEqFilter(conditions, t.zoneId, q.zoneId);
+  pushEqFilter(conditions, t.locationType, q.locationType);
+  pushBooleanFilter(conditions, t.isActive, q.isActive);
+  pushBooleanFilter(conditions, t.isEmpty, q.isEmpty);
+  pushBooleanFilter(conditions, t.isBlocked, q.isBlocked);
+  pushEqFilter(conditions, t.abcClass, q.abcClass);
+  pushEqFilter(conditions, t.barcode, q.barcode);
+  return conditions;
+}
+
+/** Keyset condition for "rows after this cursor row"; null when the cursor row is gone. */
+async function buildCursorCondition(db: Database, cursor: string): Promise<SQL | null> {
+  const [cur] = await db
+    .select({ pickingSequence: t.pickingSequence, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur) return null;
+  return sql`(${t.pickingSequence} > ${cur.pickingSequence} OR (${t.pickingSequence} = ${cur.pickingSequence} AND ${t.id} > ${cur.id}))`;
+}
 
 app.get('/', requirePermission('locations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.name, term), like(t.code, term), like(t.barcode, term))!);
-  }
-  if (q.warehouseId) conditions.push(eq(t.warehouseId, q.warehouseId));
-  if (q.zoneId) conditions.push(eq(t.zoneId, q.zoneId));
-  if (q.locationType) conditions.push(eq(t.locationType, q.locationType));
-  if (q.isActive !== undefined) conditions.push(eq(t.isActive, q.isActive === 'true'));
-  if (q.isEmpty !== undefined) conditions.push(eq(t.isEmpty, q.isEmpty === 'true'));
-  if (q.isBlocked !== undefined) conditions.push(eq(t.isBlocked, q.isBlocked === 'true'));
-  if (q.abcClass) conditions.push(eq(t.abcClass, q.abcClass));
-  if (q.barcode) conditions.push(eq(t.barcode, q.barcode));
-
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ pickingSequence: t.pickingSequence, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur) {
-      conditions.push(
-        sql`(${t.pickingSequence} > ${cur.pickingSequence} OR (${t.pickingSequence} = ${cur.pickingSequence} AND ${t.id} > ${cur.id}))`,
-      );
-    }
-  }
+  const conditions = buildFilterConditions(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : null;
+  if (cursorCondition) conditions.push(cursorCondition);
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
