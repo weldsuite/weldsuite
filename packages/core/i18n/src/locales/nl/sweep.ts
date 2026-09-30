@@ -602,6 +602,7 @@ export const sweep = {
       "articleTitlePlaceholder": "bijv. Hoe u aan de slag gaat"
     },
     "helpEditor": {
+      "resizeImageHandle": "Afbeeldingsgrootte aanpassen",
       "boldTooltip": "Vet (Ctrl+B)",
       "italicTooltip": "Cursief (Ctrl+I)",
       "underlineTooltip": "Onderstrepen (Ctrl+U)",

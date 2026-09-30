@@ -117,6 +117,17 @@ const FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: string]>
   ['justifyFull', 'alignJustify'],
 ];
 
+const RESIZE_HANDLES: ReadonlyArray<{ handle: string; className: string }> = [
+  { handle: 'nw', className: '-top-1.5 -left-1.5 cursor-nw-resize' },
+  { handle: 'ne', className: '-top-1.5 -right-1.5 cursor-ne-resize' },
+  { handle: 'sw', className: '-bottom-1.5 -left-1.5 cursor-sw-resize' },
+  { handle: 'se', className: '-bottom-1.5 -right-1.5 cursor-se-resize' },
+  { handle: 'n', className: '-top-1.5 left-1/2 -translate-x-1/2 cursor-n-resize' },
+  { handle: 's', className: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-s-resize' },
+  { handle: 'w', className: 'top-1/2 -left-1.5 -translate-y-1/2 cursor-w-resize' },
+  { handle: 'e', className: 'top-1/2 -right-1.5 -translate-y-1/2 cursor-e-resize' },
+];
+
 function getActiveFormats(): Set<string> {
   const formats = new Set<string>();
   for (const [command, format] of FORMAT_COMMANDS) {
@@ -554,7 +565,7 @@ export default function NewHelpArticlePage() {
     const imageWrapper = document.createElement('div');
     imageWrapper.className = 'my-4 image-wrapper';
     imageWrapper.setAttribute('contenteditable', 'false');
-    imageWrapper.setAttribute('data-image-wrapper', 'true');
+    imageWrapper.dataset.imageWrapper = 'true';
 
     const img = document.createElement('img');
     img.src = imageUrl;
@@ -703,10 +714,10 @@ export default function NewHelpArticlePage() {
     let wrapper = selectedImage.parentElement;
 
     // If the parent is not a wrapper, create one
-    if (!wrapper || !wrapper.hasAttribute('data-image-wrapper')) {
+    if (!wrapper || !('imageWrapper' in wrapper.dataset)) {
       // Check if parent has contenteditable="false"
       if (wrapper && wrapper.getAttribute('contenteditable') === 'false') {
-        wrapper.setAttribute('data-image-wrapper', 'true');
+        wrapper.dataset.imageWrapper = 'true';
         wrapper.classList.add('image-wrapper');
       } else {
         // Create a wrapper for the image
@@ -1605,6 +1616,8 @@ export default function NewHelpArticlePage() {
         {/* Title */}
         <div
           ref={titleRef}
+          role="textbox"
+          aria-label={th.untitled}
           contentEditable
           suppressContentEditableWarning
           onInput={handleTitleInput}
@@ -1628,6 +1641,9 @@ export default function NewHelpArticlePage() {
         <div className="relative">
           <div
             ref={contentRef}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={th.pressForCommands}
             contentEditable
             suppressContentEditableWarning
             onInput={handleContentInput}
@@ -1683,49 +1699,21 @@ export default function NewHelpArticlePage() {
                 style={{ pointerEvents: 'none' }}
               />
 
-              {/* Corner handles */}
-              <div
-                className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-nw-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'nw')}
-              />
-              <div
-                className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-ne-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'ne')}
-              />
-              <div
-                className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-sw-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'sw')}
-              />
-              <div
-                className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-se-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'se')}
-              />
-
-              {/* Edge handles */}
-              <div
-                className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-n-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'n')}
-              />
-              <div
-                className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-s-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 's')}
-              />
-              <div
-                className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-w-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'w')}
-              />
-              <div
-                className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-e-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'e')}
-              />
+              {/* Corner and edge handles */}
+              {RESIZE_HANDLES.map(({ handle, className }) => (
+                <button
+                  key={handle}
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={st('sweep.welddesk.helpEditor.resizeImageHandle')}
+                  className={cn(
+                    "absolute w-3 h-3 p-0 bg-primary border-2 border-white rounded-sm shadow-sm",
+                    className
+                  )}
+                  style={{ pointerEvents: 'auto' }}
+                  onMouseDown={(e) => startResize(e, handle)}
+                />
+              ))}
 
               {/* Size indicator */}
               <div

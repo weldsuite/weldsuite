@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 
 interface WidgetPageSettings {
   pageHelp: boolean;
@@ -34,8 +34,10 @@ export function WidgetSettingsProvider({ children, initialSettings }: Readonly<W
     setSettings(prev => ({ ...prev, ...newSettings }));
   }, []);
 
+  const value = useMemo(() => ({ settings, updateSettings }), [settings, updateSettings]);
+
   return (
-    <WidgetSettingsContext.Provider value={{ settings, updateSettings }}>
+    <WidgetSettingsContext.Provider value={value}>
       {children}
     </WidgetSettingsContext.Provider>
   );
