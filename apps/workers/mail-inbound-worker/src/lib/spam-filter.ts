@@ -199,6 +199,65 @@ function isDisplayNameSpoof(
   return false;
 }
 
+interface SpamSignal {
+  points: number;
+  reason: string;
+}
+
+/** SPF / DKIM / DMARC signals (in evaluation order). */
+function authSignals(email: SpamScoreEmail): SpamSignal[] {
+  const spf = email.spfStatus ?? null;
+  const dkim = email.dkimStatus ?? null;
+  const dmarc = email.dmarcStatus ?? null;
+  const signals: SpamSignal[] = [];
+
+  if (dmarc === 'fail') signals.push({ points: 3, reason: 'dmarc_fail' });
+  if (isAuthFail(spf)) {
+    signals.push({ points: 2, reason: spf === 'softfail' ? 'spf_softfail' : 'spf_fail' });
+  }
+  if (dkim === 'fail') signals.push({ points: 2, reason: 'dkim_fail' });
+
+  if (isAuthFail(spf) && dkim === 'fail' && dmarc === 'fail') {
+    signals.push({ points: 2, reason: 'auth_all_fail' });
+  } else if (isAuthAbsent(spf) && isAuthAbsent(dkim) && isAuthAbsent(dmarc)) {
+    signals.push({ points: 1, reason: 'auth_all_missing' });
+  }
+  return signals;
+}
+
+function subjectSignals(subject: string): SpamSignal[] {
+  if (!subject) return [];
+  const { lexicon, shouting } = subjectLooksSpammy(subject);
+  const signals: SpamSignal[] = [];
+  if (lexicon) signals.push({ points: 2, reason: 'subject_spam_lexicon' });
+  if (shouting) signals.push({ points: 1, reason: 'subject_shouting' });
+  return signals;
+}
+
+function bodySignals(email: SpamScoreEmail): SpamSignal[] {
+  const bodyText = `${email.textBody ?? ''}\n${email.htmlBody ?? ''}`;
+  if (!bodyText.trim()) return [];
+  const { manyLinks, shortener } = bodyLinkSignals(bodyText);
+  if (!manyLinks && !shortener) return [];
+  return [{ points: 2, reason: manyLinks ? 'body_many_links' : 'body_url_shortener' }];
+}
+
+/** Sender identity signals: display-name spoof and Reply-To domain mismatch. */
+function senderSignals(email: SpamScoreEmail, recipients: string[]): SpamSignal[] {
+  const signals: SpamSignal[] = [];
+  if (isDisplayNameSpoof(email.from, recipients)) {
+    signals.push({ points: 3, reason: 'from_display_spoof' });
+  }
+
+  const replyTo = parseReplyToEmail(headerValue(email.headers, 'reply-to'));
+  const fromDomain = domainOf(email.from.email);
+  const replyDomain = replyTo ? domainOf(replyTo) : null;
+  if (replyDomain && fromDomain && replyDomain !== fromDomain) {
+    signals.push({ points: 1, reason: 'reply_to_domain_mismatch' });
+  }
+  return signals;
+}
+
 /**
  * Score an inbound message. Does not mutate input.
  */
@@ -206,77 +265,23 @@ export function scoreInboundSpam(
   email: SpamScoreEmail,
   options: SpamScoreOptions = {},
 ): SpamScoreResult {
-  let score = 0;
-  const reasons: string[] = [];
-
-  const spf = email.spfStatus ?? null;
-  const dkim = email.dkimStatus ?? null;
-  const dmarc = email.dmarcStatus ?? null;
-
-  if (dmarc === 'fail') {
-    score += 3;
-    reasons.push('dmarc_fail');
-  }
-  if (isAuthFail(spf)) {
-    score += 2;
-    reasons.push(spf === 'softfail' ? 'spf_softfail' : 'spf_fail');
-  }
-  if (dkim === 'fail') {
-    score += 2;
-    reasons.push('dkim_fail');
-  }
-  if (isAuthFail(spf) && dkim === 'fail' && dmarc === 'fail') {
-    score += 2;
-    reasons.push('auth_all_fail');
-  } else if (isAuthAbsent(spf) && isAuthAbsent(dkim) && isAuthAbsent(dmarc)) {
-    score += 1;
-    reasons.push('auth_all_missing');
-  }
-
   const attachmentNames = options.attachmentNames ?? [];
-  if (attachmentNames.length > 0 && hasExecutableAttachment(attachmentNames)) {
-    score += 4;
-    reasons.push('executable_attachment');
-  }
-
-  const subject = email.subject ?? '';
-  if (subject) {
-    const { lexicon, shouting } = subjectLooksSpammy(subject);
-    if (lexicon) {
-      score += 2;
-      reasons.push('subject_spam_lexicon');
-    }
-    if (shouting) {
-      score += 1;
-      reasons.push('subject_shouting');
-    }
-  }
-
-  const bodyText = `${email.textBody ?? ''}\n${email.htmlBody ?? ''}`;
-  if (bodyText.trim()) {
-    const { manyLinks, shortener } = bodyLinkSignals(bodyText);
-    if (manyLinks || shortener) {
-      score += 2;
-      reasons.push(manyLinks ? 'body_many_links' : 'body_url_shortener');
-    }
-  }
-
   const recipients =
     options.recipientEmails ??
     (email.to ?? []).map((t) => t.email).filter(Boolean);
 
-  if (isDisplayNameSpoof(email.from, recipients)) {
-    score += 3;
-    reasons.push('from_display_spoof');
-  }
+  const signals: SpamSignal[] = [
+    ...authSignals(email),
+    ...(attachmentNames.length > 0 && hasExecutableAttachment(attachmentNames)
+      ? [{ points: 4, reason: 'executable_attachment' }]
+      : []),
+    ...subjectSignals(email.subject ?? ''),
+    ...bodySignals(email),
+    ...senderSignals(email, recipients),
+  ];
 
-  const replyTo = parseReplyToEmail(headerValue(email.headers, 'reply-to'));
-  const fromDomain = domainOf(email.from.email);
-  const replyDomain = replyTo ? domainOf(replyTo) : null;
-  if (replyDomain && fromDomain && replyDomain !== fromDomain) {
-    score += 1;
-    reasons.push('reply_to_domain_mismatch');
-  }
+  let score = signals.reduce((sum, signal) => sum + signal.points, 0);
+  const reasons = signals.map((signal) => signal.reason);
 
   if (options.isExistingHamThread && score >= SPAM_SCORE_THRESHOLD) {
     const capped = SPAM_SCORE_THRESHOLD - 1;

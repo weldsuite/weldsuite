@@ -31,6 +31,40 @@ const PERMANENT_TOKEN_ERROR_CODES = new Set([
  */
 const TRANSIENT_ERROR_CODES = new Set(['MessageTooBig', 'MessageRateExceeded']);
 
+/**
+ * Collect every token that should be deactivated: the ones Expo already flagged
+ * as invalid (DeviceNotRegistered) plus any other permanent-failure ticket codes.
+ */
+function collectTokensToDeactivate(
+  result: SendExpoPushResult,
+  messages: ExpoPushMessage[],
+): Set<string> {
+  const tokens = new Set<string>(result.invalidTokens);
+  result.tickets.forEach((ticket, idx) => {
+    if (ticket.status !== 'error') return;
+    const code = ticket.details?.error ?? '';
+    // DeviceNotRegistered is already in invalidTokens
+    if (!PERMANENT_TOKEN_ERROR_CODES.has(code) || code === 'DeviceNotRegistered') return;
+    const token = messages[idx]?.to;
+    if (token) tokens.add(token);
+  });
+  return tokens;
+}
+
+/** Log transient / payload ticket errors without touching the token. */
+function logTransientTicketErrors(
+  result: SendExpoPushResult,
+  describe: (code: string, message: string) => string,
+): void {
+  for (const ticket of result.tickets) {
+    if (ticket.status !== 'error') continue;
+    const code = ticket.details?.error ?? 'Unknown';
+    if (TRANSIENT_ERROR_CODES.has(code)) {
+      console.warn(describe(code, ticket.message ?? ''));
+    }
+  }
+}
+
 interface NewEmailPushParams {
   userId: string;
   workspaceId: string;
@@ -114,32 +148,14 @@ export async function sendNewEmailPushNotification(
       console.log(`[PushNotify] Sent to ${ok} device(s) for user ${userId} (${err} failed)`);
     }
 
-    // Log transient / payload errors without touching the token.
-    for (const ticket of result.tickets) {
-      if (ticket.status === 'error') {
-        const code = ticket.details?.error ?? 'Unknown';
-        if (TRANSIENT_ERROR_CODES.has(code)) {
-          console.warn(`[PushNotify] Transient push error for user ${userId}: ${code} — ${ticket.message ?? ''}`);
-        }
-      }
-    }
+    logTransientTicketErrors(
+      result,
+      (code, message) => `[PushNotify] Transient push error for user ${userId}: ${code} — ${message}`,
+    );
 
     // Collect tokens to deactivate: DeviceNotRegistered (already in invalidTokens)
     // plus any additional permanent-failure codes in the ticket list.
-    const tokensToDeactivate = new Set<string>(result.invalidTokens);
-
-    result.tickets.forEach((ticket, idx) => {
-      if (ticket.status === 'error') {
-        const code = ticket.details?.error ?? '';
-        if (
-          PERMANENT_TOKEN_ERROR_CODES.has(code) &&
-          code !== 'DeviceNotRegistered' // already in invalidTokens
-        ) {
-          const token = messages[idx]?.to;
-          if (token) tokensToDeactivate.add(token);
-        }
-      }
-    });
+    const tokensToDeactivate = collectTokensToDeactivate(result, messages);
 
     if (tokensToDeactivate.size > 0) {
       console.log(`[PushNotify] Deactivating ${tokensToDeactivate.size} invalid token(s)`);
@@ -252,27 +268,13 @@ export async function sendPersonalEmailPushNotification(
       );
     }
 
-    for (const ticket of result.tickets) {
-      if (ticket.status === 'error') {
-        const code = ticket.details?.error ?? 'Unknown';
-        if (TRANSIENT_ERROR_CODES.has(code)) {
-          console.warn(
-            `[PushNotify] Transient personal push error for ${clerkUserId}: ${code} — ${ticket.message ?? ''}`,
-          );
-        }
-      }
-    }
+    logTransientTicketErrors(
+      result,
+      (code, message) =>
+        `[PushNotify] Transient personal push error for ${clerkUserId}: ${code} — ${message}`,
+    );
 
-    const tokensToDeactivate = new Set<string>(result.invalidTokens);
-    result.tickets.forEach((ticket, idx) => {
-      if (ticket.status === 'error') {
-        const code = ticket.details?.error ?? '';
-        if (PERMANENT_TOKEN_ERROR_CODES.has(code) && code !== 'DeviceNotRegistered') {
-          const token = messages[idx]?.to;
-          if (token) tokensToDeactivate.add(token);
-        }
-      }
-    });
+    const tokensToDeactivate = collectTokensToDeactivate(result, messages);
 
     if (tokensToDeactivate.size > 0) {
       console.log(
