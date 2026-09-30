@@ -135,6 +135,11 @@ function baseDelayForLength(len: number): number {
   return match ? match[1] : LONG_WORD_BASE_DELAY;
 }
 
+// Cosmetic typing-cadence jitter; drawn from the Web Crypto API rather than Math.random.
+function randomUnit(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+}
+
 // Words at the start/end of a segment are spoken a little slower.
 function positionMultiplier(posRatio: number): number {
   if (posRatio < 0.15) return 1.2;
@@ -143,9 +148,9 @@ function positionMultiplier(posRatio: number): number {
 }
 
 function punctuationPauseFor(word: string): number {
-  if (word.endsWith('...')) return 400 + Math.random() * 200;
-  if (/[.?!]$/.test(word)) return 300 + Math.random() * 150;
-  if (/[,;]$/.test(word)) return 150 + Math.random() * 100;
+  if (word.endsWith('...')) return 400 + randomUnit() * 200;
+  if (/[.?!]$/.test(word)) return 300 + randomUnit() * 150;
+  if (/[,;]$/.test(word)) return 150 + randomUnit() * 100;
   return 0;
 }
 
@@ -154,17 +159,17 @@ export function getWordDelay(wordIdx: number) {
 
   const { word, posInSegment, segmentLength, isFirstWord } = locateWord(wordIdx);
 
-  if (isFirstWord) return 700 + Math.random() * 500;
+  if (isFirstWord) return 700 + randomUnit() * 500;
 
   const cleanWord = word.replace(/[.,!?;:'"]/g, '');
 
-  if (fastWords.has(cleanWord)) return 100 + Math.random() * 80;
+  if (fastWords.has(cleanWord)) return 100 + randomUnit() * 80;
 
   const base = baseDelayForLength(cleanWord.length) * positionMultiplier(posInSegment / segmentLength);
 
-  const jitter = ((Math.random() + Math.random()) / 2 - 0.5) * 160;
+  const jitter = ((randomUnit() + randomUnit()) / 2 - 0.5) * 160;
   const punctuationPause = punctuationPauseFor(word);
-  const thinkPause = Math.random() < 0.1 ? 200 + Math.random() * 200 : 0;
+  const thinkPause = randomUnit() < 0.1 ? 200 + randomUnit() * 200 : 0;
 
   return Math.max(80, base + jitter + punctuationPause + thinkPause);
 }
