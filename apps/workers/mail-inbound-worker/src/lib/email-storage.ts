@@ -1580,74 +1580,71 @@ function evalRuleCondition(
   }
 }
 
+type MailMessageUpdate = Partial<typeof tenantSchema.mailMessages.$inferInsert>;
+
+/** Rule actions that set plain columns on the message. */
+const SIMPLE_RULE_ACTIONS = new Map<string, () => MailMessageUpdate>([
+  ['delete', () => ({ deletedAt: new Date() })],
+  ['mark_as_read', () => ({ isRead: true })],
+  ['mark_as_unread', () => ({ isRead: false })],
+  ['flag', () => ({ isFlagged: true })],
+]);
+
+/**
+ * Rule actions that rewrite the message's label list. `apply` returns the new
+ * labels, or `null` when nothing needs to change.
+ */
+const LABEL_RULE_ACTIONS = new Map<
+  string,
+  { needsLabel: boolean; apply: (cur: string[], labelId: string | undefined) => string[] | null }
+>([
+  [
+    'move_to_folder',
+    { needsLabel: true, apply: (cur, labelId) => [...new Set([...cur.filter((l) => l !== 'INBOX'), labelId!])] },
+  ],
+  ['star', { needsLabel: false, apply: (cur) => (cur.includes('STARRED') ? null : [...cur, 'STARRED']) }],
+  [
+    'add_label',
+    { needsLabel: true, apply: (cur, labelId) => (cur.includes(labelId!) ? null : [...cur, labelId!]) },
+  ],
+  ['remove_label', { needsLabel: true, apply: (cur, labelId) => cur.filter((l) => l !== labelId) }],
+  ['archive', { needsLabel: false, apply: (cur) => [...new Set([...cur.filter((l) => l !== 'INBOX'), 'ARCHIVE'])] }],
+]);
+
+/** Read a message's labels, apply a label rule, and persist the result. */
+async function applyLabelRule(
+  tenantDb: TenantDbHandle,
+  messageId: string,
+  apply: (cur: string[], labelId: string | undefined) => string[] | null,
+  labelId: string | undefined,
+): Promise<boolean> {
+  const { mailMessages } = tenantSchema;
+  const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
+  if (!msg) return false;
+  const nextLabels = apply((msg.labels as string[]) || [], labelId);
+  if (nextLabels) {
+    await tenantDb.update(mailMessages).set({ labels: nextLabels, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
+  }
+  return true;
+}
+
 /** Execute a single rule action using Drizzle */
 async function executeRuleAction(
-  tenantDb: Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>,
+  tenantDb: TenantDbHandle,
   messageId: string,
   action: { type: string; labelId?: string; value?: string },
 ): Promise<boolean> {
   const { mailMessages } = tenantSchema;
 
-  switch (action.type) {
-    case 'move_to_folder': {
-      if (!action.labelId) return false;
-      const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-      if (!msg) return false;
-      const cur = (msg.labels as string[]) || [];
-      const nl = [...new Set([...cur.filter((l: string) => l !== 'INBOX'), action.labelId])];
-      await tenantDb.update(mailMessages).set({ labels: nl, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    }
-    case 'delete':
-      await tenantDb.update(mailMessages).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    case 'mark_as_read':
-      await tenantDb.update(mailMessages).set({ isRead: true, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    case 'mark_as_unread':
-      await tenantDb.update(mailMessages).set({ isRead: false, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    case 'star': {
-      const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-      if (!msg) return false;
-      const cur = (msg.labels as string[]) || [];
-      if (!cur.includes('STARRED')) {
-        await tenantDb.update(mailMessages).set({ labels: [...cur, 'STARRED'], updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      }
-      return true;
-    }
-    case 'add_label': {
-      if (!action.labelId) return false;
-      const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-      if (!msg) return false;
-      const cur = (msg.labels as string[]) || [];
-      if (!cur.includes(action.labelId)) {
-        await tenantDb.update(mailMessages).set({ labels: [...cur, action.labelId], updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      }
-      return true;
-    }
-    case 'remove_label': {
-      if (!action.labelId) return false;
-      const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-      if (!msg) return false;
-      const cur = (msg.labels as string[]) || [];
-      await tenantDb.update(mailMessages).set({ labels: cur.filter((l: string) => l !== action.labelId), updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    }
-    case 'flag':
-      await tenantDb.update(mailMessages).set({ isFlagged: true, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    case 'archive': {
-      const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-      if (!msg) return false;
-      const cur = (msg.labels as string[]) || [];
-      const nl = [...new Set([...cur.filter((l: string) => l !== 'INBOX'), 'ARCHIVE'])];
-      await tenantDb.update(mailMessages).set({ labels: nl, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-      return true;
-    }
-    default:
-      return false;
+  const simple = SIMPLE_RULE_ACTIONS.get(action.type);
+  if (simple) {
+    await tenantDb.update(mailMessages).set({ ...simple(), updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
+    return true;
   }
+
+  const labelRule = LABEL_RULE_ACTIONS.get(action.type);
+  if (!labelRule || (labelRule.needsLabel && !action.labelId)) return false;
+  return applyLabelRule(tenantDb, messageId, labelRule.apply, action.labelId);
 }
 
 /**
@@ -1856,15 +1853,47 @@ export async function processHelpdeskInboxEmail(
   );
 
   // Collect helpdesk-specific registry entries
-  const helpdeskInboxes: Array<{ email: string; accountId: string; workspaceId: string; clerkOrgId: string | null }> =
+  const helpdeskInboxes: HelpdeskInbox[] =
     workspaceInboxes.filter(a => a.accountId.startsWith('helpdesk_'));
 
   // Also check for mail accounts with helpdeskEnabled metadata
   // For each registered email (non-helpdesk), check tenant DB
   const nonHelpdeskAccounts = workspaceInboxes.filter(a => !a.accountId.startsWith('helpdesk_') && !a.accountId.startsWith('acct_inbox_'));
+  await addHelpdeskEnabledMailAccounts(env, nonHelpdeskAccounts, helpdeskInboxes);
+
+  if (helpdeskInboxes.length === 0) {
+    return { processed: false, conversationIds: [] };
+  }
+
+  const conversationIds: string[] = [];
+
+  for (const inbox of helpdeskInboxes) {
+    const conversationId = await ingestHelpdeskInboxEmail(env, email, inbox);
+    if (conversationId) conversationIds.push(conversationId);
+  }
+
+  return { processed: conversationIds.length > 0, conversationIds };
+}
+
+interface HelpdeskInbox {
+  email: string;
+  accountId: string;
+  workspaceId: string;
+  clerkOrgId: string | null;
+}
+
+/**
+ * Append mail accounts flagged `helpdeskEnabled` (tenant metadata) to the
+ * helpdesk inbox list, skipping emails that are already present.
+ */
+async function addHelpdeskEnabledMailAccounts(
+  env: Env,
+  accounts: HelpdeskInbox[],
+  helpdeskInboxes: HelpdeskInbox[],
+): Promise<void> {
   const seenEmails = new Set(helpdeskInboxes.map(h => h.email));
 
-  for (const reg of nonHelpdeskAccounts) {
+  for (const reg of accounts) {
     if (seenEmails.has(reg.email)) continue;
     try {
       const tenantDb = await getTenantDbForWorkspaceById(env, reg.workspaceId);
@@ -1894,77 +1923,95 @@ export async function processHelpdeskInboxEmail(
       console.error(`[HelpdeskInbox] Failed to check helpdeskEnabled for ${reg.email}:`, err);
     }
   }
+}
 
-  if (helpdeskInboxes.length === 0) {
-    return { processed: false, conversationIds: [] };
-  }
+/**
+ * Ingest one email into one helpdesk inbox. Returns the desk conversation id,
+ * or null when ingestion failed (errors are logged, never thrown).
+ */
+async function ingestHelpdeskInboxEmail(
+  env: Env,
+  email: ParsedEmail,
+  inbox: HelpdeskInbox,
+): Promise<string | null> {
+  try {
+    const tenantDb = await getTenantDbForWorkspaceById(env, inbox.workspaceId);
+    const body = email.textBody || email.htmlBody || email.subject || '';
 
-  const conversationIds: string[] = [];
+    const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
+      generateId,
+      fromName: email.from.name || null,
+      fromEmail: email.from.email,
+      toAddress: inbox.email,
+      subject: email.subject || '',
+      body,
+      rfcMessageId: email.messageId,
+      inReplyTo: email.inReplyTo,
+      references: email.references,
+      toEmails: email.to.map((t) => t.email),
+      ccEmails: email.cc.map((t) => t.email),
+    });
 
-  for (const inbox of helpdeskInboxes) {
-    try {
-      const tenantDb = await getTenantDbForWorkspaceById(env, inbox.workspaceId);
-      const body = email.textBody || email.htmlBody || email.subject || '';
+    console.log(
+      `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${conversation.id} from email`,
+    );
 
-      const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
-        generateId,
-        fromName: email.from.name || null,
-        fromEmail: email.from.email,
-        toAddress: inbox.email,
-        subject: email.subject || '',
-        body,
-        rfcMessageId: email.messageId,
-        inReplyTo: email.inReplyTo,
-        references: email.references,
-        toEmails: email.to.map((t) => t.email),
-        ccEmails: email.cc.map((t) => t.email),
-      });
+    await publishHelpdeskRealtime(env, email, inbox, { conversation, message, created, body });
+    await upsertHelpdeskContacts(env, email, inbox);
 
-      conversationIds.push(conversation.id);
-      console.log(
-        `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${conversation.id} from email`,
+    return conversation.id;
+  } catch (err) {
+    if (isDeskSchemaMissing(err)) {
+      console.error(
+        `[HelpdeskInbox] WeldDesk schema is not applied for workspace ${inbox.workspaceId}. Run tenant migration 0185_welddesk_webchat.`,
       );
-
-      try {
-        if (!inbox.clerkOrgId) {
-          console.warn(`[HelpdeskInbox] Workspace ${inbox.workspaceId} has no clerkOrgId — skipping realtime publish`);
-        } else {
-          await publishDeskInbound(env, inbox.clerkOrgId, {
-            conversation,
-            message,
-            created,
-            preview: body.substring(0, 200),
-            senderName: email.from.name || email.from.email,
-          });
-        }
-      } catch (notifyErr) {
-        console.error(`[HelpdeskInbox] Failed to publish desk realtime:`, notifyErr);
-      }
-
-      try {
-        await upsertContactsFromMailMessage(env, inbox.workspaceId, inbox.clerkOrgId ?? null, {
-          from: email.from,
-          to: email.to,
-          cc: email.cc,
-        });
-      } catch (contactErr) {
-        console.error(
-          `[HelpdeskInbox] Contact upsert failed for workspace ${inbox.workspaceId}:`,
-          contactErr,
-        );
-      }
-    } catch (err) {
-      if (isDeskSchemaMissing(err)) {
-        console.error(
-          `[HelpdeskInbox] WeldDesk schema is not applied for workspace ${inbox.workspaceId}. Run tenant migration 0185_welddesk_webchat.`,
-        );
-        continue;
-      }
-      console.error(`[HelpdeskInbox] Failed to process for workspace ${inbox.workspaceId}:`, err);
+      return null;
     }
+    console.error(`[HelpdeskInbox] Failed to process for workspace ${inbox.workspaceId}:`, err);
+    return null;
   }
+}
 
-  return { processed: conversationIds.length > 0, conversationIds };
+type DeskIngestResult = Awaited<ReturnType<typeof ingestDeskEmail>>;
+
+/** Publish the realtime desk-inbound event. Failures are logged only. */
+async function publishHelpdeskRealtime(
+  env: Env,
+  email: ParsedEmail,
+  inbox: HelpdeskInbox,
+  ingested: Pick<DeskIngestResult, 'conversation' | 'message' | 'created'> & { body: string },
+): Promise<void> {
+  try {
+    if (!inbox.clerkOrgId) {
+      console.warn(`[HelpdeskInbox] Workspace ${inbox.workspaceId} has no clerkOrgId — skipping realtime publish`);
+      return;
+    }
+    await publishDeskInbound(env, inbox.clerkOrgId, {
+      conversation: ingested.conversation,
+      message: ingested.message,
+      created: ingested.created,
+      preview: ingested.body.substring(0, 200),
+      senderName: email.from.name || email.from.email,
+    });
+  } catch (notifyErr) {
+    console.error(`[HelpdeskInbox] Failed to publish desk realtime:`, notifyErr);
+  }
+}
+
+/** Upsert the email's participants as contacts. Failures are logged only. */
+async function upsertHelpdeskContacts(env: Env, email: ParsedEmail, inbox: HelpdeskInbox): Promise<void> {
+  try {
+    await upsertContactsFromMailMessage(env, inbox.workspaceId, inbox.clerkOrgId ?? null, {
+      from: email.from,
+      to: email.to,
+      cc: email.cc,
+    });
+  } catch (contactErr) {
+    console.error(
+      `[HelpdeskInbox] Contact upsert failed for workspace ${inbox.workspaceId}:`,
+      contactErr,
+    );
+  }
 }
 
 /**
@@ -2015,67 +2062,14 @@ export async function processAccountingInboxEmail(
 
       // Process parsed attachments
       for (const att of attachments) {
-        const mimeType = att.contentType || 'application/octet-stream';
-
-        // Only process PDFs and images
-        const isProcessable = mimeType.startsWith('image/') || mimeType === 'application/pdf';
-        if (!isProcessable) continue;
-
-        // Store in R2 (if STORAGE binding available)
-        const fileKey = `workspaces/${inbox.workspaceId}/accounting/inbox/${email.emailId}/${att.fileName}`;
-
-        try {
-          if ((env as any).STORAGE) {
-            await (env as any).STORAGE.put(fileKey, att.content, {
-              httpMetadata: { contentType: mimeType },
-            });
-          }
-        } catch (uploadErr) {
-          console.error(`[AccountingInbox] Failed to upload attachment ${att.fileName}:`, uploadErr);
-          continue;
-        }
-
-        // Create accounting document record
-        const docId = `doc_${nanoid()}`;
-        await tenantDb.insert(tenantSchema.documents).values({
-          id: docId,
-          type: mimeType === 'application/pdf' ? 'purchase_invoice' : 'receipt',
-          fileName: att.fileName,
-          originalFileName: att.fileName,
-          fileKey,
-          fileSize: att.content.length,
-          mimeType,
-          source: 'email',
-          status: 'pending',
-          emailFrom: email.from.email,
-          emailSubject: email.subject,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-
-        documentIds.push(docId);
-        console.log(`[AccountingInbox] Created document ${docId} from email attachment ${att.fileName}`);
+        const docId = await storeAccountingAttachment(env, tenantDb, inbox.workspaceId, email, att);
+        if (docId) documentIds.push(docId);
       }
 
       // If no attachments but email has HTML/text body, still create a document record
       // for the email itself (some invoices come as inline HTML)
       if (attachments.length === 0 && email.htmlBody) {
-        const docId = `doc_${nanoid()}`;
-        await tenantDb.insert(tenantSchema.documents).values({
-          id: docId,
-          type: 'purchase_invoice',
-          fileName: `email-${email.emailId}.html`,
-          originalFileName: `${email.subject || 'email'}.html`,
-          fileKey: `workspaces/${inbox.workspaceId}/accounting/inbox/${email.emailId}/email.html`,
-          mimeType: 'text/html',
-          source: 'email',
-          status: 'pending',
-          emailFrom: email.from.email,
-          emailSubject: email.subject,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-        documentIds.push(docId);
+        documentIds.push(await storeAccountingEmailBody(tenantDb, inbox.workspaceId, email));
       }
     } catch (err) {
       console.error(`[AccountingInbox] Failed to process for workspace ${inbox.workspaceId}:`, err);
@@ -2083,4 +2077,82 @@ export async function processAccountingInboxEmail(
   }
 
   return { processed: documentIds.length > 0, documentIds };
+}
+
+/**
+ * Store one PDF/image attachment of an accounting-inbox email in R2 and create
+ * its document record. Returns the new document id, or null when the
+ * attachment is not processable or its upload failed.
+ */
+async function storeAccountingAttachment(
+  env: Env,
+  tenantDb: TenantDbHandle,
+  workspaceId: string,
+  email: ParsedEmail,
+  att: ParsedAttachment,
+): Promise<string | null> {
+  const mimeType = att.contentType || 'application/octet-stream';
+
+  // Only process PDFs and images
+  const isProcessable = mimeType.startsWith('image/') || mimeType === 'application/pdf';
+  if (!isProcessable) return null;
+
+  // Store in R2 (if STORAGE binding available)
+  const fileKey = `workspaces/${workspaceId}/accounting/inbox/${email.emailId}/${att.fileName}`;
+
+  try {
+    if ((env as any).STORAGE) {
+      await (env as any).STORAGE.put(fileKey, att.content, {
+        httpMetadata: { contentType: mimeType },
+      });
+    }
+  } catch (uploadErr) {
+    console.error(`[AccountingInbox] Failed to upload attachment ${att.fileName}:`, uploadErr);
+    return null;
+  }
+
+  // Create accounting document record
+  const docId = `doc_${nanoid()}`;
+  await tenantDb.insert(tenantSchema.documents).values({
+    id: docId,
+    type: mimeType === 'application/pdf' ? 'purchase_invoice' : 'receipt',
+    fileName: att.fileName,
+    originalFileName: att.fileName,
+    fileKey,
+    fileSize: att.content.length,
+    mimeType,
+    source: 'email',
+    status: 'pending',
+    emailFrom: email.from.email,
+    emailSubject: email.subject,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  console.log(`[AccountingInbox] Created document ${docId} from email attachment ${att.fileName}`);
+  return docId;
+}
+
+/** Create a document record for an attachment-less (inline HTML) invoice email. */
+async function storeAccountingEmailBody(
+  tenantDb: TenantDbHandle,
+  workspaceId: string,
+  email: ParsedEmail,
+): Promise<string> {
+  const docId = `doc_${nanoid()}`;
+  await tenantDb.insert(tenantSchema.documents).values({
+    id: docId,
+    type: 'purchase_invoice',
+    fileName: `email-${email.emailId}.html`,
+    originalFileName: `${email.subject || 'email'}.html`,
+    fileKey: `workspaces/${workspaceId}/accounting/inbox/${email.emailId}/email.html`,
+    mimeType: 'text/html',
+    source: 'email',
+    status: 'pending',
+    emailFrom: email.from.email,
+    emailSubject: email.subject,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return docId;
 }

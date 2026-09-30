@@ -201,6 +201,79 @@ export interface AppendDeskMessageInput {
   assigneeId?: string | null;
 }
 
+/** Conversation columns that a new message or event can change. */
+interface DeskConversationProgress {
+  state: DeskConversationState;
+  waitingSince: Date | null;
+  assigneeId: string | null;
+  lastMessageAt: Date | null;
+  lastMessagePreview: string | null;
+}
+
+function progressOf(current: DeskConversation): DeskConversationProgress {
+  return {
+    state: current.state,
+    waitingSince: current.waitingSince,
+    assigneeId: current.assigneeId,
+    lastMessageAt: current.lastMessageAt,
+    lastMessagePreview: current.lastMessagePreview,
+  };
+}
+
+/** Progress after a visitor/agent/bot chat message. */
+function progressAfterMessage(
+  current: DeskConversation,
+  input: AppendDeskMessageInput,
+  now: Date,
+): DeskConversationProgress {
+  const next: DeskConversationProgress = {
+    ...progressOf(current),
+    lastMessageAt: now,
+    lastMessagePreview: previewOf(input.body) ?? current.lastMessagePreview,
+  };
+  if (input.authorType === 'visitor') {
+    next.waitingSince = now;
+    if (current.state === 'closed') next.state = 'open';
+  } else if (input.authorType === 'agent' || input.authorType === 'bot') {
+    next.waitingSince = null;
+  }
+  return next;
+}
+
+/** Progress after a conversation event (closed / reopened / assigned / unassigned). */
+function progressAfterEvent(
+  current: DeskConversation,
+  input: AppendDeskMessageInput,
+): DeskConversationProgress {
+  const next = progressOf(current);
+  switch (input.metadata?.eventType) {
+    case 'closed':
+      next.state = 'closed';
+      next.waitingSince = null;
+      break;
+    case 'reopened':
+      next.state = 'open';
+      break;
+    case 'assigned':
+      next.assigneeId = input.assigneeId ?? input.metadata?.assigneeId ?? null;
+      break;
+    case 'unassigned':
+      next.assigneeId = null;
+      break;
+  }
+  return next;
+}
+
+function nextConversationProgress(
+  current: DeskConversation,
+  input: AppendDeskMessageInput,
+  now: Date,
+): DeskConversationProgress {
+  if (input.kind === 'message') return progressAfterMessage(current, input, now);
+  if (input.kind === 'event') return progressAfterEvent(current, input);
+  return progressOf(current);
+}
+
 export async function appendDeskMessage(
   db: AnyDb,
   input: AppendDeskMessageInput,
@@ -216,37 +289,7 @@ export async function appendDeskMessage(
   }
 
   const now = new Date();
-  let nextState: DeskConversationState = current.state;
-  let nextWaitingSince: Date | null = current.waitingSince;
-  let nextAssigneeId: string | null = current.assigneeId;
-  let nextLastMessageAt: Date | null = current.lastMessageAt;
-  let nextLastMessagePreview: string | null = current.lastMessagePreview;
-
-  const eventType = input.metadata?.eventType;
-
-  if (input.kind === 'message') {
-    nextLastMessageAt = now;
-    nextLastMessagePreview = previewOf(input.body) ?? nextLastMessagePreview;
-    if (input.authorType === 'visitor') {
-      nextWaitingSince = now;
-      if (current.state === 'closed') {
-        nextState = 'open';
-      }
-    } else if (input.authorType === 'agent' || input.authorType === 'bot') {
-      nextWaitingSince = null;
-    }
-  } else if (input.kind === 'event') {
-    if (eventType === 'closed') {
-      nextState = 'closed';
-      nextWaitingSince = null;
-    } else if (eventType === 'reopened') {
-      nextState = 'open';
-    } else if (eventType === 'assigned') {
-      nextAssigneeId = input.assigneeId ?? input.metadata?.assigneeId ?? null;
-    } else if (eventType === 'unassigned') {
-      nextAssigneeId = null;
-    }
-  }
+  const next = nextConversationProgress(current, input, now);
 
   const messageId = input.generateId('dmsg');
   const metadata: DeskMessageMetadata | null = input.metadata
@@ -277,11 +320,11 @@ export async function appendDeskMessage(
     .update(conversations)
     .set({
       updatedAt: now,
-      state: nextState,
-      waitingSince: nextWaitingSince,
-      assigneeId: nextAssigneeId,
-      lastMessageAt: nextLastMessageAt,
-      lastMessagePreview: nextLastMessagePreview,
+      state: next.state,
+      waitingSince: next.waitingSince,
+      assigneeId: next.assigneeId,
+      lastMessageAt: next.lastMessageAt,
+      lastMessagePreview: next.lastMessagePreview,
     })
     .where(eq(conversations.id, input.conversationId))
     .returning();

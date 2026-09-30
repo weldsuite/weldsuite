@@ -53,7 +53,24 @@ class DF3Processor extends AudioWorkletProcessor {
       return true;
     }
 
-    // Accumulate input into 480-sample frames and send to worker.
+    this._captureInput(inCh);
+
+    // Jitter buffer: wait until we have at least JITTER_FRAMES * FRAME_SIZE
+    // samples queued before starting playback. After that, play continuously.
+    if (!this._started) {
+      if (this._queuedSamples < JITTER_FRAMES * FRAME_SIZE) {
+        outCh.fill(0);
+        return true;
+      }
+      this._started = true;
+    }
+
+    this._drainOutput(outCh);
+    return true;
+  }
+
+  // Accumulate input into 480-sample frames and send to worker.
+  _captureInput(inCh) {
     for (let i = 0; i < inCh.length; i++) {
       this._inBuf[this._inIdx++] = inCh[i];
       if (this._inIdx === FRAME_SIZE) {
@@ -62,27 +79,15 @@ class DF3Processor extends AudioWorkletProcessor {
         this._inIdx = 0;
       }
     }
+  }
 
-    // Jitter buffer: wait until we have at least JITTER_FRAMES * FRAME_SIZE
-    // samples queued before starting playback. After that, play continuously.
-    if (!this._started) {
-      if (this._queuedSamples < JITTER_FRAMES * FRAME_SIZE) {
-        for (let i = 0; i < outCh.length; i++) outCh[i] = 0;
-        return true;
-      }
-      this._started = true;
-    }
-
-    // Drain the output queue into the audio engine block.
+  // Drain the output queue into the audio engine block, zero-filling on underrun.
+  _drainOutput(outCh) {
     let written = 0;
     while (written < outCh.length) {
-      if (!this._outPartial) {
-        if (this._outQueue.length === 0) {
-          for (let i = written; i < outCh.length; i++) outCh[i] = 0;
-          break;
-        }
-        this._outPartial = this._outQueue.shift();
-        this._outPartialIdx = 0;
+      if (!this._outPartial && !this._nextPartial()) {
+        outCh.fill(0, written);
+        return;
       }
       const take = Math.min(outCh.length - written, this._outPartial.length - this._outPartialIdx);
       for (let i = 0; i < take; i++) outCh[written + i] = this._outPartial[this._outPartialIdx + i];
@@ -91,7 +96,13 @@ class DF3Processor extends AudioWorkletProcessor {
       this._outPartialIdx += take;
       if (this._outPartialIdx === this._outPartial.length) this._outPartial = null;
     }
+  }
 
+  // Pull the next queued frame; returns false when the queue is empty.
+  _nextPartial() {
+    if (this._outQueue.length === 0) return false;
+    this._outPartial = this._outQueue.shift();
+    this._outPartialIdx = 0;
     return true;
   }
 }
