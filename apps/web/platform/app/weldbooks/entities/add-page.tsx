@@ -78,6 +78,12 @@ export default function AddEntityPage() {
     },
   });
 
+  function buildBankDetails() {
+    if (!iban) return undefined;
+    if (isIndia) return { accountNumber: iban };
+    return { iban };
+  }
+
   const createMutation = useMutation({
     mutationFn: async () => {
       return weldbooksApi.post<{ data: { id: string } } | { id: string }>('/accounting-entities', {
@@ -92,11 +98,7 @@ export default function AddEntityPage() {
           vatNumber: vatNumber || undefined,
           registrationNumber: registrationNumber || undefined,
         },
-        bankDetails: iban
-          ? isIndia
-            ? { accountNumber: iban }
-            : { iban }
-          : undefined,
+        bankDetails: buildBankDetails(),
         isDefault,
         seedDefaults,
       });

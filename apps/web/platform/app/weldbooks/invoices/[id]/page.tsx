@@ -152,6 +152,26 @@ export default function InvoiceDetailPage() {
     finalizeMutation.mutate(invoice.id);
   };
 
+  const renderTaxLines = () => {
+    if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
+      return invoice.taxBreakdown.map((row, idx) => (
+        <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
+          <span className="text-muted-foreground">{row.taxRateName}</span>
+          <span>{formatMoney(row.taxAmount, invoice.currency)}</span>
+        </div>
+      ));
+    }
+    if (invoice.taxTotal && Number(invoice.taxTotal) !== 0) {
+      return (
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">{ti.tax}</span>
+          <span>{formatMoney(invoice.taxTotal, invoice.currency)}</span>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -310,19 +330,7 @@ export default function InvoiceDetailPage() {
                 <span className="text-muted-foreground">{ti.subtotal}</span>
                 <span>{formatMoney(invoice.subtotal, invoice.currency)}</span>
               </div>
-              {invoice.taxBreakdown && invoice.taxBreakdown.length > 0 ? (
-                invoice.taxBreakdown.map((row, idx) => (
-                  <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{row.taxRateName}</span>
-                    <span>{formatMoney(row.taxAmount, invoice.currency)}</span>
-                  </div>
-                ))
-              ) : invoice.taxTotal && Number(invoice.taxTotal) !== 0 ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{ti.tax}</span>
-                  <span>{formatMoney(invoice.taxTotal, invoice.currency)}</span>
-                </div>
-              ) : null}
+              {renderTaxLines()}
               <div className="flex justify-between font-semibold border-t pt-2">
                 <span>{ti.total}</span>
                 <span>{formatMoney(invoice.total, invoice.currency)}</span>
