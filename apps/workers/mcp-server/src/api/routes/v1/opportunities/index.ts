@@ -23,6 +23,18 @@ const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']
 const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Coerce a PATCH body into column values (numeric -> string, date strings -> Date). */
+function buildUpdate(body: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(body)) {
+    if (v === undefined) continue;
+    if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : String(v);
+    else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
+    else update[k] = v;
+  }
+  return update;
+}
+
 app.get('/', requireScope('opportunities:read'), zValidator('query', listOpportunitiesQuery), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
@@ -102,13 +114,7 @@ app.patch('/:id', requireScope('opportunities:write'), zValidator('json', update
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!existing) return error.notFound(c, 'Opportunity', id);
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(body)) {
-    if (v === undefined) continue;
-    if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : String(v);
-    else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
-    else update[k] = v;
-  }
+  const update = buildUpdate(body);
   const [row] = await db
     .update(table)
     .set(update)

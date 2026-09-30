@@ -182,21 +182,11 @@ function detailMessage(row: MessageRow, includeHtml: boolean) {
   };
 }
 
-const app = new Hono<HonoEnv>();
+type ListQuery = z.infer<typeof listQuery>;
 
-app.get('/', requireScope('messages:read'), zValidator('query', listQuery), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.valid('query');
-  const userId = c.get('userId');
-
-  if (q.accountId && !(await checkAccountAccess(db, q.accountId, userId))) {
-    return error.notFound(c, 'MailAccount', q.accountId);
-  }
-
-  const conditions: SQL[] = [isNull(table.deletedAt)];
-
-  const scope = accountScopeCondition(table.accountId, await accessibleAccountIds(db, userId));
-  if (scope) conditions.push(scope);
+/** Where-conditions for every filter the caller supplied on the list query. */
+function filterConditions(q: ListQuery): SQL[] {
+  const conditions: SQL[] = [];
   if (q.accountId) conditions.push(eq(table.accountId, q.accountId));
   if (q.threadId) conditions.push(eq(table.threadId, q.threadId));
   if (typeof q.isRead === 'boolean') conditions.push(eq(table.isRead, q.isRead));
@@ -223,6 +213,25 @@ app.get('/', requireScope('messages:read'), zValidator('query', listQuery), asyn
   // for. `includeTrash` / `includeSpam` opt back in.
   if (!q.includeTrash) conditions.push(or(eq(table.isTrash, false), isNull(table.isTrash))!);
   if (!q.includeSpam) conditions.push(or(eq(table.isSpam, false), isNull(table.isSpam))!);
+  return conditions;
+}
+
+const app = new Hono<HonoEnv>();
+
+app.get('/', requireScope('messages:read'), zValidator('query', listQuery), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.valid('query');
+  const userId = c.get('userId');
+
+  if (q.accountId && !(await checkAccountAccess(db, q.accountId, userId))) {
+    return error.notFound(c, 'MailAccount', q.accountId);
+  }
+
+  const conditions: SQL[] = [isNull(table.deletedAt)];
+
+  const scope = accountScopeCondition(table.accountId, await accessibleAccountIds(db, userId));
+  if (scope) conditions.push(scope);
+  conditions.push(...filterConditions(q));
 
   const limit = clampLimit(q.limit);
 

@@ -10,7 +10,7 @@
  * cross-workspace); bundles are static files in R2.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
@@ -194,6 +194,173 @@ async function getOwnedApp(masterDb: MasterDatabase, id: string, workspaceId: st
   return row ?? null;
 }
 
+type OwnedApp = NonNullable<Awaited<ReturnType<typeof getOwnedApp>>>;
+type AppManifest = ReturnType<typeof userAppManifestSchema.parse>;
+
+interface VersionUpload {
+  manifest: AppManifest;
+  changelog: string | undefined;
+  fileEntries: File[];
+  totalBytes: number;
+}
+
+/**
+ * Parse and validate the multipart body of a version upload:
+ * 'manifest' JSON string, optional 'changelog', repeated 'files' entries whose
+ * File.name is the bundle-relative path. Returns the error response on failure.
+ */
+async function parseVersionUpload(
+  c: Context<HonoEnv>,
+  appCode: string,
+): Promise<VersionUpload | { response: Response }> {
+  let form: Record<string, string | File | (string | File)[]>;
+  try {
+    form = await c.req.parseBody({ all: true });
+  } catch {
+    return { response: error.badRequest(c, 'Expected multipart/form-data') };
+  }
+
+  const rawManifest = form['manifest'];
+  if (typeof rawManifest !== 'string') {
+    return {
+      response: error.badRequest(c, "A 'manifest' field with the weldapp.json contents is required"),
+    };
+  }
+  let manifestJson: unknown;
+  try {
+    manifestJson = JSON.parse(rawManifest);
+  } catch {
+    return { response: error.badRequest(c, 'manifest must be valid JSON') };
+  }
+  const parsed = userAppManifestSchema.safeParse(manifestJson);
+  if (!parsed.success) {
+    return { response: error.badRequest(c, 'Invalid manifest', parsed.error.flatten()) };
+  }
+  const manifest = parsed.data;
+  if (manifest.code !== appCode) {
+    return {
+      response: error.badRequest(
+        c,
+        `Manifest code '${manifest.code}' does not match app code '${appCode}'`,
+      ),
+    };
+  }
+
+  const changelogRaw = form['changelog'];
+  const changelog = typeof changelogRaw === 'string' ? changelogRaw : undefined;
+
+  const rawFiles = form['files'];
+  const fileEntries = (Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : []).filter(
+    (f): f is File => f instanceof File,
+  );
+  if (fileEntries.length === 0) {
+    return { response: error.badRequest(c, "At least one 'files' entry is required") };
+  }
+  if (fileEntries.length > MAX_BUNDLE_FILES) {
+    return {
+      response: error.badRequest(c, `Bundle exceeds the ${MAX_BUNDLE_FILES}-file limit`),
+    };
+  }
+  const totalBytes = fileEntries.reduce((sum, f) => sum + f.size, 0);
+  if (totalBytes > MAX_BUNDLE_BYTES) {
+    return { response: error.badRequest(c, 'Bundle exceeds the 50MB size limit') };
+  }
+
+  return { manifest, changelog, fileEntries, totalBytes };
+}
+
+/**
+ * Upload the bundle files to R2 under `bundleKey`. Returns the offending file
+ * name when a path is unsafe (files before it may already have been written,
+ * as before), else null.
+ */
+async function uploadBundleFiles(
+  storage: R2Bucket,
+  bundleKey: string,
+  fileEntries: File[],
+): Promise<string | null> {
+  for (const file of fileEntries) {
+    const relativePath = sanitizeBundlePath(file.name);
+    if (!relativePath) return file.name;
+    await storage.put(`${bundleKey}/${relativePath}`, await file.arrayBuffer(), {
+      httpMetadata: { contentType: contentTypeFor(relativePath) },
+    });
+  }
+  return null;
+}
+
+/**
+ * New scopes gate on re-consent: every ACTIVE install gets the delta as
+ * pendingScopes until an admin approves them.
+ */
+async function flagPendingScopes(
+  masterDb: MasterDatabase,
+  appId: string,
+  scopes: string[],
+  now: Date,
+): Promise<void> {
+  const installs = await masterDb
+    .select({
+      id: masterSchema.userAppInstalls.id,
+      grantedScopes: masterSchema.userAppInstalls.grantedScopes,
+    })
+    .from(masterSchema.userAppInstalls)
+    .where(
+      and(
+        eq(masterSchema.userAppInstalls.appId, appId),
+        eq(masterSchema.userAppInstalls.status, 'active'),
+      ),
+    );
+  for (const install of installs) {
+    const granted = new Set((install.grantedScopes as string[]) ?? []);
+    const pending = scopes.filter((s) => !granted.has(s));
+    if (pending.length > 0) {
+      await masterDb
+        .update(masterSchema.userAppInstalls)
+        .set({ pendingScopes: pending, updatedAt: now })
+        .where(eq(masterSchema.userAppInstalls.id, install.id));
+    }
+  }
+}
+
+/** Publish a version: supersede older ones, roll the app forward, flag new scopes. */
+async function rollAppForward(
+  masterDb: MasterDatabase,
+  appRow: OwnedApp,
+  manifest: AppManifest,
+  versionId: string,
+  now: Date,
+): Promise<void> {
+  // Supersede the previously published version(s)
+  await masterDb
+    .update(masterSchema.userAppVersions)
+    .set({ status: 'superseded' })
+    .where(
+      and(
+        eq(masterSchema.userAppVersions.appId, appRow.id),
+        eq(masterSchema.userAppVersions.status, 'published'),
+        ne(masterSchema.userAppVersions.id, versionId),
+      ),
+    );
+
+  // Roll the app forward to this version
+  await masterDb
+    .update(masterSchema.userApps)
+    .set({
+      currentVersionId: versionId,
+      manifest,
+      requestedScopes: manifest.scopes,
+      name: manifest.name,
+      ...(manifest.icon ? { icon: manifest.icon } : {}),
+      ...(manifest.category ? { category: manifest.category } : {}),
+      description: manifest.description ?? appRow.description,
+      updatedAt: now,
+    })
+    .where(eq(masterSchema.userApps.id, appRow.id));
+
+  await flagPendingScopes(masterDb, appRow.id, manifest.scopes, now);
+}
+
 // ============================================================================
 // CRUD
 // ============================================================================
@@ -278,54 +445,9 @@ app.post('/:id/versions', async (c) => {
   const storage = c.env.STORAGE;
   if (!storage) return error.internal(c, 'Bundle storage is not configured');
 
-  // multipart/form-data: 'manifest' JSON string, optional 'changelog',
-  // repeated 'files' entries whose File.name is the bundle-relative path.
-  let form: Record<string, string | File | (string | File)[]>;
-  try {
-    form = await c.req.parseBody({ all: true });
-  } catch {
-    return error.badRequest(c, 'Expected multipart/form-data');
-  }
-
-  const rawManifest = form['manifest'];
-  if (typeof rawManifest !== 'string') {
-    return error.badRequest(c, "A 'manifest' field with the weldapp.json contents is required");
-  }
-  let manifestJson: unknown;
-  try {
-    manifestJson = JSON.parse(rawManifest);
-  } catch {
-    return error.badRequest(c, 'manifest must be valid JSON');
-  }
-  const parsed = userAppManifestSchema.safeParse(manifestJson);
-  if (!parsed.success) {
-    return error.badRequest(c, 'Invalid manifest', parsed.error.flatten());
-  }
-  const manifest = parsed.data;
-  if (manifest.code !== appRow.code) {
-    return error.badRequest(
-      c,
-      `Manifest code '${manifest.code}' does not match app code '${appRow.code}'`,
-    );
-  }
-
-  const changelogRaw = form['changelog'];
-  const changelog = typeof changelogRaw === 'string' ? changelogRaw : undefined;
-
-  const rawFiles = form['files'];
-  const fileEntries = (Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : []).filter(
-    (f): f is File => f instanceof File,
-  );
-  if (fileEntries.length === 0) {
-    return error.badRequest(c, "At least one 'files' entry is required");
-  }
-  if (fileEntries.length > MAX_BUNDLE_FILES) {
-    return error.badRequest(c, `Bundle exceeds the ${MAX_BUNDLE_FILES}-file limit`);
-  }
-  const totalBytes = fileEntries.reduce((sum, f) => sum + f.size, 0);
-  if (totalBytes > MAX_BUNDLE_BYTES) {
-    return error.badRequest(c, 'Bundle exceeds the 50MB size limit');
-  }
+  const upload = await parseVersionUpload(c, appRow.code);
+  if ('response' in upload) return upload.response;
+  const { manifest, changelog, fileEntries, totalBytes } = upload;
 
   // (appId, version) is unique — pre-check for a friendly 409.
   const [dupe] = await masterDb
@@ -345,14 +467,9 @@ app.post('/:id/versions', async (c) => {
   // Upload the bundle to R2 under user-apps/{appId}/{versionId}/
   const versionId = generateId('uav');
   const bundleKey = `user-apps/${appRow.id}/${versionId}`;
-  for (const file of fileEntries) {
-    const relativePath = sanitizeBundlePath(file.name);
-    if (!relativePath) {
-      return error.badRequest(c, `Invalid bundle file path: ${file.name}`);
-    }
-    await storage.put(`${bundleKey}/${relativePath}`, await file.arrayBuffer(), {
-      httpMetadata: { contentType: contentTypeFor(relativePath) },
-    });
+  const invalidPath = await uploadBundleFiles(storage, bundleKey, fileEntries);
+  if (invalidPath) {
+    return error.badRequest(c, `Invalid bundle file path: ${invalidPath}`);
   }
 
   // Private apps (and public apps not yet approved) publish immediately;
@@ -382,57 +499,7 @@ app.post('/:id/versions', async (c) => {
   if (!versionRow) return error.internal(c, 'Failed to create version');
 
   if (publishImmediately) {
-    // Supersede the previously published version(s)
-    await masterDb
-      .update(masterSchema.userAppVersions)
-      .set({ status: 'superseded' })
-      .where(
-        and(
-          eq(masterSchema.userAppVersions.appId, appRow.id),
-          eq(masterSchema.userAppVersions.status, 'published'),
-          ne(masterSchema.userAppVersions.id, versionId),
-        ),
-      );
-
-    // Roll the app forward to this version
-    await masterDb
-      .update(masterSchema.userApps)
-      .set({
-        currentVersionId: versionId,
-        manifest,
-        requestedScopes: manifest.scopes,
-        name: manifest.name,
-        ...(manifest.icon ? { icon: manifest.icon } : {}),
-        ...(manifest.category ? { category: manifest.category } : {}),
-        description: manifest.description ?? appRow.description,
-        updatedAt: now,
-      })
-      .where(eq(masterSchema.userApps.id, appRow.id));
-
-    // New scopes gate on re-consent: every ACTIVE install gets the delta as
-    // pendingScopes until an admin approves them.
-    const installs = await masterDb
-      .select({
-        id: masterSchema.userAppInstalls.id,
-        grantedScopes: masterSchema.userAppInstalls.grantedScopes,
-      })
-      .from(masterSchema.userAppInstalls)
-      .where(
-        and(
-          eq(masterSchema.userAppInstalls.appId, appRow.id),
-          eq(masterSchema.userAppInstalls.status, 'active'),
-        ),
-      );
-    for (const install of installs) {
-      const granted = new Set((install.grantedScopes as string[]) ?? []);
-      const pending = manifest.scopes.filter((s) => !granted.has(s));
-      if (pending.length > 0) {
-        await masterDb
-          .update(masterSchema.userAppInstalls)
-          .set({ pendingScopes: pending, updatedAt: now })
-          .where(eq(masterSchema.userAppInstalls.id, install.id));
-      }
-    }
+    await rollAppForward(masterDb, appRow, manifest, versionId, now);
 
     // NOTE: the platform caches served bundle assets under `uapp-assets:{code}`
     // in app-api's WORKSPACE_CACHE KV namespace, which this worker has no

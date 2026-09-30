@@ -78,6 +78,119 @@ async function resolveIdByName(
   };
 }
 
+/** Fill a tool's path params from its input fields, tracking which inputs the path consumed. */
+function fillPathParams(
+  tool: ToolDefinition,
+  args: Record<string, unknown>,
+): { path: string; consumed: Set<string> } | { missing: string } {
+  let path = tool.path;
+  const consumed = new Set<string>();
+  for (const [placeholder, field] of Object.entries(tool.pathParams ?? {})) {
+    const value = args[field];
+    if (value === undefined || value === null || value === '') {
+      return { missing: field };
+    }
+    path = path.replace(`:${placeholder}`, encodeURIComponent(String(value)));
+    consumed.add(field);
+  }
+  return { path, consumed };
+}
+
+/** Put the remaining inputs on the query string (GET/DELETE) or in the JSON body (POST/PATCH). */
+function buildRequestTarget(
+  tool: ToolDefinition,
+  path: string,
+  rest: Record<string, unknown>,
+): { url: URL; body: string | undefined } {
+  const url = new URL(path, INTERNAL_ORIGIN);
+  if (tool.method !== 'GET' && tool.method !== 'DELETE') {
+    return { url, body: JSON.stringify(rest) };
+  }
+  for (const [key, value] of Object.entries(rest)) {
+    if (Array.isArray(value)) {
+      for (const v of value) url.searchParams.append(key, String(v));
+    } else {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return { url, body: undefined };
+}
+
+/**
+ * The caller may have passed a name where an id was expected — an assistant
+ * that has just been told not to surface ids will naturally do this. Resolve
+ * it and retry, but only after a 404, so a working call is never re-sent and
+ * the failed attempt had no side effect.
+ *
+ * Returns the retried response, a tool error when the name is ambiguous, or
+ * null when nothing could be resolved (the caller keeps the original 404).
+ */
+async function retryWithResolvedName(
+  tool: ToolDefinition,
+  args: Record<string, unknown>,
+  placeholder: string,
+  field: string,
+  url: URL,
+  send: (target: URL) => Promise<Response>,
+  session: McpSession,
+  env: Env,
+  executionCtx: ExecutionContext,
+): Promise<Response | CallToolResult | null> {
+  const supplied = String(args[field]);
+  const collectionPath = tool.path.split('/:')[0];
+  if (!collectionPath || collectionPath === tool.path) return null;
+
+  const resolved = await resolveIdByName(collectionPath, supplied, session, env, executionCtx);
+  if (!resolved) return null;
+
+  if ('ambiguous' in resolved) {
+    return toolError(
+      `"${supplied}" matches several records: ${resolved.ambiguous.join('; ')}. ` +
+        'Ask which one is meant, then retry with a more specific name.',
+    );
+  }
+
+  const retryUrl = new URL(
+    tool.path.replace(`:${placeholder}`, encodeURIComponent(resolved.id)),
+    INTERNAL_ORIGIN,
+  );
+  retryUrl.search = url.search;
+  return send(retryUrl);
+}
+
+/** Turn an API response into a tool result (v1 contract, see `executeTool`). */
+async function shapeResponse(
+  tool: ToolDefinition,
+  url: URL,
+  res: Response,
+): Promise<CallToolResult> {
+  if (res.status === 204) {
+    return toolResult({ data: { success: true } });
+  }
+
+  const text = await res.text();
+  let json: unknown;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    console.error(
+      `[MCP Tool] ${tool.method} ${url.pathname} → non-JSON response (status ${res.status}): ${text.slice(0, 200)}`,
+    );
+    return toolError(`Unexpected non-JSON response (${res.status})`);
+  }
+
+  if (!res.ok) {
+    const errObj = (json as { error?: { code?: string; message?: string } }).error;
+    const message = errObj?.message ?? `Request failed with status ${res.status}`;
+    console.error(
+      `[MCP Tool] ${tool.method} ${url.pathname} → ${res.status}: ${JSON.stringify(json).slice(0, 200)}`,
+    );
+    return toolError(errObj?.code ? `${errObj.code}: ${message}` : message);
+  }
+
+  return toolResult(json);
+}
+
 /**
  * Execute a tool against the MCP server's own v1 resource API.
  *
@@ -108,18 +221,11 @@ export async function executeTool(
   env: Env,
   executionCtx: ExecutionContext,
 ): Promise<CallToolResult> {
-  // Fill path params and track which inputs were consumed by the path.
-  const pathParamEntries = Object.entries(tool.pathParams ?? {});
-  let path = tool.path;
-  const consumed = new Set<string>();
-  for (const [placeholder, field] of pathParamEntries) {
-    const value = args[field];
-    if (value === undefined || value === null || value === '') {
-      return toolError(`Missing required parameter: ${field}`);
-    }
-    path = path.replace(`:${placeholder}`, encodeURIComponent(String(value)));
-    consumed.add(field);
+  const filled = fillPathParams(tool, args);
+  if ('missing' in filled) {
+    return toolError(`Missing required parameter: ${filled.missing}`);
   }
+  const { path, consumed } = filled;
 
   const rest: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
@@ -127,20 +233,7 @@ export async function executeTool(
     rest[key] = value;
   }
 
-  const url = new URL(path, INTERNAL_ORIGIN);
-  let body: string | undefined;
-
-  if (tool.method === 'GET' || tool.method === 'DELETE') {
-    for (const [key, value] of Object.entries(rest)) {
-      if (Array.isArray(value)) {
-        for (const v of value) url.searchParams.append(key, String(v));
-      } else {
-        url.searchParams.set(key, String(value));
-      }
-    }
-  } else {
-    body = JSON.stringify(rest);
-  }
+  const { url, body } = buildRequestTarget(tool, path, rest);
 
   const send = async (target: URL): Promise<Response> =>
     apiApp.fetch(
@@ -156,44 +249,26 @@ export async function executeTool(
       executionCtx,
     );
 
+  const pathParamEntries = Object.entries(tool.pathParams ?? {});
   let res: Response;
   try {
     res = await send(url);
 
-    // The caller may have passed a name where an id was expected — an assistant
-    // that has just been told not to surface ids will naturally do this. Resolve
-    // it and retry, but only after a 404, so a working call is never re-sent and
-    // the failed attempt had no side effect.
     if (res.status === 404 && pathParamEntries.length === 1) {
       const [[placeholder, field]] = pathParamEntries as [[string, string]];
-      const supplied = String(args[field]);
-      const collectionPath = tool.path.split('/:')[0];
-
-      if (collectionPath && collectionPath !== tool.path) {
-        const resolved = await resolveIdByName(
-          collectionPath,
-          supplied,
-          session,
-          env,
-          executionCtx,
-        );
-
-        if (resolved && 'ambiguous' in resolved) {
-          return toolError(
-            `"${supplied}" matches several records: ${resolved.ambiguous.join('; ')}. ` +
-              'Ask which one is meant, then retry with a more specific name.',
-          );
-        }
-
-        if (resolved) {
-          const retryUrl = new URL(
-            tool.path.replace(`:${placeholder}`, encodeURIComponent(resolved.id)),
-            INTERNAL_ORIGIN,
-          );
-          retryUrl.search = url.search;
-          res = await send(retryUrl);
-        }
-      }
+      const retried = await retryWithResolvedName(
+        tool,
+        args,
+        placeholder,
+        field,
+        url,
+        send,
+        session,
+        env,
+        executionCtx,
+      );
+      if (retried instanceof Response) res = retried;
+      else if (retried) return retried;
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';
@@ -201,29 +276,5 @@ export async function executeTool(
     return toolError(`Failed to execute the request: ${message}`);
   }
 
-  if (res.status === 204) {
-    return toolResult({ data: { success: true } });
-  }
-
-  const text = await res.text();
-  let json: unknown;
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    console.error(
-      `[MCP Tool] ${tool.method} ${url.pathname} → non-JSON response (status ${res.status}): ${text.slice(0, 200)}`,
-    );
-    return toolError(`Unexpected non-JSON response (${res.status})`);
-  }
-
-  if (!res.ok) {
-    const errObj = (json as { error?: { code?: string; message?: string } }).error;
-    const message = errObj?.message ?? `Request failed with status ${res.status}`;
-    console.error(
-      `[MCP Tool] ${tool.method} ${url.pathname} → ${res.status}: ${JSON.stringify(json).slice(0, 200)}`,
-    );
-    return toolError(errObj?.code ? `${errObj.code}: ${message}` : message);
-  }
-
-  return toolResult(json);
+  return shapeResponse(tool, url, res);
 }
