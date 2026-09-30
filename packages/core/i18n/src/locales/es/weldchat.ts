@@ -762,6 +762,8 @@ export const weldchat = {
       generatingTranscriptBadge: 'Generando transcripción...',
       viewFullscreen: 'Ver en pantalla completa',
       close: 'Cerrar',
+      seek: 'Buscar en el clip',
+      playPause: 'Reproducir o pausar',
     },
     typingIndicator: {
       someone: 'Alguien',

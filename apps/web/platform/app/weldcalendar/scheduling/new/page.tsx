@@ -1535,13 +1535,16 @@ function DatePickerInput({
   showPlusIcon?: boolean;
 }>) {
   const [open, setOpen] = useState(false);
+  let widthClass = 'w-auto justify-start';
+  if (fullWidth) widthClass = 'w-full justify-between';
+  else if (showIcon) widthClass = 'flex-1 justify-between';
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn("font-normal", fullWidth ? "w-full justify-between" : showIcon ? "flex-1 justify-between" : "w-auto justify-start")}
+          className={cn("font-normal", widthClass)}
         >
           {showPlusIcon && <Plus className="h-4 w-4" />}
           <span>{value ? value.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : placeholder}</span>
