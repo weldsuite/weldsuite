@@ -49,12 +49,12 @@ export function formatTaskAssigneeDisplay(
   task: TaskAssigneeSource,
   members?: AssigneeMemberRef[],
 ): string | null {
-  const enriched =
-    Array.isArray(task.assignees) && task.assignees.length > 0
-      ? task.assignees
-      : task.assignee
-        ? [task.assignee]
-        : [];
+  let enriched: TaskAssigneeRef[] = [];
+  if (Array.isArray(task.assignees) && task.assignees.length > 0) {
+    enriched = task.assignees;
+  } else if (task.assignee) {
+    enriched = [task.assignee];
+  }
 
   if (enriched.length > 0) {
     const labels = enriched.map((a) => personLabel(a)).filter(Boolean);
