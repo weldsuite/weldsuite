@@ -302,10 +302,11 @@ function MultiPipelineList({
 
     return (
       <div key={pipeline.id}>
-        <div
+        <button
+          type="button"
           onClick={() => togglePipeline(pipeline.id)}
           className={cn(
-            "flex items-center gap-4 px-4 py-3 hover:bg-muted/50 cursor-pointer border-b border-border/70 group",
+            "flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-muted/50 cursor-pointer border-b border-border/70 group",
           )}
         >
           {/* Pipeline name */}
@@ -341,7 +342,7 @@ function MultiPipelineList({
 
           {/* Spacer for actions column */}
           <div className="w-[40px]" />
-        </div>
+        </button>
 
         {/* Expanded kanban */}
         {isExpanded && (

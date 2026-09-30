@@ -320,7 +320,7 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
               </div>
             )}
           </div>
-          <div onClick={(e) => e.stopPropagation()}>
+          <div role="presentation" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
