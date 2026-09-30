@@ -235,7 +235,7 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
           </div>
         </div>
 
-        <div className="w-[48px] flex-shrink-0 flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[48px] flex-shrink-0 flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
