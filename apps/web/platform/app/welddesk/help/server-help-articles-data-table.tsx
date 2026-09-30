@@ -139,6 +139,20 @@ function SortIndicator({ active, order }: Readonly<{ active: boolean; order: "as
   );
 }
 
+// Status icon component
+function StatusIcon({ status }: Readonly<{ status: string }>) {
+  switch (status) {
+    case "published":
+      return <CheckCircle className="mr-1 h-3 w-3" />;
+    case "draft":
+      return <FileText className="mr-1 h-3 w-3" />;
+    case "archived":
+      return <Archive className="mr-1 h-3 w-3" />;
+    default:
+      return null;
+  }
+}
+
 function getTableMinHeight(loading: boolean, articleCount: number): string {
   if (loading) return "400px";
   return articleCount === 0 ? "200px" : "auto";
@@ -564,20 +578,6 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
       link.click();
     } catch (error) {
       console.error("Error exporting help articles:", error);
-    }
-  };
-
-  // Status icon component
-  const StatusIcon = ({ status }: { status: string }) => {
-    switch (status) {
-      case "published":
-        return <CheckCircle className="mr-1 h-3 w-3" />;
-      case "draft":
-        return <FileText className="mr-1 h-3 w-3" />;
-      case "archived":
-        return <Archive className="mr-1 h-3 w-3" />;
-      default:
-        return null;
     }
   };
 
