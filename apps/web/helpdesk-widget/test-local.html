@@ -14,6 +14,7 @@
 
     /* Simulate a real website */
     .site-header {
+      margin-top: 40px; /* Push content down for dev toolbar */
       background: white;
       border-bottom: 1px solid #e2e8f0;
       padding: 16px 32px;
@@ -22,13 +23,16 @@
       justify-content: space-between;
     }
     .site-header h1 { font-size: 18px; font-weight: 600; color: #0f172a; }
-    .site-header nav a {
+    .site-header nav button {
       margin-left: 24px;
       color: #64748b;
-      text-decoration: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
       font-size: 14px;
     }
-    .site-header nav a:hover { color: #0f172a; }
+    .site-header nav button:hover { color: #0f172a; }
 
     .site-hero {
       background: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
@@ -105,9 +109,6 @@
     }
     .dev-toolbar label { color: #94a3b8; font-size: 11px; }
 
-    /* Push content down for dev toolbar */
-    .site-header { margin-top: 40px; }
-
     /* Console panel */
     .dev-console {
       position: fixed;
@@ -174,10 +175,10 @@
   <div class="site-header">
     <h1>Acme Corp</h1>
     <nav>
-      <a href="#" onclick="simulateNavigation('/products', 'Products - Acme Corp'); return false;">Products</a>
-      <a href="#" onclick="simulateNavigation('/pricing', 'Pricing - Acme Corp'); return false;">Pricing</a>
-      <a href="#" onclick="simulateNavigation('/about', 'About - Acme Corp'); return false;">About</a>
-      <a href="#" onclick="simulateNavigation('/contact', 'Contact - Acme Corp'); return false;">Contact</a>
+      <button type="button" onclick="simulateNavigation('/products', 'Products - Acme Corp')">Products</button>
+      <button type="button" onclick="simulateNavigation('/pricing', 'Pricing - Acme Corp')">Pricing</button>
+      <button type="button" onclick="simulateNavigation('/about', 'About - Acme Corp')">About</button>
+      <button type="button" onclick="simulateNavigation('/contact', 'Contact - Acme Corp')">Contact</button>
     </nav>
   </div>
 
@@ -306,7 +307,7 @@
     function createWidget() {
       // Singleton: reuse existing container if it has the same widgetId
       const existing = document.getElementById('weld-container');
-      if (existing && existing.getAttribute('data-widget-id') === getWidgetId()) {
+      if (existing && existing.dataset.widgetId === getWidgetId()) {
         log('Widget already exists (singleton), skipping recreation', 'info');
         return;
       }
@@ -319,7 +320,7 @@
       // Root container
       rootContainer = document.createElement('div');
       rootContainer.id = 'weld-container';
-      rootContainer.setAttribute('data-widget-id', getWidgetId());
+      rootContainer.dataset.widgetId = getWidgetId();
       rootContainer.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483000;';
       document.body.appendChild(rootContainer);
 

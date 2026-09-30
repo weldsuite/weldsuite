@@ -242,9 +242,10 @@ export default function ExchangePage() {
               <CardContent>
                 <div className="space-y-4">
                   {selectedOrder.items.map((item: any) => (
-                    <div
+                    <button
+                      type="button"
                       key={item.id}
-                      className="p-4 border rounded-lg hover:border-blue-600 cursor-pointer transition-all"
+                      className="block w-full p-4 border rounded-lg hover:border-blue-600 cursor-pointer transition-all text-left bg-transparent"
                       onClick={() => handleItemSelect(item)}
                     >
                       <div className="flex items-center justify-between">
@@ -257,7 +258,7 @@ export default function ExchangePage() {
                         </div>
                         <ArrowRight className="h-5 w-5 text-gray-400" />
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </CardContent>
