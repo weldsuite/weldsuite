@@ -80,6 +80,121 @@ function formatLocationInfo(session: SessionWithActivitiesResource): string {
   return parts.join(', ');
 }
 
+type SecurityStrings = ReturnType<typeof useI18n>['t']['settings']['security'];
+
+interface SessionColumnsContext {
+  ts: SecurityStrings;
+  openMenuLabel: string;
+  currentSessionId: string | undefined;
+  revokingSessionId: string | null;
+  onRevoke: (session: SessionWithActivitiesResource) => void;
+}
+
+function buildSessionColumns({
+  ts,
+  openMenuLabel,
+  currentSessionId,
+  revokingSessionId,
+  onRevoke,
+}: SessionColumnsContext): ColumnDef<SessionWithActivitiesResource>[] {
+  return [
+    {
+      id: 'device',
+      header: ts.device,
+      size: 500,
+      cell: ({ row }) => {
+        const session = row.original;
+        const DeviceIcon = getDeviceIcon(
+          session.latestActivity?.deviceType,
+          session.latestActivity?.isMobile
+        );
+        return (
+          <div className="flex items-center gap-2">
+            <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+            <span className="font-medium">{formatDeviceInfo(session, { unknownDevice: ts.unknownDevice, unknownBrowser: ts.unknownBrowser, mobile: ts.mobile, desktop: ts.desktop })}</span>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'location',
+      header: ts.location,
+      size: 600,
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {formatLocationInfo(row.original) || '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'lastActive',
+      header: ts.lastActive,
+      size: 140,
+      cell: ({ row }) => {
+        const session = row.original;
+        const isCurrentSession = session.id === currentSessionId;
+
+        if (isCurrentSession) {
+          return (
+            <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+              {ts.current}
+            </span>
+          );
+        }
+
+        return (
+          <span className="text-sm text-muted-foreground font-mono">
+            {session.lastActiveAt
+              ? formatDistanceToNow(session.lastActiveAt, { addSuffix: true })
+              : ts.unknown}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => {
+        const session = row.original;
+        const isCurrentSession = session.id === currentSessionId;
+        const isRevoking = revokingSessionId === session.id;
+
+        if (isCurrentSession) return null;
+
+        return (
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                >
+                  <span className="sr-only">{openMenuLabel}</span>
+                  <EllipsisVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => onRevoke(session)}
+                  disabled={isRevoking}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  {isRevoking ? (
+                    <Loader2 className="h-4 w-4 mr-0.5 animate-spin" />
+                  ) : (
+                    <LogOut className="h-4 w-4 mr-0.5 text-destructive" />
+                  )}
+                  {ts.revokeSession}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
+    },
+    ];
+}
+
 export default function SecuritySettingsPage() {
   const { user } = useUser();
   const { session: currentSession } = useSession();
@@ -181,102 +296,13 @@ export default function SecuritySettingsPage() {
 
   const otherSessionsCount = sessions.filter((s) => s.id !== currentSession?.id).length;
 
-  const columns: ColumnDef<SessionWithActivitiesResource>[] = [
-    {
-      id: 'device',
-      header: ts.device,
-      size: 500,
-      cell: ({ row }) => {
-        const session = row.original;
-        const DeviceIcon = getDeviceIcon(
-          session.latestActivity?.deviceType,
-          session.latestActivity?.isMobile
-        );
-        return (
-          <div className="flex items-center gap-2">
-            <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-            <span className="font-medium">{formatDeviceInfo(session, { unknownDevice: ts.unknownDevice, unknownBrowser: ts.unknownBrowser, mobile: ts.mobile, desktop: ts.desktop })}</span>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'location',
-      header: ts.location,
-      size: 600,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {formatLocationInfo(row.original) || '—'}
-        </span>
-      ),
-    },
-    {
-      id: 'lastActive',
-      header: ts.lastActive,
-      size: 140,
-      cell: ({ row }) => {
-        const session = row.original;
-        const isCurrentSession = session.id === currentSession?.id;
-
-        if (isCurrentSession) {
-          return (
-            <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
-              {ts.current}
-            </span>
-          );
-        }
-
-        return (
-          <span className="text-sm text-muted-foreground font-mono">
-            {session.lastActiveAt
-              ? formatDistanceToNow(session.lastActiveAt, { addSuffix: true })
-              : ts.unknown}
-          </span>
-        );
-      },
-    },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => {
-        const session = row.original;
-        const isCurrentSession = session.id === currentSession?.id;
-        const isRevoking = revokingSessionId === session.id;
-
-        if (isCurrentSession) return null;
-
-        return (
-          <div className="flex justify-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
-                >
-                  <span className="sr-only">{t.common.actions.openMenu}</span>
-                  <EllipsisVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => handleRevokeSession(session)}
-                  disabled={isRevoking}
-                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                >
-                  {isRevoking ? (
-                    <Loader2 className="h-4 w-4 mr-0.5 animate-spin" />
-                  ) : (
-                    <LogOut className="h-4 w-4 mr-0.5 text-destructive" />
-                  )}
-                  {ts.revokeSession}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
-  ];
+  const columns = buildSessionColumns({
+    ts,
+    openMenuLabel: t.common.actions.openMenu,
+    currentSessionId: currentSession?.id,
+    revokingSessionId,
+    onRevoke: handleRevokeSession,
+  });
 
   const table = useReactTable({
     data: sessions,

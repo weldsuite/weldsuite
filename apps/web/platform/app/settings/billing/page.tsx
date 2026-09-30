@@ -365,6 +365,18 @@ function describePlanStatus(
   return subscription?.status || ts.accessDeniedPlans;
 }
 
+function formatBillingAddress(details: {
+  addressLine1: string;
+  city: string;
+  country: string;
+}): string {
+  if (!details.addressLine1) return '';
+  const parts = [details.addressLine1];
+  if (details.city) parts.push(details.city);
+  if (details.country) parts.push(details.country);
+  return parts.join(', ');
+}
+
 export default function BillingSettingsPage() {
   const { t } = useI18n();
   const st = useTranslations();
@@ -473,7 +485,8 @@ export default function BillingSettingsPage() {
     if (credits) {
       params.delete('credits');
       const qs = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+      const search = qs ? `?${qs}` : '';
+      window.history.replaceState({}, '', `${window.location.pathname}${search}`);
     }
   }, [ts]);
 
@@ -741,9 +754,7 @@ export default function BillingSettingsPage() {
                 </TableCell>
                 <TableCell className="h-[42px] py-0 px-3 text-right">
                   <span className="text-sm">
-                    {billingDetails.addressLine1
-                      ? `${billingDetails.addressLine1}${billingDetails.city ? `, ${billingDetails.city}` : ''}${billingDetails.country ? `, ${billingDetails.country}` : ''}`
-                      : '\u2014'}
+                    {formatBillingAddress(billingDetails) || '\u2014'}
                   </span>
                 </TableCell>
               </TableRow>
