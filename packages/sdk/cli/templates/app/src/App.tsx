@@ -16,6 +16,59 @@ function peopleErrorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Failed to load people';
 }
 
+function ItemsList({
+  loading,
+  records,
+  onToggle,
+  onRemove,
+}: {
+  loading: boolean;
+  records: AppRecord<Item>[];
+  onToggle: (record: AppRecord<Item>) => void;
+  onRemove: (record: AppRecord<Item>) => void;
+}) {
+  if (loading) return <p className="status">Loading items…</p>;
+  if (records.length === 0) return <p className="status">No items yet — add your first one above.</p>;
+  return (
+    <ul className="items">
+      {records.map((record) => (
+        <li key={record.id} className={record.data.done ? 'done' : ''}>
+          <label>
+            <input type="checkbox" checked={record.data.done} onChange={() => onToggle(record)} />
+            <span>{record.data.title}</span>
+          </label>
+          <button type="button" onClick={() => onRemove(record)} aria-label="Remove item">
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PeopleList({
+  loading,
+  error,
+  people,
+}: {
+  loading: boolean;
+  error: string | null;
+  people: PersonSummary[];
+}) {
+  if (loading) return <p className="status">Loading people…</p>;
+  if (error) return <p className="status">{error}</p>;
+  if (people.length === 0) return <p className="status">No people in this workspace yet.</p>;
+  return (
+    <ul className="items">
+      {people.map((person) => (
+        <li key={person.id}>
+          <span>{person.displayName || person.fullName || person.email || person.id}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function App() {
   const { theme, locale, user, bridge, api } = useWeldApp();
   const items = useCollection<Item>('items');
@@ -113,50 +166,19 @@ export default function App() {
             <button type="submit">Add</button>
           </form>
 
-          {loading ? (
-            <p className="status">Loading items…</p>
-          ) : records.length === 0 ? (
-            <p className="status">No items yet — add your first one above.</p>
-          ) : (
-            <ul className="items">
-              {records.map((record) => (
-                <li key={record.id} className={record.data.done ? 'done' : ''}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={record.data.done}
-                      onChange={() => void toggleItem(record)}
-                    />
-                    <span>{record.data.title}</span>
-                  </label>
-                  <button type="button" onClick={() => void removeItem(record)} aria-label="Remove item">
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ItemsList
+            loading={loading}
+            records={records}
+            onToggle={(record) => void toggleItem(record)}
+            onRemove={(record) => void removeItem(record)}
+          />
         </>
       ) : (
         <section>
           <p className="meta">
             Example WeldSuite App API call: <code>api.people.list()</code> against <code>/v1/people</code>.
           </p>
-          {peopleLoading ? (
-            <p className="status">Loading people…</p>
-          ) : peopleError ? (
-            <p className="status">{peopleError}</p>
-          ) : people.length === 0 ? (
-            <p className="status">No people in this workspace yet.</p>
-          ) : (
-            <ul className="items">
-              {people.map((person) => (
-                <li key={person.id}>
-                  <span>{person.displayName || person.fullName || person.email || person.id}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <PeopleList loading={peopleLoading} error={peopleError} people={people} />
         </section>
       )}
     </main>

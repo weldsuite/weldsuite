@@ -3,7 +3,7 @@
  * .wui-egrid, .wui-egrid-toolbar*, .wui-egrid-table*, .wui-egrid-row*,
  * .wui-egrid-cell*, .wui-egrid-selection*, .wui-egrid-editor*, .wui-egrid-badge*
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -21,6 +21,9 @@ import { Input } from '../input';
 import { CheckboxEditor, NumberEditor, SelectEditor, TextEditor } from './editors';
 import type {
   EditingCell,
+  EntityGridActions,
+  EntityGridConfig,
+  EntityGridLabels,
   EntityGridProps,
   GridColumnDef,
   GridSortConfig,
@@ -153,78 +156,34 @@ export function EntityGrid<TEntity>({
     setSelectedRows(new Set());
   };
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!onLoadMore || !hasMore) return;
-    const node = sentinelRef.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !isFetchingMore) onLoadMore();
-      },
-      { rootMargin: '120px' },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [onLoadMore, hasMore, isFetchingMore]);
+  const sentinelRef = useLoadMoreSentinel(onLoadMore, hasMore, isFetchingMore);
 
-  const tableWidth =
-    columns.reduce((sum, c) => sum + c.width, 0) +
-    (config.enableRowSelection ? 40 : 0) +
-    (config.showRowNumbers ? 48 : 0);
+  const tableWidth = computeTableWidth(config, columns);
 
   return (
     <div className="wui-egrid" data-testid="entity-grid">
       {!hideToolbar && (
-        <div className="wui-egrid-toolbar">
-          <div className="wui-egrid-toolbar__left">
-            {actions.onCreateEntity ? (
-              <Button size="sm" onClick={actions.onCreateEntity}>
-                <Plus className="wui-egrid-icon" />
-                {labels?.newEntity ?? `New ${config.entityName.toLowerCase()}`}
-              </Button>
-            ) : null}
-            {toolbarActions}
-          </div>
-          <div className="wui-egrid-toolbar__right">
-            <div className="wui-egrid-search">
-              <Search className="wui-egrid-search__icon" />
-              <Input
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                placeholder={searchPlaceholder ?? mergedLabels.search}
-                className="wui-egrid-search__input"
-                aria-label={mergedLabels.search}
-              />
-            </div>
-            {config.enableExport !== false ? (
-              <Button variant="outline" size="sm" onClick={() => void handleExport()}>
-                <Download className="wui-egrid-icon" />
-                {mergedLabels.export}
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        <GridToolbar
+          config={config}
+          actions={actions}
+          labels={labels}
+          mergedLabels={mergedLabels}
+          searchValue={searchValue}
+          onSearchChange={setSearchValue}
+          searchPlaceholder={searchPlaceholder}
+          toolbarActions={toolbarActions}
+          onExport={() => void handleExport()}
+        />
       )}
 
       {selectedRows.size > 0 && config.enableRowSelection ? (
-        <div className="wui-egrid-selection">
-          <span>
-            {selectedRows.size} {mergedLabels.selected}
-          </span>
-          <div className="wui-egrid-selection__actions">
-            {actions.onBulkDelete ? (
-              <Button variant="destructive" size="sm" onClick={() => void handleBulkDelete()}>
-                <Trash2 className="wui-egrid-icon" />
-                {mergedLabels.delete}
-              </Button>
-            ) : null}
-            <Button variant="ghost" size="sm" onClick={() => setSelectedRows(new Set())}>
-              <X className="wui-egrid-icon" />
-              {mergedLabels.clearSelection}
-            </Button>
-          </div>
-        </div>
+        <GridSelectionBar
+          count={selectedRows.size}
+          mergedLabels={mergedLabels}
+          canBulkDelete={!!actions.onBulkDelete}
+          onBulkDelete={() => void handleBulkDelete()}
+          onClear={() => setSelectedRows(new Set())}
+        />
       ) : null}
 
       <div className="wui-egrid-scroll">
@@ -235,153 +194,40 @@ export function EntityGrid<TEntity>({
           </div>
         ) : (
           <table className="wui-egrid-table" style={{ minWidth: tableWidth }}>
-            <thead>
-              <tr>
-                {config.enableRowSelection ? (
-                  <th className="wui-egrid-th wui-egrid-th--check">
-                    <input
-                      type="checkbox"
-                      className="wui-egrid-checkbox"
-                      checked={
-                        displayEntities.length > 0 && selectedRows.size === displayEntities.length
-                      }
-                      onChange={toggleAll}
-                      aria-label="Select all"
-                    />
-                  </th>
-                ) : null}
-                {config.showRowNumbers ? (
-                  <th className="wui-egrid-th wui-egrid-th--num">#</th>
-                ) : null}
-                {columns.map((col) => {
-                  const active = sort.field === col.id;
-                  const SortIcon =
-                    !active || !sort.direction
-                      ? ArrowUpDown
-                      : sort.direction === 'asc'
-                        ? ArrowUp
-                        : ArrowDown;
-                  return (
-                    <th
-                      key={col.id}
-                      className="wui-egrid-th"
-                      style={{ width: col.width, minWidth: col.width }}
-                    >
-                      {col.sortable !== false ? (
-                        <button
-                          type="button"
-                          className={cn('wui-egrid-th__sort', active && 'wui-egrid-th__sort--active')}
-                          onClick={() => handleSort(col.id)}
-                        >
-                          {col.icon ? <col.icon className="wui-egrid-icon" /> : null}
-                          <span>{col.name}</span>
-                          <SortIcon className="wui-egrid-icon wui-egrid-icon--sm" />
-                        </button>
-                      ) : (
-                        <span className="wui-egrid-th__label">
-                          {col.icon ? <col.icon className="wui-egrid-icon" /> : null}
-                          {col.name}
-                        </span>
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
+            <GridTableHead
+              config={config}
+              columns={columns}
+              sort={sort}
+              onSort={handleSort}
+              allSelected={displayEntities.length > 0 && selectedRows.size === displayEntities.length}
+              onToggleAll={toggleAll}
+            />
             <tbody>
               {displayEntities.length === 0 ? (
-                <tr>
-                  <td
-                    className="wui-egrid-empty"
-                    colSpan={
-                      columns.length +
-                      (config.enableRowSelection ? 1 : 0) +
-                      (config.showRowNumbers ? 1 : 0)
-                    }
-                  >
-                    {mergedLabels.noResults}
-                  </td>
-                </tr>
+                <GridEmptyRow
+                  colSpan={computeColumnSpan(config, columns)}
+                  label={mergedLabels.noResults}
+                />
               ) : (
                 displayEntities.map((raw, index) => {
                   const entity = getEntityWithOptimistic(raw);
                   const id = config.getEntityId(entity);
-                  const selected = selectedRows.has(id);
                   return (
-                    <tr
+                    <GridRow
                       key={id}
-                      className={cn('wui-egrid-row', selected && 'wui-egrid-row--selected')}
-                      onClick={() => actions.onRowClick?.(entity)}
-                    >
-                      {config.enableRowSelection ? (
-                        <td
-                          className="wui-egrid-td wui-egrid-td--check"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            className="wui-egrid-checkbox"
-                            checked={selected}
-                            onChange={() => toggleRow(id)}
-                            aria-label={`Select ${config.getEntityName(entity)}`}
-                          />
-                        </td>
-                      ) : null}
-                      {config.showRowNumbers ? (
-                        <td className="wui-egrid-td wui-egrid-td--num">{index + 1}</td>
-                      ) : null}
-                      {columns.map((col) => {
-                        const value = col.getValue(entity);
-                        const isEditing =
-                          config.enableInlineEditing !== false &&
-                          editingCell?.rowId === id &&
-                          editingCell?.fieldId === col.id &&
-                          col.editable !== false &&
-                          !!col.setValue;
-
-                        return (
-                          <td
-                            key={col.id}
-                            className="wui-egrid-td"
-                            style={{ width: col.width, minWidth: col.width }}
-                            onDoubleClick={(e) => {
-                              if (
-                                config.enableInlineEditing === false ||
-                                col.editable === false ||
-                                !col.setValue
-                              ) {
-                                return;
-                              }
-                              e.stopPropagation();
-                              setEditingCell({ rowId: id, fieldId: col.id });
-                            }}
-                          >
-                            {isEditing ? (
-                              <div onClick={(e) => e.stopPropagation()}>
-                                <CellEditor
-                                  column={col}
-                                  value={value}
-                                  onCommit={(next) => void commitEdit(entity, col, next)}
-                                  onCancel={() => setEditingCell(null)}
-                                />
-                              </div>
-                            ) : col.type === 'checkbox' &&
-                              col.editable !== false &&
-                              col.setValue &&
-                              config.enableInlineEditing !== false ? (
-                              <CheckboxEditor
-                                value={!!value}
-                                onCommit={(next) => void commitEdit(entity, col, next)}
-                              />
-                            ) : col.render ? (
-                              col.render(entity, value)
-                            ) : (
-                              <DefaultCell column={col} value={value} />
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
+                      entity={entity}
+                      id={id}
+                      index={index}
+                      selected={selectedRows.has(id)}
+                      columns={columns}
+                      config={config}
+                      editingCell={editingCell}
+                      onRowClick={actions.onRowClick}
+                      onToggle={toggleRow}
+                      onStartEdit={setEditingCell}
+                      onStopEdit={() => setEditingCell(null)}
+                      onCommit={(col, next) => void commitEdit(entity, col, next)}
+                    />
                   );
                 })
               )}
@@ -396,6 +242,338 @@ export function EntityGrid<TEntity>({
       </div>
     </div>
   );
+}
+
+function computeTableWidth<TEntity>(
+  config: EntityGridConfig<TEntity>,
+  columns: GridColumnDef<TEntity>[],
+): number {
+  return (
+    columns.reduce((sum, c) => sum + c.width, 0) +
+    (config.enableRowSelection ? 40 : 0) +
+    (config.showRowNumbers ? 48 : 0)
+  );
+}
+
+function computeColumnSpan<TEntity>(
+  config: EntityGridConfig<TEntity>,
+  columns: GridColumnDef<TEntity>[],
+): number {
+  return columns.length + (config.enableRowSelection ? 1 : 0) + (config.showRowNumbers ? 1 : 0);
+}
+
+function GridEmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return (
+    <tr>
+      <td className="wui-egrid-empty" colSpan={colSpan}>
+        {label}
+      </td>
+    </tr>
+  );
+}
+
+type ResolvedLabels = Record<keyof typeof DEFAULT_LABELS, string>;
+
+function useLoadMoreSentinel(
+  onLoadMore: (() => void) | undefined,
+  hasMore: boolean | undefined,
+  isFetchingMore: boolean | undefined,
+) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!onLoadMore || !hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isFetchingMore) onLoadMore();
+      },
+      { rootMargin: '120px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onLoadMore, hasMore, isFetchingMore]);
+  return sentinelRef;
+}
+
+function GridToolbar<TEntity>({
+  config,
+  actions,
+  labels,
+  mergedLabels,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  toolbarActions,
+  onExport,
+}: {
+  config: EntityGridConfig<TEntity>;
+  actions: EntityGridActions<TEntity>;
+  labels: EntityGridLabels | undefined;
+  mergedLabels: ResolvedLabels;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  searchPlaceholder: string | undefined;
+  toolbarActions: ReactNode;
+  onExport: () => void;
+}) {
+  return (
+    <div className="wui-egrid-toolbar">
+      <div className="wui-egrid-toolbar__left">
+        {actions.onCreateEntity ? (
+          <Button size="sm" onClick={actions.onCreateEntity}>
+            <Plus className="wui-egrid-icon" />
+            {labels?.newEntity ?? `New ${config.entityName.toLowerCase()}`}
+          </Button>
+        ) : null}
+        {toolbarActions}
+      </div>
+      <div className="wui-egrid-toolbar__right">
+        <div className="wui-egrid-search">
+          <Search className="wui-egrid-search__icon" />
+          <Input
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={searchPlaceholder ?? mergedLabels.search}
+            className="wui-egrid-search__input"
+            aria-label={mergedLabels.search}
+          />
+        </div>
+        {config.enableExport !== false ? (
+          <Button variant="outline" size="sm" onClick={onExport}>
+            <Download className="wui-egrid-icon" />
+            {mergedLabels.export}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GridSelectionBar({
+  count,
+  mergedLabels,
+  canBulkDelete,
+  onBulkDelete,
+  onClear,
+}: {
+  count: number;
+  mergedLabels: ResolvedLabels;
+  canBulkDelete: boolean;
+  onBulkDelete: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="wui-egrid-selection">
+      <span>
+        {count} {mergedLabels.selected}
+      </span>
+      <div className="wui-egrid-selection__actions">
+        {canBulkDelete ? (
+          <Button variant="destructive" size="sm" onClick={onBulkDelete}>
+            <Trash2 className="wui-egrid-icon" />
+            {mergedLabels.delete}
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={onClear}>
+          <X className="wui-egrid-icon" />
+          {mergedLabels.clearSelection}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function GridTableHead<TEntity>({
+  config,
+  columns,
+  sort,
+  onSort,
+  allSelected,
+  onToggleAll,
+}: {
+  config: EntityGridConfig<TEntity>;
+  columns: GridColumnDef<TEntity>[];
+  sort: GridSortConfig;
+  onSort: (fieldId: string) => void;
+  allSelected: boolean;
+  onToggleAll: () => void;
+}) {
+  return (
+    <thead>
+      <tr>
+        {config.enableRowSelection ? (
+          <th className="wui-egrid-th wui-egrid-th--check">
+            <input
+              type="checkbox"
+              className="wui-egrid-checkbox"
+              checked={allSelected}
+              onChange={onToggleAll}
+              aria-label="Select all"
+            />
+          </th>
+        ) : null}
+        {config.showRowNumbers ? <th className="wui-egrid-th wui-egrid-th--num">#</th> : null}
+        {columns.map((col) => (
+          <GridHeaderCell key={col.id} column={col} sort={sort} onSort={onSort} />
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function sortIconFor(active: boolean, direction: GridSortConfig['direction']) {
+  if (!active || !direction) return ArrowUpDown;
+  return direction === 'asc' ? ArrowUp : ArrowDown;
+}
+
+function GridHeaderCell<TEntity>({
+  column,
+  sort,
+  onSort,
+}: {
+  column: GridColumnDef<TEntity>;
+  sort: GridSortConfig;
+  onSort: (fieldId: string) => void;
+}) {
+  const active = sort.field === column.id;
+  const SortIcon = sortIconFor(active, sort.direction);
+  return (
+    <th className="wui-egrid-th" style={{ width: column.width, minWidth: column.width }}>
+      {column.sortable !== false ? (
+        <button
+          type="button"
+          className={cn('wui-egrid-th__sort', active && 'wui-egrid-th__sort--active')}
+          onClick={() => onSort(column.id)}
+        >
+          {column.icon ? <column.icon className="wui-egrid-icon" /> : null}
+          <span>{column.name}</span>
+          <SortIcon className="wui-egrid-icon wui-egrid-icon--sm" />
+        </button>
+      ) : (
+        <span className="wui-egrid-th__label">
+          {column.icon ? <column.icon className="wui-egrid-icon" /> : null}
+          {column.name}
+        </span>
+      )}
+    </th>
+  );
+}
+
+/** Whether a cell may be edited inline (grid-level flag + column-level flags). */
+function isCellEditable<TEntity>(
+  config: EntityGridConfig<TEntity>,
+  column: GridColumnDef<TEntity>,
+): boolean {
+  return config.enableInlineEditing !== false && column.editable !== false && !!column.setValue;
+}
+
+function GridRow<TEntity>({
+  entity,
+  id,
+  index,
+  selected,
+  columns,
+  config,
+  editingCell,
+  onRowClick,
+  onToggle,
+  onStartEdit,
+  onStopEdit,
+  onCommit,
+}: {
+  entity: TEntity;
+  id: string;
+  index: number;
+  selected: boolean;
+  columns: GridColumnDef<TEntity>[];
+  config: EntityGridConfig<TEntity>;
+  editingCell: EditingCell | null;
+  onRowClick?: (entity: TEntity) => void;
+  onToggle: (id: string) => void;
+  onStartEdit: (cell: EditingCell) => void;
+  onStopEdit: () => void;
+  onCommit: (column: GridColumnDef<TEntity>, value: unknown) => void;
+}) {
+  return (
+    <tr
+      className={cn('wui-egrid-row', selected && 'wui-egrid-row--selected')}
+      onClick={() => onRowClick?.(entity)}
+    >
+      {config.enableRowSelection ? (
+        <td className="wui-egrid-td wui-egrid-td--check" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            className="wui-egrid-checkbox"
+            checked={selected}
+            onChange={() => onToggle(id)}
+            aria-label={`Select ${config.getEntityName(entity)}`}
+          />
+        </td>
+      ) : null}
+      {config.showRowNumbers ? (
+        <td className="wui-egrid-td wui-egrid-td--num">{index + 1}</td>
+      ) : null}
+      {columns.map((col) => {
+        const editable = isCellEditable(config, col);
+        const isEditing =
+          editable && editingCell?.rowId === id && editingCell?.fieldId === col.id;
+        return (
+          <td
+            key={col.id}
+            className="wui-egrid-td"
+            style={{ width: col.width, minWidth: col.width }}
+            onDoubleClick={(e) => {
+              if (!editable) return;
+              e.stopPropagation();
+              onStartEdit({ rowId: id, fieldId: col.id });
+            }}
+          >
+            <GridCellContent
+              entity={entity}
+              column={col}
+              editable={editable}
+              isEditing={isEditing}
+              onCommit={(next) => onCommit(col, next)}
+              onCancel={onStopEdit}
+            />
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+function GridCellContent<TEntity>({
+  entity,
+  column,
+  editable,
+  isEditing,
+  onCommit,
+  onCancel,
+}: {
+  entity: TEntity;
+  column: GridColumnDef<TEntity>;
+  editable: boolean;
+  isEditing: boolean;
+  onCommit: (value: unknown) => void;
+  onCancel: () => void;
+}) {
+  const value = column.getValue(entity);
+  if (isEditing) {
+    return (
+      <div onClick={(e) => e.stopPropagation()}>
+        <CellEditor column={column} value={value} onCommit={onCommit} onCancel={onCancel} />
+      </div>
+    );
+  }
+  if (column.type === 'checkbox' && editable) {
+    return <CheckboxEditor value={!!value} onCommit={onCommit} />;
+  }
+  if (column.render) {
+    return <>{column.render(entity, value)}</>;
+  }
+  return <DefaultCell column={column} value={value} />;
 }
 
 function DefaultCell<TEntity>({
@@ -423,6 +601,21 @@ function DefaultCell<TEntity>({
   return <span className="wui-egrid-cell-text">{text || '—'}</span>;
 }
 
+function toEditorNumber(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  return value == null ? null : Number(value);
+}
+
+const TEXT_INPUT_TYPES: Partial<Record<string, 'email' | 'url' | 'tel'>> = {
+  email: 'email',
+  url: 'url',
+  phone: 'tel',
+};
+
+function textInputTypeFor(columnType: string): 'email' | 'url' | 'tel' | 'text' {
+  return TEXT_INPUT_TYPES[columnType] ?? 'text';
+}
+
 function CellEditor<TEntity>({
   column,
   value,
@@ -437,7 +630,7 @@ function CellEditor<TEntity>({
   if (column.type === 'number' || column.type === 'currency' || column.type === 'percent') {
     return (
       <NumberEditor
-        value={typeof value === 'number' ? value : value == null ? null : Number(value)}
+        value={toEditorNumber(value)}
         onCommit={onCommit}
         onCancel={onCancel}
       />
@@ -457,12 +650,10 @@ function CellEditor<TEntity>({
   if (column.type === 'checkbox') {
     return <CheckboxEditor value={!!value} onCommit={onCommit} />;
   }
-  const inputType =
-    column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : column.type === 'phone' ? 'tel' : 'text';
   return (
     <TextEditor
       value={value == null ? '' : String(value)}
-      type={inputType}
+      type={textInputTypeFor(column.type)}
       onCommit={onCommit}
       onCancel={onCancel}
     />

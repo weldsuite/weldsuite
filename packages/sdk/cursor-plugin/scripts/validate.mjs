@@ -35,63 +35,86 @@ function parseFrontmatter(content) {
   return fields;
 }
 
-async function main() {
+const REQUIRED_FILES = [
+  'agents/weldflow-dispatcher.md',
+  'agents/weldflow-task-fixer.md',
+  'rules/weldsuite-mcp.mdc',
+  'skills/fix-task/SKILL.md',
+  'skills/list-tasks/SKILL.md',
+  'skills/claim-task/SKILL.md',
+  'skills/done-task/SKILL.md',
+  'skills/enrich-task/SKILL.md',
+  'README.md',
+];
+
+async function checkPluginManifest() {
   const manifestPath = path.join(pluginRoot, '.cursor-plugin/plugin.json');
-  const marketplacePath = path.join(repoRoot, '.cursor-plugin/marketplace.json');
-
-  if (!(await exists(manifestPath))) errors.push(`Missing ${manifestPath}`);
-  else {
-    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-    if (!manifest.name || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(manifest.name)) {
-      errors.push(`Invalid plugin name: ${manifest.name}`);
-    }
-    if (!manifest.logo || !(await exists(path.join(pluginRoot, manifest.logo)))) {
-      errors.push(`Logo missing: ${manifest.logo}`);
-    }
+  if (!(await exists(manifestPath))) {
+    errors.push(`Missing ${manifestPath}`);
+    return;
   }
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  if (!manifest.name || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(manifest.name)) {
+    errors.push(`Invalid plugin name: ${manifest.name}`);
+  }
+  if (!manifest.logo || !(await exists(path.join(pluginRoot, manifest.logo)))) {
+    errors.push(`Logo missing: ${manifest.logo}`);
+  }
+}
 
-  if (!(await exists(path.join(pluginRoot, 'mcp.json')))) {
+async function checkMcpConfig() {
+  const mcpPath = path.join(pluginRoot, 'mcp.json');
+  if (!(await exists(mcpPath))) {
     errors.push('Missing mcp.json');
-  } else {
-    const mcp = JSON.parse(await fs.readFile(path.join(pluginRoot, 'mcp.json'), 'utf8'));
-    const entry = mcp.weldsuite ?? mcp.mcpServers?.weldsuite;
-    if (!entry?.url) errors.push('mcp.json must define weldsuite.url');
+    return;
   }
+  const mcp = JSON.parse(await fs.readFile(mcpPath, 'utf8'));
+  const entry = mcp.weldsuite ?? mcp.mcpServers?.weldsuite;
+  if (!entry?.url) errors.push('mcp.json must define weldsuite.url');
+}
 
+async function checkMarketplace() {
+  const marketplacePath = path.join(repoRoot, '.cursor-plugin/marketplace.json');
   if (!(await exists(marketplacePath))) {
     errors.push('Missing repo-root .cursor-plugin/marketplace.json');
-  } else {
-    const market = JSON.parse(await fs.readFile(marketplacePath, 'utf8'));
-    const plug = market.plugins?.find((p) => p.name === 'weldsuite');
-    if (!plug) errors.push('marketplace.json missing weldsuite plugin entry');
-    else if (plug.source !== 'cursor-plugin') {
-      errors.push(`Expected source "cursor-plugin", got ${plug.source}`);
-    }
+    return;
   }
+  const market = JSON.parse(await fs.readFile(marketplacePath, 'utf8'));
+  const plug = market.plugins?.find((p) => p.name === 'weldsuite');
+  if (!plug) {
+    errors.push('marketplace.json missing weldsuite plugin entry');
+  } else if (plug.source !== 'cursor-plugin') {
+    errors.push(`Expected source "cursor-plugin", got ${plug.source}`);
+  }
+}
 
-  for (const rel of [
-    'agents/weldflow-dispatcher.md',
-    'agents/weldflow-task-fixer.md',
-    'rules/weldsuite-mcp.mdc',
-    'skills/fix-task/SKILL.md',
-    'skills/list-tasks/SKILL.md',
-    'skills/claim-task/SKILL.md',
-    'skills/done-task/SKILL.md',
-    'skills/enrich-task/SKILL.md',
-    'README.md',
-  ]) {
-    const full = path.join(pluginRoot, rel);
-    if (!(await exists(full))) {
-      errors.push(`Missing ${rel}`);
-      continue;
-    }
-    if (rel.endsWith('.md') || rel.endsWith('.mdc')) {
-      if (rel === 'README.md') continue;
-      const fm = parseFrontmatter(await fs.readFile(full, 'utf8'));
-      if (!fm) errors.push(`${rel}: missing frontmatter`);
-      else if (!fm.name && !rel.endsWith('.mdc')) errors.push(`${rel}: missing name`);
-      else if (!fm.description) errors.push(`${rel}: missing description`);
-    }
+function checkFrontmatterFields(rel, fm) {
+  if (!fm) {
+    errors.push(`${rel}: missing frontmatter`);
+  } else if (!fm.name && !rel.endsWith('.mdc')) {
+    errors.push(`${rel}: missing name`);
+  } else if (!fm.description) {
+    errors.push(`${rel}: missing description`);
+  }
+}
+
+async function checkRequiredFile(rel) {
+  const full = path.join(pluginRoot, rel);
+  if (!(await exists(full))) {
+    errors.push(`Missing ${rel}`);
+    return;
+  }
+  const isMarkdown = rel.endsWith('.md') || rel.endsWith('.mdc');
+  if (!isMarkdown || rel === 'README.md') return;
+  checkFrontmatterFields(rel, parseFrontmatter(await fs.readFile(full, 'utf8')));
+}
+
+async function main() {
+  await checkPluginManifest();
+  await checkMcpConfig();
+  await checkMarketplace();
+  for (const rel of REQUIRED_FILES) {
+    await checkRequiredFile(rel);
   }
 
   if (errors.length) {

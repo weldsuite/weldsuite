@@ -237,37 +237,42 @@ export class StateCoordinator {
     const subscriptions = Array.from(this.subscriptions.values());
 
     for (const subscription of subscriptions) {
-      // Exact path match
-      if (subscription.path === path) {
-        try {
-          subscription.listener(newValue, oldValue);
-        } catch (error) {
-          this.logger.error('Error in state listener', error);
-        }
-        continue;
-      }
-
-      // Parent path match (e.g., subscriber to "user" gets notified for "user.name")
-      if (path.startsWith(subscription.path + '.')) {
-        const subValue = getStateValue(this.state, subscription.path);
-        try {
-          subscription.listener(subValue, oldValue);
-        } catch (error) {
-          this.logger.error('Error in state listener', error);
-        }
-        continue;
-      }
-
-      // Child path match (e.g., subscriber to "user.name" gets notified for "user")
-      if (subscription.path.startsWith(path + '.')) {
-        const subValue = getStateValue(this.state, subscription.path);
-        try {
-          subscription.listener(subValue, undefined);
-        } catch (error) {
-          this.logger.error('Error in state listener', error);
-        }
+      const args = this.resolveListenerArgs(subscription.path, path, newValue, oldValue);
+      if (!args) continue;
+      try {
+        subscription.listener(args[0], args[1]);
+      } catch (error) {
+        this.logger.error('Error in state listener', error);
       }
     }
+  }
+
+  /**
+   * Work out whether (and with which values) a subscription at `subscriptionPath`
+   * is notified about a change at `path`. Returns null when it is unaffected.
+   */
+  private resolveListenerArgs(
+    subscriptionPath: string,
+    path: string,
+    newValue: any,
+    oldValue: any
+  ): [any, any] | null {
+    // Exact path match
+    if (subscriptionPath === path) {
+      return [newValue, oldValue];
+    }
+
+    // Parent path match (e.g., subscriber to "user" gets notified for "user.name")
+    if (path.startsWith(subscriptionPath + '.')) {
+      return [getStateValue(this.state, subscriptionPath), oldValue];
+    }
+
+    // Child path match (e.g., subscriber to "user.name" gets notified for "user")
+    if (subscriptionPath.startsWith(path + '.')) {
+      return [getStateValue(this.state, subscriptionPath), undefined];
+    }
+
+    return null;
   }
 
   /**
