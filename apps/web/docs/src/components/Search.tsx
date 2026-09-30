@@ -223,11 +223,11 @@ function SearchResults({
   if (collection.items.length === 0) {
     return (
       <p className="px-4 py-8 text-center text-sm text-slate-700 dark:text-slate-400">
-        No results for &ldquo;
-        <span className="wrap-break-word text-slate-900 dark:text-white">
+        No results for &ldquo;<span
+          className="wrap-break-word text-slate-900 dark:text-white"
+        >
           {query}
-        </span>
-        &rdquo;
+        </span>&rdquo;
       </p>
     )
   }

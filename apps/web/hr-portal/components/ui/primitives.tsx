@@ -36,8 +36,12 @@ export const Card = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEleme
   return <div ref={ref} className={cx('rounded-lg border border-gray-200 bg-white p-4 sm:p-5', className)} {...props} />;
 });
 
-export function Label({ className, ...props }: Readonly<LabelHTMLAttributes<HTMLLabelElement>>) {
-  return <label className={cx('block text-sm font-medium text-gray-700 mb-1.5', className)} {...props} />;
+export function Label({ className, htmlFor, children, ...props }: Readonly<LabelHTMLAttributes<HTMLLabelElement>>) {
+  return (
+    <label htmlFor={htmlFor} className={cx('block text-sm font-medium text-gray-700 mb-1.5', className)} {...props}>
+      {children}
+    </label>
+  );
 }
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
