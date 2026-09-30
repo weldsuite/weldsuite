@@ -226,13 +226,22 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                 const canRemove = isAgent
                   ? isPrivate
                   : isPrivate && member.role !== 'owner' && member.userId !== user?.id;
+                const openProfile = () => {
+                  if (isAgent) openAgentProfile(member.userId);
+                  else openUserProfile(member.userId);
+                };
                 return (
                   <div
                     key={member.userId}
                     data-testid="chat-member-row"
-                    onClick={() => {
-                      if (isAgent) openAgentProfile(member.userId);
-                      else openUserProfile(member.userId);
+                    role="button"
+                    tabIndex={0}
+                    onClick={openProfile}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      openProfile();
                     }}
                     className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer"
                   >
