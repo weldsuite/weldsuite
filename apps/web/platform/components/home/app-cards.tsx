@@ -300,7 +300,7 @@ function FitContent({
       }
       if (stretch && lastVisible >= 0) {
         for (let i = 0; i <= lastVisible; i++) {
-          if (!childNodes[i].hasAttribute('data-fit-fixed')) {
+          if (!('fitFixed' in childNodes[i].dataset)) {
             childNodes[i].style.flex = '1 1 auto';
           }
         }
