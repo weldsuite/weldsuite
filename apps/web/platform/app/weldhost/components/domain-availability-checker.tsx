@@ -221,6 +221,18 @@ export function DomainAvailabilityChecker({
                   const hasPrice = priceLabel !== null;
                   const isSelected = selectedDomainNames.includes(result.domain_name);
                   const canSelect = !isTaken && !isUnavailable && hasPrice;
+                  let selectButtonState = 'border-input hover:bg-muted/50';
+                  if (!canSelect) {
+                    selectButtonState = 'border-input bg-muted cursor-not-allowed opacity-50';
+                  } else if (isSelected) {
+                    selectButtonState = 'bg-primary border-primary hover:bg-primary/90';
+                  }
+                  let selectButtonIcon = <ShoppingCart className="h-4 w-4 text-muted-foreground" />;
+                  if (isTaken || isUnavailable) {
+                    selectButtonIcon = <X className="h-4 w-4 text-muted-foreground/50" />;
+                  } else if (isSelected) {
+                    selectButtonIcon = <Check className="h-4 w-4 text-primary-foreground" />;
+                  }
 
                   return (
                     <div
@@ -269,11 +281,7 @@ export function DomainAvailabilityChecker({
                                 disabled={!canSelect}
                                 className={cn(
                                   'h-9 w-9 flex items-center justify-center border rounded-md transition-colors',
-                                  !canSelect
-                                    ? 'border-input bg-muted cursor-not-allowed opacity-50'
-                                    : isSelected
-                                      ? 'bg-primary border-primary hover:bg-primary/90'
-                                      : 'border-input hover:bg-muted/50',
+                                  selectButtonState,
                                 )}
                                 onClick={(e) => {
                                   e.preventDefault();
@@ -288,13 +296,7 @@ export function DomainAvailabilityChecker({
                                   }
                                 }}
                               >
-                                {isTaken || isUnavailable ? (
-                                  <X className="h-4 w-4 text-muted-foreground/50" />
-                                ) : isSelected ? (
-                                  <Check className="h-4 w-4 text-primary-foreground" />
-                                ) : (
-                                  <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                                )}
+                                {selectButtonIcon}
                               </Button>
                             </TooltipTrigger>
                             {isTaken && (
