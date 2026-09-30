@@ -143,6 +143,37 @@ export interface CustomFieldValidationResult {
   error?: string;
 }
 
+function validateNumberValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (Number.isNaN(n)) return { ok: false, error: `'${def.slug}' must be a number` };
+  return { ok: true, value: n };
+}
+
+function validateDateValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
+  const d = raw instanceof Date ? raw : new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return { ok: false, error: `'${def.slug}' must be a valid date` };
+  return { ok: true, value: d.toISOString() };
+}
+
+function validateSingleSelectValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
+  const optionValues = new Set((def.options ?? []).map((o) => o.value));
+  const v = String(raw);
+  if (optionValues.size > 0 && !optionValues.has(v)) {
+    return { ok: false, error: `'${v}' is not a valid option for '${def.slug}'` };
+  }
+  return { ok: true, value: v };
+}
+
+function validateMultiSelectValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
+  const optionValues = new Set((def.options ?? []).map((o) => o.value));
+  const arr = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+  if (optionValues.size > 0) {
+    const bad = arr.find((v) => !optionValues.has(v));
+    if (bad) return { ok: false, error: `'${bad}' is not a valid option for '${def.slug}'` };
+  }
+  return { ok: true, value: arr };
+}
+
 /**
  * Validate + coerce a single raw value against its definition. Returns the
  * normalized value (or `null` to clear). Pure — safe to share client + server.
@@ -157,38 +188,19 @@ export function validateCustomFieldValue(
     return { ok: true, value: null };
   }
 
-  const optionValues = new Set((def.options ?? []).map((o) => o.value));
-
   switch (def.fieldType) {
     case 'number':
     case 'currency':
-    case 'rating': {
-      const n = typeof raw === 'number' ? raw : Number(raw);
-      if (Number.isNaN(n)) return { ok: false, error: `'${def.slug}' must be a number` };
-      return { ok: true, value: n };
-    }
+    case 'rating':
+      return validateNumberValue(def, raw);
     case 'boolean':
       return { ok: true, value: Boolean(raw) };
-    case 'date': {
-      const d = raw instanceof Date ? raw : new Date(String(raw));
-      if (Number.isNaN(d.getTime())) return { ok: false, error: `'${def.slug}' must be a valid date` };
-      return { ok: true, value: d.toISOString() };
-    }
-    case 'single_select': {
-      const v = String(raw);
-      if (optionValues.size > 0 && !optionValues.has(v)) {
-        return { ok: false, error: `'${v}' is not a valid option for '${def.slug}'` };
-      }
-      return { ok: true, value: v };
-    }
-    case 'multi_select': {
-      const arr = Array.isArray(raw) ? raw.map(String) : [String(raw)];
-      if (optionValues.size > 0) {
-        const bad = arr.find((v) => !optionValues.has(v));
-        if (bad) return { ok: false, error: `'${bad}' is not a valid option for '${def.slug}'` };
-      }
-      return { ok: true, value: arr };
-    }
+    case 'date':
+      return validateDateValue(def, raw);
+    case 'single_select':
+      return validateSingleSelectValue(def, raw);
+    case 'multi_select':
+      return validateMultiSelectValue(def, raw);
     case 'file':
       return { ok: true, value: raw as Record<string, unknown> };
     case 'user_ref':
