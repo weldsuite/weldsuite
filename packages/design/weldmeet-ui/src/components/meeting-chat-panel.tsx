@@ -511,6 +511,99 @@ interface MessageItemProps {
   onClickAuthor?: (author: { id: string; name: string; avatar?: string | null }) => void;
 }
 
+interface MessageActionBarProps {
+  messageId: string;
+  isPinned: boolean;
+  canPin: boolean;
+  canDelete: boolean;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  onPinToggle: () => void;
+  onCopyText: () => void;
+  onDelete?: (id: string) => void;
+}
+
+/** Floating hover toolbar (reply / react / pin / more-actions menu) of a message. */
+function MessageActionBar({
+  messageId,
+  isPinned,
+  canPin,
+  canDelete,
+  menuOpen,
+  onMenuOpenChange,
+  onPinToggle,
+  onCopyText,
+  onDelete,
+}: MessageActionBarProps) {
+  return (
+    <div className="absolute -top-3 right-4 flex items-center gap-0.5 bg-background border rounded-[12px] shadow-sm p-1 z-10">
+      <Button variant="ghost" size="icon" className="h-7 w-7" title="Reply" onClick={() => {}}>
+        <Reply className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        title="Add reaction"
+        onClick={() => {}}
+      >
+        <Smile className="h-3.5 w-3.5" />
+      </Button>
+      {canPin && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-7 w-7', isPinned && 'text-primary')}
+          title={isPinned ? 'Unpin message' : 'Pin message'}
+          onClick={onPinToggle}
+        >
+          {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+        </Button>
+      )}
+      <DropdownMenu onOpenChange={onMenuOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('h-7 w-7', menuOpen && 'bg-accent')}
+            title="More actions"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+          {canPin && (
+            <DropdownMenuItem onClick={onPinToggle}>
+              {isPinned ? (
+                <PinOff className="h-4 w-4 mr-0.5" />
+              ) : (
+                <Pin className="h-4 w-4 mr-0.5" />
+              )}
+              {isPinned ? 'Unpin message' : 'Pin message'}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={onCopyText}>
+            <Copy className="h-4 w-4 mr-0.5" />
+            Copy text
+          </DropdownMenuItem>
+          {canDelete && onDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDelete(messageId)}
+                className="text-red-500 focus:text-red-500"
+              >
+                <Trash2 className="h-4 w-4 mr-0.5" />
+                Delete message
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 function MessageItem({
   message,
   compact,
@@ -592,76 +685,20 @@ function MessageItem({
     >
       {/* Hover action bar */}
       {showActionBar && (isHovered || menuOpen) && !message._optimistic && (
-        <div className="absolute -top-3 right-4 flex items-center gap-0.5 bg-background border rounded-[12px] shadow-sm p-1 z-10">
-          <Button variant="ghost" size="icon" className="h-7 w-7" title="Reply" onClick={() => {}}>
-            <Reply className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            title="Add reaction"
-            onClick={() => {}}
-          >
-            <Smile className="h-3.5 w-3.5" />
-          </Button>
-          {(onPin || onUnpin) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('h-7 w-7', isPinned && 'text-primary')}
-              title={isPinned ? 'Unpin message' : 'Pin message'}
-              onClick={handlePin}
-            >
-              {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            </Button>
-          )}
-          <DropdownMenu
-            onOpenChange={(open) => {
-              setMenuOpen(open);
-              if (!open) setIsHovered(false);
-            }}
-          >
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn('h-7 w-7', menuOpen && 'bg-accent')}
-                title="More actions"
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-              {(onPin || onUnpin) && (
-                <DropdownMenuItem onClick={handlePin}>
-                  {isPinned ? (
-                    <PinOff className="h-4 w-4 mr-0.5" />
-                  ) : (
-                    <Pin className="h-4 w-4 mr-0.5" />
-                  )}
-                  {isPinned ? 'Unpin message' : 'Pin message'}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleCopyText}>
-                <Copy className="h-4 w-4 mr-0.5" />
-                Copy text
-              </DropdownMenuItem>
-              {canDelete && onDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => onDelete(message.id)}
-                    className="text-red-500 focus:text-red-500"
-                  >
-                    <Trash2 className="h-4 w-4 mr-0.5" />
-                    Delete message
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <MessageActionBar
+          messageId={message.id}
+          isPinned={isPinned}
+          canPin={!!(onPin || onUnpin)}
+          canDelete={canDelete && !!onDelete}
+          menuOpen={menuOpen}
+          onMenuOpenChange={(open) => {
+            setMenuOpen(open);
+            if (!open) setIsHovered(false);
+          }}
+          onPinToggle={handlePin}
+          onCopyText={handleCopyText}
+          onDelete={onDelete}
+        />
       )}
 
       <div className="flex gap-3">

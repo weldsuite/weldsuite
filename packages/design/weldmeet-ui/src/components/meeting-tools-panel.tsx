@@ -40,13 +40,38 @@ interface ToolItem {
   busy?: boolean;
 }
 
-export function MeetingToolsPanel({
-  isRecording,
+function recordToolLabel(isRecording: boolean, recordingState?: RecordingState): string {
+  if (recordingState === 'STARTING') return 'Starting recording…';
+  if (recordingState === 'STOPPING') return 'Stopping recording…';
+  return isRecording ? 'Stop recording' : 'Record';
+}
+
+function recordToolDescription(isRecording: boolean, recordingBusy: boolean): string {
+  if (recordingBusy) return 'Please wait…';
+  return isRecording ? 'Recording in progress' : 'Capture the meeting';
+}
+
+function recordToolTrailing(isRecording: boolean, recordingBusy: boolean): React.ReactNode {
+  if (recordingBusy) {
+    return <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" aria-hidden />;
+  }
+  if (isRecording) {
+    return <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />;
+  }
+  return undefined;
+}
+
+/**
+ * Builds the Record tool row. Recording start/stop is provisioned server-side
+ * and takes a few seconds, so surface a spinner + "Starting…/Stopping…" so the
+ * click clearly registers instead of looking like nothing happened.
+ */
+function buildRecordTool({
+  isRecording = false,
   recordingState,
   startRecording,
   stopRecording,
-  recordingAvailable,
-}: MeetingToolsPanelProps) {
+}: Pick<MeetingToolsPanelProps, 'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording'>): ToolItem {
   const recordingBusy = recordingState === 'STARTING' || recordingState === 'STOPPING';
 
   const handleRecord = () => {
@@ -55,33 +80,28 @@ export function MeetingToolsPanel({
     else startRecording?.();
   };
 
+  return {
+    key: 'record',
+    label: recordToolLabel(isRecording, recordingState),
+    description: recordToolDescription(isRecording, recordingBusy),
+    icon: isRecording ? Square : Circle,
+    onClick: handleRecord,
+    busy: recordingBusy,
+    trailing: recordToolTrailing(isRecording, recordingBusy),
+  };
+}
+
+export function MeetingToolsPanel({
+  isRecording,
+  recordingState,
+  startRecording,
+  stopRecording,
+  recordingAvailable,
+}: MeetingToolsPanelProps) {
   const activeTools: ToolItem[] = [];
 
   if (recordingAvailable && (startRecording || stopRecording)) {
-    // Recording start/stop is provisioned server-side and takes a few seconds.
-    // Surface a spinner + "Starting…/Stopping…" so the click clearly registers
-    // instead of looking like nothing happened.
-    const label = recordingState === 'STARTING'
-      ? 'Starting recording…'
-      : recordingState === 'STOPPING'
-        ? 'Stopping recording…'
-        : isRecording ? 'Stop recording' : 'Record';
-    const description = recordingBusy
-      ? 'Please wait…'
-      : isRecording ? 'Recording in progress' : 'Capture the meeting';
-    activeTools.push({
-      key: 'record',
-      label,
-      description,
-      icon: isRecording ? Square : Circle,
-      onClick: handleRecord,
-      busy: recordingBusy,
-      trailing: recordingBusy ? (
-        <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" aria-hidden />
-      ) : isRecording ? (
-        <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />
-      ) : undefined,
-    });
+    activeTools.push(buildRecordTool({ isRecording, recordingState, startRecording, stopRecording }));
   }
 
   const unavailableTools: ToolItem[] = [

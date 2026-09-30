@@ -155,55 +155,28 @@ const SCREEN_RESOLUTIONS = [
   { label: '720p · 30 fps (low bandwidth)', width: 1280, height: 720, frameRate: 30 },
 ] as const;
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Hooks ───────────────────────────────────────────────────────────────────
 
-export function CallControlsBar({
-  meeting,
-  isMuted,
-  isVideoOff,
-  isScreenSharing,
-  handRaised,
-  viewMode,
-  toggleMute,
-  toggleVideo,
-  startScreenShare,
-  stopScreenShare,
-  toggleHandRaise,
-  setViewMode,
-  onLeave,
-  onToggleEffects,
-  effectsOpen,
-  isRecording,
-  recordingState,
-  startRecording,
-  stopRecording,
-  pauseRecording,
-  resumeRecording,
-  isFullscreen,
-  onToggleFullscreen,
-  onPictureInPicture,
-  onOpenSettings,
-  gates,
-  extraControls,
-}: CallControlsBarProps) {
-  const showScreenShare = gates?.screenShare !== false;
-  const showHandRaise = gates?.handRaise !== false;
-  const showVirtualBackgrounds = gates?.virtualBackgrounds !== false;
+/** Active device id: the currently selected one, else the first available. */
+function pickActiveDeviceId(currentId: string | undefined, devices: MediaDeviceInfo[]): string | undefined {
+  if (currentId) return currentId;
+  return devices[0]?.deviceId;
+}
+
+/** Runs `fn`, swallowing any error (APIs not available in this environment). */
+function tryIgnore(fn: () => void): void {
+  try { fn(); } catch { /* not available in this environment */ }
+}
+
+/**
+ * Loads the audio/video input devices of the meeting, keeps them fresh on
+ * device changes and exposes handlers to switch the active device.
+ */
+function useMeetingDevices(meeting: MeetingClient | null) {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>('');
   const [activeVideoDeviceId, setActiveVideoDeviceId] = useState<string>('');
-  const [selectedResolutionIdx, setSelectedResolutionIdx] = useState(
-    SCREEN_RESOLUTIONS.findIndex((r) => r.width === 1920 && r.height === 1080 && r.frameRate === 60),
-  );
-  // Whether the audio captured alongside the screen share (system / tab audio)
-  // is forwarded to other participants. RTK always requests `audio: true` when
-  // it calls getDisplayMedia internally, so an audio track exists whenever the
-  // user ticked "share audio" in the browser's source picker. This toggle, in
-  // the screen-share options dropdown, lets the user mute/unmute that captured
-  // audio live without re-prompting — we just flip the track's `enabled` flag.
-  // Defaults to on, preserving the previous behaviour (captured audio shared).
-  const [shareScreenAudio, setShareScreenAudio] = useState(true);
 
   useEffect(() => {
     if (!meeting) return;
@@ -221,16 +194,10 @@ export function CallControlsBar({
         setVideoDevices(videos);
 
         const current = rtk.self.getCurrentDevices();
-        if (current?.audio?.deviceId) {
-          setActiveDeviceId(current.audio.deviceId);
-        } else if (inputs.length > 0) {
-          setActiveDeviceId(inputs[0]!.deviceId);
-        }
-        if (current?.video?.deviceId) {
-          setActiveVideoDeviceId(current.video.deviceId);
-        } else if (videos.length > 0) {
-          setActiveVideoDeviceId(videos[0]!.deviceId);
-        }
+        const audioId = pickActiveDeviceId(current?.audio?.deviceId, inputs);
+        if (audioId) setActiveDeviceId(audioId);
+        const videoId = pickActiveDeviceId(current?.video?.deviceId, videos);
+        if (videoId) setActiveVideoDeviceId(videoId);
       } catch { /* devices not available */ }
     }
 
@@ -241,43 +208,55 @@ export function CallControlsBar({
     // bluetooth headset connect, etc. Without this, the dropdown is frozen
     // at whatever was available at meeting-connect time.
     const onDeviceChange = () => { loadDevices(); };
-    try {
-      navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
-    } catch { /* not available in this environment */ }
+    tryIgnore(() => navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange));
 
     // RTK also surfaces device updates via its own event. Subscribing to
     // both is harmless (loadDevices is idempotent) and catches cases where
     // RTK observes a change before the browser fires devicechange.
-    try { meeting.self.on?.('deviceListUpdate', onDeviceChange); } catch { /* ignore */ }
+    tryIgnore(() => meeting.self.on?.('deviceListUpdate', onDeviceChange));
 
     return () => {
       cancelled = true;
-      try {
-        navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
-      } catch { /* ignore */ }
-      try { meeting.self.off?.('deviceListUpdate', onDeviceChange); } catch { /* ignore */ }
+      tryIgnore(() => navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange));
+      tryIgnore(() => meeting.self.off?.('deviceListUpdate', onDeviceChange));
     };
   }, [meeting]);
 
-  async function handleDeviceChange(deviceId: string) {
+  async function switchDevice(
+    devices: MediaDeviceInfo[],
+    deviceId: string,
+    setActive: (id: string) => void,
+  ) {
     if (!meeting) return;
-    const device = audioDevices.find((d) => d.deviceId === deviceId);
+    const device = devices.find((d) => d.deviceId === deviceId);
     if (!device) return;
     try {
       await meeting.self.setDevice(device);
-      setActiveDeviceId(deviceId);
+      setActive(deviceId);
     } catch { /* ignore */ }
   }
 
-  async function handleVideoDeviceChange(deviceId: string) {
-    if (!meeting) return;
-    const device = videoDevices.find((d) => d.deviceId === deviceId);
-    if (!device) return;
-    try {
-      await meeting.self.setDevice(device);
-      setActiveVideoDeviceId(deviceId);
-    } catch { /* ignore */ }
-  }
+  return {
+    audioDevices,
+    videoDevices,
+    activeDeviceId,
+    activeVideoDeviceId,
+    handleDeviceChange: (deviceId: string) => switchDevice(audioDevices, deviceId, setActiveDeviceId),
+    handleVideoDeviceChange: (deviceId: string) => switchDevice(videoDevices, deviceId, setActiveVideoDeviceId),
+  };
+}
+
+/**
+ * Whether the audio captured alongside the screen share (system / tab audio)
+ * is forwarded to other participants. RTK always requests `audio: true` when
+ * it calls getDisplayMedia internally, so an audio track exists whenever the
+ * user ticked "share audio" in the browser's source picker. This toggle, in
+ * the screen-share options dropdown, lets the user mute/unmute that captured
+ * audio live without re-prompting — we just flip the track's `enabled` flag.
+ * Defaults to on, preserving the previous behaviour (captured audio shared).
+ */
+function useShareScreenAudio(meeting: MeetingClient | null, isScreenSharing: boolean) {
+  const [shareScreenAudio, setShareScreenAudio] = useState(true);
 
   // Apply the share-audio preference to the screen-share audio track. Used both
   // when toggling live (during an active share) and when a share starts.
@@ -315,6 +294,322 @@ export function CallControlsBar({
     return () => { cancelled = true; };
   }, [isScreenSharing, meeting, shareScreenAudio]);
 
+  return { shareScreenAudio, toggleShareScreenAudio };
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+const OFF_STATE_CLASSES =
+  'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
+
+/** Chevron dropdown listing input devices (microphone / camera). */
+function DeviceMenu({
+  tooltip,
+  off,
+  devices,
+  activeId,
+  onChange,
+  fallbackPrefix,
+}: {
+  tooltip: string;
+  off: boolean;
+  devices: MediaDeviceInfo[];
+  activeId: string;
+  onChange: (deviceId: string) => void;
+  fallbackPrefix: string;
+}) {
+  if (devices.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <CallTooltip label={tooltip}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="secondary"
+          size="icon"
+          className={cn("group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", off ? `${OFF_STATE_CLASSES} border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30` : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110")}
+        >
+          <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+        </Button>
+      </DropdownMenuTrigger>
+      </CallTooltip>
+      <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
+        <DropdownMenuRadioGroup value={activeId} onValueChange={onChange}>
+          {devices.map((d) => (
+            <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
+              <span className="truncate">{d.label || `${fallbackPrefix} ${d.deviceId.slice(0, 8)}`}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Screen share button + audio / quality options dropdown. */
+function ScreenShareControl({
+  meeting,
+  isScreenSharing,
+  startScreenShare,
+  stopScreenShare,
+  selectedResolutionIdx,
+  setSelectedResolutionIdx,
+  shareScreenAudio,
+  toggleShareScreenAudio,
+}: {
+  meeting: MeetingClient | null;
+  isScreenSharing: boolean;
+  startScreenShare: (constraints?: DisplayMediaStreamOptions) => Promise<void>;
+  stopScreenShare: () => void;
+  selectedResolutionIdx: number;
+  setSelectedResolutionIdx: (idx: number) => void;
+  shareScreenAudio: boolean;
+  toggleShareScreenAudio: () => void;
+}) {
+  async function selectResolution(idx: number) {
+    const res = SCREEN_RESOLUTIONS[idx]!;
+    setSelectedResolutionIdx(idx);
+    // If already sharing, retune the active track in place via
+    // RTK's updateScreenshareConstraints — no need to restart
+    // the share or re-prompt for the source picker.
+    if (!isScreenSharing || !meeting) return;
+    try {
+      await meeting.self.updateScreenshareConstraints({
+        width: { ideal: res.width },
+        height: { ideal: res.height },
+        frameRate: { ideal: res.frameRate },
+      });
+    } catch (err) {
+      console.warn('[CallControlsBar] updateScreenshareConstraints failed:', err);
+    }
+  }
+
+  return (
+    <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
+      <CallTooltip label={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}>
+        <Button
+          variant={isScreenSharing ? 'default' : 'secondary'}
+          size="icon"
+          className="h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+          onClick={isScreenSharing ? stopScreenShare : () => {
+            const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
+            startScreenShare({
+              video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
+              audio: shareScreenAudio,
+            });
+          }}
+        >
+          {isScreenSharing ? <MonitorX className="!h-[20px] !w-[20px]" /> : <MonitorUp className="!h-[20px] !w-[20px]" />}
+        </Button>
+      </CallTooltip>
+      <DropdownMenu>
+        <CallTooltip label="Screen share options">
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant={isScreenSharing ? 'default' : 'secondary'}
+            size="icon"
+            className={cn(
+              "group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
+              isScreenSharing
+                ? "border-l border-primary-foreground/20 text-primary-foreground/80 hover:brightness-110 data-[state=open]:brightness-110"
+                : "border-l border-border/30 [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110",
+            )}
+          >
+            <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+          </Button>
+        </DropdownMenuTrigger>
+        </CallTooltip>
+        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
+          {/* Share-audio toggle — controls whether the captured system/tab
+              audio is forwarded. Keep the menu open on click so the user can
+              toggle without it dismissing. */}
+          <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Audio</DropdownMenuLabel>
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            onClick={toggleShareScreenAudio}
+            className="flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              {shareScreenAudio ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              Share system audio
+            </span>
+            {shareScreenAudio && <Check className="h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Quality</DropdownMenuLabel>
+          {SCREEN_RESOLUTIONS.map((res, idx) => (
+            <DropdownMenuItem
+              key={res.label}
+              onClick={() => selectResolution(idx)}
+              className="flex items-center justify-between"
+            >
+              <span>{res.label}</span>
+              {selectedResolutionIdx === idx && <Check className="h-4 w-4 text-primary" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** Recording section of the More-options dropdown. */
+function RecordingMenuSection({
+  isRecording,
+  recordingState,
+  startRecording,
+  stopRecording,
+  pauseRecording,
+  resumeRecording,
+}: Pick<
+  CallControlsBarProps,
+  'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording' | 'pauseRecording' | 'resumeRecording'
+>) {
+  if (!startRecording) return null;
+  const paused = recordingState === 'PAUSED';
+  return (
+    <>
+      <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Recording</DropdownMenuLabel>
+      {isRecording ? (
+        <>
+          <DropdownMenuItem onClick={() => {
+            if (paused) {
+              resumeRecording?.();
+              toast.success('Recording resumed');
+            } else {
+              pauseRecording?.();
+              toast('Recording paused');
+            }
+          }}>
+            {paused ? <Play className="h-4 w-4 mr-0.5" /> : <Pause className="h-4 w-4 mr-0.5" />}
+            {paused ? 'Resume recording' : 'Pause recording'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { stopRecording?.(); toast('Recording stopped. It will be available shortly.'); }} className="text-red-500 focus:text-red-500">
+            <Square className="h-4 w-4 mr-0.5 fill-current" />
+            Stop recording
+          </DropdownMenuItem>
+        </>
+      ) : (
+        <DropdownMenuItem
+          onClick={() => { startRecording?.(); toast.success('Recording started. All participants will be notified.'); }}
+          disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
+        >
+          <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
+          Start recording
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuSeparator />
+    </>
+  );
+}
+
+const LAYOUT_OPTIONS = [
+  { value: 'grid', label: 'Grid', icon: LayoutGrid },
+  { value: 'spotlight', label: 'Spotlight', icon: User },
+  { value: 'speaker', label: 'Speaker', icon: GalleryHorizontalEnd },
+  { value: 'sidebar', label: 'Sidebar', icon: PanelRight },
+] as const;
+
+/** Layout section of the More-options dropdown. */
+function LayoutMenuSection({ viewMode, setViewMode }: { viewMode: ViewMode; setViewMode: (mode: ViewMode) => void }) {
+  return (
+    <>
+      <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Layout</DropdownMenuLabel>
+      {LAYOUT_OPTIONS.map(({ value, label, icon: Icon }) => {
+        const selected = viewMode === value;
+        return (
+          <DropdownMenuItem
+            key={value}
+            onClick={() => setViewMode(value)}
+            className={cn(
+              'flex items-center justify-between',
+              selected && 'bg-accent text-accent-foreground',
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <Icon className="h-4 w-4" />
+              {label}
+            </span>
+            {selected && <Check className="h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
+}
+
+/** Fullscreen / picture-in-picture section of the More-options dropdown. */
+function ViewOptionsMenuSection({
+  isFullscreen,
+  onToggleFullscreen,
+  onPictureInPicture,
+}: Pick<CallControlsBarProps, 'isFullscreen' | 'onToggleFullscreen' | 'onPictureInPicture'>) {
+  if (!onToggleFullscreen && !onPictureInPicture) return null;
+  return (
+    <>
+      <DropdownMenuSeparator />
+      {onToggleFullscreen && (
+        <DropdownMenuItem onClick={onToggleFullscreen}>
+          {isFullscreen ? <Minimize className="h-4 w-4 mr-0.5" /> : <Maximize className="h-4 w-4 mr-0.5" />}
+          {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        </DropdownMenuItem>
+      )}
+      {onPictureInPicture && (
+        <DropdownMenuItem onClick={onPictureInPicture}>
+          <PictureInPicture2 className="h-4 w-4 mr-0.5" />
+          Picture in picture
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function CallControlsBar({
+  meeting,
+  isMuted,
+  isVideoOff,
+  isScreenSharing,
+  handRaised,
+  viewMode,
+  toggleMute,
+  toggleVideo,
+  startScreenShare,
+  stopScreenShare,
+  toggleHandRaise,
+  setViewMode,
+  onLeave,
+  onToggleEffects,
+  effectsOpen,
+  isRecording,
+  recordingState,
+  startRecording,
+  stopRecording,
+  pauseRecording,
+  resumeRecording,
+  isFullscreen,
+  onToggleFullscreen,
+  onPictureInPicture,
+  onOpenSettings,
+  gates,
+  extraControls,
+}: CallControlsBarProps) {
+  const showScreenShare = gates?.screenShare !== false;
+  const showHandRaise = gates?.handRaise !== false;
+  const showVirtualBackgrounds = gates?.virtualBackgrounds !== false;
+  const {
+    audioDevices,
+    videoDevices,
+    activeDeviceId,
+    activeVideoDeviceId,
+    handleDeviceChange,
+    handleVideoDeviceChange,
+  } = useMeetingDevices(meeting);
+  const [selectedResolutionIdx, setSelectedResolutionIdx] = useState(
+    SCREEN_RESOLUTIONS.findIndex((r) => r.width === 1920 && r.height === 1080 && r.frameRate === 60),
+  );
+  const { shareScreenAudio, toggleShareScreenAudio } = useShareScreenAudio(meeting, isScreenSharing);
+
   return (
     <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
       {/* Mic button + device chooser */}
@@ -323,37 +618,21 @@ export function CallControlsBar({
           <Button
             variant="secondary"
             size="icon"
-            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? "bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400" : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
             onClick={toggleMute}
           >
             {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
           </Button>
         </CallTooltip>
 
-        {audioDevices.length > 0 && (
-          <DropdownMenu>
-            <CallTooltip label="Microphone options">
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className={cn("group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", isMuted ? "bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400 border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30" : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110")}
-              >
-                <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-              </Button>
-            </DropdownMenuTrigger>
-            </CallTooltip>
-            <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-              <DropdownMenuRadioGroup value={activeDeviceId} onValueChange={handleDeviceChange}>
-                {audioDevices.map((d) => (
-                  <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                    <span className="truncate">{d.label || `Microphone ${d.deviceId.slice(0, 8)}`}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <DeviceMenu
+          tooltip="Microphone options"
+          off={isMuted}
+          devices={audioDevices}
+          activeId={activeDeviceId}
+          onChange={handleDeviceChange}
+          fallbackPrefix="Microphone"
+        />
       </div>
 
       {/* Camera button + device chooser */}
@@ -362,7 +641,7 @@ export function CallControlsBar({
           <Button
             variant="secondary"
             size="icon"
-            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? "bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400" : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
             onClick={toggleVideo}
           >
             {isVideoOff ? (
@@ -386,115 +665,28 @@ export function CallControlsBar({
             )}
           </Button>
         </CallTooltip>
-        {videoDevices.length > 0 && (
-          <DropdownMenu>
-            <CallTooltip label="Camera options">
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className={cn("group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", isVideoOff ? "bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400 border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30" : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110")}
-              >
-                <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-              </Button>
-            </DropdownMenuTrigger>
-            </CallTooltip>
-            <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-              <DropdownMenuRadioGroup value={activeVideoDeviceId} onValueChange={handleVideoDeviceChange}>
-                {videoDevices.map((d) => (
-                  <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                    <span className="truncate">{d.label || `Camera ${d.deviceId.slice(0, 8)}`}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <DeviceMenu
+          tooltip="Camera options"
+          off={isVideoOff}
+          devices={videoDevices}
+          activeId={activeVideoDeviceId}
+          onChange={handleVideoDeviceChange}
+          fallbackPrefix="Camera"
+        />
       </div>
 
       {/* Screen share + resolution */}
       {showScreenShare && (
-      <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
-        <CallTooltip label={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}>
-          <Button
-            variant={isScreenSharing ? 'default' : 'secondary'}
-            size="icon"
-            className="h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
-            onClick={isScreenSharing ? stopScreenShare : () => {
-              const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
-              startScreenShare({
-                video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
-                audio: shareScreenAudio,
-              });
-            }}
-          >
-            {isScreenSharing ? <MonitorX className="!h-[20px] !w-[20px]" /> : <MonitorUp className="!h-[20px] !w-[20px]" />}
-          </Button>
-        </CallTooltip>
-        <DropdownMenu>
-          <CallTooltip label="Screen share options">
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant={isScreenSharing ? 'default' : 'secondary'}
-              size="icon"
-              className={cn(
-                "group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
-                isScreenSharing
-                  ? "border-l border-primary-foreground/20 text-primary-foreground/80 hover:brightness-110 data-[state=open]:brightness-110"
-                  : "border-l border-border/30 [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110",
-              )}
-            >
-              <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-            </Button>
-          </DropdownMenuTrigger>
-          </CallTooltip>
-          <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-            {/* Share-audio toggle — controls whether the captured system/tab
-                audio is forwarded. Keep the menu open on click so the user can
-                toggle without it dismissing. */}
-            <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Audio</DropdownMenuLabel>
-            <DropdownMenuItem
-              onSelect={(e) => e.preventDefault()}
-              onClick={toggleShareScreenAudio}
-              className="flex items-center justify-between"
-            >
-              <span className="flex items-center gap-2">
-                {shareScreenAudio ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                Share system audio
-              </span>
-              {shareScreenAudio && <Check className="h-4 w-4 text-primary" />}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Quality</DropdownMenuLabel>
-            {SCREEN_RESOLUTIONS.map((res, idx) => (
-              <DropdownMenuItem
-                key={res.label}
-                onClick={async () => {
-                  setSelectedResolutionIdx(idx);
-                  // If already sharing, retune the active track in place via
-                  // RTK's updateScreenshareConstraints — no need to restart
-                  // the share or re-prompt for the source picker.
-                  if (isScreenSharing && meeting) {
-                    try {
-                      await meeting.self.updateScreenshareConstraints({
-                        width: { ideal: res.width },
-                        height: { ideal: res.height },
-                        frameRate: { ideal: res.frameRate },
-                      });
-                    } catch (err) {
-                      console.warn('[CallControlsBar] updateScreenshareConstraints failed:', err);
-                    }
-                  }
-                }}
-                className="flex items-center justify-between"
-              >
-                <span>{res.label}</span>
-                {selectedResolutionIdx === idx && <Check className="h-4 w-4 text-primary" />}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+        <ScreenShareControl
+          meeting={meeting}
+          isScreenSharing={isScreenSharing}
+          startScreenShare={startScreenShare}
+          stopScreenShare={stopScreenShare}
+          selectedResolutionIdx={selectedResolutionIdx}
+          setSelectedResolutionIdx={setSelectedResolutionIdx}
+          shareScreenAudio={shareScreenAudio}
+          toggleShareScreenAudio={toggleShareScreenAudio}
+        />
       )}
 
       {/* Hand raise */}
@@ -528,41 +720,14 @@ export function CallControlsBar({
             </DropdownMenuTrigger>
           </CallTooltip>
           <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-56">
-            {/* Recording */}
-            {startRecording && (
-              <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Recording</DropdownMenuLabel>
-                {isRecording ? (
-                  <>
-                    <DropdownMenuItem onClick={() => {
-                      if (recordingState === 'PAUSED') {
-                        resumeRecording?.();
-                        toast.success('Recording resumed');
-                      } else {
-                        pauseRecording?.();
-                        toast('Recording paused');
-                      }
-                    }}>
-                      {recordingState === 'PAUSED' ? <Play className="h-4 w-4 mr-0.5" /> : <Pause className="h-4 w-4 mr-0.5" />}
-                      {recordingState === 'PAUSED' ? 'Resume recording' : 'Pause recording'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { stopRecording?.(); toast('Recording stopped. It will be available shortly.'); }} className="text-red-500 focus:text-red-500">
-                      <Square className="h-4 w-4 mr-0.5 fill-current" />
-                      Stop recording
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={() => { startRecording?.(); toast.success('Recording started. All participants will be notified.'); }}
-                    disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
-                  >
-                    <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
-                    Start recording
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-              </>
-            )}
+            <RecordingMenuSection
+              isRecording={isRecording}
+              recordingState={recordingState}
+              startRecording={startRecording}
+              stopRecording={stopRecording}
+              pauseRecording={pauseRecording}
+              resumeRecording={resumeRecording}
+            />
 
             {/* Background effects */}
             {onToggleEffects && showVirtualBackgrounds && (
@@ -576,51 +741,13 @@ export function CallControlsBar({
               </>
             )}
 
-            {/* Layout */}
-            <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Layout</DropdownMenuLabel>
-            {([
-              { value: 'grid', label: 'Grid', icon: LayoutGrid },
-              { value: 'spotlight', label: 'Spotlight', icon: User },
-              { value: 'speaker', label: 'Speaker', icon: GalleryHorizontalEnd },
-              { value: 'sidebar', label: 'Sidebar', icon: PanelRight },
-            ] as const).map(({ value, label, icon: Icon }) => {
-              const selected = viewMode === value;
-              return (
-                <DropdownMenuItem
-                  key={value}
-                  onClick={() => setViewMode(value)}
-                  className={cn(
-                    'flex items-center justify-between',
-                    selected && 'bg-accent text-accent-foreground',
-                  )}
-                >
-                  <span className="flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </span>
-                  {selected && <Check className="h-4 w-4 text-primary" />}
-                </DropdownMenuItem>
-              );
-            })}
+            <LayoutMenuSection viewMode={viewMode} setViewMode={setViewMode} />
 
-            {/* View options */}
-            {(onToggleFullscreen || onPictureInPicture) && (
-              <>
-                <DropdownMenuSeparator />
-                {onToggleFullscreen && (
-                  <DropdownMenuItem onClick={onToggleFullscreen}>
-                    {isFullscreen ? <Minimize className="h-4 w-4 mr-0.5" /> : <Maximize className="h-4 w-4 mr-0.5" />}
-                    {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                  </DropdownMenuItem>
-                )}
-                {onPictureInPicture && (
-                  <DropdownMenuItem onClick={onPictureInPicture}>
-                    <PictureInPicture2 className="h-4 w-4 mr-0.5" />
-                    Picture in picture
-                  </DropdownMenuItem>
-                )}
-              </>
-            )}
+            <ViewOptionsMenuSection
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={onToggleFullscreen}
+              onPictureInPicture={onPictureInPicture}
+            />
 
             {/* Host controls — opens the right-side settings panel */}
             {onOpenSettings && (
