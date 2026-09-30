@@ -25,7 +25,7 @@ import {
 } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { getWorkspaceForOrg, schema } from '@weldsuite/worker-kit/db';
+import { getWorkspaceForOrg, schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   decryptCredentials,
@@ -98,6 +98,123 @@ async function testProviderCredentials(
   return testConnectorCredentials(provider, credentials);
 }
 
+type ConnectorDefinition = NonNullable<ReturnType<typeof getConnector>>;
+type ConnectionRow = NonNullable<Awaited<ReturnType<typeof getConnectionById>>>;
+type Keyring = ReturnType<typeof keyringFromEnv>;
+
+/** Why a direct connect request cannot proceed for this connector, or null when it can. */
+function connectRequestError(
+  connector: ConnectorDefinition,
+  credentials: Record<string, string>,
+): string | null {
+  if (connector.auth.kind === 'oauth2') {
+    return 'Connect this administration from the Connect button — Moneybird authorises via OAuth';
+  }
+  if (connector.auth.kind === 'app_auth' && (!credentials.consumerKey || !credentials.consumerSecret)) {
+    return 'Connect this store from the Connect button — WooCommerce creates the API keys after you approve access';
+  }
+  for (const field of connector.auth.fields) {
+    if ((field.required ?? true) && !credentials[field.key]?.trim()) {
+      return `${field.label} is required`;
+    }
+  }
+  return null;
+}
+
+/** Host part of a store URL, falling back to the raw value when it does not parse. */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+async function accountingEntityExists(db: Database, entityId: string): Promise<boolean> {
+  const [entity] = await db
+    .select({ id: schema.entities.id })
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  return Boolean(entity);
+}
+
+/** Registers a fresh connection in the webhook KV mapping and the D1 index (best effort). */
+async function indexNewConnection(
+  env: Env,
+  clerkOrgId: string,
+  connection: ConnectionRow,
+  provider: string,
+): Promise<void> {
+  try {
+    const { id: internalWorkspaceId } = await getWorkspaceForOrg(env, clerkOrgId);
+    await putConnectorWebhookMapping({
+      env,
+      connectionId: connection.id,
+      workspaceId: internalWorkspaceId,
+      provider,
+    });
+    await upsertConnectorIndexFromRow(env, {
+      connection,
+      workspaceId: internalWorkspaceId,
+      clerkOrgId,
+      enabled: true,
+    });
+  } catch (err) {
+    console.error('[app-api/connectors] webhook KV mapping failed:', err);
+  }
+}
+
+/** Refreshes the D1 index row after a settings patch (best effort). */
+async function refreshConnectorIndex(
+  env: Env,
+  clerkOrgId: string,
+  connection: ConnectionRow,
+): Promise<void> {
+  try {
+    const { id: internalWorkspaceId } = await getWorkspaceForOrg(env, clerkOrgId);
+    await upsertConnectorIndexFromRow(env, {
+      connection,
+      workspaceId: internalWorkspaceId,
+      clerkOrgId,
+      enabled: connection.status !== 'paused',
+    });
+  } catch (err) {
+    console.warn('[app-api/connectors] D1 index upsert after patch failed:', err);
+  }
+}
+
+interface CredentialPatch {
+  encrypted?: Record<string, string>;
+  externalAccountId?: string;
+  error?: string;
+}
+
+/**
+ * Re-encrypts stored credentials after a PATCH: merges new credentials (and
+ * re-tests them) and/or applies an accounting entity change.
+ */
+async function buildCredentialPatch(
+  provider: string,
+  existing: Awaited<ReturnType<typeof decryptCredentials>>,
+  body: { credentials?: Record<string, string>; entityId?: string | null },
+  keyring: Keyring,
+): Promise<CredentialPatch> {
+  if (body.credentials) {
+    const merged = { ...existing, ...body.credentials };
+    if (body.entityId) merged.entityId = body.entityId;
+    else if (body.entityId === null) delete merged.entityId;
+    const tested = await testProviderCredentials(provider, merged);
+    if (!tested.ok) return { error: tested.message };
+    return { encrypted: await encryptCredentials(merged, keyring), externalAccountId: tested.storeUrl };
+  }
+  if (body.entityId === undefined) return {};
+  const merged = { ...existing };
+  if (body.entityId) merged.entityId = body.entityId;
+  else delete merged.entityId;
+  return { encrypted: await encryptCredentials(merged, keyring) };
+}
+
 app.get('/catalog', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
@@ -162,25 +279,8 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
   const connector = getConnector(provider);
   if (!connector) return error.badRequest(c, `Unknown connector '${provider}'`);
 
-  if (connector.auth.kind === 'oauth2') {
-    return error.badRequest(
-      c,
-      'Connect this administration from the Connect button — Moneybird authorises via OAuth',
-    );
-  }
-
-  if (connector.auth.kind === 'app_auth' && (!credentials.consumerKey || !credentials.consumerSecret)) {
-    return error.badRequest(
-      c,
-      'Connect this store from the Connect button — WooCommerce creates the API keys after you approve access',
-    );
-  }
-
-  for (const field of connector.auth.fields) {
-    if ((field.required ?? true) && !credentials[field.key]?.trim()) {
-      return error.badRequest(c, `${field.label} is required`);
-    }
-  }
+  const requestError = connectRequestError(connector, credentials);
+  if (requestError) return error.badRequest(c, requestError);
 
   try {
     const tested = await testProviderCredentials(provider, credentials);
@@ -192,13 +292,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
     const keyring = keyringFromEnv(c.env);
     const encrypted = await encryptCredentials(credentials, keyring);
     const syncs = normalizeEnabledSyncs(provider, enabledSyncs);
-    let hostname = tested.storeUrl;
-    try {
-      hostname = new URL(tested.storeUrl).host;
-    } catch {
-      /* keep storeUrl */
-    }
-    const label = displayName?.trim() || `${connector.label} (${hostname})`;
+    const label = displayName?.trim() || `${connector.label} (${hostnameOf(tested.storeUrl)})`;
     const rawWebhookSecret = provider === 'shopify' ? credentials.apiSecret : generateWebhookSecret();
     const encryptedWebhookSecret = rawWebhookSecret
       ? await encryptWebhookSecret(rawWebhookSecret, keyring)
@@ -231,25 +325,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       warning = 'Connected. Webhook registration failed — use Sync now until the store can push updates.';
     }
 
-    if (clerkOrgId) {
-      try {
-        const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, clerkOrgId);
-        await putConnectorWebhookMapping({
-          env: c.env,
-          connectionId: row.id,
-          workspaceId: internalWorkspaceId,
-          provider,
-        });
-        await upsertConnectorIndexFromRow(c.env, {
-          connection: row,
-          workspaceId: internalWorkspaceId,
-          clerkOrgId,
-          enabled: true,
-        });
-      } catch (err) {
-        console.error('[app-api/connectors] webhook KV mapping failed:', err);
-      }
-    }
+    if (clerkOrgId) await indexNewConnection(c.env, clerkOrgId, row, provider);
 
     const fresh = await getConnectionById(db, row.id);
     publishEntityEvent({
@@ -306,14 +382,8 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
 
   try {
     if (body.provider === 'moneybird') {
-      if (body.entityId) {
-        const [entity] = await c
-          .get('tenantDb')
-          .select({ id: schema.entities.id })
-          .from(schema.entities)
-          .where(and(eq(schema.entities.id, body.entityId), isNull(schema.entities.deletedAt)))
-          .limit(1);
-        if (!entity) return error.badRequest(c, 'Accounting entity not found');
+      if (body.entityId && !(await accountingEntityExists(c.get('tenantDb'), body.entityId))) {
+        return error.badRequest(c, 'Accounting entity not found');
       }
       const result = await startMoneybirdOAuth({
         env: c.env,
@@ -473,33 +543,13 @@ app.patch(
     const keyring = keyringFromEnv(c.env);
 
     try {
-      if (body.entityId) {
-        const [entity] = await db
-          .select({ id: schema.entities.id })
-          .from(schema.entities)
-          .where(and(eq(schema.entities.id, body.entityId), isNull(schema.entities.deletedAt)))
-          .limit(1);
-        if (!entity) return error.badRequest(c, 'Accounting entity not found');
+      if (body.entityId && !(await accountingEntityExists(db, body.entityId))) {
+        return error.badRequest(c, 'Accounting entity not found');
       }
 
-      let encrypted: Record<string, string> | undefined;
-      let externalAccountId: string | null | undefined;
       const existing = await decryptCredentials(row.credentials ?? undefined, keyring);
-
-      if (body.credentials) {
-        const merged = { ...existing, ...body.credentials };
-        if (body.entityId) merged.entityId = body.entityId;
-        else if (body.entityId === null) delete merged.entityId;
-        const tested = await testProviderCredentials(row.provider, merged);
-        if (!tested.ok) return error.badRequest(c, tested.message);
-        encrypted = await encryptCredentials(merged, keyring);
-        externalAccountId = tested.storeUrl;
-      } else if (body.entityId !== undefined) {
-        const merged = { ...existing };
-        if (body.entityId) merged.entityId = body.entityId;
-        else delete merged.entityId;
-        encrypted = await encryptCredentials(merged, keyring);
-      }
+      const credentialPatch = await buildCredentialPatch(row.provider, existing, body, keyring);
+      if (credentialPatch.error) return error.badRequest(c, credentialPatch.error);
 
       await updateConnectionSettings({
         db,
@@ -507,26 +557,14 @@ app.patch(
         enabledSyncs: body.enabledSyncs ? normalizeEnabledSyncs(row.provider, body.enabledSyncs) : undefined,
         direction: body.direction,
         objectSyncDirections: body.objectSyncDirections,
-        credentials: encrypted,
+        credentials: credentialPatch.encrypted,
         displayName: body.displayName,
-        externalAccountId,
+        externalAccountId: credentialPatch.externalAccountId,
       });
 
       const updated = await getConnectionById(db, row.id);
       const clerkOrgId = c.get('workspaceId');
-      if (updated && clerkOrgId) {
-        try {
-          const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, clerkOrgId);
-          await upsertConnectorIndexFromRow(c.env, {
-            connection: updated,
-            workspaceId: internalWorkspaceId,
-            clerkOrgId,
-            enabled: updated.status !== 'paused',
-          });
-        } catch (err) {
-          console.warn('[app-api/connectors] D1 index upsert after patch failed:', err);
-        }
-      }
+      if (updated && clerkOrgId) await refreshConnectorIndex(c.env, clerkOrgId, updated);
       publishEntityEvent({
         c,
         entityType: 'connector_connection',
