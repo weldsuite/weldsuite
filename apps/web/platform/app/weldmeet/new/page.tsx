@@ -332,6 +332,7 @@ export default function NewMeetingPage() {
         <>
           <div
             className="fixed inset-0 z-[60]"
+            role="presentation"
             onClick={() => setScheduleOpen(false)}
           />
           <div

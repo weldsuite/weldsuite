@@ -296,10 +296,21 @@ export default function UpcomingMeetingsPage() {
     const TypeIcon = type.icon;
     const dateStr = meeting.scheduledStart ?? meeting.createdAt;
 
+    const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
+
     return (
       <div
         key={meeting.id}
-        onClick={() => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } })}
+        role="button"
+        tabIndex={0}
+        onClick={openMeeting}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openMeeting();
+          }
+        }}
         className="flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Meeting */}
