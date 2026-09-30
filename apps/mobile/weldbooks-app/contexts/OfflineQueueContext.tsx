@@ -13,6 +13,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -139,10 +140,13 @@ export function OfflineQueueProvider({ children }: Readonly<{ children: React.Re
 
   const clearQueue = useCallback(() => persist([]), [persist]);
 
+  const value = useMemo(
+    () => ({ queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue }),
+    [queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue],
+  );
+
   return (
-    <OfflineQueueContext.Provider
-      value={{ queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue }}
-    >
+    <OfflineQueueContext.Provider value={value}>
       {children}
     </OfflineQueueContext.Provider>
   );
