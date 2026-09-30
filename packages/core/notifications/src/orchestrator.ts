@@ -25,9 +25,14 @@ import type { CreateNotificationParams, NotificationEnv } from './types';
  */
 export const EMAIL_DEFER_MINUTES = 2;
 
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function generateNotificationId(): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomBase36(8);
   return `notif_${timestamp}${random}`;
 }
 

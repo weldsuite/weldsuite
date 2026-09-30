@@ -49,6 +49,11 @@ function colorForUser(userId: string): string {
   return PRESENCE_COLORS[Math.abs(hash) % PRESENCE_COLORS.length]!;
 }
 
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 /**
  * Client for WhiteboardRoom Durable Object.
  *
@@ -64,7 +69,7 @@ export class WhiteboardClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private intentionalClose = false;
-  readonly sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  readonly sessionId = `session_${Date.now()}_${randomBase36(7)}`;
   readonly userColor: string;
 
   // Presence
