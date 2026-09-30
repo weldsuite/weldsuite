@@ -16,7 +16,8 @@ function PickListsPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldstash/pick-lists${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldstash/pick-lists${query}`);
     },
     [router, searchParams],
   );

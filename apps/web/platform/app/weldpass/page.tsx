@@ -48,9 +48,8 @@ export default function WeldPassProjectsPage() {
 
       <ErrorBanner error={error ? errorMessage(error, t('weldpass.audit.loadFailed')) : null} />
 
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !projects || projects.length === 0 ? (
+      {isLoading && <InlineSpinner />}
+      {!isLoading && (!projects || projects.length === 0) && (
         <EmptyState
           title={t('weldpass.projectList.emptyTitle')}
           description={t('weldpass.projectList.emptyDescription')}
@@ -62,7 +61,8 @@ export default function WeldPassProjectsPage() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {!isLoading && projects && projects.length > 0 && (
         <div className="space-y-2">
           {projects.map((project) => (
             <Card key={project.id} className="p-4">

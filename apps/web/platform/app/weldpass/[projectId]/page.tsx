@@ -138,6 +138,14 @@ export default function WeldPassProjectPage() {
     );
   }
 
+  let secretCountLabel = ' ';
+  if (secrets) {
+    secretCountLabel =
+      secrets.length === 1
+        ? t('weldpass.secrets.countOne')
+        : t('weldpass.secrets.count', { count: secrets.length });
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -190,11 +198,7 @@ export default function WeldPassProjectPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {secrets
-            ? secrets.length === 1
-              ? t('weldpass.secrets.countOne')
-              : t('weldpass.secrets.count', { count: secrets.length })
-            : ' '}
+          {secretCountLabel}
           {environment?.isProduction && (
             <Badge variant="outline" className="ml-2">
               {t('weldpass.secrets.production')}
@@ -228,9 +232,8 @@ export default function WeldPassProjectPage() {
         </div>
       </div>
 
-      {secretsLoading ? (
-        <InlineSpinner />
-      ) : !secrets || secrets.length === 0 ? (
+      {secretsLoading && <InlineSpinner />}
+      {!secretsLoading && (!secrets || secrets.length === 0) && (
         <EmptyState
           title={t('weldpass.secrets.emptyTitle')}
           description={t('weldpass.secrets.emptyDescription')}
@@ -242,7 +245,8 @@ export default function WeldPassProjectPage() {
             ) : undefined
           }
         />
-      ) : (
+      )}
+      {!secretsLoading && secrets && secrets.length > 0 && (
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
