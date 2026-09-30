@@ -118,7 +118,8 @@ let colorProbe: CanvasRenderingContext2D | null = null;
 function parseColor(value: string): Rgba | null {
   const m = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/);
   if (m) {
-    const alpha = m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1);
+    const alphaDivisor = m[5] ? 100 : 1;
+    const alpha = m[4] === undefined ? 1 : Number(m[4]) / alphaDivisor;
     return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: alpha };
   }
   try {

@@ -74,6 +74,20 @@ function generateColor(str: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+/**
+ * Pairs each attachment with a stable content-based React key. The same file can
+ * be attached twice, so an occurrence counter disambiguates identical keys.
+ */
+function keyAttachedFiles(files: File[]): Array<{ file: File; key: string }> {
+  const seen = new Map<string, number>();
+  return files.map((file) => {
+    const base = `${file.name}:${file.size}:${file.lastModified}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { file, key: `${base}:${occurrence}` };
+  });
+}
+
 function personDisplayName(p: {
   displayName?: string | null;
   firstName?: string | null;
@@ -275,7 +289,13 @@ export function FloatingComposePanel() {
   const handleUnderline = () => { executeCommand('underline'); checkFormatting(); };
   const handleBulletList = () => { executeCommand('insertUnorderedList'); checkFormatting(); };
   const handleNumberedList = () => { executeCommand('insertOrderedList'); checkFormatting(); };
-  const handleLink = () => { const url = prompt('Enter URL:'); if (url) executeCommand('createLink', url); checkFormatting(); };
+  const handleLink = () => {
+    const url = prompt('Enter URL:');
+    if (url) {
+      executeCommand('createLink', url);
+    }
+    checkFormatting();
+  };
   const insertEmoji = (emoji: string) => { executeCommand('insertText', emoji); checkFormatting(); };
 
   const handleOpenAiInput = () => {
@@ -637,6 +657,7 @@ export function FloatingComposePanel() {
     <div
       className="fixed bottom-3 z-50 w-[560px] min-h-[450px] max-h-[80vh] bg-background rounded-xl border border-border shadow-[0_0_20px_rgba(0,0,0,0.06)] dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] flex flex-col"
       style={{ right: agentRight }}
+      role="presentation"
       onKeyDown={handleSendShortcut}
     >
       {/* Header - Same as compose page */}
@@ -910,6 +931,8 @@ export function FloatingComposePanel() {
             <div
               ref={textareaRef}
               contentEditable={!isAiGenerating}
+              role="textbox"
+              aria-multiline="true"
               suppressContentEditableWarning
               data-placeholder={t.mail.floatingCompose.writePlaceholder}
               className={cn(
@@ -941,12 +964,12 @@ export function FloatingComposePanel() {
                   </span>
                 </div>
                 <div className="flex items-start gap-3 flex-wrap">
-                  {attachedFiles.map((file, index) => {
+                  {keyAttachedFiles(attachedFiles).map(({ file, key }, index) => {
                     const isImage = file.type.startsWith('image/');
                     const fileExtension = file.name.split('.').pop()?.toUpperCase() || 'FILE';
                     const fileName = file.name.split('.').slice(0, -1).join('.') || file.name;
                     return (
-                      <div key={index} className="relative group">
+                      <div key={key} className="relative group">
                         <div className="w-20 h-20 bg-muted rounded-lg overflow-hidden flex items-center justify-center border border-border">
                           {isImage ? (
                             <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
