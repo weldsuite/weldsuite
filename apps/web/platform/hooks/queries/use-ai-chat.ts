@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { apiUrl } from '@/lib/api/public-env';
+import { randomSuffix } from '@/lib/random';
 
 export interface ChatMessage {
   id: string;
@@ -52,7 +53,7 @@ interface UseWeldAgentChatOptions {
 
 function newId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-  return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return `msg_${Date.now()}_${randomSuffix(11)}`;
 }
 
 export function useWeldAgentChat({

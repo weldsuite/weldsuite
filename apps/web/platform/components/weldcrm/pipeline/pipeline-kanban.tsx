@@ -89,6 +89,7 @@ import {
   PieChart
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { secureRandom } from '@/lib/random';
 
 interface Deal {
   id: string;
@@ -373,11 +374,11 @@ export function PipelineKanban({
         angle: 270,
         origin: { x, y: 0 },
         colors,
-        startVelocity: 30 + Math.random() * 15,
+        startVelocity: 30 + secureRandom() * 15,
         gravity: 1.2,
         ticks: 100,
         scalar: 1.2,
-        drift: (Math.random() - 0.5) * 2,
+        drift: (secureRandom() - 0.5) * 2,
       });
     }
 
