@@ -10,6 +10,36 @@ interface VideoSectionProps {
   settings?: any;
 }
 
+interface EmbedOptions {
+  isYouTube: boolean;
+  isVimeo: boolean;
+  autoplay: boolean;
+  loop: boolean;
+  muted: boolean;
+}
+
+// Query-string suffix shared by the YouTube/Vimeo embeds. Kept byte-for-byte
+// identical to the previous inline template literals (including the "&" join
+// even when no "?autoplay=1" precedes it).
+function embedQuery(
+  { autoplay, loop, muted }: Pick<EmbedOptions, "autoplay" | "loop" | "muted">,
+  muteParam: string
+): string {
+  return `${autoplay ? '?autoplay=1' : ''}${loop ? '&loop=1' : ''}${muted ? muteParam : ''}`;
+}
+
+function getEmbedUrl(url: string, options: EmbedOptions): string {
+  if (options.isYouTube) {
+    const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+    return videoId ? `https://www.youtube.com/embed/${videoId}${embedQuery(options, '&mute=1')}` : '';
+  }
+  if (options.isVimeo) {
+    const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+    return videoId ? `https://player.vimeo.com/video/${videoId}${embedQuery(options, '&muted=1')}` : '';
+  }
+  return url;
+}
+
 export default function VideoSection({
   url = "",
   title,
@@ -23,19 +53,7 @@ export default function VideoSection({
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
   const isVimeo = url.includes('vimeo.com');
   
-  const getEmbedUrl = () => {
-    if (isYouTube) {
-      const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
-      return videoId ? `https://www.youtube.com/embed/${videoId}${autoplay ? '?autoplay=1' : ''}${loop ? '&loop=1' : ''}${muted ? '&mute=1' : ''}` : '';
-    }
-    if (isVimeo) {
-      const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
-      return videoId ? `https://player.vimeo.com/video/${videoId}${autoplay ? '?autoplay=1' : ''}${loop ? '&loop=1' : ''}${muted ? '&muted=1' : ''}` : '';
-    }
-    return url;
-  };
-
-  const embedUrl = getEmbedUrl();
+  const embedUrl = getEmbedUrl(url, { isYouTube, isVimeo, autoplay, loop, muted });
 
   if (!embedUrl) {
     return (

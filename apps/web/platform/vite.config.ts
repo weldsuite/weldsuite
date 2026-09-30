@@ -4,6 +4,60 @@ import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import path from 'path';
 
+function i18nChunkName(normalizedId: string): string | undefined {
+  const i18nMatch = normalizedId.match(/\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/);
+  if (!i18nMatch) return undefined;
+  const [, locale, ns] = i18nMatch;
+  return ns === 'index' ? undefined : `i18n-${locale}-${ns}`;
+}
+
+// Vendor chunk assignment by package name: exact matches first, then prefixes.
+const VENDOR_CHUNKS_EXACT = new Map<string, string>([
+  ['react', 'react-vendor'],
+  ['react-dom', 'react-vendor'],
+  ['scheduler', 'react-vendor'],
+  ['@tanstack/react-query', 'tanstack-query'],
+  ['@tanstack/query-core', 'tanstack-query'],
+  ['@tanstack/react-router', 'tanstack-router'],
+  ['@tanstack/router-core', 'tanstack-router'],
+  ['@tanstack/router-devtools', 'tanstack-router'],
+  // Collapse lucide-react's icons into ONE chunk. Each icon is a tiny
+  // module; left to default chunking, icons shared across lazy routes
+  // get extracted as hundreds of ~1-2 KB facade chunks (webhook-*.js,
+  // list-todo-*.js, …). That many micro-chunks is both wasteful and a
+  // reliability hazard on resource-constrained CI builders — a build
+  // killed mid-write drops some of them, leaving the entry's mapDeps
+  // pointing at files that were never emitted (white-screen on load).
+  ['lucide-react', 'lucide-vendor'],
+  ['recharts', 'charts-vendor'],
+  ['zod', 'zod-vendor'],
+  ['date-fns', 'date-fns-vendor'],
+  ['react-hook-form', 'react-hook-form-vendor'],
+  ['react-day-picker', 'react-day-picker-vendor'],
+  ['micromark', 'markdown-vendor'],
+  ['unified', 'markdown-vendor'],
+  ['remark', 'markdown-vendor'],
+  ['tailwind-merge', 'styles-vendor'],
+  ['clsx', 'styles-vendor'],
+  ['class-variance-authority', 'styles-vendor'],
+]);
+
+const VENDOR_CHUNKS_PREFIX: ReadonlyArray<readonly [string, string]> = [
+  ['@clerk/', 'clerk-vendor'],
+  ['d3-', 'charts-vendor'],
+  ['@radix-ui/', 'radix-vendor'],
+  ['@dnd-kit/', 'dnd-kit-vendor'],
+  ['micromark-', 'markdown-vendor'],
+  ['mdast-', 'markdown-vendor'],
+  ['remark-', 'markdown-vendor'],
+];
+
+function vendorChunkName(pkg: string): string | undefined {
+  const exact = VENDOR_CHUNKS_EXACT.get(pkg);
+  if (exact) return exact;
+  return VENDOR_CHUNKS_PREFIX.find(([prefix]) => pkg.startsWith(prefix))?.[1];
+}
+
 export default defineConfig(async () => {
   const { visualizer } = await import('rollup-plugin-visualizer');
   return {
@@ -43,38 +97,13 @@ export default defineConfig(async () => {
           // locale chunk is over ~150 KB. Provider eagerly loads the active
           // locale's namespaces in parallel — total bytes unchanged, but each
           // chunk file is small.
-          const i18nMatch = norm.match(/\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/);
-          if (i18nMatch) {
-            const [, locale, ns] = i18nMatch;
-            if (ns !== 'index') return `i18n-${locale}-${ns}`;
-          }
+          const i18nChunk = i18nChunkName(norm);
+          if (i18nChunk) return i18nChunk;
 
           if (!norm.includes('/node_modules/')) return undefined;
           const m = norm.match(/\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(@[^/]+\/[^/]+|[^/]+)/);
           if (!m) return undefined;
-          const pkg = m[1];
-          if (pkg === 'react' || pkg === 'react-dom' || pkg === 'scheduler') return 'react-vendor';
-          if (pkg.startsWith('@clerk/')) return 'clerk-vendor';
-          if (pkg === '@tanstack/react-query' || pkg === '@tanstack/query-core') return 'tanstack-query';
-          if (pkg === '@tanstack/react-router' || pkg === '@tanstack/router-core' || pkg === '@tanstack/router-devtools') return 'tanstack-router';
-          // Collapse lucide-react's icons into ONE chunk. Each icon is a tiny
-          // module; left to default chunking, icons shared across lazy routes
-          // get extracted as hundreds of ~1-2 KB facade chunks (webhook-*.js,
-          // list-todo-*.js, …). That many micro-chunks is both wasteful and a
-          // reliability hazard on resource-constrained CI builders — a build
-          // killed mid-write drops some of them, leaving the entry's mapDeps
-          // pointing at files that were never emitted (white-screen on load).
-          if (pkg === 'lucide-react') return 'lucide-vendor';
-          if (pkg === 'recharts' || pkg.startsWith('d3-')) return 'charts-vendor';
-          if (pkg === 'zod') return 'zod-vendor';
-          if (pkg === 'date-fns') return 'date-fns-vendor';
-          if (pkg.startsWith('@radix-ui/')) return 'radix-vendor';
-          if (pkg === 'react-hook-form') return 'react-hook-form-vendor';
-          if (pkg === 'react-day-picker') return 'react-day-picker-vendor';
-          if (pkg.startsWith('@dnd-kit/')) return 'dnd-kit-vendor';
-          if (pkg === 'micromark' || pkg.startsWith('micromark-') || pkg.startsWith('mdast-') || pkg === 'unified' || pkg === 'remark' || pkg.startsWith('remark-')) return 'markdown-vendor';
-          if (pkg === 'tailwind-merge' || pkg === 'clsx' || pkg === 'class-variance-authority') return 'styles-vendor';
-          return undefined;
+          return vendorChunkName(m[1]);
         },
       },
     },
