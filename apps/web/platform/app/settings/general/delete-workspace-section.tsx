@@ -11,7 +11,7 @@
  * Rendered only when the current member is the workspace OWNER.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -100,6 +100,43 @@ export function DeleteWorkspaceSection() {
     !!status &&
     confirmText === status.slug;
 
+  let dialogBody: ReactNode = null;
+  if (isLoadingStatus) {
+    dialogBody = (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (status) {
+    dialogBody = (
+      <div className="space-y-4">
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+          <p className="font-medium flex items-center gap-2">
+            <TriangleAlert className="h-4 w-4 text-destructive shrink-0" />
+            {td.warningTitle}
+          </p>
+          <ul className="mt-2 list-disc pl-5 space-y-1 text-muted-foreground">
+            <li>{td.warningMembers.replace('{count}', String(status.memberCount))}</li>
+            <li>{td.warningData}</li>
+            {status.hasActiveSubscription && <li>{td.warningSubscription}</li>}
+          </ul>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            {td.confirmLabel.replace('{slug}', slug)}
+          </p>
+          <Input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={slug}
+            autoComplete="off"
+            disabled={isDeleting}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h3 className="text-base font-medium mb-3 text-destructive">{td.sectionTitle}</h3>
@@ -120,37 +157,7 @@ export function DeleteWorkspaceSection() {
             <DialogDescription>{td.dialogDescription}</DialogDescription>
           </DialogHeader>
 
-          {isLoadingStatus ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : status ? (
-            <div className="space-y-4">
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium flex items-center gap-2">
-                  <TriangleAlert className="h-4 w-4 text-destructive shrink-0" />
-                  {td.warningTitle}
-                </p>
-                <ul className="mt-2 list-disc pl-5 space-y-1 text-muted-foreground">
-                  <li>{td.warningMembers.replace('{count}', String(status.memberCount))}</li>
-                  <li>{td.warningData}</li>
-                  {status.hasActiveSubscription && <li>{td.warningSubscription}</li>}
-                </ul>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">
-                  {td.confirmLabel.replace('{slug}', slug)}
-                </p>
-                <Input
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder={slug}
-                  autoComplete="off"
-                  disabled={isDeleting}
-                />
-              </div>
-            </div>
-          ) : null}
+          {dialogBody}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isDeleting}>
