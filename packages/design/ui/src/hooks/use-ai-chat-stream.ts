@@ -45,6 +45,23 @@ export function useAiChatStream({
     }
   }, [])
   
+  const handleChunk = useCallback((chunk: StreamChunk) => {
+    switch (chunk.type) {
+      case "chunk":
+        setStreamingContent(prev => { streamingContentRef.current = prev + chunk.content; return streamingContentRef.current })
+        break
+      case "action":
+        if (onAction && chunk.action) onAction(chunk.action)
+        break
+      case "done":
+        if (onComplete) onComplete(chunk.fullResponse || streamingContentRef.current)
+        break
+      case "error":
+        if (onError) onError(chunk.content || "An error occurred")
+        break
+    }
+  }, [onAction, onComplete, onError])
+  
   const streamMessage = useCallback(async (message: string, context?: unknown) => {
     setIsStreaming(true)
     setStreamingContent("")
@@ -71,15 +88,7 @@ export function useAiChatStream({
           
           // Process new chunks
           for (const chunk of chunks) {
-            if (chunk.type === "chunk") {
-              setStreamingContent(prev => { streamingContentRef.current = prev + chunk.content; return streamingContentRef.current })
-            } else if (chunk.type === "action" && onAction && chunk.action) {
-              onAction(chunk.action)
-            } else if (chunk.type === "done") {
-              if (onComplete) onComplete(chunk.fullResponse || streamingContentRef.current)
-            } else if (chunk.type === "error") {
-              if (onError) onError(chunk.content || "An error occurred")
-            }
+            handleChunk(chunk)
           }
           
           lastIndexRef.current += chunks.length
@@ -106,7 +115,7 @@ export function useAiChatStream({
     }
     
     return streamingContentRef.current
-  }, [startStream, getChunks, onAction, onComplete, onError, stopPolling])
+  }, [startStream, getChunks, onError, stopPolling, handleChunk])
   
   return {
     isStreaming,

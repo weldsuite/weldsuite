@@ -11,6 +11,7 @@ import {
   addEdge,
   useReactFlow,
   type Connection,
+  type Edge,
   type Node,
   type IsValidConnection,
   BackgroundVariant,
@@ -72,6 +73,163 @@ interface AlignmentGuide {
   type: 'center' | 'left' | 'right';
   yStart: number;
   yEnd: number;
+}
+
+const NODE_GAP_Y = 100;
+const PLACEHOLDER_NODE_ID = '__placeholder__';
+
+// Nodes that represent a step on the main flow (not trigger, branch or sub-agent nodes)
+const isTrackableStepNode = (node: Node) =>
+  node.type !== 'trigger' && node.type !== 'condition_branch' && node.type !== 'sub_agent';
+
+const isNodeSelected = (nodeId: string, selectedNodeId?: string | null) =>
+  nodeId === selectedNodeId || (nodeId === 'trigger' && selectedNodeId === 'trigger');
+
+const getStepTypeOf = (node: Node): string => {
+  const data = node.data as FlowNodeData;
+  return data?.actionType || data?.step?.type || '';
+};
+
+// Position directly below `above`, horizontally centred on it.
+const positionBelow = (above: Node, aboveHeight: number) => {
+  const aboveWidth = 340;
+  const belowWidth = 340;
+  return {
+    x: above.position.x + aboveWidth / 2 - belowWidth / 2,
+    y: above.position.y + aboveHeight + NODE_GAP_Y,
+  };
+};
+
+// Nearest earlier node (skipping condition branches) that already exists on the canvas.
+function findPreviousExistingNode(index: number, newNodes: Node[], currentNodes: Node[]): Node | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const candidate = newNodes[i]!;
+    if (candidate.type === 'condition_branch') continue;
+    const existing = currentNodes.find((n) => n.id === candidate.id);
+    if (existing) return existing;
+  }
+  return undefined;
+}
+
+// Keep existing nodes where the user left them; drop brand-new nodes below their predecessor.
+function positionSyncedNode(
+  newNode: Node,
+  index: number,
+  newNodes: Node[],
+  currentNodes: Node[],
+  selected: boolean,
+): Node {
+  const existingNode = currentNodes.find((n) => n.id === newNode.id);
+  if (existingNode) {
+    return { ...newNode, position: existingNode.position, selected };
+  }
+
+  const hasParentBranch = (newNode.data as FlowNodeData)?.step?.parentBranchId;
+  if (hasParentBranch && newNode.position && newNode.position.x !== 0) {
+    return { ...newNode, selected };
+  }
+
+  if (newNode.type !== 'trigger' && newNode.type !== 'condition_branch' && index > 0) {
+    const prevNode = findPreviousExistingNode(index, newNodes, currentNodes);
+    if (prevNode) {
+      const prevNodeHeight = getTotalNodeHeight(getStepTypeOf(prevNode));
+      return { ...newNode, position: positionBelow(prevNode, prevNodeHeight), selected };
+    }
+  }
+
+  return { ...newNode, selected };
+}
+
+// Adds the "new step goes here" placeholder under the source node (or the last node).
+function withAddPlaceholder(
+  nodes: Node[],
+  edges: Edge[],
+  addStepSourceNodeId?: string | null,
+): { nodes: Node[]; edges: Edge[] } {
+  const sourceNode =
+    (addStepSourceNodeId ? nodes.find((n) => n.id === addStepSourceNodeId) : undefined) ??
+    nodes[nodes.length - 1];
+  if (!sourceNode) return { nodes, edges };
+
+  const flaggedNodes = nodes.map((node) =>
+    node.id === sourceNode.id
+      ? { ...node, data: { ...node.data, showAddPlaceholder: true } }
+      : node,
+  );
+
+  const sourceNodeData = sourceNode.data as FlowNodeData;
+  const sourceStepType = sourceNodeData?.branchType ? 'condition_branch' : getStepTypeOf(sourceNode);
+  const sourceNodeHeight = sourceStepType === 'condition_branch' ? 80 : getTotalNodeHeight(sourceStepType);
+
+  const placeholderNode: Node = {
+    id: PLACEHOLDER_NODE_ID,
+    type: 'placeholder',
+    position: positionBelow(sourceNode, sourceNodeHeight),
+    data: {},
+    draggable: false,
+    selectable: false,
+  };
+
+  return {
+    nodes: [...flaggedNodes, placeholderNode],
+    edges: [
+      ...edges,
+      {
+        id: `${sourceNode.id}-placeholder`,
+        source: sourceNode.id,
+        target: PLACEHOLDER_NODE_ID,
+        type: 'smoothstep',
+      },
+    ],
+  };
+}
+
+// Centre point of a node, used to pan the viewport to a newly added step.
+function getNodeCenter(node: Node): { x: number; y: number } {
+  const height = node.type === 'placeholder' ? 80 : getNodeHeight(getStepTypeOf(node));
+  return {
+    x: node.position.x + getNodeWidth(node) / 2,
+    y: node.position.y + height / 2,
+  };
+}
+
+// The three vertical lines a node can align on, and where the dragged node snaps for each.
+const ALIGNMENT_KINDS = [
+  { type: 'center', getX: getNodeCenterX, snapOffset: (width: number) => -width / 2 },
+  { type: 'left', getX: getNodeLeftX, snapOffset: () => 0 },
+  { type: 'right', getX: getNodeRightX, snapOffset: (width: number) => -width },
+] as const;
+
+// Alignment guides (and the x to snap to) for a node being dragged over the others.
+function computeAlignmentGuides(
+  draggedNode: Node,
+  currentNodes: Node[],
+): { guides: AlignmentGuide[]; snapX: number | null } {
+  const guides: AlignmentGuide[] = [];
+  const draggedNodeWidth = getNodeWidth(draggedNode);
+  const nodeHeight = 100;
+
+  const draggedTop = draggedNode.position.y;
+  const draggedBottom = draggedNode.position.y + nodeHeight;
+
+  let snapX: number | null = null;
+
+  for (const node of currentNodes) {
+    if (node.id === draggedNode.id) continue;
+
+    const yStart = Math.min(draggedTop, node.position.y) + 20;
+    const yEnd = Math.max(draggedBottom, node.position.y + nodeHeight) - 20;
+
+    for (const { type, getX, snapOffset } of ALIGNMENT_KINDS) {
+      const lineX = getX(node);
+      if (Math.abs(getX(draggedNode) - lineX) < ALIGNMENT_THRESHOLD) {
+        guides.push({ x: lineX, type, yStart, yEnd });
+        if (snapX === null) snapX = lineX + snapOffset(draggedNodeWidth);
+      }
+    }
+  }
+
+  return { guides, snapX };
 }
 
 // Custom controls component with Lucide icons
@@ -283,70 +441,19 @@ function WorkflowCanvasInner({
 
     const currentNodes = getNodes();
 
-    const newStepNodes = newNodes.filter(n => n.type !== 'trigger' && n.type !== 'condition_branch' && n.type !== 'sub_agent');
+    const newStepNodes = newNodes.filter(isTrackableStepNode);
     const hasAnyExistingStep = newStepNodes.some(n => currentNodes.find(existing => existing.id === n.id));
     const isBulkReplacement = newStepNodes.length > 0 && !hasAnyExistingStep;
 
     if (isBulkReplacement) {
-      setNodes(newNodes.map(n => ({
-        ...n,
-        selected: n.id === selectedNodeId || (n.id === 'trigger' && selectedNodeId === 'trigger'),
-      })));
+      setNodes(newNodes.map(n => ({ ...n, selected: isNodeSelected(n.id, selectedNodeId) })));
       setEdges(newEdges);
       return;
     }
 
-    const positionedNodes = newNodes.map((newNode, index) => {
-      const existingNode = currentNodes.find((n) => n.id === newNode.id);
-      const isSelected = newNode.id === selectedNodeId || (newNode.id === 'trigger' && selectedNodeId === 'trigger');
-
-      if (existingNode) {
-        return { ...newNode, position: existingNode.position, selected: isSelected };
-      }
-
-      const newNodeData = newNode.data as FlowNodeData;
-      const hasParentBranch = newNodeData?.step?.parentBranchId;
-
-      if (hasParentBranch && newNode.position && newNode.position.x !== 0) {
-        return { ...newNode, selected: isSelected };
-      }
-
-      if (newNode.type !== 'trigger' && newNode.type !== 'condition_branch' && index > 0) {
-        let prevNode: Node | undefined;
-        let prevStepType = '';
-        for (let i = index - 1; i >= 0; i--) {
-          const candidate = newNodes[i]!;
-          if (candidate.type === 'condition_branch') continue;
-          const existing = currentNodes.find((n) => n.id === candidate.id);
-          if (existing) {
-            prevNode = existing;
-            const pData = existing.data as FlowNodeData;
-            prevStepType = pData?.actionType || pData?.step?.type || '';
-            break;
-          }
-        }
-
-        if (prevNode) {
-          const prevNodeHeight = getTotalNodeHeight(prevStepType);
-          const NODE_GAP_Y = 100;
-          const prevNodeWidth = 340;
-          const newNodeWidth = 340;
-          const prevCenterX = prevNode.position.x + prevNodeWidth / 2;
-          const newNodeX = prevCenterX - newNodeWidth / 2;
-
-          return {
-            ...newNode,
-            position: {
-              x: newNodeX,
-              y: prevNode.position.y + prevNodeHeight + NODE_GAP_Y,
-            },
-            selected: isSelected,
-          };
-        }
-      }
-
-      return { ...newNode, selected: isSelected };
-    });
+    const positionedNodes = newNodes.map((newNode, index) =>
+      positionSyncedNode(newNode, index, newNodes, currentNodes, isNodeSelected(newNode.id, selectedNodeId)),
+    );
 
     const needsLayout = positionedNodes.some(
       (n) =>
@@ -356,79 +463,27 @@ function WorkflowCanvasInner({
     );
 
     let finalNodes = needsLayout ? autoLayoutNodes(positionedNodes, newEdges) : positionedNodes;
-    const finalEdges = [...newEdges];
+    let finalEdges: Edge[] = [...newEdges];
 
     if (showAddPlaceholder) {
-      let sourceNode: Node | undefined;
-      if (addStepSourceNodeId) {
-        sourceNode = finalNodes.find((n) => n.id === addStepSourceNodeId);
-      }
-      if (!sourceNode) {
-        sourceNode = finalNodes[finalNodes.length - 1];
-      }
-
-      if (sourceNode) {
-        finalNodes = finalNodes.map((node) => {
-          if (node.id === sourceNode!.id) {
-            return { ...node, data: { ...node.data, showAddPlaceholder: true } };
-          }
-          return node;
-        });
-
-        const sourceNodeData = sourceNode.data as FlowNodeData;
-        const sourceStepType = sourceNodeData?.branchType ? 'condition_branch' : (sourceNodeData?.actionType || sourceNodeData?.step?.type || '');
-        const sourceNodeHeight = sourceStepType === 'condition_branch' ? 80 : getTotalNodeHeight(sourceStepType);
-        const sourceNodeWidth = 340;
-        const placeholderWidth = 340;
-        const NODE_GAP_Y = 100;
-        const sourceCenterX = sourceNode.position.x + sourceNodeWidth / 2;
-        const placeholderX = sourceCenterX - placeholderWidth / 2;
-
-        const placeholderNode: Node = {
-          id: '__placeholder__',
-          type: 'placeholder',
-          position: {
-            x: placeholderX,
-            y: sourceNode.position.y + sourceNodeHeight + NODE_GAP_Y,
-          },
-          data: {},
-          draggable: false,
-          selectable: false,
-        };
-
-        finalNodes = [...finalNodes, placeholderNode];
-        finalEdges.push({
-          id: `${sourceNode.id}-placeholder`,
-          source: sourceNode.id,
-          target: '__placeholder__',
-          type: 'smoothstep',
-        });
-      }
+      ({ nodes: finalNodes, edges: finalEdges } = withAddPlaceholder(finalNodes, finalEdges, addStepSourceNodeId));
     }
 
     setNodes(finalNodes);
     setEdges(finalEdges);
 
-    const trackableIds = finalNodes
-      .filter((n) => n.type !== 'trigger' && n.type !== 'condition_branch' && n.type !== 'sub_agent')
-      .map((n) => n.id);
+    const trackableIds = finalNodes.filter(isTrackableStepNode).map((n) => n.id);
     const prevIds = prevStepNodeIdsRef.current;
     const newIds = trackableIds.filter((id) => !prevIds.has(id));
     prevStepNodeIdsRef.current = new Set(trackableIds);
 
-    if (!isFirstSyncRef.current && newIds.length === 1) {
-      const newId = newIds[0];
-      const newNode = finalNodes.find((n) => n.id === newId);
-      if (newNode) {
-        const nodeData = newNode.data as FlowNodeData;
-        const stepType = nodeData?.actionType || nodeData?.step?.type || '';
-        const width = getNodeWidth(newNode);
-        const height = newNode.type === 'placeholder' ? 80 : getNodeHeight(stepType);
-        const centerX = newNode.position.x + width / 2;
-        const centerY = newNode.position.y + height / 2;
-        const { zoom } = getViewport();
-        setCenter(centerX, centerY, { duration: 400, zoom, interpolate: 'linear' });
-      }
+    const addedNode = !isFirstSyncRef.current && newIds.length === 1
+      ? finalNodes.find((n) => n.id === newIds[0])
+      : undefined;
+    if (addedNode) {
+      const { x, y } = getNodeCenter(addedNode);
+      const { zoom } = getViewport();
+      setCenter(x, y, { duration: 400, zoom, interpolate: 'linear' });
     }
     isFirstSyncRef.current = false;
   }, [trigger, steps, selectedNodeId, showAddPlaceholder, addStepSourceNodeId, getNodes, setCenter, getViewport, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, flowLabels, variableItems, triggerLocked, setNodes, setEdges]);
@@ -442,44 +497,7 @@ function WorkflowCanvasInner({
 
   const onNodeDrag = useCallback(
     (event: React.MouseEvent, draggedNode: Node) => {
-      const guides: AlignmentGuide[] = [];
-      const draggedNodeWidth = getNodeWidth(draggedNode);
-      const nodeHeight = 100;
-      const currentNodes = getNodes();
-
-      const draggedLeftX = getNodeLeftX(draggedNode);
-      const draggedRightX = getNodeRightX(draggedNode);
-      const draggedCenterX = getNodeCenterX(draggedNode);
-      const draggedTop = draggedNode.position.y;
-      const draggedBottom = draggedNode.position.y + nodeHeight;
-
-      let snapX: number | null = null;
-
-      for (const node of currentNodes) {
-        if (node.id === draggedNode.id) continue;
-
-            const nodeLeftX = getNodeLeftX(node);
-        const nodeRightX = getNodeRightX(node);
-        const nodeCenterX = getNodeCenterX(node);
-        const nodeTop = node.position.y;
-        const nodeBottom = node.position.y + nodeHeight;
-
-        const yStart = Math.min(draggedTop, nodeTop) + 20;
-        const yEnd = Math.max(draggedBottom, nodeBottom) - 20;
-
-        if (Math.abs(draggedCenterX - nodeCenterX) < ALIGNMENT_THRESHOLD) {
-          guides.push({ x: nodeCenterX, type: 'center', yStart, yEnd });
-          if (snapX === null) snapX = nodeCenterX - draggedNodeWidth / 2;
-        }
-        if (Math.abs(draggedLeftX - nodeLeftX) < ALIGNMENT_THRESHOLD) {
-          guides.push({ x: nodeLeftX, type: 'left', yStart, yEnd });
-          if (snapX === null) snapX = nodeLeftX;
-        }
-        if (Math.abs(draggedRightX - nodeRightX) < ALIGNMENT_THRESHOLD) {
-          guides.push({ x: nodeRightX, type: 'right', yStart, yEnd });
-          if (snapX === null) snapX = nodeRightX - draggedNodeWidth;
-        }
-      }
+      const { guides, snapX } = computeAlignmentGuides(draggedNode, getNodes());
 
       if (snapX !== null) {
         setNodes((nds) =>

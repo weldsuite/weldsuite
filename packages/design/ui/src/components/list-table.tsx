@@ -132,6 +132,156 @@ function alignClass(align?: 'left' | 'right' | 'center'): string {
 }
 
 // ---------------------------------------------------------------------------
+// Row bucketing (groups)
+// ---------------------------------------------------------------------------
+
+interface IndexedRow<T> {
+  row: T;
+  idx: number;
+}
+
+interface ListTableBuckets<T> {
+  ordered: Array<{ group: ListTableGroup<T>; rows: Array<IndexedRow<T>> }>;
+  leftover: Array<IndexedRow<T>>;
+}
+
+function safeGroupFilter<T>(group: ListTableGroup<T>, row: T): boolean {
+  try {
+    return group.filter(row);
+  } catch {
+    return false;
+  }
+}
+
+function partitionIntoBuckets<T>(
+  groups: ListTableGroup<T>[] | undefined,
+  data: T[],
+): ListTableBuckets<T> | null {
+  if (!groups || groups.length === 0) return null;
+  const byId = new Map<string, { group: ListTableGroup<T>; rows: Array<IndexedRow<T>> }>();
+  for (const g of groups) byId.set(g.id, { group: g, rows: [] });
+  const leftover: Array<IndexedRow<T>> = [];
+
+  data.forEach((row, idx) => {
+    const match = groups.find((g) => safeGroupFilter(g, row));
+    if (match) {
+      byId.get(match.id)!.rows.push({ row, idx });
+    } else {
+      leftover.push({ row, idx });
+    }
+  });
+
+  const ordered = [...groups]
+    .map((g, i) => ({ group: g, sortOrder: g.sortOrder ?? i }))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(({ group }) => ({ group, rows: byId.get(group.id)!.rows }));
+
+  return { ordered, leftover };
+}
+
+function bucketsAreEmpty<T>(buckets: ListTableBuckets<T> | null): boolean {
+  if (buckets === null) return false;
+  return buckets.ordered.every((b) => b.rows.length === 0) && buckets.leftover.length === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Empty + no-results blocks
+// ---------------------------------------------------------------------------
+
+function ListTableEmptyBlock({
+  emptyState,
+  emptyMessage,
+}: {
+  emptyState?: ListTableEmptyState;
+  emptyMessage: React.ReactNode;
+}) {
+  if (!emptyState) {
+    return <div className="text-center text-muted-foreground py-8">{emptyMessage}</div>;
+  }
+  return (
+    <div className="flex flex-col items-center justify-center text-center px-6 py-16">
+      {emptyState.icon}
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+        {emptyState.title}
+      </h3>
+      {emptyState.description ? (
+        <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">
+          {emptyState.description}
+        </p>
+      ) : null}
+      {emptyState.action ? (
+        <Button
+          size="sm"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={emptyState.action.onClick}
+        >
+          {emptyState.action.label}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function ListTableNoResultsBlock({ state }: { state: ListTableNoResultsState }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <XCircle className="h-8 w-8 text-muted-foreground mb-3" />
+      <h3 className="text-sm font-medium text-foreground mb-1">{state.title}</h3>
+      {state.description ? (
+        <p className="text-sm text-muted-foreground mb-4">{state.description}</p>
+      ) : null}
+      {state.onClear ? (
+        <Button variant="outline" size="sm" onClick={state.onClear}>
+          {state.clearLabel ?? 'Clear filters'}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function ListTableGroupedRows<T>({
+  buckets,
+  ungroupedLabel,
+  stickyOffset,
+  renderRow,
+}: {
+  buckets: ListTableBuckets<T>;
+  ungroupedLabel?: React.ReactNode;
+  stickyOffset: number;
+  renderRow: (row: T, idx: number) => React.ReactNode;
+}) {
+  return (
+    <>
+      {buckets.ordered.map(({ group, rows }) => {
+        const hide = rows.length === 0 && (group.hideWhenEmpty ?? true);
+        if (hide) return null;
+        return (
+          <React.Fragment key={group.id}>
+            <GroupHeaderRow
+              label={group.label}
+              count={rows.length}
+              renderCount={group.renderCount}
+              stickyOffset={stickyOffset + 35}
+            />
+            {rows.map(({ row, idx }) => renderRow(row, idx))}
+          </React.Fragment>
+        );
+      })}
+      {buckets.leftover.length > 0 ? (
+        <React.Fragment key="__ungrouped">
+          <GroupHeaderRow
+            label={ungroupedLabel ?? 'Other'}
+            count={buckets.leftover.length}
+            stickyOffset={stickyOffset + 35}
+          />
+          {buckets.leftover.map(({ row, idx }) => renderRow(row, idx))}
+        </React.Fragment>
+      ) : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -220,34 +370,7 @@ export function ListTable<T>({
   );
 
   // ─── Partition into buckets ────────────────────────────────────────────
-  const buckets = React.useMemo(() => {
-    if (!groups || groups.length === 0) return null;
-    const byId = new Map<string, { group: ListTableGroup<T>; rows: Array<{ row: T; idx: number }> }>();
-    for (const g of groups) byId.set(g.id, { group: g, rows: [] });
-    const leftover: Array<{ row: T; idx: number }> = [];
-
-    data.forEach((row, idx) => {
-      const match = groups.find((g) => {
-        try {
-          return g.filter(row);
-        } catch {
-          return false;
-        }
-      });
-      if (match) {
-        byId.get(match.id)!.rows.push({ row, idx });
-      } else {
-        leftover.push({ row, idx });
-      }
-    });
-
-    const ordered = [...groups]
-      .map((g, i) => ({ group: g, sortOrder: g.sortOrder ?? i }))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(({ group }) => ({ group, rows: byId.get(group.id)!.rows }));
-
-    return { ordered, leftover };
-  }, [groups, data]);
+  const buckets = React.useMemo(() => partitionIntoBuckets(groups, data), [groups, data]);
 
   // ─── Column header bar ────────────────────────────────────────────────
   const columnHeader = (
@@ -278,10 +401,7 @@ export function ListTable<T>({
 
   // ─── Empty + no-results states ────────────────────────────────────────
   const isEmpty = data.length === 0;
-  const nothingToShow =
-    buckets !== null
-      ? buckets.ordered.every((b) => b.rows.length === 0) && buckets.leftover.length === 0
-      : false;
+  const nothingToShow = bucketsAreEmpty(buckets);
   const showNoResultsBanner =
     !isEmpty && nothingToShow && !!noResultsState;
 
@@ -290,75 +410,16 @@ export function ListTable<T>({
       {!isEmpty ? columnHeader : null}
 
       {isEmpty ? (
-        emptyState ? (
-          <div className="flex flex-col items-center justify-center text-center px-6 py-16">
-            {emptyState.icon}
-            <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-              {emptyState.title}
-            </h3>
-            {emptyState.description ? (
-              <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">
-                {emptyState.description}
-              </p>
-            ) : null}
-            {emptyState.action ? (
-              <Button
-                size="sm"
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={emptyState.action.onClick}
-              >
-                {emptyState.action.label}
-              </Button>
-            ) : null}
-          </div>
-        ) : (
-          <div className="text-center text-muted-foreground py-8">{emptyMessage}</div>
-        )
+        <ListTableEmptyBlock emptyState={emptyState} emptyMessage={emptyMessage} />
       ) : showNoResultsBanner ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <XCircle className="h-8 w-8 text-muted-foreground mb-3" />
-          <h3 className="text-sm font-medium text-foreground mb-1">
-            {noResultsState!.title}
-          </h3>
-          {noResultsState!.description ? (
-            <p className="text-sm text-muted-foreground mb-4">
-              {noResultsState!.description}
-            </p>
-          ) : null}
-          {noResultsState!.onClear ? (
-            <Button variant="outline" size="sm" onClick={noResultsState!.onClear}>
-              {noResultsState!.clearLabel ?? 'Clear filters'}
-            </Button>
-          ) : null}
-        </div>
+        <ListTableNoResultsBlock state={noResultsState!} />
       ) : buckets ? (
-        <>
-          {buckets.ordered.map(({ group, rows }) => {
-            const hide = rows.length === 0 && (group.hideWhenEmpty ?? true);
-            if (hide) return null;
-            return (
-              <React.Fragment key={group.id}>
-                <GroupHeaderRow
-                  label={group.label}
-                  count={rows.length}
-                  renderCount={group.renderCount}
-                  stickyOffset={stickyOffset + 35}
-                />
-                {rows.map(({ row, idx }) => renderRow(row, idx))}
-              </React.Fragment>
-            );
-          })}
-          {buckets.leftover.length > 0 ? (
-            <React.Fragment key="__ungrouped">
-              <GroupHeaderRow
-                label={ungroupedLabel ?? 'Other'}
-                count={buckets.leftover.length}
-                stickyOffset={stickyOffset + 35}
-              />
-              {buckets.leftover.map(({ row, idx }) => renderRow(row, idx))}
-            </React.Fragment>
-          ) : null}
-        </>
+        <ListTableGroupedRows
+          buckets={buckets}
+          ungroupedLabel={ungroupedLabel}
+          stickyOffset={stickyOffset}
+          renderRow={renderRow}
+        />
       ) : (
         data.map((row, idx) => renderRow(row, idx))
       )}
