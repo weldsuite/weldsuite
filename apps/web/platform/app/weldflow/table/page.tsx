@@ -758,6 +758,34 @@ function advanceTimerRows(prevRows: Row[], timers: RunningTimers, fields: Field[
   return { rows, finishedKeys, hasChanges };
 }
 
+// Footer summary shown under a column (sum / unique count / checked count).
+function computeFooterCalculation(field: Field, rows: Row[]): string {
+  if (field.type === 'number' || field.type === 'currency') {
+    const sum = rows.reduce((total, row) => {
+      const value = row.data[field.id];
+      return total + (typeof value === 'number' ? value : 0);
+    }, 0);
+    return field.type === 'currency'
+      ? `$${sum.toLocaleString('en-US')}`
+      : sum.toLocaleString('en-US');
+  }
+  if (field.type === 'categories' || field.type === 'multi-select' || field.type === 'tags') {
+    const uniqueItems = new Set();
+    for (const row of rows) {
+      const value = row.data[field.id];
+      if (Array.isArray(value)) {
+        for (const item of value) uniqueItems.add(item);
+      }
+    }
+    return `${uniqueItems.size} unique`;
+  }
+  if (field.type === 'checkbox') {
+    const checkedCount = rows.filter(row => row.data[field.id] === true).length;
+    return `${checkedCount} checked`;
+  }
+  return '';
+}
+
 const omitTimers = (timers: RunningTimers, keys: string[]): RunningTimers => {
   const next = { ...timers };
   for (const key of keys) delete next[key];
@@ -2534,30 +2562,7 @@ export default function TablePage() {
             <tbody>
               <tr style={{ height: '40px' }}>
                 {visibleFields.map((field) => {
-                  let calculation = '';
-
-                  // Calculate based on field type
-                  if (field.type === 'number' || field.type === 'currency') {
-                    const sum = rows.reduce((total, row) => {
-                      const value = row.data[field.id];
-                      return total + (typeof value === 'number' ? value : 0);
-                    }, 0);
-                    calculation = field.type === 'currency'
-                      ? `$${sum.toLocaleString('en-US')}`
-                      : sum.toLocaleString('en-US');
-                  } else if (field.type === 'categories' || field.type === 'multi-select' || field.type === 'tags') {
-                    const uniqueItems = new Set();
-                    rows.forEach(row => {
-                      const value = row.data[field.id];
-                      if (Array.isArray(value)) {
-                        value.forEach(item => uniqueItems.add(item));
-                      }
-                    });
-                    calculation = `${uniqueItems.size} unique`;
-                  } else if (field.type === 'checkbox') {
-                    const checkedCount = rows.filter(row => row.data[field.id] === true).length;
-                    calculation = `${checkedCount} checked`;
-                  }
+                  const calculation = computeFooterCalculation(field, rows);
 
                   return (
                     <td
