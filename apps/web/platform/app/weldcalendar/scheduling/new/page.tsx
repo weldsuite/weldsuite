@@ -97,6 +97,28 @@ const currentTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const defaultRange = (): TimeRange => ({ start: '09:00', end: '17:00' });
 
+// Time ranges have no natural id, so list rows get a stable render key per range
+// object. An edit produces a new object; editRange hands the old key over so
+// the row (and the focused input in it) is not remounted on every keystroke.
+const rangeKeys = new WeakMap<TimeRange, string>();
+let rangeKeyCounter = 0;
+
+function rangeKey(range: TimeRange): string {
+  let key = rangeKeys.get(range);
+  if (!key) {
+    rangeKeyCounter += 1;
+    key = `range-${rangeKeyCounter}`;
+    rangeKeys.set(range, key);
+  }
+  return key;
+}
+
+function editRange(range: TimeRange, patch: Partial<TimeRange>): TimeRange {
+  const next = { ...range, ...patch };
+  rangeKeys.set(next, rangeKey(range));
+  return next;
+}
+
 // End time for a new range that starts at `start`: one hour later, capped at 23:00.
 function nextRangeEnd(start: string): string {
   const [h] = start.split(':').map(Number);
@@ -194,7 +216,7 @@ function repeatSummaryLabel(
 function patchSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number, patch: Partial<TimeRange>): SpecificDate[] {
   return dates.map((sd, i) =>
     i === sdIdx
-      ? { ...sd, ranges: sd.ranges.map((range, j) => (j === rIdx ? { ...range, ...patch } : range)) }
+      ? { ...sd, ranges: sd.ranges.map((range, j) => (j === rIdx ? editRange(range, patch) : range)) }
       : sd,
   );
 }
@@ -214,7 +236,7 @@ function removeSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number)
   return updated[sdIdx]?.ranges.length === 0 ? updated.filter((_, i) => i !== sdIdx) : updated;
 }
 
-const sortByDate = (dates: SpecificDate[]): SpecificDate[] => dates.sort((a, b) => a.date.localeCompare(b.date));
+const sortByDate = (dates: SpecificDate[]): SpecificDate[] => dates.toSorted((a, b) => a.date.localeCompare(b.date));
 
 function useSpecificDates() {
   const [dates, setDates] = useState<SpecificDate[]>([]);
@@ -858,9 +880,9 @@ function WeekPreview({
               {SHARED_HOURS.map((hour) => (
                 <div key={hour} className="border-b border-border" style={{ height: hourHeight }} />
               ))}
-              {getBlocks(day).map((block, bi) => (
+              {getBlocks(day).map((block) => (
                 <AvailabilityBlock
-                  key={bi}
+                  key={`${block.start}-${block.end}`}
                   block={block}
                   hourHeight={hourHeight}
                   duration={duration}
@@ -1266,7 +1288,7 @@ function WeeklyAvailabilityEditor({
 
   const updateRange = (day: keyof WeeklyAvailability, index: number, patch: Partial<TimeRange>) => {
     const ranges = [...availability[day]];
-    ranges[index] = { ...ranges[index], ...patch };
+    ranges[index] = editRange(ranges[index], patch);
     updateDay(day, ranges);
   };
 
@@ -1327,7 +1349,7 @@ function DayAvailabilityRow({
       {isEnabled ? (
         <div className="flex-1 space-y-2">
           {ranges.map((range, idx) => (
-            <div key={idx} className="flex items-center gap-2">
+            <div key={rangeKey(range)} className="flex items-center gap-2">
               <TimeRangeInputs
                 range={range}
                 onStartChange={(value) => onUpdateRange(idx, { start: value })}
@@ -1392,13 +1414,13 @@ function SpecificDatesEditor({ specific }: Readonly<{ specific: SpecificDatesApi
       {/* Specific dates list */}
       <div className="divide-y">
         {specific.dates.map((sd, sdIdx) => (
-          <div key={sdIdx} className="flex items-start py-3 group/sd min-h-[44px]">
+          <div key={sd.date} className="flex items-start py-3 group/sd min-h-[44px]">
             <span className="text-sm font-medium w-[90px] shrink-0 h-9 flex items-center">
               {new Date(sd.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
             <div className="flex-1 space-y-2">
               {sd.ranges.map((range, rIdx) => (
-                <div key={rIdx} className="flex items-center gap-2">
+                <div key={rangeKey(range)} className="flex items-center gap-2">
                   <TimeRangeInputs
                     range={range}
                     onStartChange={(value) => specific.updateRange(sdIdx, rIdx, { start: value })}
@@ -1453,9 +1475,9 @@ function AdjustedAvailabilitySection({ specific }: Readonly<{ specific: Specific
         {specific.dates.length > 0 && (
           <div className="divide-y">
             {specific.dates.map((sd, sdIdx) => (
-              <div key={sdIdx} className="py-2.5 group/adj space-y-1.5">
+              <div key={sd.date} className="py-2.5 group/adj space-y-1.5">
                 {sd.ranges.map((range, rIdx) => (
-                  <div key={rIdx} className="flex items-center gap-2">
+                  <div key={rangeKey(range)} className="flex items-center gap-2">
                     {rIdx === 0 && (
                       <DatePickerInput
                         value={new Date(sd.date)}
