@@ -34,6 +34,26 @@ import {
 /** Plan the lockout checkout offers — mirrors the Business-plan checkout CTA on the Plans page. */
 const LOCKOUT_TARGET_PLAN_SLUG = 'business';
 
+interface LockoutCopy {
+  deletionWarningWithDays: string;
+  deletionWarning: string;
+}
+
+/** Pure extraction of the deletion-warning copy selection (no lock/redirect logic). */
+function getDeletionCopy(
+  ts: LockoutCopy,
+  deletionDate: Date | null,
+  daysUntilDeletion: number | null,
+): string | null {
+  if (!deletionDate) return null;
+  if (daysUntilDeletion !== null && daysUntilDeletion >= 0) {
+    return ts.deletionWarningWithDays
+      .replace('{date}', format(deletionDate, 'MMM dd, yyyy'))
+      .replace('{days}', String(daysUntilDeletion));
+  }
+  return ts.deletionWarning.replace('{date}', format(deletionDate, 'MMM dd, yyyy'));
+}
+
 interface WorkspaceLockGateProps {
   children: React.ReactNode;
 }
@@ -74,14 +94,7 @@ export function WorkspaceLockGate({ children }: Readonly<WorkspaceLockGateProps>
   const deletionDate = scheduledDeletionAt ? new Date(scheduledDeletionAt) : null;
   const daysUntilDeletion = deletionDate ? differenceInCalendarDays(deletionDate, new Date()) : null;
 
-  const deletionCopy =
-    deletionDate && daysUntilDeletion !== null && daysUntilDeletion >= 0
-      ? ts.deletionWarningWithDays
-          .replace('{date}', format(deletionDate, 'MMM dd, yyyy'))
-          .replace('{days}', String(daysUntilDeletion))
-      : deletionDate
-        ? ts.deletionWarning.replace('{date}', format(deletionDate, 'MMM dd, yyyy'))
-        : null;
+  const deletionCopy = getDeletionCopy(ts, deletionDate, daysUntilDeletion);
 
   const isCheckingOut = changePlanMutation.isPending;
 

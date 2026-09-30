@@ -48,6 +48,32 @@ export interface SearchResult {
   type?: string;
 }
 
+interface CrumbEntry {
+  segment: BreadcrumbSegment;
+  key: string;
+  isFirst: boolean;
+  isLast: boolean;
+}
+
+/**
+ * Pair each crumb with a content-based React key. A trail can legitimately
+ * repeat the same label/href, so an occurrence counter disambiguates repeats.
+ */
+function buildCrumbEntries(segments: BreadcrumbSegment[]): CrumbEntry[] {
+  const seen = new Map<string, number>();
+  return segments.map((segment, position) => {
+    const base = `${segment.href ?? ''}|${segment.label}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return {
+      segment,
+      key: `${base}#${occurrence}`,
+      isFirst: position === 0,
+      isLast: position === segments.length - 1,
+    };
+  });
+}
+
 interface BreadcrumbHeaderProps {
   segments: BreadcrumbSegment[];
   /**
@@ -376,16 +402,15 @@ export function BreadcrumbHeader({
           {segments.length > 0 && (
             <Breadcrumb className={cn("hidden md:flex overflow-hidden", !hideSearch ? "max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
               <BreadcrumbList className="flex-nowrap overflow-hidden">
-                {segments.map((segment, index) => {
-                  const isLast = index === segments.length - 1;
+                {buildCrumbEntries(segments).map(({ segment, key: crumbKey, isFirst, isLast }) => {
 
                   return (
-                    // Key by index, not href: a crumb trail can legitimately
-                    // repeat an href (e.g. home renders "WeldSuite" and "Home"
-                    // both linking to "/"), and keying by href then collides
-                    // → React "two children with the same key" warning.
-                    <Fragment key={index}>
-                      {index > 0 && <BreadcrumbSeparator className="shrink-0" />}
+                    // Key by href + label + occurrence counter: a crumb trail can
+                    // legitimately repeat an href (e.g. home renders "WeldSuite"
+                    // and "Home" both linking to "/"), and keying by href alone
+                    // then collides → React "two children with the same key" warning.
+                    <Fragment key={crumbKey}>
+                      {!isFirst && <BreadcrumbSeparator className="shrink-0" />}
                       <BreadcrumbItem className={cn("min-w-0", isLast ? "truncate" : "shrink-0")}>
                         {isLast || !segment.href ? (
                           <BreadcrumbPage className="truncate max-w-[500px]">
@@ -440,6 +465,7 @@ export function BreadcrumbHeader({
                 {open && (
                   <div
                     ref={commandRef}
+                    role="presentation"
                     onMouseDown={(e) => e.preventDefault()}
                     className="absolute top-full mt-2 w-full z-50 rounded-md border bg-popover shadow-md"
                   >
