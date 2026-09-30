@@ -54,6 +54,12 @@ interface EntityRow {
   jurisdictionCode: string;
 }
 
+function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
+  if (status === 'filed' || status === 'accepted') return 'default';
+  if (status === 'rejected') return 'destructive';
+  return 'outline';
+}
+
 export default function VatReturnsPage() {
   const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { data, isLoading } = useAccountingVatReturns();
@@ -150,15 +156,7 @@ export default function VatReturnsPage() {
   const icpDeclarations = (icpData?.data ?? []) as IcpDeclaration[];
 
   const statusBadge = (status: string) => (
-    <Badge
-      variant={
-        status === 'filed' || status === 'accepted'
-          ? 'default'
-          : status === 'rejected'
-            ? 'destructive'
-            : 'outline'
-      }
-    >
+    <Badge variant={vatStatusBadgeVariant(status)}>
       {tslVat[status as keyof typeof tslVat] ?? status}
     </Badge>
   );

@@ -115,7 +115,9 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
               className="cursor-pointer group-hover/cal:bg-sidebar-accent group-hover/cal:text-sidebar-accent-foreground"
             >
               <div
-                role="button"
+                role="checkbox"
+                aria-checked={visibleIds.has(cal.id)}
+                aria-label={cal.name}
                 tabIndex={0}
                 onClick={() => toggleCalendar(cal.id)}
                 onKeyDown={(e) => {
@@ -127,6 +129,8 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
               >
                 <div className="flex items-center gap-2 flex-1 min-w-0 pr-0 group-hover/cal:pr-8">
                   <Checkbox
+                    aria-hidden="true"
+                    tabIndex={-1}
                     checked={visibleIds.has(cal.id)}
                     className={`h-4 w-4 pointer-events-none ${visibleIds.has(cal.id) ? '' : 'border-[1.5px]'}`}
                     style={{ borderColor: cal.color || '#3b82f6', backgroundColor: visibleIds.has(cal.id) ? (cal.color || '#3b82f6') : undefined }}

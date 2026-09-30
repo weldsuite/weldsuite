@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+const WEEKDAY_IDS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
 interface MiniCalendarProps {
   selectedDate?: Date;
   onDateSelect?: (date: Date) => void;
@@ -12,6 +14,10 @@ interface MiniCalendarProps {
 export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect }: Readonly<MiniCalendarProps>) {
   const t = useTranslations();
   const DAY_LABELS = t('sweep.miscA.miniCalendar.dayLabels').split(',');
+  const dayHeaders = DAY_LABELS.map((label, dayIndex) => ({
+    id: WEEKDAY_IDS[dayIndex] ?? `day-${dayIndex}`,
+    label,
+  }));
   const today = new Date();
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -72,8 +78,8 @@ export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect 
     const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
     const daysInMonth = lastDay.getDate();
 
-    const grid: (Date | null)[][] = [];
-    let week: (Date | null)[] = [];
+    const grid: Date[][] = [];
+    let week: Date[] = [];
 
     // Fill leading empty cells
     for (let i = 0; i < startDayOfWeek; i++) {
@@ -140,8 +146,8 @@ export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect 
 
       {/* Day labels — matches the YearMonth header treatment exactly */}
       <div className="grid grid-cols-7">
-        {DAY_LABELS.map((label, i) => (
-          <div key={i} className="text-[10px] text-muted-foreground text-center py-0.5">
+        {dayHeaders.map(({ id, label }) => (
+          <div key={id} className="text-[10px] text-muted-foreground text-center py-0.5">
             {label}
           </div>
         ))}
@@ -153,15 +159,14 @@ export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect 
           foreground/background pill; non-today in-month rows show the hover ring;
           selected day uses bg-accent so it doesn't compete with today. */}
       <div className="grid grid-cols-7 gap-0">
-        {weeks.flat().map((date, di) => {
-          if (!date) return <div key={di} />;
+        {weeks.flat().map((date) => {
           const current = isCurrentMonth(date);
           const todayDate = isToday(date);
           const selected = isSelected(date);
 
           return (
             <Button
-              key={di}
+              key={date.getTime()}
               variant="ghost"
               onClick={() => handleDateClick(date)}
               className={cn(

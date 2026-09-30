@@ -9,6 +9,24 @@ import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+const STATUS_BADGE_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
+  active: 'default',
+  paused: 'secondary',
+};
+
+/** Builds stable keys for id-less template items (duplicates get an occurrence suffix). */
+function withItemKeys<T extends { description?: string; quantity?: number; unitPrice?: number }>(
+  list: T[],
+): Array<{ key: string; item: T }> {
+  const seen = new Map<string, number>();
+  return list.map((item) => {
+    const base = `${item.description ?? ''}|${item.quantity ?? ''}|${item.unitPrice ?? ''}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { key: `${base}#${occurrence}`, item };
+  });
+}
+
 export default function RecurringInvoiceDetailPage() {
   const { t } = useI18n();
   const { formatMoney: fmt } = useCurrentEntityCurrency();
@@ -50,6 +68,8 @@ export default function RecurringInvoiceDetailPage() {
 
   const template = rec.templateData ?? {};
   const items = template.items ?? [];
+  const keyedItems = withItemKeys(items);
+  const statusVariant = STATUS_BADGE_VARIANTS[rec.status] ?? 'outline';
 
   return (
     <div className="p-6 space-y-6">
@@ -64,7 +84,7 @@ export default function RecurringInvoiceDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={rec.status === 'active' ? 'default' : rec.status === 'paused' ? 'secondary' : 'outline'}>
+          <Badge variant={statusVariant}>
             {tslRec[rec.status as keyof typeof tslRec] ?? rec.status}
           </Badge>
           {rec.status === 'active' && (
@@ -150,8 +170,8 @@ export default function RecurringInvoiceDetailPage() {
           <CardHeader><CardTitle className="text-base">{trp.templateItems}</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {items.map((item, i: number) => (
-                <div key={i} className="flex justify-between text-sm border-b pb-2">
+              {keyedItems.map(({ key, item }) => (
+                <div key={key} className="flex justify-between text-sm border-b pb-2">
                   <span>{item.description}</span>
                   <span className="font-medium">
                     {item.quantity} × {fmt(item.unitPrice, template.currency)} = {fmt((item.quantity ?? 1) * (item.unitPrice ?? 0), template.currency)}
