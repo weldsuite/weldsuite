@@ -11,7 +11,7 @@ export interface ExtractedCustomerInfo {
 }
 
 // Email regex pattern
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/;
 
 // Common name patterns (captures words that look like names)
 // This is a simple heuristic - names are hard to detect perfectly

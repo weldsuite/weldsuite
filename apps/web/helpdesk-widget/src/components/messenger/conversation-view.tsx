@@ -51,7 +51,7 @@ function EmailCapture({ messenger, color }: Readonly<{ messenger: Messenger; col
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value)) {
       setState('error');
       return;
     }

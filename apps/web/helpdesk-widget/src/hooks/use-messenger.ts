@@ -267,7 +267,8 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
       .slice(0, WATCHED_ROOMS)
       .map((c) => c.id);
     if (activeId && activeId !== DRAFT_ID && !ids.includes(activeId)) ids.push(activeId);
-    return ids.sort((a, b) => a.localeCompare(b)).join(',');
+    ids.sort((a, b) => a.localeCompare(b));
+    return ids.join(',');
   }, [conversations, activeId]);
 
   useEffect(() => {

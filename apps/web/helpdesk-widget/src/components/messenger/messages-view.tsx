@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Loader2, MessageCircle, Send, X } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import type { Messenger } from '@/hooks/use-messenger';
@@ -14,6 +15,59 @@ interface MessagesViewProps {
 export function MessagesView({ config, messenger, onNewConversation, onOpenConversation, onClose }: Readonly<MessagesViewProps>) {
   const color = config.branding.primaryColor;
   const { conversations, conversationsLoaded } = messenger;
+
+  let body: ReactNode;
+  if (!conversationsLoaded) {
+    body = (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+      </div>
+    );
+  } else if (conversations.length === 0) {
+    body = (
+      <div className="flex flex-col items-center justify-center text-center px-8 py-16">
+        <MessageCircle className="h-8 w-8 text-gray-300 mb-3" />
+        <p className="text-sm font-semibold text-gray-900">No messages</p>
+        <p className="text-sm text-gray-500 mt-1">Messages from the team will be shown here</p>
+      </div>
+    );
+  } else {
+    body = (
+      <ul>
+        {conversations.map((conversation) => {
+          const unread = messenger.isUnread(conversation);
+          const who = conversation.lastMessageFromTeam
+            ? conversation.assignee?.name ?? config.team[0]?.name ?? 'Support'
+            : 'You';
+          return (
+            <li key={conversation.id}>
+              <button
+                type="button"
+                onClick={() => onOpenConversation(conversation.id)}
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-50 transition border-b border-gray-50"
+              >
+                <Avatar
+                  name={conversation.assignee?.name ?? config.team[0]?.name ?? 'Support'}
+                  src={conversation.assignee?.avatar ?? config.team[0]?.avatar}
+                  size={40}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>
+                    {conversation.lastMessagePreview || conversation.title || 'Conversation'}
+                  </p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {who} · {timeAgo(conversation.lastMessageAt ?? conversation.createdAt)}
+                    {conversation.state === 'closed' && ' · Closed'}
+                  </p>
+                </div>
+                {unread && <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" data-testid="messages-view">
@@ -32,53 +86,7 @@ export function MessagesView({ config, messenger, onNewConversation, onOpenConve
         )}
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {!conversationsLoaded ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center px-8 py-16">
-            <MessageCircle className="h-8 w-8 text-gray-300 mb-3" />
-            <p className="text-sm font-semibold text-gray-900">No messages</p>
-            <p className="text-sm text-gray-500 mt-1">Messages from the team will be shown here</p>
-          </div>
-        ) : (
-          <ul>
-            {conversations.map((conversation) => {
-              const unread = messenger.isUnread(conversation);
-              const who = conversation.lastMessageFromTeam
-                ? conversation.assignee?.name ?? config.team[0]?.name ?? 'Support'
-                : 'You';
-              return (
-                <li key={conversation.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenConversation(conversation.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-50 transition border-b border-gray-50"
-                  >
-                    <Avatar
-                      name={conversation.assignee?.name ?? config.team[0]?.name ?? 'Support'}
-                      src={conversation.assignee?.avatar ?? config.team[0]?.avatar}
-                      size={40}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>
-                        {conversation.lastMessagePreview || conversation.title || 'Conversation'}
-                      </p>
-                      <p className="text-xs text-gray-500 truncate">
-                        {who} · {timeAgo(conversation.lastMessageAt ?? conversation.createdAt)}
-                        {conversation.state === 'closed' && ' · Closed'}
-                      </p>
-                    </div>
-                    {unread && <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto">{body}</div>
 
       <div className="flex justify-center py-3 flex-shrink-0">
         <button
