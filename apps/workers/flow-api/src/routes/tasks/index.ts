@@ -653,6 +653,269 @@ function dispatchGithubOutboundSync(
 }
 
 // ============================================================================
+// Shared mutation helpers (status / position / update handlers)
+// ============================================================================
+
+type TaskCtx = Context<{ Bindings: Env; Variables: Variables }>;
+type TaskDb = Variables['tenantDb'];
+
+/** Row-level guard shared by the by-id handlers: a Response to return, or null when access is allowed. */
+async function guardTaskAccess(c: TaskCtx, id: string): Promise<Response | null> {
+  const access = await canAccessTaskProject(c, id);
+  if (access === 'not-found') return error.notFound(c, 'Task', id);
+  if (access === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+  return null;
+}
+
+function isTerminalStatus(status: unknown): boolean {
+  return status === 'done' || status === 'cancelled';
+}
+
+function cancelCalendarInBackground(c: TaskCtx, db: TaskDb, calendarEventId: string): void {
+  c.executionCtx.waitUntil(
+    cancelCalendarEvent(db, calendarEventId).catch((err) =>
+      console.error('[app-api/tasks] calendar cancel failed:', err),
+    ),
+  );
+}
+
+function confirmCalendarInBackground(c: TaskCtx, db: TaskDb, calendarEventId: string): void {
+  c.executionCtx.waitUntil(
+    confirmCalendarEvent(db, calendarEventId).catch((err) =>
+      console.error('[app-api/tasks] calendar confirm failed:', err),
+    ),
+  );
+}
+
+/** Cancel the linked calendar event when a task becomes done/cancelled, re-confirm it when it leaves that state. */
+function syncCalendarOnStatusChange(
+  c: TaskCtx,
+  db: TaskDb,
+  calendarEventId: string,
+  oldStatus: unknown,
+  newStatus: unknown,
+): void {
+  const wasTerminal = isTerminalStatus(oldStatus);
+  const isTerminal = isTerminalStatus(newStatus);
+  if (!wasTerminal && isTerminal) {
+    cancelCalendarInBackground(c, db, calendarEventId);
+  } else if (wasTerminal && !isTerminal) {
+    confirmCalendarInBackground(c, db, calendarEventId);
+  }
+}
+
+/** Next occurrence of a recurring task when it is completed (project tasks only). */
+async function createNextRecurringTaskOnDone(
+  db: TaskDb,
+  task: any,
+  newStatus: unknown,
+): Promise<string | null> {
+  if (newStatus !== 'done' || !task.repeat || !task.projectId) return null;
+  return createNextRecurringTask(db, task, task.projectId);
+}
+
+/** Add (`add`) or remove this task's id from a reciprocal dependsOn/blocks list of a linked task. */
+async function syncReciprocalLink(
+  db: TaskDb,
+  linkedId: string,
+  field: 'blocks' | 'dependsOn',
+  selfId: string,
+  mode: 'add' | 'remove',
+): Promise<void> {
+  const [linked] = await db
+    .select({ blocks: t.blocks, dependsOn: t.dependsOn })
+    .from(t)
+    .where(eq(t.id, linkedId))
+    .limit(1);
+  if (!linked) return;
+  const current = ((linked[field] as string[]) || []);
+  const next = mode === 'add' ? [...new Set([...current, selfId])] : current.filter((x) => x !== selfId);
+  const now = new Date();
+  await db
+    .update(t)
+    .set(field === 'blocks' ? { blocks: next, updatedAt: now } : { dependsOn: next, updatedAt: now })
+    .where(eq(t.id, linkedId));
+}
+
+async function syncReciprocalLinks(
+  db: TaskDb,
+  linkedIds: string[],
+  field: 'blocks' | 'dependsOn',
+  selfId: string,
+  mode: 'add' | 'remove',
+): Promise<void> {
+  for (const linkedId of linkedIds) {
+    await syncReciprocalLink(db, linkedId, field, selfId, mode);
+  }
+}
+
+/** Fields of a position update that are echoed back in the event payload and the response. */
+function positionEcho(data: { position?: number; status?: string }) {
+  return {
+    ...(data.position !== undefined && { position: data.position }),
+    ...(data.status && { status: data.status }),
+  };
+}
+
+function buildPositionUpdate(data: {
+  position?: number;
+  boardPosition?: number;
+  status?: string;
+}): Record<string, any> {
+  const updateData: Record<string, any> = { updatedAt: new Date() };
+  if (data.position !== undefined) updateData.position = data.position;
+  if (data.boardPosition !== undefined) updateData.boardPosition = data.boardPosition;
+  if (data.status) {
+    updateData.status = data.status;
+    if (data.status === 'done') updateData.completedDate = new Date();
+  }
+  return updateData;
+}
+
+// --- PATCH /:id helpers ------------------------------------------------------
+
+/** Keep `assigneeId` and `assigneeIds` consistent with whichever one the caller sent. */
+function syncAssigneeFields(update: Record<string, any>, data: Record<string, any>): void {
+  if (data.assigneeIds !== undefined) {
+    const ids = (data.assigneeIds as string[]) || [];
+    update.assigneeIds = ids.length > 0 ? ids : null;
+    update.assigneeId = ids[0] || null;
+  } else if (data.assigneeId !== undefined) {
+    update.assigneeIds = data.assigneeId ? [data.assigneeId] : null;
+  }
+}
+
+/** Copy the defined body fields (date strings become Dates) and sync the assignee columns. */
+function buildTaskUpdate(data: Record<string, any>): Record<string, any> {
+  const update: Record<string, any> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined) continue;
+    update[k] = (k === 'startDate' || k === 'dueDate') && v ? new Date(v as string) : v;
+  }
+  syncAssigneeFields(update, data);
+  return update;
+}
+
+async function statusFromStage(db: TaskDb, stageId: unknown): Promise<string | undefined> {
+  if (!stageId) return undefined;
+  const [stage] = await db
+    .select({ systemStatus: schema.projectPipelineStages.systemStatus })
+    .from(schema.projectPipelineStages)
+    .where(eq(schema.projectPipelineStages.id, stageId as string))
+    .limit(1);
+  return stage?.systemStatus || undefined;
+}
+
+function resolveUpdatedDate(incoming: unknown, current: Date | null): Date | null {
+  if (incoming === undefined) return current;
+  return incoming ? new Date(incoming as string) : null;
+}
+
+/** Calendar sync after a PATCH: create the event if missing, else reschedule / cancel / confirm as needed. */
+function syncCalendarAfterUpdate(
+  c: TaskCtx,
+  db: TaskDb,
+  args: {
+    existing: any;
+    data: Record<string, any>;
+    resolvedStatus: unknown;
+    userId: string;
+    id: string;
+  },
+): void {
+  const { existing, data, resolvedStatus, userId, id } = args;
+  const calendarEventId = existing.calendarEventId;
+  const eventFields = {
+    userId,
+    taskId: id,
+    title: (data.title as string) || existing.title,
+    description:
+      data.description !== undefined
+        ? (data.description as string | null)
+        : existing.description,
+    dueDate: resolveUpdatedDate(data.dueDate, existing.dueDate),
+    startDate: resolveUpdatedDate(data.startDate, existing.startDate),
+    durationMinutes:
+      data.duration !== undefined ? (data.duration as number | null) : existing.duration,
+  };
+
+  if (!calendarEventId) {
+    c.executionCtx.waitUntil(
+      createCalendarEventForTask(db, {
+        ...eventFields,
+        priority: (data.priority as string | null) ?? existing.priority,
+      })
+        .then((eventId) => db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, id)))
+        .catch((err) => console.error('[app-api/tasks] calendar event creation failed:', err)),
+    );
+    return;
+  }
+
+  const reschedule = (priority: string | null, failureLabel: string) =>
+    c.executionCtx.waitUntil(
+      rescheduleCalendarEvent(db, { ...eventFields, calendarEventId, priority })
+        .then((newEventId) =>
+          db.update(t).set({ calendarEventId: newEventId }).where(eq(t.id, id)),
+        )
+        .catch((err) => console.error(`[app-api/tasks] ${failureLabel} failed:`, err)),
+    );
+
+  const datesChanged = data.dueDate !== undefined || data.startDate !== undefined;
+  if (datesChanged || data.title !== undefined || data.duration !== undefined) {
+    reschedule((data.priority as string | null) ?? existing.priority, 'calendar reschedule');
+  }
+
+  // Status → done/cancelled: cancel calendar event
+  syncCalendarOnStatusChange(c, db, calendarEventId, existing.status, resolvedStatus);
+
+  // Priority changed without date changes → reschedule
+  const priorityChanged = data.priority !== undefined && data.priority !== existing.priority;
+  if (priorityChanged && !datesChanged) {
+    reschedule(data.priority as string, 'calendar priority reschedule');
+  }
+}
+
+/** Recurrence: create the next task when a PATCH moves the task to done. */
+async function createNextRecurringTaskOnUpdate(
+  db: TaskDb,
+  existing: any,
+  update: Record<string, any>,
+  data: Record<string, any>,
+  resolvedStatus: unknown,
+): Promise<string | null> {
+  if (existing.status === 'done' || resolvedStatus !== 'done') return null;
+  const repeatConfig = data.repeat !== undefined ? data.repeat : existing.repeat;
+  if (!repeatConfig || !existing.projectId) return null;
+  return createNextRecurringTask(
+    db,
+    { ...existing, ...update, repeat: repeatConfig },
+    existing.projectId,
+  );
+}
+
+/** Assignees present after the update that were not on the task before. */
+function newlyAddedAssignees(existing: any, update: Record<string, any>): string[] {
+  const oldIds: string[] =
+    existing.assigneeIds || (existing.assigneeId ? [existing.assigneeId] : []);
+  const newIds: string[] =
+    update.assigneeIds || (update.assigneeId ? [update.assigneeId] : oldIds);
+  return newIds.filter((aid) => !oldIds.includes(aid));
+}
+
+function githubKindsForUpdate(
+  data: Record<string, any>,
+  resolvedStatus: unknown,
+  existingStatus: unknown,
+): GithubOutboundKind[] {
+  const kinds: GithubOutboundKind[] = [];
+  if (data.title !== undefined || data.description !== undefined || data.labels !== undefined) {
+    kinds.push('update');
+  }
+  if (resolvedStatus !== existingStatus) kinds.push('status');
+  return kinds;
+}
+
+// ============================================================================
 // Router
 // ============================================================================
 
@@ -701,40 +964,45 @@ const listQuerySchema = z.object({
   enrich: z.coerce.boolean().optional().default(true),
 });
 
-app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchema), async (c) => {
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  const q = c.req.valid('query');
-
-  const conditions: any[] = [isNull(t.deletedAt)];
-
-  // Scope filters
-  if (q.projectId) conditions.push(eq(t.projectId, q.projectId));
-  // Row-level: a projectId filter must name a project the caller can access;
-  // with none, limit project tasks to accessible projects.
-  // KNOWN-DEFERRED: non-project tasks (null projectId — personal WeldConnect +
-  // CRM-linked) are NOT owner-scoped here. `tasks:*` is a flat workspace grant
-  // with no `tasks:scope:all`, and there is no per-user (assignee/creator) gate
-  // yet, so a `tasks:read` holder can still see another user's personal task.
-  // Gating this needs a product decision (assignee/creator vs CRM-shared) —
-  // tracked as a deferred item alongside the MEDIUM findings.
-  if (q.projectId) {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_MEMBER_DENIED);
-  } else {
-    const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) {
-      conditions.push(or(isNull(t.projectId), inArray(t.projectId, accessible.length ? accessible : [''])));
-    }
+type ListQuery = z.infer<typeof listQuerySchema>;
+/**
+ * Row-level: a projectId filter must name a project the caller can access;
+ * with none, limit project tasks to accessible projects.
+ * KNOWN-DEFERRED: non-project tasks (null projectId — personal WeldConnect +
+ * CRM-linked) are NOT owner-scoped here. `tasks:*` is a flat workspace grant
+ * with no `tasks:scope:all`, and there is no per-user (assignee/creator) gate
+ * yet, so a `tasks:read` holder can still see another user's personal task.
+ * Gating this needs a product decision (assignee/creator vs CRM-shared) —
+ * tracked as a deferred item alongside the MEDIUM findings.
+ */
+async function resolveProjectScope(
+  c: TaskCtx,
+  projectId: string | undefined,
+): Promise<{ denied: boolean; condition: SQL | undefined }> {
+  if (projectId) {
+    return { denied: !(await canAccessProject(c, projectId)), condition: undefined };
   }
-  if (q.sprintId) conditions.push(eq(t.sprintId, q.sprintId));
-  if (q.milestoneId) conditions.push(eq(t.milestoneId, q.milestoneId));
-  if (q.customerId) conditions.push(eq(t.customerId, q.customerId));
-  if (q.contactId) conditions.push(eq(t.contactId, q.contactId));
-  if (q.personId) conditions.push(eq((t as any).personId, q.personId));
+  const accessible = await accessibleProjectIds(c);
+  if (accessible === null) return { denied: false, condition: undefined };
+  return {
+    denied: false,
+    condition: or(isNull(t.projectId), inArray(t.projectId, accessible.length ? accessible : [''])),
+  };
+}
+
+function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
+  const filters: SQL[] = [];
+  if (q.projectId) filters.push(eq(t.projectId, q.projectId));
+  if (projectScope) filters.push(projectScope);
+  if (q.sprintId) filters.push(eq(t.sprintId, q.sprintId));
+  if (q.milestoneId) filters.push(eq(t.milestoneId, q.milestoneId));
+  if (q.customerId) filters.push(eq(t.customerId, q.customerId));
+  if (q.contactId) filters.push(eq(t.contactId, q.contactId));
+  if (q.personId) filters.push(eq((t as any).personId, q.personId));
 
   // CRM-linked only: at least one of the company/person link columns is set.
   if (q.crmLinked) {
-    conditions.push(
+    filters.push(
       or(
         isNotNull(t.customerId),
         isNotNull(t.contactId),
@@ -747,27 +1015,34 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
   // parentTaskId filter: if specified show that subtree level; otherwise top-level only
   // when a projectId is scoped (matches api-worker behaviour for project views).
   if (q.parentTaskId !== undefined && q.parentTaskId !== '') {
-    conditions.push(eq(t.parentTaskId, q.parentTaskId));
+    filters.push(eq(t.parentTaskId, q.parentTaskId));
   } else if (q.projectId) {
-    conditions.push(isNull(t.parentTaskId));
+    filters.push(isNull(t.parentTaskId));
   }
+  return filters;
+}
 
-  // Value filters
-  if (q.status) conditions.push(eq(t.status, q.status));
-  if (q.priority) conditions.push(eq(t.priority, q.priority));
-  if (q.type) conditions.push(eq(t.type, q.type));
+function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
+  const filters: SQL[] = [];
+  if (q.status) filters.push(eq(t.status, q.status));
+  if (q.priority) filters.push(eq(t.priority, q.priority));
+  if (q.type) filters.push(eq(t.type, q.type));
 
   // Assignee: myTasks shorthand takes precedence over explicit assigneeId
   const effectiveAssigneeId = q.myTasks ? userId : q.assigneeId;
   if (effectiveAssigneeId) {
-    conditions.push(
+    filters.push(
       or(
         eq(t.assigneeId, effectiveAssigneeId),
         sql`${t.assigneeIds}::jsonb @> ${JSON.stringify([effectiveAssigneeId])}::jsonb`,
       )!,
     );
   }
+  return filters;
+}
 
+function taskSearchFilters(q: ListQuery): SQL[] {
+  const filters: SQL[] = [];
   if (q.search) {
     const term = `%${q.search}%`;
     const searchClauses = [
@@ -780,53 +1055,210 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
     if (/^\d+$/.test(numberMatch)) {
       searchClauses.push(eq(t.number, Number(numberMatch)));
     }
-    conditions.push(or(...searchClauses)!);
+    filters.push(or(...searchClauses)!);
   }
 
   if (q.labelIds && q.labelIds.length > 0) {
-    conditions.push(
+    filters.push(
       sql`${t.labels} ?| array[${sql.join(
         q.labelIds.map((id) => sql`${id}`),
         sql`, `,
       )}]::text[]`,
     );
   }
+  return filters;
+}
 
-  if (q.dueDateBucket) {
-    conditions.push(dueDateBucketCondition(q.dueDateBucket, t.dueDate));
+function taskDueDateFilters(q: ListQuery): SQL[] {
+  const filters: SQL[] = [];
+  if (q.dueDateBucket) filters.push(dueDateBucketCondition(q.dueDateBucket, t.dueDate));
+  if (q.dueDateFrom) filters.push(gte(t.dueDate, new Date(q.dueDateFrom)));
+  if (q.dueDateTo) filters.push(lt(t.dueDate, new Date(q.dueDateTo)));
+  return filters;
+}
+
+/**
+ * Cursor support: the cursor is the id of the last row of the previous page;
+ * continue from its position in the list's sort order. Undefined when there is
+ * no cursor or its row no longer exists.
+ */
+async function resolveTaskCursor(
+  db: TaskDb,
+  q: ListQuery,
+  sortColumn: ReturnType<typeof resolveTaskSortColumn>,
+): Promise<SQL | undefined> {
+  if (!q.cursor) return undefined;
+  const [cur] = await db
+    .select({ id: t.id, sortValue: sortColumn })
+    .from(t)
+    .where(eq(t.id, q.cursor))
+    .limit(1);
+  return cur ? taskCursorCondition(sortColumn, q.sortDirection, cur, t) : undefined;
+}
+
+function paginateTaskRows(
+  rows: any[],
+  q: ListQuery,
+  useCursor: boolean,
+  offset: number,
+  totalCount: number,
+): { data: any[]; paginationMeta: ReturnType<typeof cursorPagination> } {
+  if (useCursor) {
+    const hasMore = rows.length > q.limit;
+    const data = hasMore ? rows.slice(0, q.limit) : rows;
+    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    return { data, paginationMeta: cursorPagination(totalCount, hasMore, nextCursor) };
   }
-  if (q.dueDateFrom) {
-    conditions.push(gte(t.dueDate, new Date(q.dueDateFrom)));
+  const hasMore = offset + rows.length < totalCount;
+  const nextCursor = hasMore && rows.length > 0 ? rows[rows.length - 1].id : null;
+  return { data: rows, paginationMeta: cursorPagination(totalCount, hasMore, nextCursor) };
+}
+
+/** Full descendant tree (BFS over parentTaskId, bounded by MAX_SUBTASK_DEPTH), enriched + hydrated in one batch. */
+async function loadEnrichedDescendants(db: TaskDb, projectId: string, roots: any[]): Promise<any[]> {
+  let frontier: string[] = roots.map((row: any) => row.id);
+  const allDescendants: any[] = [];
+  for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
+    const children = await db
+      .select()
+      .from(t)
+      .where(
+        and(
+          eq(t.projectId, projectId),
+          inArray(t.parentTaskId, frontier),
+          isNull(t.deletedAt),
+        ),
+      )
+      .orderBy(desc(t.position), desc(t.createdAt), desc(t.id));
+    if (children.length === 0) break;
+    allDescendants.push(...children);
+    frontier = children.map((child: any) => child.id);
   }
-  if (q.dueDateTo) {
-    conditions.push(lt(t.dueDate, new Date(q.dueDateTo)));
+
+  // Phase 3: hydrate the whole descendant set in one batch too.
+  if (allDescendants.length === 0) return [];
+  return hydrateCustomFields(db, 'task', await enrichTasksWithAssignees(db, allDescendants));
+}
+
+function attachSubtaskTree(roots: any[], descendants: any[]): void {
+  const childrenByParent = new Map<string, any[]>();
+  for (const row of descendants) {
+    const pid = row.parentTaskId as string | null;
+    if (!pid) continue;
+    const entry = childrenByParent.get(pid);
+    if (entry) entry.push(row);
+    else childrenByParent.set(pid, [row]);
   }
+
+  const attach = (node: any) => {
+    const kids = childrenByParent.get(node.id) || [];
+    node.children = kids;
+    node.subtaskCount = kids.length;
+    node.completedSubtaskCount = kids.filter((k: any) => k.status === 'done').length;
+    for (const k of kids) attach(k);
+  };
+  for (const top of roots) attach(top);
+}
+
+async function attachSubtaskCounts(db: TaskDb, tasks: any[]): Promise<void> {
+  const parentIds = tasks.map((row: any) => row.id);
+  const subtaskCounts = await db
+    .select({
+      parentTaskId: t.parentTaskId,
+      total: sql<number>`count(*)::int`,
+      completed: sql<number>`count(*) filter (where ${t.status} = 'done')::int`,
+    })
+    .from(t)
+    .where(and(inArray(t.parentTaskId, parentIds), isNull(t.deletedAt)))
+    .groupBy(t.parentTaskId);
+
+  const countMap = new Map(
+    subtaskCounts.map((r: any) => [
+      r.parentTaskId,
+      { total: r.total, completed: r.completed },
+    ]),
+  );
+  for (const task of tasks) {
+    const counts = countMap.get(task.id);
+    task.subtaskCount = counts?.total || 0;
+    task.completedSubtaskCount = counts?.completed || 0;
+  }
+}
+
+/**
+ * Subtask tree / counts. Returns the descendant rows delivered in the same
+ * payload (includeSubtasks tree) so they get attachment counts too.
+ */
+async function attachSubtaskData(db: TaskDb, q: ListQuery, enriched: any[]): Promise<any[]> {
+  if (enriched.length === 0) return [];
+  if (q.includeSubtasks && q.projectId) {
+    const descendants = await loadEnrichedDescendants(db, q.projectId, enriched);
+    attachSubtaskTree(enriched, descendants);
+    return descendants;
+  }
+  await attachSubtaskCounts(db, enriched);
+  return [];
+}
+
+/**
+ * Attachment counts — ONE batched query over the whole returned payload
+ * (top-level page + any includeSubtasks descendants), from the `files`
+ * table (entityType='task'), not the custom_fields blob. Skipped when empty.
+ */
+async function attachAttachmentCounts(db: TaskDb, targets: any[]): Promise<void> {
+  if (targets.length === 0) return;
+  const attachmentCounts = await db
+    .select({
+      entityId: schema.files.entityId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(schema.files)
+    .where(
+      and(
+        eq(schema.files.entityType, 'task'),
+        inArray(
+          schema.files.entityId,
+          targets.map((row) => row.id),
+        ),
+        isNull(schema.files.deletedAt),
+      ),
+    )
+    .groupBy(schema.files.entityId);
+
+  const attachmentCountMap = new Map(
+    attachmentCounts.map((r: any) => [r.entityId, r.n]),
+  );
+  for (const task of targets) {
+    task.attachmentsCount = attachmentCountMap.get(task.id) ?? 0;
+  }
+}
+
+app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchema), async (c) => {
+  const db = c.get('tenantDb');
+  const userId = c.get('userId');
+  const q = c.req.valid('query');
+
+  const scope = await resolveProjectScope(c, q.projectId);
+  if (scope.denied) return error.forbidden(c, PROJECT_MEMBER_DENIED);
+
+  const filters: SQL[] = [
+    isNull(t.deletedAt),
+    ...taskScopeFilters(q, scope.condition),
+    ...taskValueFilters(q, userId),
+    ...taskSearchFilters(q),
+    ...taskDueDateFilters(q),
+  ];
 
   // Sort
   const sortDir = q.sortDirection === 'desc' ? desc : asc;
   const sortColumn = resolveTaskSortColumn(q.sortField, t);
 
-  // Cursor support: the cursor is the id of the last row of the previous page;
-  // continue from its position in the list's sort order.
-  let cursorCondition: SQL | undefined = undefined;
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ id: t.id, sortValue: sortColumn })
-      .from(t)
-      .where(eq(t.id, q.cursor))
-      .limit(1);
-    if (cur) {
-      cursorCondition = taskCursorCondition(sortColumn, q.sortDirection, cur, t);
-      conditions.push(cursorCondition);
-    }
-  }
+  const cursorCondition = await resolveTaskCursor(db, q, sortColumn);
+  const conditions = cursorCondition ? [...filters, cursorCondition] : filters;
 
   // Count (without cursor condition)
-  const countConditions = cursorCondition
-    ? conditions.slice(0, -1)
-    : conditions;
-  const countWhere = countConditions.length ? and(...countConditions) : undefined;
-  const where = conditions.length ? and(...conditions) : undefined;
+  const countWhere = and(...filters);
+  const where = and(...conditions);
 
   try {
     // When cursor pagination is active (cursor param present or no projectId),
@@ -847,21 +1279,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
     ]);
 
     const totalCount = Number(countRes[0]?.count ?? 0);
-
-    let data: any[];
-    let paginationMeta: any;
-
-    if (useCursor) {
-      const hasMore = rows.length > q.limit;
-      data = hasMore ? rows.slice(0, q.limit) : rows;
-      const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
-      paginationMeta = cursorPagination(totalCount, hasMore, nextCursor);
-    } else {
-      data = rows;
-      const hasMore = offset + rows.length < totalCount;
-      const nextCursor = hasMore && rows.length > 0 ? rows[rows.length - 1].id : null;
-      paginationMeta = cursorPagination(totalCount, hasMore, nextCursor);
-    }
+    const { data, paginationMeta } = paginateTaskRows(rows, q, useCursor, offset, totalCount);
 
     // Enrichment
     const assigneeEnriched = q.enrich ? await enrichTasksWithAssignees(db, data) : data;
@@ -869,115 +1287,8 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
     // Batched — two extra queries for the whole page, regardless of page size.
     const enriched = await hydrateCustomFields(db, 'task', assigneeEnriched);
 
-    // Subtask tree / counts
-    // Descendants returned in the same payload (includeSubtasks tree) get
-    // attachment counts too — tracked here so the batched query below covers them.
-    let descendantRows: any[] = [];
-    if (enriched.length > 0) {
-      if (q.includeSubtasks && q.projectId) {
-        let frontier: string[] = enriched.map((row: any) => row.id);
-        const allDescendants: any[] = [];
-        for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
-          const children = await db
-            .select()
-            .from(t)
-            .where(
-              and(
-                eq(t.projectId, q.projectId),
-                inArray(t.parentTaskId, frontier),
-                isNull(t.deletedAt),
-              ),
-            )
-            .orderBy(desc(t.position), desc(t.createdAt), desc(t.id));
-          if (children.length === 0) break;
-          allDescendants.push(...children);
-          frontier = children.map((child: any) => child.id);
-        }
-
-        // Phase 3: hydrate the whole descendant set in one batch too.
-        const enrichedDesc =
-          allDescendants.length > 0
-            ? await hydrateCustomFields(
-                db,
-                'task',
-                await enrichTasksWithAssignees(db, allDescendants),
-              )
-            : [];
-        descendantRows = enrichedDesc;
-
-        const childrenByParent = new Map<string, any[]>();
-        for (const row of enrichedDesc) {
-          const pid = row.parentTaskId as string | null;
-          if (!pid) continue;
-          const entry = childrenByParent.get(pid);
-          if (entry) entry.push(row);
-          else childrenByParent.set(pid, [row]);
-        }
-
-        const attach = (node: any) => {
-          const kids = childrenByParent.get(node.id) || [];
-          node.children = kids;
-          node.subtaskCount = kids.length;
-          node.completedSubtaskCount = kids.filter((k: any) => k.status === 'done').length;
-          for (const k of kids) attach(k);
-        };
-        for (const top of enriched) attach(top);
-      } else {
-        const parentIds = enriched.map((row: any) => row.id);
-        const subtaskCounts = await db
-          .select({
-            parentTaskId: t.parentTaskId,
-            total: sql<number>`count(*)::int`,
-            completed: sql<number>`count(*) filter (where ${t.status} = 'done')::int`,
-          })
-          .from(t)
-          .where(and(inArray(t.parentTaskId, parentIds), isNull(t.deletedAt)))
-          .groupBy(t.parentTaskId);
-
-        const countMap = new Map(
-          subtaskCounts.map((r: any) => [
-            r.parentTaskId,
-            { total: r.total, completed: r.completed },
-          ]),
-        );
-        for (const task of enriched) {
-          const counts = countMap.get(task.id);
-          task.subtaskCount = counts?.total || 0;
-          task.completedSubtaskCount = counts?.completed || 0;
-        }
-      }
-    }
-
-    // Attachment counts — ONE batched query over the whole returned payload
-    // (top-level page + any includeSubtasks descendants), from the `files`
-    // table (entityType='task'), not the custom_fields blob. Skipped when empty.
-    const attachmentTargets: any[] = [...enriched, ...descendantRows];
-    if (attachmentTargets.length > 0) {
-      const attachmentCounts = await db
-        .select({
-          entityId: schema.files.entityId,
-          n: sql<number>`count(*)::int`,
-        })
-        .from(schema.files)
-        .where(
-          and(
-            eq(schema.files.entityType, 'task'),
-            inArray(
-              schema.files.entityId,
-              attachmentTargets.map((row) => row.id),
-            ),
-            isNull(schema.files.deletedAt),
-          ),
-        )
-        .groupBy(schema.files.entityId);
-
-      const attachmentCountMap = new Map(
-        attachmentCounts.map((r: any) => [r.entityId, r.n]),
-      );
-      for (const task of attachmentTargets) {
-        task.attachmentsCount = attachmentCountMap.get(task.id) ?? 0;
-      }
-    }
+    const descendantRows = await attachSubtaskData(db, q, enriched);
+    await attachAttachmentCounts(db, [...enriched, ...descendantRows]);
 
     return list(c, enriched, paginationMeta);
   } catch (err) {
@@ -1426,9 +1737,8 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const _taskAccess = await canAccessTaskProject(c, id);
-    if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    const denied = await guardTaskAccess(c, id);
+    if (denied) return denied;
     const data = c.req.valid('json');
 
     try {
@@ -1448,33 +1758,17 @@ app.patch(
       await db.update(t).set(updateData).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
       // Calendar sync
-      if ((currentTask as any).calendarEventId) {
-        if (newStatus === 'done' || newStatus === 'cancelled') {
-          c.executionCtx.waitUntil(
-            cancelCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar cancel failed:', err),
-            ),
-          );
-        } else if (
-          (currentTask as any).status === 'done' ||
-          (currentTask as any).status === 'cancelled'
-        ) {
-          c.executionCtx.waitUntil(
-            confirmCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar confirm failed:', err),
-            ),
-          );
+      const calendarEventId = (currentTask as any).calendarEventId;
+      if (calendarEventId) {
+        if (isTerminalStatus(newStatus)) {
+          cancelCalendarInBackground(c, db, calendarEventId);
+        } else if (isTerminalStatus((currentTask as any).status)) {
+          confirmCalendarInBackground(c, db, calendarEventId);
         }
       }
 
       // Recurrence
-      let nextTaskId: string | null = null;
-      if (newStatus === 'done' && (currentTask as any).repeat) {
-        const projectId = (currentTask as any).projectId;
-        if (projectId) {
-          nextTaskId = await createNextRecurringTask(db, currentTask, projectId);
-        }
-      }
+      const nextTaskId = await createNextRecurringTaskOnDone(db, currentTask, newStatus);
 
       publishEntityEvent({
         c,
@@ -1511,9 +1805,8 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const _taskAccess = await canAccessTaskProject(c, id);
-    if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    const denied = await guardTaskAccess(c, id);
+    if (denied) return denied;
     const { status } = c.req.valid('json');
 
     try {
@@ -1529,33 +1822,12 @@ app.patch(
 
       await db.update(t).set(updateData).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
-      if ((currentTask as any).calendarEventId) {
-        const wasTerminal =
-          (currentTask as any).status === 'done' ||
-          (currentTask as any).status === 'cancelled';
-        const isTerminal = status === 'done' || status === 'cancelled';
-        if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
-            cancelCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar cancel failed:', err),
-            ),
-          );
-        } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
-            confirmCalendarEvent(db, (currentTask as any).calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar confirm failed:', err),
-            ),
-          );
-        }
+      const calendarEventId = (currentTask as any).calendarEventId;
+      if (calendarEventId) {
+        syncCalendarOnStatusChange(c, db, calendarEventId, (currentTask as any).status, status);
       }
 
-      let nextTaskId: string | null = null;
-      if (status === 'done' && (currentTask as any).repeat) {
-        const projectId = (currentTask as any).projectId;
-        if (projectId) {
-          nextTaskId = await createNextRecurringTask(db, currentTask, projectId);
-        }
-      }
+      const nextTaskId = await createNextRecurringTaskOnDone(db, currentTask, status);
 
       publishEntityEvent({
         c,
@@ -1599,9 +1871,8 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const _taskAccess = await canAccessTaskProject(c, id);
-    if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    const denied = await guardTaskAccess(c, id);
+    if (denied) return denied;
     const data = c.req.valid('json');
 
     try {
@@ -1613,53 +1884,24 @@ app.patch(
       if (!task) return error.notFound(c, 'Task', id);
       const currentTask: any = task;
 
-      const updateData: Record<string, any> = { updatedAt: new Date() };
-      if (data.position !== undefined) updateData.position = data.position;
-      if (data.boardPosition !== undefined) updateData.boardPosition = data.boardPosition;
-      if (data.status) {
-        updateData.status = data.status;
-        if (data.status === 'done') updateData.completedDate = new Date();
-      }
-
-      await db.update(t).set(updateData).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      await db
+        .update(t)
+        .set(buildPositionUpdate(data))
+        .where(and(eq(t.id, id), isNull(t.deletedAt)));
 
       // Calendar sync on status change
       if (currentTask?.calendarEventId && data.status) {
-        const wasTerminal =
-          currentTask.status === 'done' || currentTask.status === 'cancelled';
-        const isTerminal = data.status === 'done' || data.status === 'cancelled';
-        if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
-            cancelCalendarEvent(db, currentTask.calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar cancel failed:', err),
-            ),
-          );
-        } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
-            confirmCalendarEvent(db, currentTask.calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar confirm failed:', err),
-            ),
-          );
-        }
+        syncCalendarOnStatusChange(c, db, currentTask.calendarEventId, currentTask.status, data.status);
       }
 
-      let nextTaskId: string | null = null;
-      if (data.status === 'done' && currentTask?.repeat) {
-        const projectId = currentTask.projectId;
-        if (projectId) {
-          nextTaskId = await createNextRecurringTask(db, currentTask, projectId);
-        }
-      }
+      const nextTaskId = await createNextRecurringTaskOnDone(db, currentTask, data.status);
 
       publishEntityEvent({
         c,
         entityType: 'project_task',
         entityId: id,
         action: 'updated',
-        data: taskAnalyticsPayload(currentTask as Record<string, unknown>, {
-          ...(data.position !== undefined && { position: data.position }),
-          ...(data.status && { status: data.status }),
-        }),
+        data: taskAnalyticsPayload(currentTask as Record<string, unknown>, positionEcho(data)),
       });
 
       if (data.status && data.status !== currentTask.status) {
@@ -1672,8 +1914,7 @@ app.patch(
 
       return success(c, {
         id,
-        ...(data.position !== undefined && { position: data.position }),
-        ...(data.status && { status: data.status }),
+        ...positionEcho(data),
         ...(nextTaskId && { nextTaskId }),
       });
     } catch (err) {
@@ -1700,9 +1941,8 @@ app.put(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const _taskAccess = await canAccessTaskProject(c, id);
-    if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    const denied = await guardTaskAccess(c, id);
+    if (denied) return denied;
     const data = c.req.valid('json');
 
     try {
@@ -1734,70 +1974,10 @@ app.put(
       const addedBlocks = newBlocks.filter((b) => !oldBlocks.includes(b));
       const removedBlocks = oldBlocks.filter((b) => !newBlocks.includes(b));
 
-      for (const depId of addedDeps) {
-        const [dep] = await db
-          .select({ blocks: t.blocks })
-          .from(t)
-          .where(eq(t.id, depId))
-          .limit(1);
-        if (dep) {
-          await db
-            .update(t)
-            .set({
-              blocks: [...new Set([...((dep.blocks as string[]) || []), id])],
-              updatedAt: new Date(),
-            })
-            .where(eq(t.id, depId));
-        }
-      }
-      for (const depId of removedDeps) {
-        const [dep] = await db
-          .select({ blocks: t.blocks })
-          .from(t)
-          .where(eq(t.id, depId))
-          .limit(1);
-        if (dep) {
-          await db
-            .update(t)
-            .set({
-              blocks: ((dep.blocks as string[]) || []).filter((bid) => bid !== id),
-              updatedAt: new Date(),
-            })
-            .where(eq(t.id, depId));
-        }
-      }
-      for (const blockId of addedBlocks) {
-        const [blocked] = await db
-          .select({ dependsOn: t.dependsOn })
-          .from(t)
-          .where(eq(t.id, blockId))
-          .limit(1);
-        if (blocked) {
-          await db
-            .update(t)
-            .set({
-              dependsOn: [...new Set([...((blocked.dependsOn as string[]) || []), id])],
-              updatedAt: new Date(),
-            })
-            .where(eq(t.id, blockId));
-        }
-      }
-      for (const blockId of removedBlocks) {
-        const [blocked] = await db
-          .select({ dependsOn: t.dependsOn })
-          .from(t)
-          .where(eq(t.id, blockId))
-          .limit(1);
-        if (blocked) {
-          await db
-            .update(t)
-            .set({
-              dependsOn: ((blocked.dependsOn as string[]) || []).filter((bid) => bid !== id),
-              updatedAt: new Date(),
-            })
-            .where(eq(t.id, blockId));
-        }
-      }
+      await syncReciprocalLinks(db, addedDeps, 'blocks', id, 'add');
+      await syncReciprocalLinks(db, removedDeps, 'blocks', id, 'remove');
+      await syncReciprocalLinks(db, addedBlocks, 'dependsOn', id, 'add');
+      await syncReciprocalLinks(db, removedBlocks, 'dependsOn', id, 'remove');
 
       return success(c, { id, dependsOn: newDependsOn, blocks: newBlocks });
     } catch (err) {
@@ -1961,11 +2141,9 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const userId = c.get('userId');
-    const workspaceId = c.get('workspaceId');
     const id = c.req.param('id');
-    const _taskAccess = await canAccessTaskProject(c, id);
-    if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    const denied = await guardTaskAccess(c, id);
+    if (denied) return denied;
     const data = c.req.valid('json') as Record<string, any>;
 
     try {
@@ -1976,35 +2154,11 @@ app.patch(
         .limit(1);
       if (!existing) return error.notFound(c, 'Task', id);
 
-      const update: Record<string, any> = { updatedAt: new Date() };
-      for (const [k, v] of Object.entries(data)) {
-        if (v !== undefined) {
-          if ((k === 'startDate' || k === 'dueDate') && v) {
-            update[k] = new Date(v as string);
-          } else {
-            update[k] = v;
-          }
-        }
-      }
-
-      // Sync assigneeId <-> assigneeIds
-      if (data.assigneeIds !== undefined) {
-        const ids = (data.assigneeIds as string[]) || [];
-        update.assigneeIds = ids.length > 0 ? ids : null;
-        update.assigneeId = ids[0] || null;
-      } else if (data.assigneeId !== undefined) {
-        update.assigneeIds = data.assigneeId ? [data.assigneeId] : null;
-      }
+      const update = buildTaskUpdate(data);
 
       // Derive status from stage
-      if (data.stageId) {
-        const [stage] = await db
-          .select({ systemStatus: schema.projectPipelineStages.systemStatus })
-          .from(schema.projectPipelineStages)
-          .where(eq(schema.projectPipelineStages.id, data.stageId))
-          .limit(1);
-        if (stage?.systemStatus) update.status = stage.systemStatus;
-      }
+      const stageStatus = await statusFromStage(db, data.stageId);
+      if (stageStatus) update.status = stageStatus;
 
       const resolvedStatus = update.status ?? (existing as any).status;
       if (resolvedStatus === 'done' && (existing as any).status !== 'done') {
@@ -2016,160 +2170,18 @@ app.patch(
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);
 
-      // Calendar sync
-      const calendarEventId = (existing as any).calendarEventId;
-      const newDueDate =
-        data.dueDate !== undefined
-          ? data.dueDate
-            ? new Date(data.dueDate as string)
-            : null
-          : (existing as any).dueDate;
-      const newStartDate =
-        data.startDate !== undefined
-          ? data.startDate
-            ? new Date(data.startDate as string)
-            : null
-          : (existing as any).startDate;
+      syncCalendarAfterUpdate(c, db, { existing, data, resolvedStatus, userId, id });
 
-      if (
-        calendarEventId &&
-        (data.dueDate !== undefined ||
-          data.startDate !== undefined ||
-          data.title !== undefined ||
-          data.duration !== undefined)
-      ) {
-        c.executionCtx.waitUntil(
-          rescheduleCalendarEvent(db, {
-            calendarEventId,
-            userId,
-            taskId: id,
-            title: (data.title as string) || (existing as any).title,
-            description:
-              data.description !== undefined
-                ? (data.description as string | null)
-                : (existing as any).description,
-            dueDate: newDueDate,
-            startDate: newStartDate,
-            durationMinutes:
-              data.duration !== undefined
-                ? (data.duration as number | null)
-                : (existing as any).duration,
-            priority: (data.priority as string | null) ?? (existing as any).priority,
-          })
-            .then((newEventId) =>
-              db.update(t).set({ calendarEventId: newEventId }).where(eq(t.id, id)),
-            )
-            .catch((err) =>
-              console.error('[app-api/tasks] calendar reschedule failed:', err),
-            ),
-        );
-      } else if (!calendarEventId) {
-        c.executionCtx.waitUntil(
-          createCalendarEventForTask(db, {
-            userId,
-            taskId: id,
-            title: (data.title as string) || (existing as any).title,
-            description:
-              data.description !== undefined
-                ? (data.description as string | null)
-                : (existing as any).description,
-            dueDate: newDueDate,
-            startDate: newStartDate,
-            durationMinutes:
-              data.duration !== undefined
-                ? (data.duration as number | null)
-                : (existing as any).duration,
-            priority: (data.priority as string | null) ?? (existing as any).priority,
-          })
-            .then((eventId) =>
-              db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, id)),
-            )
-            .catch((err) =>
-              console.error('[app-api/tasks] calendar event creation failed:', err),
-            ),
-        );
-      }
-
-      // Status → done/cancelled: cancel calendar event
-      if (calendarEventId) {
-        const oldStatus = (existing as any).status;
-        const wasTerminal = oldStatus === 'done' || oldStatus === 'cancelled';
-        const isTerminal = resolvedStatus === 'done' || resolvedStatus === 'cancelled';
-        if (!wasTerminal && isTerminal) {
-          c.executionCtx.waitUntil(
-            cancelCalendarEvent(db, calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar cancel failed:', err),
-            ),
-          );
-        } else if (wasTerminal && !isTerminal) {
-          c.executionCtx.waitUntil(
-            confirmCalendarEvent(db, calendarEventId).catch((err) =>
-              console.error('[app-api/tasks] calendar confirm failed:', err),
-            ),
-          );
-        }
-
-        // Priority changed without date changes → reschedule
-        const priorityChanged =
-          data.priority !== undefined && data.priority !== (existing as any).priority;
-        const datesChanged = data.dueDate !== undefined || data.startDate !== undefined;
-        if (priorityChanged && !datesChanged) {
-          c.executionCtx.waitUntil(
-            rescheduleCalendarEvent(db, {
-              calendarEventId,
-              userId,
-              taskId: id,
-              title: (data.title as string) || (existing as any).title,
-              description:
-                data.description !== undefined
-                  ? (data.description as string | null)
-                  : (existing as any).description,
-              dueDate: newDueDate,
-              startDate: newStartDate,
-              durationMinutes:
-                data.duration !== undefined
-                  ? (data.duration as number | null)
-                  : (existing as any).duration,
-              priority: data.priority as string,
-            })
-              .then((newEventId) =>
-                db.update(t).set({ calendarEventId: newEventId }).where(eq(t.id, id)),
-              )
-              .catch((err) =>
-                console.error(
-                  '[app-api/tasks] calendar priority reschedule failed:',
-                  err,
-                ),
-              ),
-          );
-        }
-      }
-
-      // Recurrence: create next task if status changed to done
-      let nextTaskId: string | null = null;
-      const wasNotDone = (existing as any).status !== 'done';
-      if (wasNotDone && resolvedStatus === 'done') {
-        const repeatConfig =
-          data.repeat !== undefined ? data.repeat : (existing as any).repeat;
-        if (repeatConfig) {
-          const projectId = (existing as any).projectId;
-          if (projectId) {
-            nextTaskId = await createNextRecurringTask(
-              db,
-              { ...existing, ...update, repeat: repeatConfig },
-              projectId,
-            );
-          }
-        }
-      }
+      const nextTaskId = await createNextRecurringTaskOnUpdate(
+        db,
+        existing,
+        update,
+        data,
+        resolvedStatus,
+      );
 
       // Assignment notifications for newly added assignees
-      const oldIds: string[] =
-        (existing as any).assigneeIds ||
-        ((existing as any).assigneeId ? [(existing as any).assigneeId] : []);
-      const newIds: string[] =
-        update.assigneeIds || (update.assigneeId ? [update.assigneeId] : oldIds);
-      const addedAssignees = newIds.filter((aid) => !oldIds.includes(aid));
+      const addedAssignees = newlyAddedAssignees(existing, update);
       if (addedAssignees.length > 0) {
         dispatchAssignmentNotifications(c, {
           assigneeIds: addedAssignees,
@@ -2177,7 +2189,7 @@ app.patch(
           taskTitle: (data.title as string) || (existing as any).title,
           projectId: (existing as any).projectId ?? null,
           taskPriority: (data.priority as string | null) ?? (existing as any).priority ?? null,
-          dueDate: newDueDate,
+          dueDate: resolveUpdatedDate(data.dueDate, (existing as any).dueDate),
           taskDescription:
             data.description !== undefined
               ? (data.description as string | null)
@@ -2196,17 +2208,10 @@ app.patch(
         ),
       });
 
-      const ghKinds: GithubOutboundKind[] = [];
-      if (data.title !== undefined || data.description !== undefined || data.labels !== undefined) {
-        ghKinds.push('update');
-      }
-      if (resolvedStatus !== (existing as any).status) {
-        ghKinds.push('status');
-      }
       dispatchGithubOutboundSync(c, {
         taskId: id,
         projectId: (existing as any).projectId,
-        kinds: ghKinds,
+        kinds: githubKindsForUpdate(data, resolvedStatus, (existing as any).status),
       });
 
       return success(c, { id, ...data, ...(nextTaskId && { nextTaskId }) });

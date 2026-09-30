@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createSocialMediaSchema, updateSocialMediaSchema } from '@weldsuite/core-api-client/schemas/social-media';
@@ -18,25 +18,56 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.socialMedia;
 
+const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov'];
+
+/** An explicit image/video/gif type wins; otherwise infer from the lower-cased file name. */
+function resolveMediaType(explicitType: string | undefined, lowerFileName: string): string {
+  if (explicitType === 'image' || explicitType === 'video' || explicitType === 'gif') return explicitType;
+  if (VIDEO_EXTENSIONS.some((ext) => lowerFileName.endsWith(ext))) return 'video';
+  if (lowerFileName.endsWith('.gif')) return 'gif';
+  return 'image';
+}
+
+const MIME_BY_EXTENSION: ReadonlyArray<readonly [readonly string[], string]> = [
+  [['.png'], 'image/png'],
+  [['.jpg', '.jpeg'], 'image/jpeg'],
+  [['.gif'], 'image/gif'],
+  [['.webp'], 'image/webp'],
+  [['.mp4'], 'video/mp4'],
+];
+
+function guessMimeType(lowerFileName: string, mediaType: string): string {
+  const byExtension = MIME_BY_EXTENSION.find(([exts]) => exts.some((ext) => lowerFileName.endsWith(ext)));
+  if (byExtension) return byExtension[1];
+  return mediaType === 'video' ? 'video/mp4' : 'image/png';
+}
+
+function pickFileSize(data: Record<string, unknown>): number {
+  if (typeof data.fileSize === 'number') return data.fileSize;
+  return typeof data.size === 'number' ? data.size : 0;
+}
+
+type Db = Variables['tenantDb'];
+
+/** Keyset condition for "rows after the cursor row", or null when the cursor row is unknown. */
+async function cursorCondition(db: Db, cursor: string) {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('posts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const filters: SQL[] = [isNull(t.deletedAt)];
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : null;
+  const conditions = cursorCond ? [...filters, cursorCond] : filters;
   const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const countWhere = and(...filters);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -77,31 +108,9 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
   const url = typeof data.url === 'string' ? data.url : undefined;
   const explicitType = typeof data.mediaType === 'string' ? data.mediaType : undefined;
   const lower = fileName.toLowerCase();
-  const mediaType =
-    explicitType === 'image' || explicitType === 'video' || explicitType === 'gif'
-      ? explicitType
-      : lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')
-        ? 'video'
-        : lower.endsWith('.gif')
-          ? 'gif'
-          : 'image';
-  const mimeType =
-    data.mimeType ||
-    data.contentType ||
-    (lower.endsWith('.png')
-      ? 'image/png'
-      : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
-        ? 'image/jpeg'
-        : lower.endsWith('.gif')
-          ? 'image/gif'
-          : lower.endsWith('.webp')
-            ? 'image/webp'
-            : lower.endsWith('.mp4')
-              ? 'video/mp4'
-              : mediaType === 'video'
-                ? 'video/mp4'
-                : 'image/png');
-  const fileSize = typeof data.fileSize === 'number' ? data.fileSize : typeof data.size === 'number' ? data.size : 0;
+  const mediaType = resolveMediaType(explicitType, lower);
+  const mimeType = data.mimeType || data.contentType || guessMimeType(lower, mediaType);
+  const fileSize = pickFileSize(data);
   const storagePath = data.storagePath || (url ? `url:${url}` : `social-media/${id}/${fileName}`);
   try {
     await db.insert(t).values({
