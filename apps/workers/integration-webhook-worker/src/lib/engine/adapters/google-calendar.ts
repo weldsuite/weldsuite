@@ -125,6 +125,20 @@ function mapFromGoogle(event: GoogleEvent): Record<string, unknown> {
 }
 
 /**
+ * Convert an internal timestamp to a Google start/end object: all-day events use a
+ * plain date, timed events a dateTime plus the (optional) event timezone.
+ */
+function toGoogleDatetime(value: unknown, data: Record<string, unknown>): GoogleDatetime {
+  const date = new Date(value as string);
+  if (data.allDay === true) {
+    return { date: date.toISOString().split('T')[0] };
+  }
+  const obj: GoogleDatetime = { dateTime: date.toISOString() };
+  if (data.timezone) obj.timeZone = data.timezone as string;
+  return obj;
+}
+
+/**
  * Transform internal calendarEvents fields into Google Calendar API format.
  */
 function mapToGoogle(data: Record<string, unknown>): Record<string, unknown> {
@@ -135,31 +149,9 @@ function mapToGoogle(data: Record<string, unknown>): Record<string, unknown> {
   if (data.location != null) result.location = data.location;
   if (data.status != null) result.status = data.status;
 
-  // Start time
-  if (data.startTime) {
-    const allDay = data.allDay === true;
-    if (allDay) {
-      const d = new Date(data.startTime as string);
-      result.start = { date: d.toISOString().split('T')[0] };
-    } else {
-      const startObj: GoogleDatetime = { dateTime: new Date(data.startTime as string).toISOString() };
-      if (data.timezone) startObj.timeZone = data.timezone as string;
-      result.start = startObj;
-    }
-  }
-
-  // End time
-  if (data.endTime) {
-    const allDay = data.allDay === true;
-    if (allDay) {
-      const d = new Date(data.endTime as string);
-      result.end = { date: d.toISOString().split('T')[0] };
-    } else {
-      const endObj: GoogleDatetime = { dateTime: new Date(data.endTime as string).toISOString() };
-      if (data.timezone) endObj.timeZone = data.timezone as string;
-      result.end = endObj;
-    }
-  }
+  // Start / end time
+  if (data.startTime) result.start = toGoogleDatetime(data.startTime, data);
+  if (data.endTime) result.end = toGoogleDatetime(data.endTime, data);
 
   // Attendees — reshape to Google format
   if (Array.isArray(data.attendees)) {

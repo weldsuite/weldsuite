@@ -39,6 +39,7 @@ import {
 import {
   evaluate,
   isEvaluateConfigured,
+  type GatewayUsageRecord,
   JEV_MODEL_ID,
   providerCostUsd,
 } from '@weldsuite/ai';
@@ -177,6 +178,162 @@ export function collectRecipientEmails(email: ParsedEmail): string[] {
   return [...new Set(all)];
 }
 
+type MasterDb = ReturnType<typeof getMasterDb>;
+
+/** Active mail-account registry rows for the given (lower-cased) addresses. */
+async function selectRegistryRows(masterDb: MasterDb, emails: string[]) {
+  return masterDb
+    .select({
+      email: masterSchema.mailAccountRegistry.email,
+      accountId: masterSchema.mailAccountRegistry.accountId,
+      tenantKind: masterSchema.mailAccountRegistry.tenantKind,
+      workspaceId: masterSchema.mailAccountRegistry.workspaceId,
+      personalAccountId: masterSchema.mailAccountRegistry.personalAccountId,
+    })
+    .from(masterSchema.mailAccountRegistry)
+    .where(
+      and(
+        inArray(masterSchema.mailAccountRegistry.email, emails),
+        eq(masterSchema.mailAccountRegistry.isActive, true)
+      )
+    );
+}
+
+type RegistryRow = Awaited<ReturnType<typeof selectRegistryRows>>[number];
+
+/** Resolve a personal registry row; null when it cannot receive mail. */
+async function resolvePersonalRecipient(
+  masterDb: MasterDb,
+  reg: RegistryRow,
+  personalAccountId: string,
+): Promise<RecipientAccount | null> {
+  // Catch-all is workspace/custom-domain only; skip personal sentinels.
+  if (isCatchAllRegistryEmail(reg.email)) return null;
+
+  const [personalAccount] = await masterDb
+    .select({
+      id: masterSchema.personalAccounts.id,
+      clerkUserId: masterSchema.personalAccounts.clerkUserId,
+    })
+    .from(masterSchema.personalAccounts)
+    .where(
+      and(
+        eq(masterSchema.personalAccounts.id, personalAccountId),
+        eq(masterSchema.personalAccounts.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (!personalAccount) {
+    console.warn(`[Recipients] Personal account ${personalAccountId} not found or inactive`);
+    return null;
+  }
+
+  return {
+    accountId: reg.accountId,
+    accountEmail: reg.email,
+    tenantKind: 'personal',
+    workspaceId: null,
+    clerkOrgId: null,
+    personalAccountId: personalAccount.id,
+    clerkUserId: personalAccount.clerkUserId,
+    members: [{ userId: personalAccount.clerkUserId, email: null }],
+  };
+}
+
+/** Resolve a workspace registry row; null when it cannot receive mail. */
+async function resolveWorkspaceRecipient(
+  env: Env,
+  masterDb: MasterDb,
+  reg: RegistryRow,
+): Promise<RecipientAccount | null> {
+  if (!reg.workspaceId) {
+    console.warn(`[Recipients] Workspace registry row missing workspaceId for ${reg.email}`);
+    return null;
+  }
+
+  const [workspace] = await masterDb
+    .select({
+      id: masterSchema.workspaces.id,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
+    })
+    .from(masterSchema.workspaces)
+    .where(eq(masterSchema.workspaces.id, reg.workspaceId))
+    .limit(1);
+
+  if (!workspace) {
+    console.warn(`[Recipients] Workspace ${reg.workspaceId} not found`);
+    return null;
+  }
+
+  const tenantDb = await getTenantDbForWorkspaceById(env, reg.workspaceId);
+
+  const members = await tenantDb
+    .select({
+      userId: tenantSchema.workspaceMembers.userId,
+      email: tenantSchema.workspaceMembers.email,
+    })
+    .from(tenantSchema.workspaceMembers)
+    .where(
+      and(
+        isNull(tenantSchema.workspaceMembers.deletedAt),
+        eq(tenantSchema.workspaceMembers.status, 'ACTIVE')
+      )
+    );
+
+  const [accountAccess] = await tenantDb
+    .select({
+      email: tenantSchema.mailAccounts.email,
+      isShared: tenantSchema.mailAccounts.isShared,
+      assignedUserIds: tenantSchema.mailAccounts.assignedUserIds,
+    })
+    .from(tenantSchema.mailAccounts)
+    .where(
+      and(
+        eq(tenantSchema.mailAccounts.id, reg.accountId),
+        isNull(tenantSchema.mailAccounts.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!accountAccess) {
+    console.warn(`[Recipients] Mail account ${reg.accountId} not found or deleted`);
+    return null;
+  }
+
+  const assigned = accountAccess.assignedUserIds ?? undefined;
+  const scopeToAssigned =
+    !accountAccess.isShared && assigned !== undefined && assigned.length > 0;
+
+  const eligibleMembers = scopeToAssigned
+    ? members.filter((m) => assigned!.includes(m.userId))
+    : members;
+
+  const uniqueMembers = [...new Map(eligibleMembers.map((m) => [m.userId, m])).values()];
+
+  // Catch-all registry email is `*@domain`; deliver into the real mailbox address.
+  const accountEmail = isCatchAllRegistryEmail(reg.email)
+    ? accountAccess.email
+    : reg.email;
+
+  if (!workspace.clerkOrgId) {
+    console.warn(`[Recipients] Workspace ${reg.workspaceId} has no clerkOrgId — realtime events will be skipped`);
+    return null;
+  }
+  if (uniqueMembers.length === 0) return null;
+
+  return {
+    accountId: reg.accountId,
+    accountEmail,
+    tenantKind: 'workspace',
+    workspaceId: reg.workspaceId,
+    clerkOrgId: workspace.clerkOrgId,
+    personalAccountId: null,
+    clerkUserId: null,
+    members: uniqueMembers,
+  };
+}
+
 /**
  * Find mail accounts by recipient email addresses.
  * Exact registry matches win; unmatched custom-domain addresses fall back
@@ -194,43 +351,13 @@ export async function findRecipientAccounts(
     return [];
   }
 
-  const exactRegistered = await masterDb
-    .select({
-      email: masterSchema.mailAccountRegistry.email,
-      accountId: masterSchema.mailAccountRegistry.accountId,
-      tenantKind: masterSchema.mailAccountRegistry.tenantKind,
-      workspaceId: masterSchema.mailAccountRegistry.workspaceId,
-      personalAccountId: masterSchema.mailAccountRegistry.personalAccountId,
-    })
-    .from(masterSchema.mailAccountRegistry)
-    .where(
-      and(
-        inArray(masterSchema.mailAccountRegistry.email, normalizedRecipients),
-        eq(masterSchema.mailAccountRegistry.isActive, true)
-      )
-    );
+  const exactRegistered = await selectRegistryRows(masterDb, normalizedRecipients);
 
   const matchedEmails = new Set(exactRegistered.map((r) => r.email.toLowerCase()));
   const catchAllCandidates = expandCatchAllCandidates(normalizedRecipients, matchedEmails);
 
-  let catchAllRegistered: typeof exactRegistered = [];
-  if (catchAllCandidates.length > 0) {
-    catchAllRegistered = await masterDb
-      .select({
-        email: masterSchema.mailAccountRegistry.email,
-        accountId: masterSchema.mailAccountRegistry.accountId,
-        tenantKind: masterSchema.mailAccountRegistry.tenantKind,
-        workspaceId: masterSchema.mailAccountRegistry.workspaceId,
-        personalAccountId: masterSchema.mailAccountRegistry.personalAccountId,
-      })
-      .from(masterSchema.mailAccountRegistry)
-      .where(
-        and(
-          inArray(masterSchema.mailAccountRegistry.email, catchAllCandidates),
-          eq(masterSchema.mailAccountRegistry.isActive, true)
-        )
-      );
-  }
+  const catchAllRegistered: typeof exactRegistered =
+    catchAllCandidates.length > 0 ? await selectRegistryRows(masterDb, catchAllCandidates) : [];
 
   // Exact matches first so they populate results before catch-all; then
   // dedupe by accountId so hello@ + random@ (catch-all → hello) stores once.
@@ -246,133 +373,119 @@ export async function findRecipientAccounts(
     if (seenAccountIds.has(reg.accountId)) continue;
 
     try {
-      if (reg.tenantKind === 'personal' && reg.personalAccountId) {
-        // Catch-all is workspace/custom-domain only; skip personal sentinels.
-        if (isCatchAllRegistryEmail(reg.email)) continue;
+      const account =
+        reg.tenantKind === 'personal' && reg.personalAccountId
+          ? await resolvePersonalRecipient(masterDb, reg, reg.personalAccountId)
+          : await resolveWorkspaceRecipient(env, masterDb, reg);
+      if (!account) continue;
 
-        const [personalAccount] = await masterDb
-          .select({
-            id: masterSchema.personalAccounts.id,
-            clerkUserId: masterSchema.personalAccounts.clerkUserId,
-          })
-          .from(masterSchema.personalAccounts)
-          .where(
-            and(
-              eq(masterSchema.personalAccounts.id, reg.personalAccountId),
-              eq(masterSchema.personalAccounts.isActive, true),
-            ),
-          )
-          .limit(1);
-
-        if (!personalAccount) {
-          console.warn(`[Recipients] Personal account ${reg.personalAccountId} not found or inactive`);
-          continue;
-        }
-
-        seenAccountIds.add(reg.accountId);
-        results.push({
-          accountId: reg.accountId,
-          accountEmail: reg.email,
-          tenantKind: 'personal',
-          workspaceId: null,
-          clerkOrgId: null,
-          personalAccountId: personalAccount.id,
-          clerkUserId: personalAccount.clerkUserId,
-          members: [{ userId: personalAccount.clerkUserId, email: null }],
-        });
-        continue;
-      }
-
-      if (!reg.workspaceId) {
-        console.warn(`[Recipients] Workspace registry row missing workspaceId for ${reg.email}`);
-        continue;
-      }
-
-      const [workspace] = await masterDb
-        .select({
-          id: masterSchema.workspaces.id,
-          clerkOrgId: masterSchema.workspaces.clerkOrgId,
-        })
-        .from(masterSchema.workspaces)
-        .where(eq(masterSchema.workspaces.id, reg.workspaceId))
-        .limit(1);
-
-      if (!workspace) {
-        console.warn(`[Recipients] Workspace ${reg.workspaceId} not found`);
-        continue;
-      }
-
-      const tenantDb = await getTenantDbForWorkspaceById(env, reg.workspaceId);
-
-      const members = await tenantDb
-        .select({
-          userId: tenantSchema.workspaceMembers.userId,
-          email: tenantSchema.workspaceMembers.email,
-        })
-        .from(tenantSchema.workspaceMembers)
-        .where(
-          and(
-            isNull(tenantSchema.workspaceMembers.deletedAt),
-            eq(tenantSchema.workspaceMembers.status, 'ACTIVE')
-          )
-        );
-
-      const [accountAccess] = await tenantDb
-        .select({
-          email: tenantSchema.mailAccounts.email,
-          isShared: tenantSchema.mailAccounts.isShared,
-          assignedUserIds: tenantSchema.mailAccounts.assignedUserIds,
-        })
-        .from(tenantSchema.mailAccounts)
-        .where(
-          and(
-            eq(tenantSchema.mailAccounts.id, reg.accountId),
-            isNull(tenantSchema.mailAccounts.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      if (!accountAccess) {
-        console.warn(`[Recipients] Mail account ${reg.accountId} not found or deleted`);
-        continue;
-      }
-
-      const assigned = accountAccess.assignedUserIds ?? undefined;
-      const scopeToAssigned =
-        !accountAccess.isShared && assigned !== undefined && assigned.length > 0;
-
-      const eligibleMembers = scopeToAssigned
-        ? members.filter((m) => assigned!.includes(m.userId))
-        : members;
-
-      const uniqueMembers = [...new Map(eligibleMembers.map((m) => [m.userId, m])).values()];
-
-      // Catch-all registry email is `*@domain`; deliver into the real mailbox address.
-      const accountEmail = isCatchAllRegistryEmail(reg.email)
-        ? accountAccess.email
-        : reg.email;
-
-      if (uniqueMembers.length > 0 && workspace.clerkOrgId) {
-        seenAccountIds.add(reg.accountId);
-        results.push({
-          accountId: reg.accountId,
-          accountEmail,
-          tenantKind: 'workspace',
-          workspaceId: reg.workspaceId,
-          clerkOrgId: workspace.clerkOrgId,
-          personalAccountId: null,
-          clerkUserId: null,
-          members: uniqueMembers,
-        });
-      } else if (!workspace.clerkOrgId) {
-        console.warn(`[Recipients] Workspace ${reg.workspaceId} has no clerkOrgId — realtime events will be skipped`);
-      }
+      seenAccountIds.add(reg.accountId);
+      results.push(account);
     } catch (error) {
       console.error(`[Recipients] Error resolving account ${reg.accountId}:`, error);
     }
   }
 
   return results;
+}
+
+type TenantDbHandle = Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>;
+type PersonalDbHandle = ReturnType<typeof getPersonalDb>;
+
+/** Message-IDs this email replies to / references, in lookup order. */
+function replyLookupIds(email: ParsedEmail): string[] {
+  return [
+    ...(email.inReplyTo ? [email.inReplyTo] : []),
+    ...(email.references || []),
+  ];
+}
+
+/** Inbox label set for a stored message: spam wins over promotions. */
+function inboundLabels(isSpam: boolean, isPromotion: boolean): string[] {
+  if (isSpam) return ['SPAM'];
+  return isPromotion ? ['PROMOTIONS'] : ['INBOX'];
+}
+
+/**
+ * Score the message for spam, then (unless spam) classify promotions.
+ * `logLabel` prefixes the stored-message id in the log lines ('' or 'Personal ').
+ */
+function scoreAndClassify(
+  account: RecipientAccount,
+  email: ParsedEmail,
+  opts: { attachmentNames: string[]; isExistingHamThread: boolean; isReply: boolean },
+  dbMessageId: string,
+  logLabel: string,
+) {
+  const spam = scoreInboundSpam(email, {
+    attachmentNames: opts.attachmentNames,
+    isExistingHamThread: opts.isExistingHamThread,
+    recipientEmails: [account.accountEmail, ...collectRecipientEmails(email)],
+  });
+  console.log(
+    `[Spam] ${logLabel}${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
+  );
+
+  // Promotions leave the inbox for the PROMOTIONS label. Spam wins, and
+  // replies are never promotions (isReply short-circuits the classifier).
+  const promotion = spam.isSpam ? null : classifyPromotion(email, { isReply: opts.isReply });
+  const isPromotion = promotion?.isPromotion ?? false;
+  if (promotion) {
+    console.log(
+      `[Promotion] ${logLabel}${dbMessageId} score=${promotion.score} isPromotion=${isPromotion} reasons=[${promotion.reasons.join(', ')}]`,
+    );
+  }
+  return { spam, isPromotion };
+}
+
+/** True when this messageId is already stored for the personal account. */
+async function isPersonalDuplicate(
+  personalDb: PersonalDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+): Promise<boolean> {
+  if (!email.messageId) return false;
+  const existing = await personalDb
+    .select({ id: personalSchema.personalMailMessages.id })
+    .from(personalSchema.personalMailMessages)
+    .where(
+      and(
+        eq(personalSchema.personalMailMessages.accountId, account.accountId),
+        eq(personalSchema.personalMailMessages.messageId, email.messageId),
+      ),
+    )
+    .limit(1);
+  return existing.length > 0;
+}
+
+/** True when a reply continues a thread that already holds a non-spam personal message. */
+async function isPersonalHamThread(
+  personalDb: PersonalDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+  isReply: boolean,
+): Promise<boolean> {
+  if (!isReply) return false;
+  const lookupIds = replyLookupIds(email);
+  if (lookupIds.length === 0) return false;
+
+  const prior = await personalDb
+    .select({
+      isSpam: personalSchema.personalMailMessages.isSpam,
+    })
+    .from(personalSchema.personalMailMessages)
+    .where(
+      and(
+        eq(personalSchema.personalMailMessages.accountId, account.accountId),
+        or(
+          inArray(personalSchema.personalMailMessages.messageId, lookupIds),
+          inArray(personalSchema.personalMailMessages.threadId, lookupIds),
+        ),
+        eq(personalSchema.personalMailMessages.isSpam, false),
+      ),
+    )
+    .limit(1);
+  return prior.length > 0;
 }
 
 /**
@@ -392,22 +505,9 @@ async function storePersonalEmail(
 
     const personalDb = getPersonalDb(env);
 
-    if (email.messageId) {
-      const existing = await personalDb
-        .select({ id: personalSchema.personalMailMessages.id })
-        .from(personalSchema.personalMailMessages)
-        .where(
-          and(
-            eq(personalSchema.personalMailMessages.accountId, account.accountId),
-            eq(personalSchema.personalMailMessages.messageId, email.messageId),
-          ),
-        )
-        .limit(1);
-
-      if (existing.length > 0) {
-        console.log(`[Store] Personal duplicate skipped: messageId=${email.messageId}`);
-        return null;
-      }
+    if (await isPersonalDuplicate(personalDb, account, email)) {
+      console.log(`[Store] Personal duplicate skipped: messageId=${email.messageId}`);
+      return null;
     }
 
     const dbMessageId = `msg_${nanoid()}`;
@@ -418,49 +518,14 @@ async function storePersonalEmail(
       references: email.references,
     });
 
-    let isExistingHamThread = false;
-    if (isReply) {
-      const lookupIds = [
-        ...(email.inReplyTo ? [email.inReplyTo] : []),
-        ...(email.references || []),
-      ];
-      if (lookupIds.length > 0) {
-        const prior = await personalDb
-          .select({
-            isSpam: personalSchema.personalMailMessages.isSpam,
-          })
-          .from(personalSchema.personalMailMessages)
-          .where(
-            and(
-              eq(personalSchema.personalMailMessages.accountId, account.accountId),
-              or(
-                inArray(personalSchema.personalMailMessages.messageId, lookupIds),
-                inArray(personalSchema.personalMailMessages.threadId, lookupIds),
-              ),
-              eq(personalSchema.personalMailMessages.isSpam, false),
-            ),
-          )
-          .limit(1);
-        isExistingHamThread = prior.length > 0;
-      }
-    }
-
-    const spam = scoreInboundSpam(email, {
-      attachmentNames,
-      isExistingHamThread,
-      recipientEmails: [account.accountEmail, ...collectRecipientEmails(email)],
-    });
-    console.log(
-      `[Spam] Personal ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
+    const isExistingHamThread = await isPersonalHamThread(personalDb, account, email, isReply);
+    const { spam, isPromotion } = scoreAndClassify(
+      account,
+      email,
+      { attachmentNames, isExistingHamThread, isReply },
+      dbMessageId,
+      'Personal ',
     );
-
-    const promotion = spam.isSpam ? null : classifyPromotion(email, { isReply });
-    const isPromotion = promotion?.isPromotion ?? false;
-    if (promotion) {
-      console.log(
-        `[Promotion] Personal ${dbMessageId} score=${promotion.score} isPromotion=${isPromotion} reasons=[${promotion.reasons.join(', ')}]`,
-      );
-    }
 
     await personalDb.insert(personalSchema.personalMailMessages).values({
       id: dbMessageId,
@@ -484,7 +549,7 @@ async function storePersonalEmail(
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: spam.isSpam ? ['SPAM'] : isPromotion ? ['PROMOTIONS'] : ['INBOX'],
+      labels: inboundLabels(spam.isSpam, isPromotion),
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -507,6 +572,139 @@ async function storePersonalEmail(
     console.error('[Store] Failed to store personal email:', error);
     return null;
   }
+}
+
+/** True when this messageId is already stored for the tenant mail account. */
+async function isTenantDuplicate(
+  tenantDb: TenantDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+): Promise<boolean> {
+  if (!email.messageId) return false;
+  const existing = await tenantDb
+    .select({ id: tenantSchema.mailMessages.id })
+    .from(tenantSchema.mailMessages)
+    .where(
+      and(
+        eq(tenantSchema.mailMessages.accountId, account.accountId),
+        eq(tenantSchema.mailMessages.messageId, email.messageId),
+      )
+    )
+    .limit(1);
+  return existing.length > 0;
+}
+
+interface ThreadMatch {
+  threadId: string;
+  isExistingHamThread: boolean;
+}
+
+/** Find the thread of a reply by the stored Message-ID or the provider message ID. */
+async function findThreadByReplyIds(
+  tenantDb: TenantDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+): Promise<ThreadMatch | null> {
+  const lookupIds = replyLookupIds(email);
+  if (lookupIds.length === 0) return null;
+
+  // Extract local parts from Message-IDs for provider ID matching
+  // e.g. "<abc-123@eu-west-1.amazonses.com>" → "abc-123"
+  const providerIds = lookupIds
+    .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
+    .filter(Boolean);
+
+  const existingMessages = await tenantDb
+    .select({
+      threadId: tenantSchema.mailMessages.threadId,
+      messageId: tenantSchema.mailMessages.messageId,
+      isSpam: tenantSchema.mailMessages.isSpam,
+    })
+    .from(tenantSchema.mailMessages)
+    .where(
+      and(
+        eq(tenantSchema.mailMessages.accountId, account.accountId),
+        or(
+          // Match by our stored messageId (custom Message-ID header)
+          inArray(tenantSchema.mailMessages.messageId, lookupIds),
+          // Match by provider message ID (Mailgun/SES may override Message-ID)
+          inArray(tenantSchema.mailMessages.mailcowMessageId, providerIds)
+        )
+      )
+    )
+    .limit(1);
+
+  const existingThreadId = existingMessages[0]?.threadId;
+  if (!existingThreadId) return null;
+  return { threadId: existingThreadId, isExistingHamThread: existingMessages[0]?.isSpam === false };
+}
+
+/**
+ * Fallback: match by subject when Message-ID lookup fails
+ * (handles cases where the email provider overrides the Message-ID header).
+ */
+async function findThreadBySubject(
+  tenantDb: TenantDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+): Promise<ThreadMatch | null> {
+  const normalizedSubject = email.subject
+    .replace(/^(Re|Fwd|Fw):\s*/gi, '')
+    .trim();
+  if (!normalizedSubject) return null;
+
+  const subjectMatch = await tenantDb
+    .select({
+      threadId: tenantSchema.mailMessages.threadId,
+      isSpam: tenantSchema.mailMessages.isSpam,
+    })
+    .from(tenantSchema.mailMessages)
+    .where(
+      and(
+        eq(tenantSchema.mailMessages.accountId, account.accountId),
+        eq(tenantSchema.mailMessages.subject, normalizedSubject),
+        isNull(tenantSchema.mailMessages.deletedAt)
+      )
+    )
+    .orderBy(desc(tenantSchema.mailMessages.sentDate))
+    .limit(1);
+
+  const subjectThreadId = subjectMatch[0]?.threadId;
+  if (!subjectThreadId) return null;
+  return { threadId: subjectThreadId, isExistingHamThread: subjectMatch[0]?.isSpam === false };
+}
+
+/** Resolve the thread a new tenant message belongs to. */
+async function resolveTenantThread(
+  tenantDb: TenantDbHandle,
+  account: RecipientAccount,
+  email: ParsedEmail,
+  isReply: boolean,
+): Promise<ThreadMatch> {
+  // New standalone message
+  if (!isReply) return { threadId: email.messageId, isExistingHamThread: false };
+
+  // Look up existing messages by inReplyTo or references to find the thread
+  const byIds = await findThreadByReplyIds(tenantDb, account, email);
+  if (byIds) {
+    console.log(`[Store] Found existing thread ${byIds.threadId} for reply (by messageId)`);
+    return byIds;
+  }
+
+  const bySubject = await findThreadBySubject(tenantDb, account, email);
+  if (bySubject) {
+    console.log(`[Store] Found existing thread ${bySubject.threadId} for reply (by subject)`);
+    return bySubject;
+  }
+
+  return {
+    threadId: computeThreadId({
+      messageId: email.messageId,
+      inReplyTo: email.inReplyTo,
+      references: email.references,
+    }),
+    isExistingHamThread: false,
+  };
 }
 
 /**
@@ -534,22 +732,9 @@ export async function storeEmail(
     const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
 
     // Deduplication: skip if this messageId already exists for this account
-    if (email.messageId) {
-      const existing = await tenantDb
-        .select({ id: tenantSchema.mailMessages.id })
-        .from(tenantSchema.mailMessages)
-        .where(
-          and(
-            eq(tenantSchema.mailMessages.accountId, account.accountId),
-            eq(tenantSchema.mailMessages.messageId, email.messageId),
-          )
-        )
-        .limit(1);
-
-      if (existing.length > 0) {
-        console.log(`[Store] Duplicate skipped: messageId=${email.messageId} already exists for account ${account.accountId}`);
-        return null;
-      }
+    if (await isTenantDuplicate(tenantDb, account, email)) {
+      console.log(`[Store] Duplicate skipped: messageId=${email.messageId} already exists for account ${account.accountId}`);
+      return null;
     }
 
     // Generate message ID
@@ -557,118 +742,15 @@ export async function storeEmail(
 
     // Check if this is a reply to an existing message in the DB
     const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
-    let threadId: string = email.messageId;
-    let isExistingHamThread = false;
+    const { threadId, isExistingHamThread } = await resolveTenantThread(tenantDb, account, email, isReply);
 
-    if (isReply) {
-      // Look up existing messages by inReplyTo or references to find the thread
-      const lookupIds = [
-        ...(email.inReplyTo ? [email.inReplyTo] : []),
-        ...(email.references || []),
-      ];
-
-      let matched = false;
-
-      if (lookupIds.length > 0) {
-        // Extract local parts from Message-IDs for provider ID matching
-        // e.g. "<abc-123@eu-west-1.amazonses.com>" → "abc-123"
-        const providerIds = lookupIds
-          .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
-          .filter(Boolean);
-
-        const existingMessages = await tenantDb
-          .select({
-            threadId: tenantSchema.mailMessages.threadId,
-            messageId: tenantSchema.mailMessages.messageId,
-            isSpam: tenantSchema.mailMessages.isSpam,
-          })
-          .from(tenantSchema.mailMessages)
-          .where(
-            and(
-              eq(tenantSchema.mailMessages.accountId, account.accountId),
-              or(
-                // Match by our stored messageId (custom Message-ID header)
-                inArray(tenantSchema.mailMessages.messageId, lookupIds),
-                // Match by provider message ID (Mailgun/SES may override Message-ID)
-                inArray(tenantSchema.mailMessages.mailcowMessageId, providerIds)
-              )
-            )
-          )
-          .limit(1);
-
-        const existingThreadId = existingMessages[0]?.threadId;
-        if (existingThreadId) {
-          threadId = existingThreadId;
-          matched = true;
-          isExistingHamThread = existingMessages[0]?.isSpam === false;
-          console.log(`[Store] Found existing thread ${threadId} for reply (by messageId)`);
-        }
-      }
-
-      // Fallback: match by subject when Message-ID lookup fails
-      // (handles cases where the email provider overrides the Message-ID header)
-      if (!matched) {
-        const normalizedSubject = email.subject
-          .replace(/^(Re|Fwd|Fw):\s*/gi, '')
-          .trim();
-
-        if (normalizedSubject) {
-          const subjectMatch = await tenantDb
-            .select({
-              threadId: tenantSchema.mailMessages.threadId,
-              isSpam: tenantSchema.mailMessages.isSpam,
-            })
-            .from(tenantSchema.mailMessages)
-            .where(
-              and(
-                eq(tenantSchema.mailMessages.accountId, account.accountId),
-                eq(tenantSchema.mailMessages.subject, normalizedSubject),
-                isNull(tenantSchema.mailMessages.deletedAt)
-              )
-            )
-            .orderBy(desc(tenantSchema.mailMessages.sentDate))
-            .limit(1);
-
-          const subjectThreadId = subjectMatch[0]?.threadId;
-          if (subjectThreadId) {
-            threadId = subjectThreadId;
-            matched = true;
-            isExistingHamThread = subjectMatch[0]?.isSpam === false;
-            console.log(`[Store] Found existing thread ${threadId} for reply (by subject)`);
-          }
-        }
-      }
-
-      if (!matched) {
-        threadId = computeThreadId({
-          messageId: email.messageId,
-          inReplyTo: email.inReplyTo,
-          references: email.references,
-        });
-      }
-    } else {
-      // New standalone message
-      threadId = email.messageId;
-    }
-
-    const spam = scoreInboundSpam(email, {
-      attachmentNames,
-      isExistingHamThread,
-      recipientEmails: [account.accountEmail, ...collectRecipientEmails(email)],
-    });
-    console.log(
-      `[Spam] ${dbMessageId} score=${spam.score} isSpam=${spam.isSpam} reasons=[${spam.reasons.join(', ')}]`,
+    const { spam, isPromotion } = scoreAndClassify(
+      account,
+      email,
+      { attachmentNames, isExistingHamThread, isReply },
+      dbMessageId,
+      '',
     );
-
-    // Promotions leave the inbox for the PROMOTIONS label. Spam wins, and
-    // replies are never promotions (isReply short-circuits the classifier).
-    const promotion = spam.isSpam ? null : classifyPromotion(email, { isReply });
-    const isPromotion = promotion?.isPromotion ?? false;
-    if (promotion) {
-      console.log(
-        `[Promotion] ${dbMessageId} score=${promotion.score} isPromotion=${isPromotion} reasons=[${promotion.reasons.join(', ')}]`,
-      );
-    }
 
     // Insert message
     await tenantDb.insert(tenantSchema.mailMessages).values({
@@ -692,7 +774,7 @@ export async function storeEmail(
       inReplyTo: email.inReplyTo,
       references: email.references || [],
       isReply,
-      labels: spam.isSpam ? ['SPAM'] : isPromotion ? ['PROMOTIONS'] : ['INBOX'],
+      labels: inboundLabels(spam.isSpam, isPromotion),
       source: 'inbound',
       spfStatus: email.spfStatus,
       dkimStatus: email.dkimStatus,
@@ -760,6 +842,109 @@ export async function processInboundEmail(
   return { stored, notified, recipients: accounts.length };
 }
 
+/** Store attachments to R2 + DB and rewrite inline cid: references. Best-effort. */
+async function storeWorkspaceAttachments(
+  env: Env,
+  workspaceId: string,
+  email: ParsedEmail,
+  attachments: ParsedAttachment[] | undefined,
+  result: StoreEmailResult,
+): Promise<void> {
+  if (!email.hasAttachments || !attachments || attachments.length === 0 || !env.STORAGE) return;
+
+  try {
+    const cidMap = await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
+
+    // Rewrite cid: references in HTML body to point to R2 URLs
+    const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
+    if (rewrittenHtml) {
+      const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
+      await tenantDb
+        .update(tenantSchema.mailMessages)
+        .set({ htmlBody: rewrittenHtml })
+        .where(eq(tenantSchema.mailMessages.id, result.messageId));
+      console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
+    }
+  } catch (attachErr) {
+    console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
+  }
+}
+
+/** Realtime payload shared by the hub event and the per-member notifications. */
+function buildInboundPayload(
+  account: RecipientAccount,
+  email: ParsedEmail,
+  result: StoreEmailResult,
+  preview: string,
+) {
+  return {
+    accountId: account.accountId,
+    messageId: result.messageId,
+    smtpMessageId: email.messageId,
+    threadId: result.threadId,
+    from: email.from,
+    subject: email.subject,
+    preview,
+    receivedAt: email.receivedAt.toISOString(),
+    isRead: false,
+    hasAttachments: email.hasAttachments,
+  };
+}
+
+/**
+ * Notify one workspace member: realtime always, Expo push for ham only.
+ * Returns true when the in-app (realtime) notification was published.
+ */
+async function notifyWorkspaceMember(
+  env: Env,
+  account: RecipientAccount,
+  workspaceId: string,
+  clerkOrgId: string,
+  member: RecipientAccount['members'][number],
+  email: ParsedEmail,
+  result: StoreEmailResult,
+  preview: string,
+  inboundPayload: ReturnType<typeof buildInboundPayload>,
+): Promise<boolean> {
+  // Skip the sender: when a message is sent to an internal recipient, a
+  // shared mailbox, or the sender's own address, the sent copy is routed
+  // back into this worker. Without this guard the sender gets an in-app +
+  // push "New email from <themselves>" notification for their own send.
+  if (member.email && member.email.toLowerCase() === email.from.email.toLowerCase()) {
+    return false;
+  }
+  const userId = member.userId;
+  let notified = false;
+  try {
+    await publishNewEmailToUser(env, clerkOrgId, userId, inboundPayload);
+    notified = true;
+  } catch (notifyErr) {
+    console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
+  }
+
+  // Skip Expo push for spam and promotions — still publish realtime above so
+  // open clients can refresh those folders without a banner interruption.
+  if (result.isSpam || result.isPromotion) {
+    return notified;
+  }
+
+  try {
+    await sendNewEmailPushNotification(env, {
+      userId,
+      workspaceId,
+      clerkOrgId,
+      messageId: result.messageId,
+      accountId: account.accountId,
+      from: email.from,
+      subject: email.subject,
+      preview,
+    });
+  } catch (pushErr) {
+    console.error(`[Push] Failed to send push to user ${userId}:`, pushErr);
+  }
+  return notified;
+}
+
 /**
  * Post-store steps for a WORKSPACE mailbox: attachments, AI classification +
  * rules, contact upsert, then realtime + push notification per eligible member.
@@ -774,30 +959,13 @@ async function finishWorkspaceDelivery(
   preview: string,
 ): Promise<number> {
   const workspaceId = account.workspaceId;
-  if (!workspaceId || !account.clerkOrgId) {
+  const clerkOrgId = account.clerkOrgId;
+  if (!workspaceId || !clerkOrgId) {
     console.error(`[Store] Workspace account ${account.accountId} is missing workspace ids`);
     return 0;
   }
 
-  // Store attachments to R2 + DB
-  if (email.hasAttachments && attachments && attachments.length > 0 && env.STORAGE) {
-    try {
-      const cidMap = await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
-
-      // Rewrite cid: references in HTML body to point to R2 URLs
-      const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
-      if (rewrittenHtml) {
-        const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-        await tenantDb
-          .update(tenantSchema.mailMessages)
-          .set({ htmlBody: rewrittenHtml })
-          .where(eq(tenantSchema.mailMessages.id, result.messageId));
-        console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
-      }
-    } catch (attachErr) {
-      console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
-    }
-  }
+  await storeWorkspaceAttachments(env, workspaceId, email, attachments, result);
 
   // Run Jev multi-label auto-labeling + mail rules (non-blocking)
   try {
@@ -810,7 +978,7 @@ async function finishWorkspaceDelivery(
   // recipients become first-class records (autocomplete, avatars, …).
   // Best-effort — never blocks downstream notifications.
   try {
-    await upsertContactsFromMailMessage(env, workspaceId, account.clerkOrgId, {
+    await upsertContactsFromMailMessage(env, workspaceId, clerkOrgId, {
       from: email.from,
       to: email.to,
       cc: email.cc,
@@ -822,20 +990,9 @@ async function finishWorkspaceDelivery(
   // Hub entity event once per stored message (not per member) so shared
   // mailboxes + platformSyncMap.email refresh. Personal mail:new loop below
   // stays for toast / useMailRealtime — intentional dual-path.
-  const inboundPayload = {
-    accountId: account.accountId,
-    messageId: result.messageId,
-    smtpMessageId: email.messageId,
-    threadId: result.threadId,
-    from: email.from,
-    subject: email.subject,
-    preview,
-    receivedAt: email.receivedAt.toISOString(),
-    isRead: false,
-    hasAttachments: email.hasAttachments,
-  };
+  const inboundPayload = buildInboundPayload(account, email, result, preview);
   try {
-    await publishInboundEmailCreated(env, account.clerkOrgId, inboundPayload);
+    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload);
   } catch (hubErr) {
     console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
   }
@@ -844,45 +1001,20 @@ async function finishWorkspaceDelivery(
   // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
   // by clerkOrgId on the WS-auth side, so the publish must use the same
   // key or it lands on a different DO and never reaches the client.
-  const senderEmail = email.from.email.toLowerCase();
   let notified = 0;
-
   for (const member of account.members) {
-    // Skip the sender: when a message is sent to an internal recipient, a
-    // shared mailbox, or the sender's own address, the sent copy is routed
-    // back into this worker. Without this guard the sender gets an in-app +
-    // push "New email from <themselves>" notification for their own send.
-    if (member.email && member.email.toLowerCase() === senderEmail) {
-      continue;
-    }
-    const userId = member.userId;
-    try {
-      await publishNewEmailToUser(env, account.clerkOrgId, userId, inboundPayload);
-      notified++;
-    } catch (notifyErr) {
-      console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
-    }
-
-    // Skip Expo push for spam and promotions — still publish realtime above so
-    // open clients can refresh those folders without a banner interruption.
-    if (result.isSpam || result.isPromotion) {
-      continue;
-    }
-
-    try {
-      await sendNewEmailPushNotification(env, {
-        userId,
-        workspaceId,
-        clerkOrgId: account.clerkOrgId,
-        messageId: result.messageId,
-        accountId: account.accountId,
-        from: email.from,
-        subject: email.subject,
-        preview,
-      });
-    } catch (pushErr) {
-      console.error(`[Push] Failed to send push to user ${userId}:`, pushErr);
-    }
+    const memberNotified = await notifyWorkspaceMember(
+      env,
+      account,
+      workspaceId,
+      clerkOrgId,
+      member,
+      email,
+      result,
+      preview,
+      inboundPayload,
+    );
+    if (memberNotified) notified++;
   }
 
   return notified;
@@ -1083,32 +1215,26 @@ function subscriptionConflictSet(
   };
 }
 
-/**
- * Apply Jev multi-label auto-labeling, then run user mail rules.
- *
- * Keywords are no longer used — every AI-enabled label with an `aiDescription`
- * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
- * the Cloudflare AI Gateway. Ops infra cost is recorded; customer credits
- * are not charged for this path.
- */
-async function classifyAndRunRules(
-  env: Env,
-  account: RecipientAccount,
-  workspaceId: string,
-  messageId: string,
-  email: ParsedEmail,
-): Promise<void> {
-  const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-  const { mailMessages, mailLabels, mailRules } = tenantSchema;
+type RuleCondition = { field: string; operator: string; value: string };
+type RuleAction = { type: string; labelId?: string; value?: string };
 
-  // ---- Phase 1: Jev multi-label classification ----
+/**
+ * Load the AI-enabled labels worth evaluating for this message (described and
+ * not already applied). Returns null when the message no longer exists.
+ */
+async function loadAiLabelCandidates(
+  tenantDb: TenantDbHandle,
+  accountId: string,
+  messageId: string,
+): Promise<AiLabelCandidate[] | null> {
+  const { mailMessages, mailLabels } = tenantSchema;
 
   const aiLabels = await tenantDb
     .select()
     .from(mailLabels)
     .where(
       and(
-        eq(mailLabels.accountId, account.accountId),
+        eq(mailLabels.accountId, accountId),
         eq(mailLabels.aiEnabled, true),
         isNull(mailLabels.deletedAt)
       )
@@ -1120,10 +1246,10 @@ async function classifyAndRunRules(
     .where(eq(mailMessages.id, messageId))
     .limit(1);
 
-  if (!message) return;
+  if (!message) return null;
 
   const currentLabels = (message.labels as string[]) || [];
-  const candidates: AiLabelCandidate[] = aiLabels
+  return aiLabels
     .filter((l) => l.aiDescription && !currentLabels.includes(l.name))
     .map((l) => ({
       id: l.id,
@@ -1131,101 +1257,181 @@ async function classifyAndRunRules(
       aiDescription: l.aiDescription as string,
       aiConfidence: l.aiConfidence,
     }));
+}
 
-  if (candidates.length > 0) {
-    if (!isEvaluateConfigured(env, JEV_MODEL_ID)) {
-      console.warn(
-        `[Store] Workers AI not configured — skipping Jev auto-label for ${messageId}`,
-      );
-    } else {
-      try {
-        const state = buildMailAutoLabelState({
-          subject: email.subject,
-          from: email.from,
-          to: email.to,
-          textBody: email.textBody,
-        });
-        const questions = buildMailAutoLabelQuestions(candidates);
+/** Record the Jev infra cost (ops only — the workspace wallet is not charged). */
+async function recordJevUsage(
+  env: Env,
+  workspaceId: string,
+  messageId: string,
+  rec: GatewayUsageRecord,
+): Promise<void> {
+  try {
+    const masterDb = getMasterDb(env);
+    await recordProviderUsage(masterDb, {
+      gateway: rec.gateway,
+      modelId: rec.modelId,
+      usage: {
+        inputTokens: rec.usage?.inputTokens,
+        outputTokens: rec.usage?.outputTokens,
+      },
+      op: rec.op,
+      providerCostNanoUsd: nanoUsd(
+        rec.providerCostUsd ??
+          providerCostUsd(rec.modelId, rec.usage ?? {}),
+      ),
+      // Infra cost only — do not charge the workspace wallet.
+      creditsCharged: 0,
+      coveredByServiceCredit: rec.coveredByServiceCredit,
+      workspaceId,
+      referenceType: 'mail_message',
+      referenceId: messageId,
+      idempotencyKey: `mail_auto_label:${messageId}`,
+    });
+  } catch (usageErr) {
+    console.error(
+      `[Store] Failed to record Jev infra cost for ${messageId}:`,
+      usageErr,
+    );
+  }
+}
 
-        const result = await evaluate(
-          env,
-          { state, questions, modelId: JEV_MODEL_ID },
-          {
-            op: 'mail_auto_label',
-            onUsage: async (rec) => {
-              try {
-                const masterDb = getMasterDb(env);
-                await recordProviderUsage(masterDb, {
-                  gateway: rec.gateway,
-                  modelId: rec.modelId,
-                  usage: {
-                    inputTokens: rec.usage?.inputTokens,
-                    outputTokens: rec.usage?.outputTokens,
-                  },
-                  op: rec.op,
-                  providerCostNanoUsd: nanoUsd(
-                    rec.providerCostUsd ??
-                      providerCostUsd(rec.modelId, rec.usage ?? {}),
-                  ),
-                  // Infra cost only — do not charge the workspace wallet.
-                  creditsCharged: 0,
-                  coveredByServiceCredit: rec.coveredByServiceCredit,
-                  workspaceId,
-                  referenceType: 'mail_message',
-                  referenceId: messageId,
-                  idempotencyKey: `mail_auto_label:${messageId}`,
-                });
-              } catch (usageErr) {
-                console.error(
-                  `[Store] Failed to record Jev infra cost for ${messageId}:`,
-                  usageErr,
-                );
-              }
-            },
-          },
-        );
+/** Merge the matched labels into the message and bump each label's counter. */
+async function applyMatchedLabels(
+  tenantDb: TenantDbHandle,
+  messageId: string,
+  candidates: AiLabelCandidate[],
+  matchedLabels: string[],
+): Promise<void> {
+  const { mailMessages, mailLabels } = tenantSchema;
 
-        const matchedLabels = matchedLabelsFromJevAnswers(candidates, result.answers);
+  const [fresh] = await tenantDb
+    .select({ labels: mailMessages.labels })
+    .from(mailMessages)
+    .where(eq(mailMessages.id, messageId))
+    .limit(1);
 
-        if (matchedLabels.length > 0) {
-          const [fresh] = await tenantDb
-            .select({ labels: mailMessages.labels })
-            .from(mailMessages)
-            .where(eq(mailMessages.id, messageId))
-            .limit(1);
+  const freshLabels = (fresh?.labels as string[]) || [];
+  const newLabels = [...new Set([...freshLabels, ...matchedLabels])];
 
-          const freshLabels = (fresh?.labels as string[]) || [];
-          const newLabels = [...new Set([...freshLabels, ...matchedLabels])];
+  await tenantDb
+    .update(mailMessages)
+    .set({ labels: newLabels, updatedAt: new Date() })
+    .where(eq(mailMessages.id, messageId));
 
-          await tenantDb
-            .update(mailMessages)
-            .set({ labels: newLabels, updatedAt: new Date() })
-            .where(eq(mailMessages.id, messageId));
-
-          for (const label of candidates.filter((l) => matchedLabels.includes(l.name))) {
-            await tenantDb
-              .update(mailLabels)
-              .set({
-                messageCount: sql`${mailLabels.messageCount} + 1`,
-                updatedAt: new Date(),
-              })
-              .where(eq(mailLabels.id, label.id));
-          }
-
-          console.log(
-            `[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`,
-          );
-        }
-      } catch (aiErr) {
-        console.error(
-          `[Store] Jev auto-label failed for ${messageId}: ${aiErr instanceof Error ? aiErr.message : String(aiErr)}`,
-          aiErr,
-        );
-      }
-    }
+  for (const label of candidates.filter((l) => matchedLabels.includes(l.name))) {
+    await tenantDb
+      .update(mailLabels)
+      .set({
+        messageCount: sql`${mailLabels.messageCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(mailLabels.id, label.id));
   }
 
-  // ---- Phase 2: Mail Rules ----
+  console.log(
+    `[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`,
+  );
+}
+
+/** Phase 1: Jev multi-label classification. Failures are logged, never thrown. */
+async function applyJevAutoLabels(
+  env: Env,
+  tenantDb: TenantDbHandle,
+  workspaceId: string,
+  messageId: string,
+  email: ParsedEmail,
+  candidates: AiLabelCandidate[],
+): Promise<void> {
+  if (candidates.length === 0) return;
+
+  if (!isEvaluateConfigured(env, JEV_MODEL_ID)) {
+    console.warn(
+      `[Store] Workers AI not configured — skipping Jev auto-label for ${messageId}`,
+    );
+    return;
+  }
+
+  try {
+    const state = buildMailAutoLabelState({
+      subject: email.subject,
+      from: email.from,
+      to: email.to,
+      textBody: email.textBody,
+    });
+    const questions = buildMailAutoLabelQuestions(candidates);
+
+    const result = await evaluate(
+      env,
+      { state, questions, modelId: JEV_MODEL_ID },
+      {
+        op: 'mail_auto_label',
+        onUsage: (rec) => recordJevUsage(env, workspaceId, messageId, rec),
+      },
+    );
+
+    const matchedLabels = matchedLabelsFromJevAnswers(candidates, result.answers);
+    if (matchedLabels.length > 0) {
+      await applyMatchedLabels(tenantDb, messageId, candidates, matchedLabels);
+    }
+  } catch (aiErr) {
+    console.error(
+      `[Store] Jev auto-label failed for ${messageId}: ${aiErr instanceof Error ? aiErr.message : String(aiErr)}`,
+      aiErr,
+    );
+  }
+}
+
+/** Whether a mail rule applies to an inbound message (scope, folders, conditions). */
+function inboundRuleMatches(
+  rule: typeof tenantSchema.mailRules.$inferSelect,
+  message: { labels: unknown },
+): boolean {
+  // Inbound emails only match 'incoming' or 'all'
+  if (rule.scope === 'outgoing') return false;
+
+  // Check folder restrictions
+  const folders = rule.folders as string[] | null;
+  if (folders && folders.length > 0) {
+    const msgLabels = (message.labels as string[]) || [];
+    if (!folders.some((f: string) => msgLabels.includes(f))) return false;
+  }
+
+  // Evaluate conditions
+  const conditions = (rule.conditions || []) as RuleCondition[];
+  const matchType = (rule.matchType as string) || 'all';
+  if (conditions.length === 0) return false;
+
+  return matchType === 'all'
+    ? conditions.every((c) => evalRuleCondition(message, c))
+    : conditions.some((c) => evalRuleCondition(message, c));
+}
+
+/** Execute a rule's actions, returning how many were applied. */
+async function executeRuleActions(
+  tenantDb: TenantDbHandle,
+  messageId: string,
+  actions: RuleAction[],
+): Promise<number> {
+  let actionsApplied = 0;
+  for (const action of actions) {
+    try {
+      const applied = await executeRuleAction(tenantDb, messageId, action);
+      if (applied) actionsApplied++;
+    } catch (actionErr) {
+      console.error(`[Rules] Action ${action.type} failed:`, actionErr);
+    }
+  }
+  return actionsApplied;
+}
+
+/** Phase 2: run the account's active mail rules against the stored message. */
+async function runMailRules(
+  tenantDb: TenantDbHandle,
+  accountId: string,
+  messageId: string,
+): Promise<void> {
+  const { mailMessages, mailRules } = tenantSchema;
 
   try {
     // Re-read message with latest labels
@@ -1242,69 +1448,65 @@ async function classifyAndRunRules(
       .from(mailRules)
       .where(
         and(
-          eq(mailRules.accountId, account.accountId),
+          eq(mailRules.accountId, accountId),
           eq(mailRules.isActive, true),
           isNull(mailRules.deletedAt)
         )
       )
       .orderBy(desc(mailRules.priority));
 
-    if (rules.length === 0) return;
-
     for (const rule of rules) {
-      // Check scope (inbound emails only match 'incoming' or 'all')
-      if (rule.scope === 'outgoing') continue;
+      if (!inboundRuleMatches(rule, updatedMessage)) continue;
 
-      // Check folder restrictions
-      const folders = rule.folders as string[] | null;
-      if (folders && folders.length > 0) {
-        const msgLabels = (updatedMessage.labels as string[]) || [];
-        if (!folders.some((f: string) => msgLabels.includes(f))) continue;
-      }
+      const actionsApplied = await executeRuleActions(
+        tenantDb,
+        messageId,
+        (rule.actions || []) as RuleAction[],
+      );
+      if (actionsApplied === 0) continue;
 
-      // Evaluate conditions
-      const conditions = (rule.conditions || []) as Array<{ field: string; operator: string; value: string }>;
-      const matchType = (rule.matchType as string) || 'all';
+      await tenantDb
+        .update(mailRules)
+        .set({
+          appliedCount: sql`${mailRules.appliedCount} + 1`,
+          lastAppliedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(mailRules.id, rule.id));
 
-      if (conditions.length === 0) continue;
+      console.log(`[Rules] Applied rule "${rule.name}" (${actionsApplied} actions) to ${messageId}`);
 
-      const matched = matchType === 'all'
-        ? conditions.every((c) => evalRuleCondition(updatedMessage, c))
-        : conditions.some((c) => evalRuleCondition(updatedMessage, c));
-
-      if (!matched) continue;
-
-      // Execute actions
-      const actions = (rule.actions || []) as Array<{ type: string; labelId?: string; value?: string }>;
-      let actionsApplied = 0;
-
-      for (const action of actions) {
-        try {
-          const applied = await executeRuleAction(tenantDb, messageId, action);
-          if (applied) actionsApplied++;
-        } catch (actionErr) {
-          console.error(`[Rules] Action ${action.type} failed:`, actionErr);
-        }
-      }
-
-      if (actionsApplied > 0) {
-        await tenantDb
-          .update(mailRules)
-          .set({
-            appliedCount: sql`${mailRules.appliedCount} + 1`,
-            lastAppliedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(mailRules.id, rule.id));
-
-        console.log(`[Rules] Applied rule "${rule.name}" (${actionsApplied} actions) to ${messageId}`);
-
-        if (rule.stopProcessing) break;
-      }
+      if (rule.stopProcessing) break;
     }
   } catch (ruleErr) {
     console.error(`[Rules] Rule execution failed for ${messageId}:`, ruleErr);
   }
+}
+
+/**
+ * Apply Jev multi-label auto-labeling, then run user mail rules.
+ *
+ * Keywords are no longer used — every AI-enabled label with an `aiDescription`
+ * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
+ * the Cloudflare AI Gateway. Ops infra cost is recorded; customer credits
+ * are not charged for this path.
+ */
+async function classifyAndRunRules(
+  env: Env,
+  account: RecipientAccount,
+  workspaceId: string,
+  messageId: string,
+  email: ParsedEmail,
+): Promise<void> {
+  const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
+
+  // ---- Phase 1: Jev multi-label classification ----
+  const candidates = await loadAiLabelCandidates(tenantDb, account.accountId, messageId);
+  if (!candidates) return;
+  await applyJevAutoLabels(env, tenantDb, workspaceId, messageId, email, candidates);
+
+  // ---- Phase 2: Mail Rules ----
+  await runMailRules(tenantDb, account.accountId, messageId);
 }
 
 /** Evaluate a single rule condition against a message */
