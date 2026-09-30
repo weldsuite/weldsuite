@@ -50,50 +50,54 @@ export function entitlementsFromClerkClaims(payload: Record<string, unknown>): P
   return { ...mail, ...calendar };
 }
 
+/** Split a comma/space separated claim into normalised slugs (scope prefix stripped). */
+function claimSlugs(claim: string): string[] {
+  return claim.split(/[,\s]+/).map((p) => p.replace(/^[uo]:/, '').toLowerCase());
+}
+
+/** Slug of one entry in a plan list: a bare string or an object with a `slug`. */
+function planItemSlug(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object' && 'slug' in item) {
+    return String((item as { slug: unknown }).slug);
+  }
+  return '';
+}
+
+/** `pla` may be a slug string or an object carrying lists of plans. */
+function planClaimMatches(pla: unknown, planSlugs: Set<string>): boolean {
+  if (typeof pla === 'string') return claimSlugs(pla).some((p) => planSlugs.has(p));
+  if (!pla || typeof pla !== 'object') return false;
+
+  const obj = pla as Record<string, unknown>;
+  const lists = [obj.u, obj.o, obj.plans, obj.user].filter(Array.isArray) as unknown[][];
+  return lists.some((list) =>
+    list.some((item) => planSlugs.has(planItemSlug(item).replace(/^[uo]:/, '').toLowerCase())),
+  );
+}
+
+/** Fallback: plan slugs kept in the user's public metadata. */
+function metadataMatches(meta: unknown, planSlugs: Set<string>): boolean {
+  if (!meta || typeof meta !== 'object') return false;
+
+  const m = meta as Record<string, unknown>;
+  const plan = typeof m.plan === 'string' ? m.plan.toLowerCase() : '';
+  if (planSlugs.has(plan)) return true;
+  const plans = m.plans;
+  return Array.isArray(plans) && plans.some((p) => typeof p === 'string' && planSlugs.has(p.toLowerCase()));
+}
+
 function hasSlugAccess(
   payload: Record<string, unknown>,
   planSlugs: Set<string>,
   featureSlugs: Set<string>,
 ): boolean {
   const fea = payload.fea;
-  if (typeof fea === 'string') {
-    const parts = fea.split(/[,\s]+/).map((p) => p.replace(/^[uo]:/, '').toLowerCase());
-    if (parts.some((p) => featureSlugs.has(p))) return true;
-  }
+  if (typeof fea === 'string' && claimSlugs(fea).some((p) => featureSlugs.has(p))) return true;
 
-  const pla = payload.pla;
-  if (typeof pla === 'string') {
-    const parts = pla.split(/[,\s]+/).map((p) => p.replace(/^[uo]:/, '').toLowerCase());
-    if (parts.some((p) => planSlugs.has(p))) return true;
-  }
-  if (pla && typeof pla === 'object') {
-    const obj = pla as Record<string, unknown>;
-    const lists = [obj.u, obj.o, obj.plans, obj.user].filter(Array.isArray) as unknown[][];
-    for (const list of lists) {
-      for (const item of list) {
-        const slug =
-          typeof item === 'string'
-            ? item
-            : item && typeof item === 'object' && 'slug' in item
-              ? String((item as { slug: unknown }).slug)
-              : '';
-        if (planSlugs.has(slug.replace(/^[uo]:/, '').toLowerCase())) return true;
-      }
-    }
-  }
+  if (planClaimMatches(payload.pla, planSlugs)) return true;
 
-  const meta = payload.public_metadata ?? payload.publicMetadata;
-  if (meta && typeof meta === 'object') {
-    const m = meta as Record<string, unknown>;
-    const plan = typeof m.plan === 'string' ? m.plan.toLowerCase() : '';
-    if (planSlugs.has(plan)) return true;
-    const plans = m.plans;
-    if (Array.isArray(plans) && plans.some((p) => typeof p === 'string' && planSlugs.has(p.toLowerCase()))) {
-      return true;
-    }
-  }
-
-  return false;
+  return metadataMatches(payload.public_metadata ?? payload.publicMetadata, planSlugs);
 }
 
 export { FREE as FREE_ENTITLEMENTS, PRO as PRO_ENTITLEMENTS };

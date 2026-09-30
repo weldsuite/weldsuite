@@ -211,6 +211,50 @@ async function resolveThreadId(
   return parent?.threadId || lookupIds[0] || fallback;
 }
 
+/** Hand the envelope to Cloudflare Email Sending, mapping any failure to `DELIVERY_FAILED`. */
+async function deliver(
+  env: Env,
+  fromHeader: string,
+  input: SendComposeInput,
+  htmlBody: string | undefined,
+): Promise<{ providerMessageId: string; pendingVerification: boolean }> {
+  try {
+    const sent = await sendEmail(env, {
+      from: fromHeader,
+      to: input.to,
+      cc: input.cc,
+      bcc: input.bcc,
+      subject: input.subject,
+      text: input.textBody,
+      html: htmlBody,
+      inReplyTo: input.inReplyTo,
+      references: input.references,
+    });
+    return { providerMessageId: sent.messageId, pendingVerification: !!sent.pendingVerification };
+  } catch (err) {
+    throw new PersonalMailSendError(
+      'DELIVERY_FAILED',
+      err instanceof Error ? err.message : 'Email delivery failed',
+    );
+  }
+}
+
+/** Best-effort display counter — the enforced limit is the live count in `countSentToday`. */
+async function bumpSentToday(
+  db: PersonalDatabase,
+  account: PersonalMailAccountRow,
+  now: Date,
+): Promise<void> {
+  try {
+    await db
+      .update(personalMailAccounts)
+      .set({ sentToday: (account.sentToday ?? 0) + 1, updatedAt: now })
+      .where(eq(personalMailAccounts.id, account.id));
+  } catch (counterErr) {
+    console.error('[personal-api/mail-send] sentToday bump failed:', counterErr);
+  }
+}
+
 /**
  * Send a composed message and persist the SENT copy.
  *
@@ -255,28 +299,12 @@ export async function sendAndPersist(
     ? `"${account.displayName}" <${account.email}>`
     : account.email;
 
-  let providerMessageId: string;
-  let pendingVerification = false;
-  try {
-    const sent = await sendEmail(env, {
-      from: fromHeader,
-      to: input.to,
-      cc: input.cc,
-      bcc: input.bcc,
-      subject: input.subject,
-      text: input.textBody,
-      html: htmlBody,
-      inReplyTo: input.inReplyTo,
-      references: input.references,
-    });
-    providerMessageId = sent.messageId;
-    pendingVerification = !!sent.pendingVerification;
-  } catch (err) {
-    throw new PersonalMailSendError(
-      'DELIVERY_FAILED',
-      err instanceof Error ? err.message : 'Email delivery failed',
-    );
-  }
+  const { providerMessageId, pendingVerification } = await deliver(
+    env,
+    fromHeader,
+    input,
+    htmlBody,
+  );
 
   const id = generateId('msg');
   const now = new Date();
@@ -339,17 +367,33 @@ export async function sendAndPersist(
     throw insertErr;
   }
 
-  // Best-effort display counter — the enforced limit is the live count above.
-  try {
-    await db
-      .update(personalMailAccounts)
-      .set({ sentToday: (account.sentToday ?? 0) + 1, updatedAt: now })
-      .where(eq(personalMailAccounts.id, account.id));
-  } catch (counterErr) {
-    console.error('[personal-api/mail-send] sentToday bump failed:', counterErr);
-  }
+  await bumpSentToday(db, account, now);
 
   return { message: created, pendingVerification };
+}
+
+/** Case-insensitive membership test for address lists. */
+function hasAddress(list: string[], email: string): boolean {
+  const lower = email.toLowerCase();
+  return list.some((e) => e.toLowerCase() === lower);
+}
+
+/** Keep the original To/Cc participants (Cc stays Cc), minus this mailbox and duplicates. */
+function addReplyAllParticipants(
+  self: string,
+  original: Pick<PersonalMailMessageRow, 'to' | 'cc'>,
+  to: string[],
+  cc: string[],
+): void {
+  const isNew = (email: string | undefined): email is string =>
+    !!email && email.toLowerCase() !== self && !hasAddress(to, email) && !hasAddress(cc, email);
+
+  for (const addr of original.to ?? []) {
+    if (isNew(addr.email)) to.push(addr.email);
+  }
+  for (const addr of original.cc ?? []) {
+    if (isNew(addr.email)) cc.push(addr.email);
+  }
 }
 
 /**
@@ -376,20 +420,7 @@ export function deriveReplyRecipients(
   const replyTarget = original.replyTo?.email || original.from?.email;
   if (replyTarget && replyTarget.toLowerCase() !== self) to.push(replyTarget);
 
-  if (replyAll) {
-    const isNew = (email: string | undefined): email is string =>
-      !!email &&
-      email.toLowerCase() !== self &&
-      !to.some((e) => e.toLowerCase() === email.toLowerCase()) &&
-      !cc.some((e) => e.toLowerCase() === email.toLowerCase());
-
-    for (const addr of original.to ?? []) {
-      if (isNew(addr.email)) to.push(addr.email);
-    }
-    for (const addr of original.cc ?? []) {
-      if (isNew(addr.email)) cc.push(addr.email);
-    }
-  }
+  if (replyAll) addReplyAllParticipants(self, original, to, cc);
 
   // Replying to your own message (e.g. from the Sent view) leaves no target
   // above; fall back to the original recipients so the reply still goes out.

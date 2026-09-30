@@ -168,6 +168,77 @@ async function getWorkspaceForOrg(
   return result;
 }
 
+type VerifiedToken =
+  | { ok: true; tokenId: string; userId: string; clientId: string | null }
+  | { ok: false; message: string; diagnostic: string };
+
+/** Verify the request's bearer token with Clerk; never throws. */
+async function verifyClerkToken(
+  env: HonoEnv['Bindings'],
+  request: Request,
+): Promise<VerifiedToken> {
+  try {
+    const clerk = createClerkClient({
+      secretKey: env.CLERK_SECRET_KEY,
+      publishableKey: env.CLERK_PUBLISHABLE_KEY,
+    });
+
+    const requestState = await clerk.authenticateRequest(request, {
+      acceptsToken: 'oauth_token',
+      ...(env.CLERK_JWT_KEY ? { jwtKey: env.CLERK_JWT_KEY } : {}),
+    });
+
+    const auth = requestState.toAuth();
+    if (!auth || !auth.isAuthenticated) {
+      return {
+        ok: false,
+        message: 'Invalid or expired access token.',
+        diagnostic: `token rejected by Clerk (tokenType=${auth?.tokenType ?? 'none'}, reason=${requestState.reason ?? 'unknown'})`,
+      };
+    }
+
+    return { ok: true, tokenId: auth.id, userId: auth.userId, clientId: auth.clientId };
+  } catch (error) {
+    console.error('[MCP Auth] Token verification threw:', error);
+    return {
+      ok: false,
+      message: 'Access token could not be verified.',
+      diagnostic: `verification threw: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
+ * Recover the Clerk organization a verified token is scoped to. Clerk drops the
+ * org from the typed auth object, so this reads the `org_id` claim from a JWT
+ * payload first (free), then falls back to the userinfo endpoint (network call)
+ * for opaque tokens. Returns null when neither yields an organization.
+ */
+async function resolveClerkOrgId(
+  env: HonoEnv['Bindings'],
+  token: string,
+  tokenId: string,
+  payload: Record<string, unknown> | null,
+): Promise<string | null> {
+  const fromClaims =
+    (payload?.org_id as string | undefined) ??
+    ((payload?.o as { id?: string } | undefined)?.id ?? null);
+  if (fromClaims) return fromClaims;
+
+  try {
+    const userinfo = await fetchOrgFromUserinfo(
+      env.API_CACHE,
+      env.CLERK_PUBLISHABLE_KEY,
+      token,
+      tokenId,
+    );
+    return userinfo.orgId;
+  } catch (error) {
+    console.error('[MCP Auth] userinfo lookup failed:', error);
+    return null;
+  }
+}
+
 /**
  * Hono middleware enforcing Clerk OAuth authentication on the MCP endpoint.
  *
@@ -201,39 +272,9 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   }
   const token = authHeader.slice(7).trim();
 
-  let tokenId: string;
-  let userId: string;
-  let clientId: string | null;
-
-  try {
-    const clerk = createClerkClient({
-      secretKey: c.env.CLERK_SECRET_KEY,
-      publishableKey: c.env.CLERK_PUBLISHABLE_KEY,
-    });
-
-    const requestState = await clerk.authenticateRequest(c.req.raw, {
-      acceptsToken: 'oauth_token',
-      ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
-    });
-
-    const auth = requestState.toAuth();
-    if (!auth || !auth.isAuthenticated) {
-      return unauthorized(
-        'Invalid or expired access token.',
-        `token rejected by Clerk (tokenType=${auth?.tokenType ?? 'none'}, reason=${requestState.reason ?? 'unknown'})`,
-      );
-    }
-
-    tokenId = auth.id;
-    userId = auth.userId;
-    clientId = auth.clientId;
-  } catch (error) {
-    console.error('[MCP Auth] Token verification threw:', error);
-    return unauthorized(
-      'Access token could not be verified.',
-      `verification threw: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  const verified = await verifyClerkToken(c.env, c.req.raw);
+  if (!verified.ok) return unauthorized(verified.message, verified.diagnostic);
+  const { tokenId, userId, clientId } = verified;
 
   // Clerk drops the org from the typed auth object, so recover it ourselves.
   //
@@ -242,23 +283,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // those have no payload at all — for them the userinfo endpoint is the only
   // route. Try the free path first, then fall back to the network call.
   const payload = decodeVerifiedJwtPayload(token);
-  let clerkOrgId =
-    (payload?.org_id as string | undefined) ??
-    ((payload?.o as { id?: string } | undefined)?.id ?? null);
-
-  if (!clerkOrgId) {
-    try {
-      const userinfo = await fetchOrgFromUserinfo(
-        c.env.API_CACHE,
-        c.env.CLERK_PUBLISHABLE_KEY,
-        token,
-        tokenId,
-      );
-      clerkOrgId = userinfo.orgId;
-    } catch (error) {
-      console.error('[MCP Auth] userinfo lookup failed:', error);
-    }
-  }
+  const clerkOrgId = await resolveClerkOrgId(c.env, token, tokenId, payload);
 
   if (!clerkOrgId) {
     // Claim names only — never values, which carry user identifiers.
