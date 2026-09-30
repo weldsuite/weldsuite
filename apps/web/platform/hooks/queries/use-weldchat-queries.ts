@@ -802,6 +802,28 @@ export function useEditMessage() {
 // Reaction Mutations
 // ============================================================================
 
+/**
+ * Optimistically add/remove `userId`'s reaction for `emoji` on a message.
+ * Removing the last reactor drops the emoji key entirely.
+ */
+function withReactionToggled(
+  msg: ChatMessage,
+  emoji: string,
+  hasReacted: boolean,
+  userId: string | null | undefined,
+): ChatMessage {
+  const reactions: Record<string, string[]> = { ...(msg.reactions || {}) };
+  const users = reactions[emoji] ? [...reactions[emoji]] : [];
+  if (hasReacted) {
+    reactions[emoji] = users.filter((id) => id !== userId);
+    if (reactions[emoji].length === 0) delete reactions[emoji];
+  } else {
+    if (userId && !users.includes(userId)) users.push(userId);
+    reactions[emoji] = users;
+  }
+  return { ...msg, reactions };
+}
+
 export function useToggleReaction() {
   const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();
@@ -829,19 +851,11 @@ export function useToggleReaction() {
               ...page,
               data: {
                 ...page.data,
-                messages: messages.map((msg) => {
-                  if (msg.id !== variables.messageId) return msg;
-                  const reactions: Record<string, string[]> = { ...(msg.reactions || {}) };
-                  const users = reactions[variables.emoji] ? [...reactions[variables.emoji]] : [];
-                  if (variables.hasReacted) {
-                    reactions[variables.emoji] = users.filter((id) => id !== userId);
-                    if (reactions[variables.emoji].length === 0) delete reactions[variables.emoji];
-                  } else {
-                    if (userId && !users.includes(userId)) users.push(userId);
-                    reactions[variables.emoji] = users;
-                  }
-                  return { ...msg, reactions };
-                }),
+                messages: messages.map((msg) =>
+                  msg.id === variables.messageId
+                    ? withReactionToggled(msg, variables.emoji, variables.hasReacted, userId)
+                    : msg,
+                ),
               },
             };
           }),
