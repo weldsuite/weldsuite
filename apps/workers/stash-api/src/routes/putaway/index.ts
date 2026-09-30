@@ -23,7 +23,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, like, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -86,16 +86,9 @@ const putawaySelection = (products: typeof schema.products, locations: typeof sc
   completedAt: t.completedAt,
 });
 
-/**
- * GET / — List putaway tasks (cursor pagination + status counts).
- */
-app.get('/', requirePermission('inventory:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-  const { products, warehouseLocations } = schema;
-
-  const conditions: any[] = [eq(t.movementType, 'putaway')];
+/** Filter conditions derived from the list query string. */
+function buildPutawayFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [eq(t.movementType, 'putaway')];
 
   if (q.search) {
     const searchTerm = `%${q.search}%`;
@@ -112,20 +105,39 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   if (q.warehouseId && q.warehouseId !== 'all') conditions.push(eq(t.destWarehouseId, q.warehouseId));
   if (q.assignedTo) conditions.push(eq(t.assignedTo, q.assignedTo));
   if (q.priority && q.priority !== 'all') conditions.push(eq(t.priority, q.priority));
+  return conditions;
+}
+
+/** Keyset condition for the row after `cursor`, or undefined when the cursor row is unknown. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursor: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+/**
+ * GET / — List putaway tasks (cursor pagination + status counts).
+ */
+app.get('/', requirePermission('inventory:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const { products, warehouseLocations } = schema;
+
+  const conditions = buildPutawayFilters(q);
 
   // Snapshot the filter set BEFORE the cursor predicate is (conditionally)
   // pushed — a stale cursor id finds no row and pushes nothing, so slicing
   // the last element off afterwards would drop a real filter instead.
   const filterConditions = [...conditions];
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCondition = await buildCursorCondition(db, q.cursor);
+    if (cursorCondition) conditions.push(cursorCondition);
   }
   const where = and(...conditions);
   const countWhere = and(...filterConditions);
