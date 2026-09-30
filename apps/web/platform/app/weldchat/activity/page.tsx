@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { AtSign, Check, MessageCircle, Reply, User } from 'lucide-react';
+import { AtSign, Check, MessageCircle, Reply, User, type LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -74,6 +74,13 @@ function activityCategory(type: string): 'mentions' | 'replies' | 'dms' | 'other
   if (t.includes('dm') || t.includes('direct')) return 'dms';
   return 'other';
 }
+
+const CATEGORY_ICONS: Record<ReturnType<typeof activityCategory>, LucideIcon> = {
+  mentions: AtSign,
+  replies: Reply,
+  dms: MessageCircle,
+  other: User,
+};
 
 export default function ActivityPage() {
   const t = getTranslations('weldchat');
@@ -229,11 +236,7 @@ export default function ActivityPage() {
   const renderRow = useCallback((item: ActivityItem) => {
     const isUnread = !item.readAt;
     const category = activityCategory(item.type);
-    const CategoryIcon =
-      category === 'mentions' ? AtSign :
-      category === 'replies' ? Reply :
-      category === 'dms' ? MessageCircle :
-      User;
+    const CategoryIcon = CATEGORY_ICONS[category];
 
     const actor = item.actorId ? actorsMap.get(item.actorId) : undefined;
     const actorName = item.actorName ?? actor?.name ?? null;
@@ -242,7 +245,15 @@ export default function ActivityPage() {
     return (
       <div
         key={item.id}
+        role="link"
+        tabIndex={0}
         onClick={() => handleItemClick(item)}
+        onKeyDown={(e) => {
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            handleItemClick(item);
+          }
+        }}
         className={cn(
           'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group relative',
           isUnread && 'bg-blue-50/40 dark:bg-blue-950/20',

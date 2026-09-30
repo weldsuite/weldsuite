@@ -111,6 +111,103 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
   const enabledTools = agent?.enabledTools ?? [];
   const recentRuns = agent?.recentRuns ?? [];
 
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <div className="flex-1 flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">{t.weldchat.agentProfilePanel.loading}</span>
+        </div>
+      );
+    }
+    if (!agent) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
+          {t.weldchat.agentProfilePanel.agentNotFound}
+        </div>
+      );
+    }
+    return (
+      <ScrollArea className="flex-1">
+        <div className="px-4 py-5 space-y-6">
+          {agent.description && (
+            <section>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                {t.weldchat.agentProfilePanel.about}
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {agent.description}
+              </p>
+            </section>
+          )}
+
+          <section className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg border p-3">
+              <div className="text-lg font-semibold">{agent.totalRuns ?? 0}</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.runs}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                {agent.successfulRuns ?? 0}
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.ok}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                {agent.failedRuns ?? 0}
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.failed}</div>
+            </div>
+          </section>
+
+          {enabledTools.length > 0 && (
+            <section>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                {t.weldchat.agentProfilePanel.tools} ({enabledTools.length})
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {enabledTools.map((tool: string) => (
+                  <Badge key={tool} variant="secondary" className="text-[11px] font-mono font-normal">
+                    {tool}
+                  </Badge>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {recentRuns.length > 0 && (
+            <section>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                {t.weldchat.agentProfilePanel.recentRuns}
+              </p>
+              <div className="space-y-1.5">
+                {recentRuns.slice(0, 8).map((run: AgentRun) => {
+                  const cfg = RUN_STATUS_ICON[run.status] ?? RUN_STATUS_ICON.failed;
+                  const Icon = cfg.icon;
+                  const runLabel = runStatusLabels[run.status] ?? cfg.label;
+                  return (
+                    <div key={run.id} className="flex items-center gap-2 text-xs">
+                      <Icon className={cn('h-3.5 w-3.5 shrink-0', cfg.className)} />
+                      <span className="flex-1 truncate">
+                        {run.result?.summary ?? run.triggerType ?? runLabel}
+                      </span>
+                      <span className="text-muted-foreground text-[10px] shrink-0">
+                        {formatDuration(run.durationMs)}
+                      </span>
+                      <span className="text-muted-foreground text-[10px] shrink-0">
+                        {formatRelative(run.startedAt)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+      </ScrollArea>
+    );
+  };
+
   return (
     <div
       className={cn(
@@ -168,94 +265,7 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
       </div>
 
       {/* Body */}
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">{t.weldchat.agentProfilePanel.loading}</span>
-        </div>
-      ) : !agent ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
-          {t.weldchat.agentProfilePanel.agentNotFound}
-        </div>
-      ) : (
-        <ScrollArea className="flex-1">
-          <div className="px-4 py-5 space-y-6">
-            {agent.description && (
-              <section>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-                  {t.weldchat.agentProfilePanel.about}
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {agent.description}
-                </p>
-              </section>
-            )}
-
-            <section className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-lg border p-3">
-                <div className="text-lg font-semibold">{agent.totalRuns ?? 0}</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.runs}</div>
-              </div>
-              <div className="rounded-lg border p-3">
-                <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                  {agent.successfulRuns ?? 0}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.ok}</div>
-              </div>
-              <div className="rounded-lg border p-3">
-                <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                  {agent.failedRuns ?? 0}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.failed}</div>
-              </div>
-            </section>
-
-            {enabledTools.length > 0 && (
-              <section>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  {t.weldchat.agentProfilePanel.tools} ({enabledTools.length})
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {enabledTools.map((tool: string) => (
-                    <Badge key={tool} variant="secondary" className="text-[11px] font-mono font-normal">
-                      {tool}
-                    </Badge>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {recentRuns.length > 0 && (
-              <section>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  {t.weldchat.agentProfilePanel.recentRuns}
-                </p>
-                <div className="space-y-1.5">
-                  {recentRuns.slice(0, 8).map((run: AgentRun) => {
-                    const cfg = RUN_STATUS_ICON[run.status] ?? RUN_STATUS_ICON.failed;
-                    const Icon = cfg.icon;
-                    const runLabel = runStatusLabels[run.status] ?? cfg.label;
-                    return (
-                      <div key={run.id} className="flex items-center gap-2 text-xs">
-                        <Icon className={cn('h-3.5 w-3.5 shrink-0', cfg.className)} />
-                        <span className="flex-1 truncate">
-                          {run.result?.summary ?? run.triggerType ?? runLabel}
-                        </span>
-                        <span className="text-muted-foreground text-[10px] shrink-0">
-                          {formatDuration(run.durationMs)}
-                        </span>
-                        <span className="text-muted-foreground text-[10px] shrink-0">
-                          {formatRelative(run.startedAt)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-          </div>
-        </ScrollArea>
-      )}
+      {renderBody()}
     </div>
   );
 }
