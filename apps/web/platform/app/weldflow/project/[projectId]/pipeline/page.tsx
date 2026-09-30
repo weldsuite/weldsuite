@@ -327,6 +327,14 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if ((e.key === 'Enter' || e.key === ' ') && onClick && !isSortableDragging) {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
     low: { label: t.projects.pipeline.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     medium: { label: t.projects.pipeline.priorityMedium, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
@@ -436,8 +444,8 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
         <div className="flex items-center gap-2 mt-3">
           <Hash className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <div className="flex flex-wrap gap-1 min-w-0">
-            {feature.tags.slice(0, 3).map((tag, index) => (
-              <Badge key={index} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
+            {feature.tags.slice(0, 3).map((tag) => (
+              <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
                 {tag.name}
               </Badge>
             ))}
@@ -474,9 +482,12 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
