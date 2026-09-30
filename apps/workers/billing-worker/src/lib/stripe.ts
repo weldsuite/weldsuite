@@ -221,6 +221,18 @@ export async function createStripeCustomer(
   return stripeApiRequest(key, 'POST', '/v1/customers', body);
 }
 
+/** Flatten a string map into Stripe's `<prefix>[key]` form-encoded fields. */
+function addPrefixedFields(
+  body: Record<string, string>,
+  prefix: string,
+  fields: Record<string, string> | undefined,
+): void {
+  if (!fields) return;
+  for (const [k, v] of Object.entries(fields)) {
+    body[`${prefix}[${k}]`] = v;
+  }
+}
+
 /**
  * Create a Stripe Checkout session.
  */
@@ -287,19 +299,11 @@ export async function createCheckoutSession(
     body['customer_update[name]'] = 'auto';
   }
 
-  if (params.metadata) {
-    for (const [k, v] of Object.entries(params.metadata)) {
-      body[`metadata[${k}]`] = v;
-    }
-  }
+  addPrefixedFields(body, 'metadata', params.metadata);
 
   if (params.subscriptionData) {
     const { metadata, applicationFeePercent, transferDataDestination } = params.subscriptionData;
-    if (metadata) {
-      for (const [k, v] of Object.entries(metadata)) {
-        body[`subscription_data[metadata][${k}]`] = v;
-      }
-    }
+    addPrefixedFields(body, 'subscription_data[metadata]', metadata);
     if (applicationFeePercent != null) {
       body['subscription_data[application_fee_percent]'] = applicationFeePercent.toString();
     }

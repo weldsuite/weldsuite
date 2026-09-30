@@ -109,12 +109,7 @@ appSubscriptionsRoutes.post('/checkout', async (c) => {
   // Only publicly approved apps can be purchased — mirrors the install
   // gate in app-api (isInstallableHere). Own-workspace installs are free,
   // so buying your own app is never valid either.
-  const purchasable =
-    app.visibility === 'public' &&
-    app.reviewStatus === 'approved' &&
-    app.isActive &&
-    !app.deletedAt;
-  if (!purchasable) {
+  if (!isPurchasable(app)) {
     return c.json(
       { error: { code: 'APP_NOT_PURCHASABLE', message: 'This app is not available for purchase.' } },
       403,
@@ -200,19 +195,7 @@ appSubscriptionsRoutes.post('/checkout', async (c) => {
   // If the developer's workspace has completed Connect onboarding, split the
   // charge via a destination charge; otherwise the platform collects 100% of
   // the subscription until onboarding completes.
-  let applicationFeePercent: number | undefined;
-  let transferDataDestination: string | undefined;
-
-  const [developerAccount] = await masterDb
-    .select()
-    .from(appDeveloperAccounts)
-    .where(eq(appDeveloperAccounts.workspaceId, app.ownerWorkspaceId))
-    .limit(1);
-
-  if (developerAccount?.payoutsEnabled && developerAccount.stripeConnectAccountId) {
-    applicationFeePercent = app.platformFeePercent;
-    transferDataDestination = developerAccount.stripeConnectAccountId;
-  }
+  const { applicationFeePercent, transferDataDestination } = await resolveConnectSplit(masterDb, app);
 
   const metadata = {
     appId: app.id,
@@ -241,6 +224,42 @@ appSubscriptionsRoutes.post('/checkout', async (c) => {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+type UserAppRow = typeof userApps.$inferSelect;
+
+/** Only publicly approved, active, non-deleted apps can be purchased. */
+function isPurchasable(app: UserAppRow): boolean {
+  return (
+    app.visibility === 'public' &&
+    app.reviewStatus === 'approved' &&
+    app.isActive &&
+    !app.deletedAt
+  );
+}
+
+/**
+ * If the developer's workspace has completed Connect onboarding, the charge is
+ * split via a destination charge; otherwise the platform collects 100% of the
+ * subscription until onboarding completes.
+ */
+async function resolveConnectSplit(
+  masterDb: ReturnType<typeof getMasterDb>,
+  app: UserAppRow,
+): Promise<{ applicationFeePercent?: number; transferDataDestination?: string }> {
+  const [developerAccount] = await masterDb
+    .select()
+    .from(appDeveloperAccounts)
+    .where(eq(appDeveloperAccounts.workspaceId, app.ownerWorkspaceId))
+    .limit(1);
+
+  if (developerAccount?.payoutsEnabled && developerAccount.stripeConnectAccountId) {
+    return {
+      applicationFeePercent: app.platformFeePercent,
+      transferDataDestination: developerAccount.stripeConnectAccountId,
+    };
+  }
+  return {};
+}
 
 async function ensureAppInstall(
   masterDb: ReturnType<typeof getMasterDb>,
