@@ -77,10 +77,20 @@ export default function ChatWidgetPage() {
   ], [tw]);
 
   const renderRow = useCallback((widget: Widget) => {
+    const openWidget = () => navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: widget.widgetId } });
     return (
       <div
         key={widget.id}
-        onClick={() => navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: widget.widgetId } })}
+        role="button"
+        tabIndex={0}
+        onClick={openWidget}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openWidget();
+          }
+        }}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Name */}
@@ -105,7 +115,7 @@ export default function ChatWidgetPage() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
           {widgets.length > 1 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
