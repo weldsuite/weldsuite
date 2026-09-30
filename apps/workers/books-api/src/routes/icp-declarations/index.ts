@@ -20,7 +20,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { getContactVatNumber } from '@weldsuite/books-domain/accounting-compliance';
@@ -66,6 +66,98 @@ app.get('/:id', requirePermission('reports:read'), async (c) => {
   }
 });
 
+/** Tax rates that represent intracommunautaire supplies (rubriek 3b). */
+async function loadIcpRateIds(db: Database): Promise<Set<string>> {
+  const { taxRates } = schema;
+  const icpRateIds = new Set<string>();
+  const allRates = await db.select().from(taxRates).where(isNull(taxRates.deletedAt));
+  for (const rate of allRates) {
+    const rubriek = (rate.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
+    if (rubriek === '3b' && rate.type !== 'purchase') icpRateIds.add(rate.id);
+  }
+  return icpRateIds;
+}
+
+interface IcpSourceLine {
+  debit: string | null;
+  credit: string | null;
+  taxRateId: string | null;
+  contactId: string | null;
+}
+
+/**
+ * Group net supply amounts per buyer VAT number. The single seeded
+ * intracommunautaire rate covers goods and services alike — WeldBooks
+ * doesn't capture product type per line yet, so everything reports as
+ * 'services' (matching the eu_b2b_service category). Splitting goods vs
+ * services needs product-type capture on invoice lines (follow-up).
+ */
+async function aggregateSuppliesPerVat(db: Database, lines: IcpSourceLine[], icpRateIds: Set<string>) {
+  const perVat = new Map<string, { countryCode: string; contactId: string | null; amount: number }>();
+  const missingVat: string[] = [];
+
+  for (const line of lines) {
+    if (!line.taxRateId || !icpRateIds.has(line.taxRateId)) continue;
+    const amount = Math.abs(Number.parseFloat(line.credit || '0') - Number.parseFloat(line.debit || '0'));
+    if (amount === 0) continue;
+
+    const rawVat = await getContactVatNumber(db, line.contactId);
+    const normalized = rawVat ? normalizeVatNumber(rawVat) : null;
+    if (!normalized) {
+      if (line.contactId && !missingVat.includes(line.contactId)) missingVat.push(line.contactId);
+      continue;
+    }
+
+    addBuyerSupply(perVat, normalized, line.contactId, amount);
+  }
+  return { perVat, missingVat };
+}
+
+type BuyerSupplies = Map<string, { countryCode: string; contactId: string | null; amount: number }>;
+
+/** Add `amount` to the buyer's running total, creating the entry on first sight. */
+function addBuyerSupply(
+  perVat: BuyerSupplies,
+  buyer: { full: string; countryCode: string },
+  contactId: string | null,
+  amount: number,
+): void {
+  const existing = perVat.get(buyer.full);
+  if (existing) {
+    existing.amount += amount;
+    return;
+  }
+  perVat.set(buyer.full, { countryCode: buyer.countryCode, contactId, amount });
+}
+
+/** Persist one ICP line per buyer VAT number (no-op when there were no supplies). */
+async function insertIcpLines(
+  db: Database,
+  input: {
+    declarationId: string;
+    entityId: string;
+    perVat: Map<string, { countryCode: string; contactId: string | null; amount: number }>;
+    now: Date;
+  },
+): Promise<void> {
+  const { declarationId, entityId, perVat, now } = input;
+  if (perVat.size === 0) return;
+  await db.insert(schema.icpLines).values(
+    [...perVat.entries()].map(([vatNumber, entry]) => ({
+      id: generateId('icpl'),
+      declarationId,
+      entityId,
+      contactId: entry.contactId,
+      vatNumber,
+      countryCode: entry.countryCode,
+      supplyType: 'services',
+      amount: entry.amount.toFixed(2),
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+}
+
 // POST /calculate — aggregate intracommunautaire supplies per customer
 app.post('/calculate', requirePermission('reports:create'), zValidator('json', z.object({
   periodType: z.enum(['monthly', 'quarterly', 'yearly']),
@@ -80,17 +172,11 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
 
-    const { journalLines, journalEntries, taxRates } = schema;
+    const { journalLines, journalEntries } = schema;
     const periodStart = new Date(data.periodStart);
     const periodEnd = new Date(data.periodEnd);
 
-    // Tax rates that represent intracommunautaire supplies (rubriek 3b).
-    const icpRateIds = new Set<string>();
-    const allRates = await db.select().from(taxRates).where(isNull(taxRates.deletedAt));
-    for (const rate of allRates) {
-      const rubriek = (rate.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
-      if (rubriek === '3b' && rate.type !== 'purchase') icpRateIds.add(rate.id);
-    }
+    const icpRateIds = await loadIcpRateIds(db);
 
     // Posted, non-reversal journal lines in the period on ICP rates.
     const lines = await db
@@ -111,37 +197,7 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
         lte(journalEntries.date, periodEnd),
       ));
 
-    // Group net supply amounts per buyer VAT number. The single seeded
-    // intracommunautaire rate covers goods and services alike — WeldBooks
-    // doesn't capture product type per line yet, so everything reports as
-    // 'services' (matching the eu_b2b_service category). Splitting goods vs
-    // services needs product-type capture on invoice lines (follow-up).
-    const perVat = new Map<string, { countryCode: string; contactId: string | null; amount: number }>();
-    const missingVat: string[] = [];
-
-    for (const line of lines) {
-      if (!line.taxRateId || !icpRateIds.has(line.taxRateId)) continue;
-      const amount = Math.abs(Number.parseFloat(line.credit || '0') - Number.parseFloat(line.debit || '0'));
-      if (amount === 0) continue;
-
-      const rawVat = await getContactVatNumber(db, line.contactId);
-      const normalized = rawVat ? normalizeVatNumber(rawVat) : null;
-      if (!normalized) {
-        if (line.contactId && !missingVat.includes(line.contactId)) missingVat.push(line.contactId);
-        continue;
-      }
-
-      const existing = perVat.get(normalized.full);
-      if (existing) {
-        existing.amount += amount;
-      } else {
-        perVat.set(normalized.full, {
-          countryCode: normalized.countryCode,
-          contactId: line.contactId,
-          amount,
-        });
-      }
-    }
+    const { perVat, missingVat } = await aggregateSuppliesPerVat(db, lines, icpRateIds);
 
     const now = new Date();
     const declarationId = generateId('icp');
@@ -163,22 +219,7 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       updatedAt: now,
     });
 
-    if (perVat.size > 0) {
-      await db.insert(schema.icpLines).values(
-        [...perVat.entries()].map(([vatNumber, entry]) => ({
-          id: generateId('icpl'),
-          declarationId,
-          entityId,
-          contactId: entry.contactId,
-          vatNumber,
-          countryCode: entry.countryCode,
-          supplyType: 'services',
-          amount: entry.amount.toFixed(2),
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-    }
+    await insertIcpLines(db, { declarationId, entityId, perVat, now });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,

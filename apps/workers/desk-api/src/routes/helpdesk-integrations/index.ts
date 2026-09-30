@@ -352,6 +352,74 @@ app.get('/discord/settings', requirePermission('settings:read'), async (c) => {
   }
 });
 
+type DiscordSettingsInput = z.infer<typeof discordSettingsSchema>;
+
+/** Overlay the settings that were actually provided onto the stored integration config. */
+function mergeDiscordSettings(
+  currentConfig: Record<string, unknown>,
+  data: DiscordSettingsInput,
+): Record<string, unknown> {
+  return {
+    ...currentConfig,
+    ...(data.supportChannels !== undefined && { supportChannels: data.supportChannels }),
+    ...(data.processDirectMessages !== undefined && {
+      processDirectMessages: data.processDirectMessages,
+    }),
+    ...(data.ignoreBots !== undefined && { ignoreBots: data.ignoreBots }),
+    ...(data.supportPrefix !== undefined && { supportPrefix: data.supportPrefix }),
+    ...(data.autoReplyMessage !== undefined && { autoReplyMessage: data.autoReplyMessage }),
+    ...(data.botDisplayName !== undefined && { botDisplayName: data.botDisplayName || '' }),
+    ...(data.botAvatarUrl !== undefined && { botAvatarUrl: data.botAvatarUrl || '' }),
+    ...(data.ticketPanel !== undefined && { ticketPanel: data.ticketPanel }),
+  };
+}
+
+/** Push the bot nickname to Discord. Non-fatal: the settings are already saved. */
+async function pushDiscordBotNickname(
+  botToken: string | undefined,
+  integration: Parameters<typeof discordGuildId>[0],
+  botDisplayName: string | undefined,
+): Promise<void> {
+  if (botDisplayName === undefined) return;
+  const guildId = discordGuildId(integration);
+  if (!botToken || !guildId) return;
+  try {
+    await setBotGuildNickname(botToken, guildId, botDisplayName || null);
+  } catch (err) {
+    console.error('[app-api/helpdesk-integrations] Failed to update bot nickname:', err);
+  }
+}
+
+/**
+ * Push the avatar only when it actually changed — the Discord avatar
+ * endpoint is heavily rate-limited. Non-fatal, same as the nickname.
+ */
+async function pushDiscordBotAvatar(
+  botToken: string | undefined,
+  currentConfig: Record<string, unknown>,
+  botAvatarUrl: string | undefined,
+): Promise<void> {
+  if (botAvatarUrl === undefined) return;
+  const previousAvatarUrl = (currentConfig.botAvatarUrl as string) || '';
+  const newAvatarUrl = botAvatarUrl || '';
+  if (!botToken || previousAvatarUrl === newAvatarUrl) return;
+  try {
+    await setBotAvatar(botToken, newAvatarUrl || null);
+  } catch (err) {
+    console.error('[app-api/helpdesk-integrations] Failed to update bot avatar:', err);
+  }
+}
+
+async function pushDiscordBotProfile(
+  botToken: string | undefined,
+  integration: Parameters<typeof discordGuildId>[0],
+  currentConfig: Record<string, unknown>,
+  data: DiscordSettingsInput,
+): Promise<void> {
+  await pushDiscordBotNickname(botToken, integration, data.botDisplayName);
+  await pushDiscordBotAvatar(botToken, currentConfig, data.botAvatarUrl);
+}
+
 /** PUT /discord/settings — body may include integrationId for multi-server. */
 app.put(
   '/discord/settings',
@@ -369,19 +437,7 @@ app.put(
       if (!integration) return error.notFound(c, 'Discord integration');
 
       const currentConfig = integrationConfig(integration);
-      const updatedConfig: Record<string, unknown> = {
-        ...currentConfig,
-        ...(data.supportChannels !== undefined && { supportChannels: data.supportChannels }),
-        ...(data.processDirectMessages !== undefined && {
-          processDirectMessages: data.processDirectMessages,
-        }),
-        ...(data.ignoreBots !== undefined && { ignoreBots: data.ignoreBots }),
-        ...(data.supportPrefix !== undefined && { supportPrefix: data.supportPrefix }),
-        ...(data.autoReplyMessage !== undefined && { autoReplyMessage: data.autoReplyMessage }),
-        ...(data.botDisplayName !== undefined && { botDisplayName: data.botDisplayName || '' }),
-        ...(data.botAvatarUrl !== undefined && { botAvatarUrl: data.botAvatarUrl || '' }),
-        ...(data.ticketPanel !== undefined && { ticketPanel: data.ticketPanel }),
-      };
+      const updatedConfig = mergeDiscordSettings(currentConfig, data);
 
       await db
         .update(hci)
@@ -390,33 +446,7 @@ app.put(
 
       await syncDiscordGuildKv(c, orgId, integration);
 
-      const botToken = c.env.DISCORD_BOT_TOKEN;
-
-      // Push the nickname to Discord. Non-fatal: the settings are already saved.
-      if (data.botDisplayName !== undefined) {
-        const guildId = discordGuildId(integration);
-        if (botToken && guildId) {
-          try {
-            await setBotGuildNickname(botToken, guildId, data.botDisplayName || null);
-          } catch (err) {
-            console.error('[app-api/helpdesk-integrations] Failed to update bot nickname:', err);
-          }
-        }
-      }
-
-      // Push the avatar only when it actually changed — the Discord avatar
-      // endpoint is heavily rate-limited. Non-fatal, same as above.
-      if (data.botAvatarUrl !== undefined) {
-        const previousAvatarUrl = (currentConfig.botAvatarUrl as string) || '';
-        const newAvatarUrl = data.botAvatarUrl || '';
-        if (botToken && previousAvatarUrl !== newAvatarUrl) {
-          try {
-            await setBotAvatar(botToken, newAvatarUrl || null);
-          } catch (err) {
-            console.error('[app-api/helpdesk-integrations] Failed to update bot avatar:', err);
-          }
-        }
-      }
+      await pushDiscordBotProfile(c.env.DISCORD_BOT_TOKEN, integration, currentConfig, data);
 
       return success(c, {
         ...projectDiscordSettings(updatedConfig),
