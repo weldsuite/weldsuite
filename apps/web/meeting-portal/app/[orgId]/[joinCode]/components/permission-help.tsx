@@ -59,7 +59,7 @@ export function PermissionHelp({ kind }: Readonly<{ kind: 'microphone' | 'camera
         Your browser is blocking {label.toLowerCase()} access for this site. To fix it:
       </p>
       <ol className="text-xs text-foreground/90 list-decimal pl-4 space-y-1.5">
-        {steps.map((s, i) => <li key={i}>{s}</li>)}
+        {steps.map((s) => <li key={s}>{s}</li>)}
       </ol>
     </div>
   );
