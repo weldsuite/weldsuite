@@ -399,6 +399,63 @@ app.post('/:id/loa-template', requirePermission(PORTING_PERMISSION), async (c) =
 
 // ---------- Document upload (LOA + bill copy share the same handler) ----------
 
+type StoredPortDoc = { key: string; pdfBytes: ArrayBuffer } | { response: Response };
+
+/** Validate + store the uploaded PDF in R2; maps storage failures to HTTP responses. */
+async function storePortDocument(
+  c: PortingContext<'/:id/loa' | '/:id/bill-copy'>,
+  args: { workspaceId: string; portingOrderId: string; type: PortDocType; file: File },
+): Promise<StoredPortDoc> {
+  try {
+    const result = await uploadPortDoc(c.env, args);
+    return { key: result.key, pdfBytes: await args.file.arrayBuffer() };
+  } catch (err) {
+    if (err instanceof PortDocError) {
+      const d = err.detail;
+      if (d.code === 'too_large') {
+        return {
+          response: c.json(
+            { error: { code: 'TOO_LARGE', message: `File exceeds ${d.limitBytes} bytes`, details: d } },
+            413,
+          ),
+        };
+      }
+      if (d.code === 'not_pdf') return { response: error.badRequest(c, 'File is not a valid PDF', d) };
+      if (d.code === 'empty') return { response: error.badRequest(c, 'File is empty') };
+    }
+    console.error('[Porting] uploadPortDoc failed:', err);
+    return { response: error.internal(c, 'Failed to store document') };
+  }
+}
+
+/**
+ * Push a stored document to Telnyx. If this fails we keep the R2 file so the
+ * user can retry without re-uploading; we surface the error so the UI can show
+ * a "Try again" button rather than wiping their work. Returns an error
+ * response, or null on success.
+ */
+async function attachDocumentToTelnyx(
+  c: PortingContext<'/:id/loa' | '/:id/bill-copy'>,
+  args: { telnyxOrderId: string; pdfBytes: ArrayBuffer; type: PortDocType },
+): Promise<Response | null> {
+  const { telnyxOrderId, pdfBytes, type } = args;
+  try {
+    await attachOrderDocument(c.env, {
+      telnyxOrderId,
+      pdfBytes,
+      filename: type === 'loa' ? 'signed-loa.pdf' : 'current-bill.pdf',
+      documentType: type === 'loa' ? 'loa' : 'invoice',
+    });
+    return null;
+  } catch (err) {
+    if (err instanceof TelnyxPortingError) {
+      return respondTelnyx(c, err, 'Telnyx rejected the document upload');
+    }
+    console.error('[Porting] attachOrderDocument unexpected:', err);
+    return error.internal(c, 'Failed to attach document to Telnyx order');
+  }
+}
+
 async function handleDocumentUpload(
   c: PortingContext<'/:id/loa' | '/:id/bill-copy'>,
   type: PortDocType,
@@ -426,50 +483,16 @@ async function handleDocumentUpload(
   const file = form?.get('file') as unknown;
   if (!file || !(file instanceof File)) return error.badRequest(c, 'Missing "file" form field');
 
-  let key: string;
-  let pdfBytes: ArrayBuffer;
-  try {
-    const result = await uploadPortDoc(c.env, {
-      workspaceId,
-      portingOrderId: id,
-      type,
-      file,
-    });
-    key = result.key;
-    pdfBytes = await file.arrayBuffer();
-  } catch (err) {
-    if (err instanceof PortDocError) {
-      const d = err.detail;
-      if (d.code === 'too_large') {
-        return c.json(
-          { error: { code: 'TOO_LARGE', message: `File exceeds ${d.limitBytes} bytes`, details: d } },
-          413,
-        );
-      }
-      if (d.code === 'not_pdf') return error.badRequest(c, 'File is not a valid PDF', d);
-      if (d.code === 'empty') return error.badRequest(c, 'File is empty');
-    }
-    console.error('[Porting] uploadPortDoc failed:', err);
-    return error.internal(c, 'Failed to store document');
-  }
+  const stored = await storePortDocument(c, { workspaceId, portingOrderId: id, type, file });
+  if ('response' in stored) return stored.response;
+  const { key, pdfBytes } = stored;
 
-  // Push to Telnyx. If this fails we keep the R2 file so the user can
-  // retry without re-uploading; we surface the error so the UI can show
-  // a "Try again" button rather than wiping their work.
-  try {
-    await attachOrderDocument(c.env, {
-      telnyxOrderId: draft.telnyxPortingOrderId,
-      pdfBytes,
-      filename: type === 'loa' ? 'signed-loa.pdf' : 'current-bill.pdf',
-      documentType: type === 'loa' ? 'loa' : 'invoice',
-    });
-  } catch (err) {
-    if (err instanceof TelnyxPortingError) {
-      return respondTelnyx(c, err, 'Telnyx rejected the document upload');
-    }
-    console.error('[Porting] attachOrderDocument unexpected:', err);
-    return error.internal(c, 'Failed to attach document to Telnyx order');
-  }
+  const attachFailure = await attachDocumentToTelnyx(c, {
+    telnyxOrderId: draft.telnyxPortingOrderId,
+    pdfBytes,
+    type,
+  });
+  if (attachFailure) return attachFailure;
 
   const updateField = type === 'loa' ? { loaStorageKey: key } : { billCopyStorageKey: key };
   await db
@@ -491,6 +514,124 @@ app.post('/:id/bill-copy', requirePermission(PORTING_PERMISSION), (c) =>
 
 // ---------- Submit ----------
 
+type PortingOrderRow = typeof schema.voipPortingOrders.$inferSelect;
+
+/** Order columns that must be filled before submit, with the label reported when missing. */
+const REQUIRED_SUBMIT_FIELDS: ReadonlyArray<readonly [keyof PortingOrderRow, string]> = [
+  ['authorizedName', 'authorizedName'],
+  ['businessName', 'businessName'],
+  ['serviceAddress', 'serviceAddress'],
+  ['currentCarrier', 'currentCarrier'],
+  ['currentAccountNumber', 'currentAccountNumber'],
+  ['loaStorageKey', 'loa'],
+  ['billCopyStorageKey', 'billCopy'],
+];
+
+function findMissingSubmitFields(draft: PortingOrderRow): string[] {
+  return REQUIRED_SUBMIT_FIELDS.filter(([column]) => !draft[column]).map(([, label]) => label);
+}
+
+/** POST a JSON body to billing-worker, forwarding the caller's Authorization header. */
+async function postToBilling(
+  billingUrl: string,
+  path: string,
+  authHeader: string | undefined,
+  body: Record<string, unknown>,
+): Promise<Record<string, any>> {
+  const resp = await fetch(`${billingUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authHeader ? { Authorization: authHeader } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return (await resp.json()) as Record<string, any>;
+}
+
+/**
+ * The user has no payment method — they need to go through Stripe checkout
+ * first. Mirror the existing flow's behaviour and surface the URL.
+ */
+async function startPortCheckout(
+  c: PortingContext,
+  args: { billingUrl: string; authHeader: string | undefined; stripePriceId: string; draft: PortingOrderRow },
+) {
+  const { billingUrl, authHeader, stripePriceId, draft } = args;
+  try {
+    const checkout = await postToBilling(billingUrl, '/api/billing/phone/checkout', authHeader, {
+      stripePriceId,
+      phoneNumber: draft.phoneNumber,
+      countryCode: draft.countryCode,
+      numberType: draft.numberType,
+      displayName: draft.businessName,
+    });
+    return success(c, { requiresCheckout: true, checkoutUrl: checkout.url });
+  } catch {
+    return unavailable(c, 'Could not start checkout — try again');
+  }
+}
+
+/**
+ * Submit to Telnyx and record the outcome. If this fails after billing
+ * succeeded, we don't automatically refund — admin reconciles. (Same edge
+ * case the new-purchase flow has lived with.) Returns an error response, or
+ * null on success.
+ */
+async function submitOrderToTelnyx(
+  c: PortingContext,
+  args: { draft: PortingOrderRow; telnyxPortingOrderId: string; orgId: string; stripePriceId: string },
+): Promise<Response | null> {
+  const { draft, telnyxPortingOrderId, orgId, stripePriceId } = args;
+  const db = c.get('tenantDb');
+  const masterDb = getMasterDb(c.env);
+  try {
+    const submitted = await submitPortingOrder(c.env, telnyxPortingOrderId);
+
+    // Master-DB index — webhooks will look this up.
+    await masterDb
+      .insert(masterSchema.telnyxPortingOrderIndex)
+      .values({
+        telnyxPortingOrderId,
+        clerkOrgId: orgId,
+        draftId: draft.id,
+      })
+      .onConflictDoNothing();
+
+    await db
+      .update(schema.voipPortingOrders)
+      .set({
+        status: 'submitted',
+        substatus: submitted.substatus ?? null,
+        stripePriceId,
+        billingActivated: true,
+        billingError: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.voipPortingOrders.id, draft.id));
+    return null;
+  } catch (err) {
+    if (err instanceof TelnyxPortingError) {
+      // Persist so the UI can surface the rejection without re-fetching.
+      await db
+        .update(schema.voipPortingOrders)
+        .set({
+          billingActivated: true, // billing went through
+          stripePriceId,
+          lastErrorCode: err.code,
+          lastErrorMessage: err.message,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.voipPortingOrders.id, draft.id));
+      return respondTelnyx(c, err, 'Telnyx rejected the submission');
+    }
+    console.error('[Porting] submitPortingOrder unexpected:', err);
+    return error.internal(c, 'Failed to submit port order');
+  }
+}
+
 app.post('/:id/submit', requirePermission(PORTING_PERMISSION), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -507,17 +648,11 @@ app.post('/:id/submit', requirePermission(PORTING_PERMISSION), async (c) => {
   if (draft.status !== 'awaiting_documents') {
     return error.conflict(c, `Cannot submit from status '${draft.status}'`);
   }
-  if (!draft.telnyxPortingOrderId) return error.conflict(c, 'Order has no Telnyx id yet');
+  const telnyxPortingOrderId = draft.telnyxPortingOrderId;
+  if (!telnyxPortingOrderId) return error.conflict(c, 'Order has no Telnyx id yet');
 
   // Required-field gate.
-  const missing: string[] = [];
-  if (!draft.authorizedName) missing.push('authorizedName');
-  if (!draft.businessName) missing.push('businessName');
-  if (!draft.serviceAddress) missing.push('serviceAddress');
-  if (!draft.currentCarrier) missing.push('currentCarrier');
-  if (!draft.currentAccountNumber) missing.push('currentAccountNumber');
-  if (!draft.loaStorageKey) missing.push('loa');
-  if (!draft.billCopyStorageKey) missing.push('billCopy');
+  const missing = findMissingSubmitFields(draft);
   if (missing.length > 0) {
     return error.badRequest(c, `Missing required fields/documents: ${missing.join(', ')}`, { missing });
   }
@@ -536,7 +671,8 @@ app.post('/:id/submit', requirePermission(PORTING_PERMISSION), async (c) => {
     )
     .limit(1);
 
-  if (!pricing?.stripePriceId) {
+  const stripePriceId = pricing?.stripePriceId;
+  if (!stripePriceId) {
     return unprocessable(
       c,
       `No active pricing configured for ${draft.countryCode}/${draft.numberType} — cannot bill, port refused`,
@@ -550,102 +686,28 @@ app.post('/:id/submit', requirePermission(PORTING_PERMISSION), async (c) => {
 
   let billingResult: Record<string, any>;
   try {
-    const billingResp = await fetch(`${billingUrl}/api/billing/phone/add-number`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
-      body: JSON.stringify({
-        stripePriceId: pricing.stripePriceId,
-        countryCode: draft.countryCode,
-        numberType: draft.numberType,
-        phoneNumber: draft.phoneNumber,
-        displayName: draft.businessName,
-      }),
+    billingResult = await postToBilling(billingUrl, '/api/billing/phone/add-number', authHeader, {
+      stripePriceId,
+      countryCode: draft.countryCode,
+      numberType: draft.numberType,
+      phoneNumber: draft.phoneNumber,
+      displayName: draft.businessName,
     });
-    billingResult = (await billingResp.json()) as Record<string, any>;
   } catch (err) {
     console.error('[Porting] Billing call failed:', err);
     return unavailable(c, 'Billing service is unavailable — try again');
   }
 
   if (billingResult.requiresCheckout) {
-    // User has no payment method — they need to go through Stripe checkout
-    // first. Mirror the existing flow's behaviour and surface the URL.
-    try {
-      const checkoutResp = await fetch(`${billingUrl}/api/billing/phone/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        },
-        body: JSON.stringify({
-          stripePriceId: pricing.stripePriceId,
-          phoneNumber: draft.phoneNumber,
-          countryCode: draft.countryCode,
-          numberType: draft.numberType,
-          displayName: draft.businessName,
-        }),
-      });
-      const checkout = (await checkoutResp.json()) as Record<string, any>;
-      return success(c, { requiresCheckout: true, checkoutUrl: checkout.url });
-    } catch {
-      return unavailable(c, 'Could not start checkout — try again');
-    }
+    return startPortCheckout(c, { billingUrl, authHeader, stripePriceId, draft });
   }
 
   if (!billingResult.success && !billingResult.subscriptionId) {
     return error.badRequest(c, billingResult.error || 'Billing setup failed');
   }
 
-  // Submit to Telnyx. If this fails after billing succeeded, we don't
-  // automatically refund — admin reconciles. (Same edge case the new-
-  // purchase flow has lived with.)
-  try {
-    const submitted = await submitPortingOrder(c.env, draft.telnyxPortingOrderId);
-
-    // Master-DB index — webhooks will look this up.
-    await masterDb
-      .insert(masterSchema.telnyxPortingOrderIndex)
-      .values({
-        telnyxPortingOrderId: draft.telnyxPortingOrderId,
-        clerkOrgId: orgId,
-        draftId: draft.id,
-      })
-      .onConflictDoNothing();
-
-    await db
-      .update(schema.voipPortingOrders)
-      .set({
-        status: 'submitted',
-        substatus: submitted.substatus ?? null,
-        stripePriceId: pricing.stripePriceId,
-        billingActivated: true,
-        billingError: null,
-        lastErrorCode: null,
-        lastErrorMessage: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.voipPortingOrders.id, id));
-  } catch (err) {
-    if (err instanceof TelnyxPortingError) {
-      // Persist so the UI can surface the rejection without re-fetching.
-      await db
-        .update(schema.voipPortingOrders)
-        .set({
-          billingActivated: true, // billing went through
-          stripePriceId: pricing.stripePriceId,
-          lastErrorCode: err.code,
-          lastErrorMessage: err.message,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.voipPortingOrders.id, id));
-      return respondTelnyx(c, err, 'Telnyx rejected the submission');
-    }
-    console.error('[Porting] submitPortingOrder unexpected:', err);
-    return error.internal(c, 'Failed to submit port order');
-  }
+  const submitFailure = await submitOrderToTelnyx(c, { draft, telnyxPortingOrderId, orgId, stripePriceId });
+  if (submitFailure) return submitFailure;
 
   const [refreshed] = await db
     .select()
