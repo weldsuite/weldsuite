@@ -137,14 +137,24 @@ export interface ListRecordsResult {
   cursor: string | null;
 }
 
-export async function listRecords(
-  db: Database,
+type DefinitionsBySlug = Map<
+  string,
+  Awaited<ReturnType<typeof getDefinitionsForEntityType>>[number]
+>;
+
+const EMPTY_LIST_RESULT: ListRecordsResult = { data: [], totalCount: 0, hasMore: false, cursor: null };
+
+/**
+ * WHERE conditions for a list call. Returns null when a filter cannot be
+ * resolved: that means "no rows match", never "drop the filter". Silently
+ * widening a result set is the more dangerous failure — the caller believes it
+ * narrowed.
+ */
+function buildListConditions(
   object: CustomObjectRow,
   opts: ListRecordsOptions,
-): Promise<ListRecordsResult> {
-  const definitions = await getDefinitionsForEntityType(db, object.entityKey);
-  const defBySlug = new Map(definitions.map((d) => [d.slug, d]));
-
+  defBySlug: DefinitionsBySlug,
+): SQL[] | null {
   const conditions: SQL[] = [
     eq(records.entityKey, object.entityKey),
     isNull(records.deletedAt),
@@ -162,14 +172,11 @@ export async function listRecords(
   // escapeLikeTerm. Same unindexed-leading-wildcard caveat as listRecordsSimple.
   if (opts.search) conditions.push(ilike(records.title, `%${escapeLikeTerm(opts.search)}%`));
 
-  // An unresolvable filter means "no rows match", never "drop the filter".
-  // Silently widening a result set is the more dangerous failure — the caller
-  // believes it narrowed.
   for (const [key, raw] of Object.entries(opts.filters ?? {})) {
     const fieldSlug = parseCustomFieldKey(key);
     if (!fieldSlug) continue;
     const def = defBySlug.get(fieldSlug);
-    if (!def) return { data: [], totalCount: 0, hasMore: false, cursor: null };
+    if (!def) return null;
     // `fieldType` is varchar on the row but a closed union in the helper —
     // the same widening cast services/companies.ts uses.
     const fragment = customFieldFilter(
@@ -178,13 +185,18 @@ export async function listRecords(
       def as unknown as Parameters<typeof customFieldFilter>[2],
       raw,
     );
-    if (!fragment) return { data: [], totalCount: 0, hasMore: false, cursor: null };
+    if (!fragment) return null;
     conditions.push(fragment);
   }
+  return conditions;
+}
 
-  const where = and(...conditions);
+function buildListOrderBy(
+  object: CustomObjectRow,
+  opts: ListRecordsOptions,
+  defBySlug: DefinitionsBySlug,
+): SQL[] {
   const direction = opts.direction ?? 'desc';
-
   const orderBy: SQL[] = [];
   const customSortSlug = parseCustomFieldKey(opts.sort);
   if (customSortSlug) {
@@ -208,6 +220,22 @@ export async function listRecords(
     orderBy.push(direction === 'asc' ? asc(records.createdAt) : desc(records.createdAt));
   }
   orderBy.push(desc(records.id));
+  return orderBy;
+}
+
+export async function listRecords(
+  db: Database,
+  object: CustomObjectRow,
+  opts: ListRecordsOptions,
+): Promise<ListRecordsResult> {
+  const definitions = await getDefinitionsForEntityType(db, object.entityKey);
+  const defBySlug = new Map(definitions.map((d) => [d.slug, d]));
+
+  const conditions = buildListConditions(object, opts, defBySlug);
+  if (!conditions) return { ...EMPTY_LIST_RESULT };
+
+  const where = and(...conditions);
+  const orderBy = buildListOrderBy(object, opts, defBySlug);
 
   const offset = decodeCursor(opts.cursor);
 

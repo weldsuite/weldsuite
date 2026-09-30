@@ -129,6 +129,30 @@ export type CreditCheckoutProxyResult =
   | { ok: true; url: string }
   | { ok: false; error: CreditCheckoutProxyFailure };
 
+function checkoutHttpFailure(
+  status: number,
+  payload: Record<string, unknown> | null,
+): CreditCheckoutProxyResult {
+  const message =
+    (payload && typeof payload.error === 'string' && payload.error) ||
+    'Failed to start credit checkout';
+  if (status === 400) return { ok: false, error: { kind: 'bad_request', message } };
+  if (status === 404) return { ok: false, error: { kind: 'not_found', message } };
+  return { ok: false, error: { kind: 'upstream', message } };
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof Error && err.name === 'AbortError') ||
+    (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError')
+  );
+}
+
+function checkoutErrorMessage(err: unknown): string {
+  if (isAbortError(err)) return 'Billing worker timed out';
+  return err instanceof Error ? err.message : 'Failed to start credit checkout';
+}
+
 /**
  * Create a Stripe Checkout session for a prepaid credit package via
  * billing-worker. Credits are granted by the webhook after payment — this
@@ -149,14 +173,7 @@ export async function createCreditTopupCheckout(params: {
     });
     const payload = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
 
-    if (!resp.ok) {
-      const message =
-        (payload && typeof payload.error === 'string' && payload.error) ||
-        'Failed to start credit checkout';
-      if (resp.status === 400) return { ok: false, error: { kind: 'bad_request', message } };
-      if (resp.status === 404) return { ok: false, error: { kind: 'not_found', message } };
-      return { ok: false, error: { kind: 'upstream', message } };
-    }
+    if (!resp.ok) return checkoutHttpFailure(resp.status, payload);
 
     const url = payload && typeof payload.url === 'string' ? payload.url : null;
     if (!url) {
@@ -168,15 +185,7 @@ export async function createCreditTopupCheckout(params: {
 
     return { ok: true, url };
   } catch (err) {
-    const aborted =
-      (err instanceof Error && err.name === 'AbortError') ||
-      (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError');
-    const message = aborted
-      ? 'Billing worker timed out'
-      : err instanceof Error
-        ? err.message
-        : 'Failed to start credit checkout';
-    return { ok: false, error: { kind: 'upstream', message } };
+    return { ok: false, error: { kind: 'upstream', message: checkoutErrorMessage(err) } };
   }
 }
 
