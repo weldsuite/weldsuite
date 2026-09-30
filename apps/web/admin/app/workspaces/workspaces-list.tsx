@@ -184,6 +184,7 @@ export function WorkspacesList({
                     </TableCell>
                     <TableCell className="py-2.5">
                       <div
+                        role="presentation"
                         className="flex items-center justify-end gap-1"
                         onClick={(e) => e.stopPropagation()}
                       >

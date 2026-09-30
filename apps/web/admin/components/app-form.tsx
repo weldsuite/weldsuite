@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
@@ -406,6 +406,45 @@ function Toggle({
   );
 }
 
+/** Swaps the item at `i` with its neighbour; returns null when out of range. */
+function swapWithNeighbour<T>(items: T[], i: number, dir: -1 | 1): T[] | null {
+  const j = i + dir;
+  if (j < 0 || j >= items.length) return null;
+  const next = [...items];
+  [next[i], next[j]] = [next[j]!, next[i]!];
+  return next;
+}
+
+/**
+ * Remove/move handlers plus stable React keys for an editable, reorderable
+ * list whose items carry no id. Keys follow the items through remove/move, so
+ * inputs keep their identity (and focus) instead of being keyed by position.
+ */
+function useReorderableList<T>(items: T[], onChange: (items: T[]) => void) {
+  const keysRef = useRef<string[]>([]);
+  const counterRef = useRef(0);
+  const keys = keysRef.current;
+  while (keys.length < items.length) {
+    keys.push(`item-${counterRef.current++}`);
+  }
+  keys.length = items.length;
+
+  function remove(i: number) {
+    keys.splice(i, 1);
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+
+  function move(i: number, dir: -1 | 1) {
+    const next = swapWithNeighbour(items, i, dir);
+    const swappedKeys = swapWithNeighbour(keys, i, dir);
+    if (!next || !swappedKeys) return;
+    keys.splice(0, keys.length, ...swappedKeys);
+    onChange(next);
+  }
+
+  return { keys, remove, move };
+}
+
 function StringListEditor({
   items,
   onChange,
@@ -416,6 +455,7 @@ function StringListEditor({
   placeholder?: string;
 }>) {
   const [draft, setDraft] = useState('');
+  const { keys, remove, move } = useReorderableList(items, onChange);
 
   function add() {
     const v = draft.trim();
@@ -424,20 +464,8 @@ function StringListEditor({
     setDraft('');
   }
 
-  function remove(i: number) {
-    onChange(items.filter((_, idx) => idx !== i));
-  }
-
   function update(i: number, v: string) {
     onChange(items.map((item, idx) => (idx === i ? v : item)));
-  }
-
-  function move(i: number, dir: -1 | 1) {
-    const j = i + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    onChange(next);
   }
 
   return (
@@ -445,7 +473,7 @@ function StringListEditor({
       {items.length > 0 && (
         <div className="space-y-1.5">
           {items.map((item, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={keys[i]} className="flex items-center gap-2">
               <span className="w-6 text-right text-xs text-muted-foreground">{i + 1}.</span>
               <Input value={item} onChange={(e) => update(i, e.target.value)} />
               <ReorderButtons
@@ -496,27 +524,19 @@ function HowItWorksEditor({
   items: { title: string; description: string }[];
   onChange: (items: { title: string; description: string }[]) => void;
 }>) {
+  const { keys, remove, move } = useReorderableList(items, onChange);
+
   function add() {
     onChange([...items, { title: '', description: '' }]);
   }
-  function remove(i: number) {
-    onChange(items.filter((_, idx) => idx !== i));
-  }
   function update(i: number, patch: Partial<{ title: string; description: string }>) {
     onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
-  }
-  function move(i: number, dir: -1 | 1) {
-    const j = i + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    onChange(next);
   }
 
   return (
     <div className="space-y-3">
       {items.map((step, i) => (
-        <div key={i} className="space-y-2 rounded-md border bg-muted/30 p-3">
+        <div key={keys[i]} className="space-y-2 rounded-md border bg-muted/30 p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground">Step {i + 1}</span>
             <div className="flex items-center gap-1">
