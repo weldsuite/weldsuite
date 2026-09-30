@@ -145,6 +145,85 @@ async function publishBotSessionEvent(
   }
 }
 
+type SessionLookupColumn = 'id' | 'externalSessionId';
+
+/** Look one session up by primary key or by MeetingBaas bot id within a tenant DB. */
+async function queryBotSession(db: Database, by: SessionLookupColumn, value: string) {
+  const { meetingBotSessions } = schema;
+  const column = by === 'id' ? meetingBotSessions.id : meetingBotSessions.externalSessionId;
+  const [session] = await db.select().from(meetingBotSessions).where(eq(column, value)).limit(1);
+  return session ?? null;
+}
+
+/** Look a session up in a workspace the payload named explicitly; failures are logged, not thrown. */
+async function findInKnownWorkspace(
+  env: Env,
+  workspaceId: string,
+  by: SessionLookupColumn,
+  value: string,
+) {
+  try {
+    const db = await getTenantDbForWorkspace(env, workspaceId);
+    const session = await queryBotSession(db, by, value);
+    return session ? { session, workspaceId } : null;
+  } catch (error) {
+    console.error('[MeetingBaas Webhook] Failed to query tenant DB:', error);
+    return null;
+  }
+}
+
+/** Look a session up in one workspace while scanning all of them; a failing workspace is skipped. */
+async function findInScannedWorkspace(
+  env: Env,
+  clerkOrgId: string,
+  platformSessionId: string | undefined,
+  botId: string | undefined,
+) {
+  try {
+    const db = await getTenantDbForWorkspace(env, clerkOrgId);
+
+    if (platformSessionId) {
+      const session = await queryBotSession(db, 'id', platformSessionId);
+      if (session) return { session, workspaceId: clerkOrgId };
+    }
+
+    if (botId) {
+      const session = await queryBotSession(db, 'externalSessionId', botId);
+      if (session) return { session, workspaceId: clerkOrgId };
+    }
+  } catch {
+    // Skip workspaces that fail
+  }
+  return null;
+}
+
+/** Fallback: search all workspaces (expensive, but necessary if workspaceId not provided). */
+async function searchAllWorkspaces(
+  env: Env,
+  platformSessionId: string | undefined,
+  botId: string | undefined,
+) {
+  console.warn('[MeetingBaas Webhook] No workspaceId provided, searching all workspaces...');
+
+  try {
+    const masterDb = getMasterDb(env);
+    const workspaces = await masterDb
+      .select({ id: masterSchema.workspaces.id, clerkOrgId: masterSchema.workspaces.clerkOrgId })
+      .from(masterSchema.workspaces)
+      .where(eq(masterSchema.workspaces.isActive, true))
+      .limit(100); // Limit to prevent excessive queries
+
+    for (const workspace of workspaces) {
+      if (!workspace.clerkOrgId) continue;
+      const found = await findInScannedWorkspace(env, workspace.clerkOrgId, platformSessionId, botId);
+      if (found) return found;
+    }
+  } catch (error) {
+    console.error('[MeetingBaas Webhook] Failed to search workspaces:', error);
+  }
+  return null;
+}
+
 /**
  * Find platform session by bot_id or platformSessionId.
  * First uses workspaceId from the payload, then searches tenant DBs.
@@ -156,94 +235,18 @@ async function findPlatformSession(env: Env, payload: NormalizedMeetingBaasPaylo
 
   // If we have workspaceId, use it directly
   if (workspaceId && platformSessionId) {
-    try {
-      const db = await getTenantDbForWorkspace(env, workspaceId);
-      const { meetingBotSessions } = schema;
-
-      const [session] = await db
-        .select()
-        .from(meetingBotSessions)
-        .where(eq(meetingBotSessions.id, platformSessionId))
-        .limit(1);
-
-      if (session) {
-        return { session, workspaceId };
-      }
-    } catch (error) {
-      console.error('[MeetingBaas Webhook] Failed to query tenant DB:', error);
-    }
+    const found = await findInKnownWorkspace(env, workspaceId, 'id', platformSessionId);
+    if (found) return found;
   }
 
   // If we have workspaceId and botId, search by externalSessionId
   if (workspaceId && botId) {
-    try {
-      const db = await getTenantDbForWorkspace(env, workspaceId);
-      const { meetingBotSessions } = schema;
-
-      const [session] = await db
-        .select()
-        .from(meetingBotSessions)
-        .where(eq(meetingBotSessions.externalSessionId, botId))
-        .limit(1);
-
-      if (session) {
-        return { session, workspaceId };
-      }
-    } catch (error) {
-      console.error('[MeetingBaas Webhook] Failed to query tenant DB:', error);
-    }
+    const found = await findInKnownWorkspace(env, workspaceId, 'externalSessionId', botId);
+    if (found) return found;
   }
 
-  // Fallback: Search all workspaces (expensive, but necessary if workspaceId not provided)
   if (platformSessionId || botId) {
-    console.warn('[MeetingBaas Webhook] No workspaceId provided, searching all workspaces...');
-
-    try {
-      const masterDb = getMasterDb(env);
-      const workspaces = await masterDb
-        .select({ id: masterSchema.workspaces.id, clerkOrgId: masterSchema.workspaces.clerkOrgId })
-        .from(masterSchema.workspaces)
-        .where(eq(masterSchema.workspaces.isActive, true))
-        .limit(100); // Limit to prevent excessive queries
-
-      for (const workspace of workspaces) {
-        if (!workspace.clerkOrgId) continue;
-
-        try {
-          const db = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
-          const { meetingBotSessions } = schema;
-
-          if (platformSessionId) {
-            const [session] = await db
-              .select()
-              .from(meetingBotSessions)
-              .where(eq(meetingBotSessions.id, platformSessionId))
-              .limit(1);
-
-            if (session) {
-              return { session, workspaceId: workspace.clerkOrgId };
-            }
-          }
-
-          if (botId) {
-            const [session] = await db
-              .select()
-              .from(meetingBotSessions)
-              .where(eq(meetingBotSessions.externalSessionId, botId))
-              .limit(1);
-
-            if (session) {
-              return { session, workspaceId: workspace.clerkOrgId };
-            }
-          }
-        } catch {
-          // Skip workspaces that fail
-          continue;
-        }
-      }
-    } catch (error) {
-      console.error('[MeetingBaas Webhook] Failed to search workspaces:', error);
-    }
+    return searchAllWorkspaces(env, platformSessionId, botId);
   }
 
   return null;
@@ -320,6 +323,265 @@ export async function handleStatusChange(
   });
 }
 
+type BotSession = typeof schema.meetingBotSessions.$inferSelect;
+type TranscriptSegments = NonNullable<MeetingBaasWebhookPayload['transcript']>;
+
+/** The completion fields MeetingBaas may send either nested under `data` or at the top level. */
+function readCompletePayload(payload: NormalizedMeetingBaasPayload) {
+  return {
+    // MeetingBaas uses `video` (not `mp4`) for the recording URL
+    mp4Url: payload.data?.video || payload.data?.mp4 || payload.mp4,
+    transcript: payload.data?.transcript || payload.transcript,
+    speakers: payload.data?.speakers || payload.speakers,
+    participants: payload.data?.participants,
+    durationSeconds: payload.data?.duration_seconds,
+    joinedAt: payload.data?.joined_at,
+    exitedAt: payload.data?.exited_at,
+  };
+}
+
+/** Use MeetingBaas duration, fall back to transcript-based calculation. */
+function resolveDuration(durationSeconds: number | undefined, transcript: TranscriptSegments | undefined): number {
+  const duration = durationSeconds || 0;
+  if (duration || !transcript?.length) return duration;
+  return Math.ceil(transcript[transcript.length - 1].end_time);
+}
+
+function buildCompletionUpdates(
+  session: BotSession,
+  fields: ReturnType<typeof readCompletePayload>,
+  duration: number,
+): Record<string, unknown> {
+  const { mp4Url, speakers, participants, joinedAt, exitedAt } = fields;
+  const updates: Record<string, unknown> = {
+    status: 'completed',
+    leftAt: exitedAt ? new Date(exitedAt) : new Date(),
+    duration,
+    participantCount: participants?.length || speakers?.length || 0,
+    updatedAt: new Date(),
+  };
+
+  // Set joinedAt if not already set
+  if (joinedAt && !session.joinedAt) {
+    updates.joinedAt = new Date(joinedAt);
+  }
+
+  // Store the recording URL directly
+  if (mp4Url) {
+    updates.recordingStorageUrl = mp4Url;
+    updates.recordingDuration = duration;
+  }
+  return updates;
+}
+
+/** Upload MP4 to R2 for permanent storage (MeetingBaas URLs expire). Non-fatal on failure. */
+async function persistRecordingToR2(
+  env: Env,
+  db: Database,
+  session: BotSession,
+  workspaceId: string,
+  mp4Url: string,
+): Promise<void> {
+  if (!env.STORAGE) return;
+  const { meetingBotSessions } = schema;
+
+  try {
+    const timestamp = Date.now();
+    const r2Key = `recordings/meetings/${workspaceId}/${timestamp}-${session.id}.mp4`;
+
+    // Only follow https recording links, so a payload cannot point this
+    // fetch at an internal or plaintext endpoint.
+    const recordingUrl = new URL(mp4Url);
+    if (recordingUrl.protocol !== 'https:') {
+      throw new Error(`Refusing non-https recording URL (${logSafe(recordingUrl.protocol)})`);
+    }
+
+    console.log(`[MeetingBaas Webhook] Fetching MP4 for R2 upload: ${logSafe(recordingUrl.href)}`);
+    const mp4Response = await fetch(recordingUrl);
+
+    if (!mp4Response.ok) {
+      throw new Error(`Failed to fetch MP4: ${mp4Response.status} ${mp4Response.statusText}`);
+    }
+
+    await env.STORAGE.put(r2Key, mp4Response.body, {
+      httpMetadata: { contentType: 'video/mp4' },
+    });
+
+    // Update session with the R2 storage key
+    const contentLength = mp4Response.headers.get('content-length');
+    await db
+      .update(meetingBotSessions)
+      .set({
+        recordingStorageKey: r2Key,
+        recordingFileSize: contentLength ? parseInt(contentLength, 10) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(meetingBotSessions.id, session.id));
+
+    console.log(`[MeetingBaas Webhook] MP4 uploaded to R2: ${logSafe(r2Key)}`);
+  } catch (r2Error) {
+    // Non-fatal: MeetingBaas URL still works temporarily
+    console.error('[MeetingBaas Webhook] R2 upload failed (MeetingBaas URL still available):', r2Error);
+  }
+}
+
+/** Credit rate per meeting-bot minute from the workspace's plan (default 2). */
+async function resolveMeetingBotRate(
+  masterDb: ReturnType<typeof getMasterDb>,
+  planId: string | null,
+): Promise<number> {
+  const defaultRate = 2;
+  if (!planId) return defaultRate;
+
+  const [plan] = await masterDb
+    .select({ features: masterSchema.plans.features })
+    .from(masterSchema.plans)
+    .where(eq(masterSchema.plans.id, planId))
+    .limit(1);
+  const features = (plan?.features || {}) as {
+    creditRates?: { meetingBotMinute?: number | null };
+  };
+  return features.creditRates?.meetingBotMinute ?? defaultRate;
+}
+
+/** Deduct credits for meeting bot usage (via master DB). Failures are logged, never thrown. */
+async function deductMeetingBotCredits(
+  env: Env,
+  workspaceId: string,
+  session: BotSession,
+  durationMinutes: number,
+): Promise<void> {
+  try {
+    const masterDb = getMasterDb(env);
+
+    // Resolve the master DB workspace ID from the Clerk orgId
+    // workspaceId here is the Clerk orgId — look up the real workspace.id
+    const [wsRecord] = await masterDb
+      .select({ id: masterSchema.workspaces.id, planId: masterSchema.workspaces.planId })
+      .from(masterSchema.workspaces)
+      .where(eq(masterSchema.workspaces.clerkOrgId, workspaceId))
+      .limit(1);
+
+    if (!wsRecord) {
+      console.warn('[MeetingBaas Webhook] Could not find workspace for credit deduction');
+      return;
+    }
+
+    // Get credit rate from the workspace's plan
+    const meetingBotRate = await resolveMeetingBotRate(masterDb, wsRecord.planId);
+    const creditsNeeded = durationMinutes * meetingBotRate;
+
+    // Get current balance from master DB
+    const [credits] = await masterDb
+      .select()
+      .from(masterSchema.workspaceCredits)
+      .where(eq(masterSchema.workspaceCredits.workspaceId, wsRecord.id))
+      .limit(1);
+
+    if (!credits || credits.currentBalance < creditsNeeded) {
+      console.warn(`[MeetingBaas Webhook] Insufficient credits for deduction (balance: ${credits?.currentBalance ?? 0}, needed: ${creditsNeeded})`);
+      return;
+    }
+
+    const newBalance = credits.currentBalance - creditsNeeded;
+    await masterDb
+      .update(masterSchema.workspaceCredits)
+      .set({
+        currentBalance: newBalance,
+        updatedAt: new Date(),
+      })
+      .where(eq(masterSchema.workspaceCredits.workspaceId, wsRecord.id));
+
+    await masterDb.insert(masterSchema.creditTransactions).values({
+      id: nanoid(),
+      workspaceId: wsRecord.id,
+      type: 'consumption',
+      amount: -creditsNeeded,
+      balanceAfter: newBalance,
+      serviceType: 'meeting_bot',
+      referenceId: session.id,
+      referenceType: 'meeting_bot_session',
+      description: `Meeting bot: ${durationMinutes} minutes`,
+      metadata: {
+        platform: session.platform,
+        durationMinutes,
+        meetingUrl: session.meetingUrl,
+      },
+    });
+
+    console.log(`[MeetingBaas Webhook] Credits deducted: ${creditsNeeded} (${durationMinutes} min * ${meetingBotRate}/min) for session ${session.id}`);
+  } catch (creditError) {
+    console.warn('[MeetingBaas Webhook] Credit deduction failed:', creditError);
+  }
+}
+
+/** Store the MeetingBaas transcript directly (free with meeting bot credits). Non-fatal on failure. */
+async function storeNativeTranscript(
+  db: Database,
+  session: BotSession,
+  transcript: TranscriptSegments,
+): Promise<void> {
+  try {
+    const { crmTranscriptions, crmTranscriptSegments } = schema;
+
+    // Build full text from transcript segments
+    const fullText = transcript
+      .map((seg) => {
+        const words = seg.words?.map((w) => w.word).join(' ') || '';
+        return `${seg.speaker}: ${words}`;
+      })
+      .join('\n');
+
+    const wordCount = fullText.split(/\s+/).filter((w) => w.length > 0).length;
+
+    // Build speaker map for numeric IDs
+    const speakerNames = [...new Set(transcript.map((seg) => seg.speaker))];
+    const speakerMap = new Map(speakerNames.map((name, idx) => [name, idx]));
+
+    // Create transcription record linked to the session's activity
+    const transcriptionId = nanoid();
+    await db.insert(crmTranscriptions).values({
+      id: transcriptionId,
+      activityId: session.activityId || session.id,
+      status: 'completed',
+      fullText,
+      model: 'meetingbaas-native',
+      provider: 'meetingbaas',
+      language: session.language || 'en',
+      wordCount,
+      speakerCount: speakerNames.length,
+      processingStartedAt: new Date(),
+      processingCompletedAt: new Date(),
+    });
+
+    // Insert segments with speaker diarization
+    const segmentRows = transcript.map((seg, index) => ({
+      id: nanoid(),
+      transcriptionId,
+      speakerId: speakerMap.get(seg.speaker) ?? 0,
+      speakerLabel: `Speaker ${(speakerMap.get(seg.speaker) ?? 0) + 1}`,
+      speakerName: seg.speaker,
+      text: seg.words?.map((w) => w.word).join(' ') || '',
+      startTime: seg.start_time,
+      endTime: seg.end_time,
+      timestamp: formatTimestamp(seg.start_time),
+      sequenceNumber: index,
+    }));
+
+    // Insert in batches of 100
+    for (let i = 0; i < segmentRows.length; i += 100) {
+      const batch = segmentRows.slice(i, i + 100);
+      await db.insert(crmTranscriptSegments).values(batch);
+    }
+
+    console.log(
+      `[MeetingBaas Webhook] Transcript stored: ${logSafe(transcript.length)} segments, ${speakerNames.length} speakers, ${wordCount} words`,
+    );
+  } catch (transcriptError) {
+    console.error('[MeetingBaas Webhook] Failed to store transcript:', transcriptError);
+  }
+}
+
 /**
  * Handle complete event - recording finished
  */
@@ -339,45 +601,16 @@ export async function handleComplete(
   const db = await getTenantDbForWorkspace(env, workspaceId);
   const { meetingBotSessions } = schema;
 
-  // Extract fields: MeetingBaas uses `video` (not `mp4`) for the recording URL
-  const mp4Url = payload.data?.video || payload.data?.mp4 || payload.mp4;
-  const transcript = payload.data?.transcript || payload.transcript;
-  const speakers = payload.data?.speakers || payload.speakers;
-  const participants = payload.data?.participants;
-  const durationSeconds = payload.data?.duration_seconds;
-  const joinedAt = payload.data?.joined_at;
-  const exitedAt = payload.data?.exited_at;
+  const fields = readCompletePayload(payload);
+  const { mp4Url, transcript, participants, durationSeconds } = fields;
 
   console.log('[MeetingBaas Webhook] Recording URL:', mp4Url ? logSafe(mp4Url.substring(0, 80)) + '...' : 'NOT PROVIDED');
   console.log('[MeetingBaas Webhook] Duration:', logSafe(durationSeconds ?? 'unknown'));
   console.log('[MeetingBaas Webhook] Participants:', logSafe(participants?.length || 0));
   console.log('[MeetingBaas Webhook] Transcript segments:', logSafe(transcript?.length || 0));
 
-  // Use MeetingBaas duration, fall back to transcript-based calculation
-  let duration = durationSeconds || 0;
-  if (!duration && transcript?.length) {
-    const lastSegment = transcript[transcript.length - 1];
-    duration = Math.ceil(lastSegment.end_time);
-  }
-
-  const updates: Record<string, unknown> = {
-    status: 'completed',
-    leftAt: exitedAt ? new Date(exitedAt) : new Date(),
-    duration,
-    participantCount: participants?.length || speakers?.length || 0,
-    updatedAt: new Date(),
-  };
-
-  // Set joinedAt if not already set
-  if (joinedAt && !session.joinedAt) {
-    updates.joinedAt = new Date(joinedAt);
-  }
-
-  // Store the recording URL directly
-  if (mp4Url) {
-    updates.recordingStorageUrl = mp4Url;
-    updates.recordingDuration = duration;
-  }
+  const duration = resolveDuration(durationSeconds, transcript);
+  const updates = buildCompletionUpdates(session, fields, duration);
 
   await db
     .update(meetingBotSessions)
@@ -386,189 +619,13 @@ export async function handleComplete(
 
   console.log(`[MeetingBaas Webhook] Recording completed: ${session.id}`);
 
-  // Upload MP4 to R2 for permanent storage (MeetingBaas URLs expire)
-  if (mp4Url && env.STORAGE) {
-    try {
-      const timestamp = Date.now();
-      const r2Key = `recordings/meetings/${workspaceId}/${timestamp}-${session.id}.mp4`;
+  if (mp4Url) await persistRecordingToR2(env, db, session, workspaceId, mp4Url);
 
-      // Only follow https recording links, so a payload cannot point this
-      // fetch at an internal or plaintext endpoint.
-      const recordingUrl = new URL(mp4Url);
-      if (recordingUrl.protocol !== 'https:') {
-        throw new Error(`Refusing non-https recording URL (${logSafe(recordingUrl.protocol)})`);
-      }
-
-      console.log(`[MeetingBaas Webhook] Fetching MP4 for R2 upload: ${logSafe(recordingUrl.href)}`);
-      const mp4Response = await fetch(recordingUrl);
-
-      if (!mp4Response.ok) {
-        throw new Error(`Failed to fetch MP4: ${mp4Response.status} ${mp4Response.statusText}`);
-      }
-
-      await env.STORAGE.put(r2Key, mp4Response.body, {
-        httpMetadata: { contentType: 'video/mp4' },
-      });
-
-      // Update session with the R2 storage key
-      await db
-        .update(meetingBotSessions)
-        .set({
-          recordingStorageKey: r2Key,
-          recordingFileSize: mp4Response.headers.get('content-length')
-            ? parseInt(mp4Response.headers.get('content-length')!, 10)
-            : null,
-          updatedAt: new Date(),
-        })
-        .where(eq(meetingBotSessions.id, session.id));
-
-      console.log(`[MeetingBaas Webhook] MP4 uploaded to R2: ${logSafe(r2Key)}`);
-    } catch (r2Error) {
-      // Non-fatal: MeetingBaas URL still works temporarily
-      console.error('[MeetingBaas Webhook] R2 upload failed (MeetingBaas URL still available):', r2Error);
-    }
-  }
-
-  // --- Deduct credits for meeting bot usage (via master DB) ---
   const durationMinutes = Math.ceil(duration / 60);
-  if (durationMinutes > 0) {
-    try {
-      const masterDb = getMasterDb(env);
+  if (durationMinutes > 0) await deductMeetingBotCredits(env, workspaceId, session, durationMinutes);
 
-      // Resolve the master DB workspace ID from the Clerk orgId
-      // workspaceId here is the Clerk orgId — look up the real workspace.id
-      const [wsRecord] = await masterDb
-        .select({ id: masterSchema.workspaces.id, planId: masterSchema.workspaces.planId })
-        .from(masterSchema.workspaces)
-        .where(eq(masterSchema.workspaces.clerkOrgId, workspaceId))
-        .limit(1);
-
-      if (!wsRecord) {
-        console.warn('[MeetingBaas Webhook] Could not find workspace for credit deduction');
-      } else {
-        // Get credit rate from the workspace's plan
-        let meetingBotRate = 2; // default
-        if (wsRecord.planId) {
-          const [plan] = await masterDb
-            .select({ features: masterSchema.plans.features })
-            .from(masterSchema.plans)
-            .where(eq(masterSchema.plans.id, wsRecord.planId))
-            .limit(1);
-          const features = (plan?.features || {}) as {
-            creditRates?: { meetingBotMinute?: number | null };
-          };
-          if (features.creditRates?.meetingBotMinute != null) {
-            meetingBotRate = features.creditRates.meetingBotMinute;
-          }
-        }
-
-        const creditsNeeded = durationMinutes * meetingBotRate;
-
-        // Get current balance from master DB
-        const [credits] = await masterDb
-          .select()
-          .from(masterSchema.workspaceCredits)
-          .where(eq(masterSchema.workspaceCredits.workspaceId, wsRecord.id))
-          .limit(1);
-
-        if (credits && credits.currentBalance >= creditsNeeded) {
-          const newBalance = credits.currentBalance - creditsNeeded;
-          await masterDb
-            .update(masterSchema.workspaceCredits)
-            .set({
-              currentBalance: newBalance,
-              updatedAt: new Date(),
-            })
-            .where(eq(masterSchema.workspaceCredits.workspaceId, wsRecord.id));
-
-          await masterDb.insert(masterSchema.creditTransactions).values({
-            id: nanoid(),
-            workspaceId: wsRecord.id,
-            type: 'consumption',
-            amount: -creditsNeeded,
-            balanceAfter: newBalance,
-            serviceType: 'meeting_bot',
-            referenceId: session.id,
-            referenceType: 'meeting_bot_session',
-            description: `Meeting bot: ${durationMinutes} minutes`,
-            metadata: {
-              platform: session.platform,
-              durationMinutes,
-              meetingUrl: session.meetingUrl,
-            },
-          });
-
-          console.log(`[MeetingBaas Webhook] Credits deducted: ${creditsNeeded} (${durationMinutes} min * ${meetingBotRate}/min) for session ${session.id}`);
-        } else {
-          console.warn(`[MeetingBaas Webhook] Insufficient credits for deduction (balance: ${credits?.currentBalance ?? 0}, needed: ${creditsNeeded})`);
-        }
-      }
-    } catch (creditError) {
-      console.warn('[MeetingBaas Webhook] Credit deduction failed:', creditError);
-    }
-  }
-
-  // Store MeetingBaas transcript directly (free with meeting bot credits)
   if (session.enableTranscription && transcript && transcript.length > 0) {
-    try {
-      const { crmTranscriptions, crmTranscriptSegments } = schema;
-
-      // Build full text from transcript segments
-      const fullText = transcript
-        .map((seg) => {
-          const words = seg.words?.map((w) => w.word).join(' ') || '';
-          return `${seg.speaker}: ${words}`;
-        })
-        .join('\n');
-
-      const wordCount = fullText.split(/\s+/).filter((w) => w.length > 0).length;
-
-      // Build speaker map for numeric IDs
-      const speakerNames = [...new Set(transcript.map((seg) => seg.speaker))];
-      const speakerMap = new Map(speakerNames.map((name, idx) => [name, idx]));
-
-      // Create transcription record linked to the session's activity
-      const transcriptionId = nanoid();
-      await db.insert(crmTranscriptions).values({
-        id: transcriptionId,
-        activityId: session.activityId || session.id,
-        status: 'completed',
-        fullText,
-        model: 'meetingbaas-native',
-        provider: 'meetingbaas',
-        language: session.language || 'en',
-        wordCount,
-        speakerCount: speakerNames.length,
-        processingStartedAt: new Date(),
-        processingCompletedAt: new Date(),
-      });
-
-      // Insert segments with speaker diarization
-      const segmentRows = transcript.map((seg, index) => ({
-        id: nanoid(),
-        transcriptionId,
-        speakerId: speakerMap.get(seg.speaker) ?? 0,
-        speakerLabel: `Speaker ${(speakerMap.get(seg.speaker) ?? 0) + 1}`,
-        speakerName: seg.speaker,
-        text: seg.words?.map((w) => w.word).join(' ') || '',
-        startTime: seg.start_time,
-        endTime: seg.end_time,
-        timestamp: formatTimestamp(seg.start_time),
-        sequenceNumber: index,
-      }));
-
-      // Insert in batches of 100
-      for (let i = 0; i < segmentRows.length; i += 100) {
-        const batch = segmentRows.slice(i, i + 100);
-        await db.insert(crmTranscriptSegments).values(batch);
-      }
-
-      console.log(
-        `[MeetingBaas Webhook] Transcript stored: ${logSafe(transcript.length)} segments, ${speakerNames.length} speakers, ${wordCount} words`,
-      );
-    } catch (transcriptError) {
-      console.error('[MeetingBaas Webhook] Failed to store transcript:', transcriptError);
-    }
+    await storeNativeTranscript(db, session, transcript);
   }
 
   await publishBotSessionEvent(env, db, workspaceId, 'completed', session.id, {

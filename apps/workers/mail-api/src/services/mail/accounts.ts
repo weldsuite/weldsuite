@@ -229,6 +229,117 @@ export interface CreateMailAccountInput {
   };
 }
 
+/** Reject bare WeldMail domains and WeldMail subdomains that aren't the caller's workspace. */
+async function assertWeldmailDomainAllowed(env: Env, orgId: string, emailDomain: string): Promise<void> {
+  if (BARE_WELDMAIL_DOMAINS.includes(emailDomain)) {
+    throw new MailAccountError(
+      'BARE_WELDMAIL_DOMAIN_BLOCKED',
+      'Cannot create accounts directly on WeldMail domains. Use the WeldMail address flow instead.',
+    );
+  }
+  if (!emailDomain.endsWith('.weldmail.com')) return;
+
+  const masterDb = getMasterDb(env);
+  const [ws] = await masterDb
+    .select({ slug: masterSchema.workspaces.slug })
+    .from(masterSchema.workspaces)
+    .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+    .limit(1);
+  const allowedDomain = ws ? `${ws.slug}.weldmail.com` : null;
+  if (!allowedDomain || emailDomain !== allowedDomain) {
+    throw new MailAccountError(
+      'WRONG_WELDMAIL_SUBDOMAIN',
+      'You can only create WeldMail accounts on your own workspace domain. Use the WeldMail address flow instead.',
+    );
+  }
+}
+
+async function assertNoDuplicateAccount(db: Database, email: string): Promise<void> {
+  const [existing] = await db
+    .select({ id: mailAccounts.id })
+    .from(mailAccounts)
+    .where(and(eq(mailAccounts.email, email), isNull(mailAccounts.deletedAt)))
+    .limit(1);
+  if (existing) {
+    throw new MailAccountError(
+      'DUPLICATE_EMAIL',
+      `An account for ${email} already exists (${existing.id}). Delete it first or edit the existing account.`,
+    );
+  }
+}
+
+/** Auto-add the creator when the account is private. */
+function withCreatorAssigned(data: CreateMailAccountInput, userId: string): string[] | undefined {
+  if (data.isShared || !userId) return data.assignedUserIds;
+  return Array.from(new Set([...(data.assignedUserIds ?? []), userId]));
+}
+
+/**
+ * The domain must already exist in WeldHost — that's how we know we own
+ * the Cloudflare zone. If it does, we (re-)assert Cloudflare Email
+ * Routing on the zone (idempotent server-side) and create a mail_domains
+ * row that future accounts on the same zone can short-circuit through.
+ */
+async function ensureManagedDomain(env: Env, db: Database, emailDomain: string, now: Date): Promise<void> {
+  const managedDomain = await findManagedDomain(db, emailDomain);
+  if (!managedDomain) {
+    await provisionHostDomain(env, db, emailDomain, now);
+    return;
+  }
+  if (managedDomain.sendProvider !== 'cloudflare' && managedDomain.receiveProvider !== 'cloudflare') {
+    return;
+  }
+  // Re-assert routing on each create. Server-side is idempotent and this
+  // self-heals mail_domains rows inserted by older code paths that
+  // never actually called the Cloudflare API.
+  try {
+    await cfEmail.createDomain(env, emailDomain);
+    if (!managedDomain.cloudflareRoutingEnabled) {
+      await db
+        .update(mailDomains)
+        .set({ cloudflareRoutingEnabled: true, updatedAt: new Date() })
+        .where(eq(mailDomains.id, managedDomain.id));
+    }
+  } catch (cfErr) {
+    throw cloudflareProvisionError(emailDomain, cfErr);
+  }
+}
+
+/** First account on a WeldHost-owned domain: enable Cloudflare routing and record the mail domain. */
+async function provisionHostDomain(env: Env, db: Database, emailDomain: string, now: Date): Promise<void> {
+  const [hostDomain] = await db
+    .select()
+    .from(hostDomains)
+    .where(and(eq(hostDomains.fullDomain, emailDomain), isNull(hostDomains.deletedAt)))
+    .limit(1);
+  if (!hostDomain) {
+    throw new MailAccountError(
+      'DOMAIN_NOT_IN_WELDHOST',
+      `Add ${emailDomain} in WeldHost › Domains before creating an email account on it.`,
+    );
+  }
+  try {
+    await cfEmail.createDomain(env, emailDomain);
+  } catch (cfErr) {
+    throw cloudflareProvisionError(emailDomain, cfErr);
+  }
+  await db.insert(mailDomains).values({
+    id: generateId('mdom'),
+    domainName: emailDomain,
+    isActive: true,
+    isPrimary: false,
+    mailProvider: 'cloudflare',
+    sendProvider: 'cloudflare',
+    receiveProvider: 'cloudflare',
+    dnsStatus: 'verified',
+    cloudflareRoutingEnabled: true,
+    maxEmailAccounts: 100,
+    currentEmailAccounts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 /**
  * Create a mail account. Provisions Cloudflare Email Routing on the
  * customer's zone if the domain is a WeldHost-owned domain that hasn't yet
@@ -251,111 +362,18 @@ export async function createMailAccount(
   if (!emailDomain) {
     throw new MailAccountError('DOMAIN_NOT_IN_WELDHOST', 'Invalid email address');
   }
-  if (BARE_WELDMAIL_DOMAINS.includes(emailDomain)) {
-    throw new MailAccountError(
-      'BARE_WELDMAIL_DOMAIN_BLOCKED',
-      'Cannot create accounts directly on WeldMail domains. Use the WeldMail address flow instead.',
-    );
-  }
-  if (emailDomain.endsWith('.weldmail.com')) {
-    const masterDb = getMasterDb(env);
-    const [ws] = await masterDb
-      .select({ slug: masterSchema.workspaces.slug })
-      .from(masterSchema.workspaces)
-      .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
-      .limit(1);
-    const allowedDomain = ws ? `${ws.slug}.weldmail.com` : null;
-    if (!allowedDomain || emailDomain !== allowedDomain) {
-      throw new MailAccountError(
-        'WRONG_WELDMAIL_SUBDOMAIN',
-        'You can only create WeldMail accounts on your own workspace domain. Use the WeldMail address flow instead.',
-      );
-    }
-  }
+  await assertWeldmailDomainAllowed(env, orgId, emailDomain);
 
   // ---- Duplicate guard ---------------------------------------------------
-  const [existing] = await db
-    .select({ id: mailAccounts.id })
-    .from(mailAccounts)
-    .where(and(eq(mailAccounts.email, data.email), isNull(mailAccounts.deletedAt)))
-    .limit(1);
-  if (existing) {
-    throw new MailAccountError(
-      'DUPLICATE_EMAIL',
-      `An account for ${data.email} already exists (${existing.id}). Delete it first or edit the existing account.`,
-    );
-  }
+  await assertNoDuplicateAccount(db, data.email);
 
   const id = generateId('mail');
   const now = new Date();
 
-  // Auto-add the creator when the account is private.
-  let assignedUserIds = data.assignedUserIds;
-  if (!data.isShared && userId) {
-    const set = new Set(assignedUserIds ?? []);
-    set.add(userId);
-    assignedUserIds = Array.from(set);
-  }
+  const assignedUserIds = withCreatorAssigned(data, userId);
 
   // ---- Domain wiring -----------------------------------------------------
-  // The domain must already exist in WeldHost — that's how we know we own
-  // the Cloudflare zone. If it does, we (re-)assert Cloudflare Email
-  // Routing on the zone (idempotent server-side) and create a mail_domains
-  // row that future accounts on the same zone can short-circuit through.
-  let managedDomain = await findManagedDomain(db, emailDomain);
-  if (!managedDomain) {
-    const [hostDomain] = await db
-      .select()
-      .from(hostDomains)
-      .where(and(eq(hostDomains.fullDomain, emailDomain), isNull(hostDomains.deletedAt)))
-      .limit(1);
-    if (!hostDomain) {
-      throw new MailAccountError(
-        'DOMAIN_NOT_IN_WELDHOST',
-        `Add ${emailDomain} in WeldHost › Domains before creating an email account on it.`,
-      );
-    }
-    try {
-      await cfEmail.createDomain(env, emailDomain);
-    } catch (cfErr) {
-      throw cloudflareProvisionError(emailDomain, cfErr);
-    }
-    const newDomainId = generateId('mdom');
-    await db.insert(mailDomains).values({
-      id: newDomainId,
-      domainName: emailDomain,
-      isActive: true,
-      isPrimary: false,
-      mailProvider: 'cloudflare',
-      sendProvider: 'cloudflare',
-      receiveProvider: 'cloudflare',
-      dnsStatus: 'verified',
-      cloudflareRoutingEnabled: true,
-      maxEmailAccounts: 100,
-      currentEmailAccounts: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-    managedDomain = await findManagedDomain(db, emailDomain);
-  } else if (
-    managedDomain.sendProvider === 'cloudflare' ||
-    managedDomain.receiveProvider === 'cloudflare'
-  ) {
-    // Re-assert routing on each create. Server-side is idempotent and this
-    // self-heals mail_domains rows inserted by older code paths that
-    // never actually called the Cloudflare API.
-    try {
-      await cfEmail.createDomain(env, emailDomain);
-      if (!managedDomain.cloudflareRoutingEnabled) {
-        await db
-          .update(mailDomains)
-          .set({ cloudflareRoutingEnabled: true, updatedAt: new Date() })
-          .where(eq(mailDomains.id, managedDomain.id));
-      }
-    } catch (cfErr) {
-      throw cloudflareProvisionError(emailDomain, cfErr);
-    }
-  }
+  await ensureManagedDomain(env, db, emailDomain, now);
 
   // ---- Default-flag uniqueness ------------------------------------------
   if (data.isDefault) {
