@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
@@ -198,16 +198,18 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     markNotificationHandled,
   ]);
 
-  const registerDeviceToken = async (token: string) => {
+  const registerDeviceToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : (Platform.OS === 'android' ? 'fcm' : 'apns');
+    let tokenType: 'expo' | 'fcm' | 'apns' = 'apns';
+    if (isExpoToken) tokenType = 'expo';
+    else if (Platform.OS === 'android') tokenType = 'fcm';
     const payload = {
       token,
       platform: Platform.OS as 'ios' | 'android',
       deviceId,
       appCode: APP_CODE,
-      tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+      tokenType,
       deviceModel: Device.modelName || undefined,
       osVersion: Device.osVersion || undefined,
       appVersion: Application.nativeApplicationVersion || undefined,
@@ -225,9 +227,9 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       registrations.push(personalApi.pushTokens.register(payload).catch(() => {}));
     }
     await Promise.all(registrations);
-  };
+  }, [hasPersonalAccount]);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!EAS_PROJECT_ID) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -244,16 +246,16 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [registerDeviceToken]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
-  const refreshBadgeCount = async () => {};
+  const refreshBadgeCount = useCallback(async () => {}, []);
 
-  const unregisterDevice = async () => {
+  const unregisterDevice = useCallback(async () => {
     try {
       const deviceId = await getDeviceId();
       await Promise.all([
@@ -268,7 +270,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
     await dismissAllPresentedNotifications();
     await setBadgeCount(0);
-  };
+  }, []);
 
   // Same cleanup as sign-out, but keep the session: deactivate the token while
   // the JWT still points at the *leaving* workspace, then clear the shade.
@@ -277,7 +279,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   // Deliberately NOT `unregisterDevice`: that also deactivates the personal
   // token, and the personal inbox is not workspace-scoped — switching orgs
   // must not silence @weldmail.com notifications.
-  const prepareWorkspaceSwitch = async () => {
+  const prepareWorkspaceSwitch = useCallback(async () => {
     try {
       const deviceId = await getDeviceId();
       await appApi.pushTokens.unregister(deviceId).catch(() => {});
@@ -286,7 +288,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
     await dismissAllPresentedNotifications();
     await setBadgeCount(0);
-  };
+  }, []);
 
   // Cold-start replay + tap/receive listeners: do this on mount, not after org
   // hydrates. Waiting for organizationId was what left the inbox on screen first.
@@ -412,12 +414,18 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [userId, organizationId, hasPersonalAccount, getCredentials]);
 
+  const value = useMemo(() => ({
+    unreadCount, isConnected, isPermissionGranted,
+    requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice,
+    launchReady, openingEmailId, prepareWorkspaceSwitch,
+  }), [
+    unreadCount, isConnected, isPermissionGranted,
+    requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice,
+    launchReady, openingEmailId, prepareWorkspaceSwitch,
+  ]);
+
   return (
-    <NotificationContext.Provider value={{
-      unreadCount, isConnected, isPermissionGranted,
-      requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice,
-      launchReady, openingEmailId, prepareWorkspaceSwitch,
-    }}>
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   );

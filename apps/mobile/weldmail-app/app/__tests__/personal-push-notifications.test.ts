@@ -44,7 +44,7 @@ describe('Personal mail notifications', () => {
     // Switching orgs must not silence the personal inbox, so
     // prepareWorkspaceSwitch cannot simply alias unregisterDevice.
     expect(notificationContext).not.toMatch(/const prepareWorkspaceSwitch = unregisterDevice;/);
-    expect(notificationContext).toMatch(/const prepareWorkspaceSwitch = async \(\)/);
+    expect(notificationContext).toMatch(/const prepareWorkspaceSwitch = useCallback\(async \(\)/);
   });
 
   it('deactivates both tokens on full sign-out', () => {

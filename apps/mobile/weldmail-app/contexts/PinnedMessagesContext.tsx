@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'weldmail:pinnedMessages';
@@ -50,8 +50,10 @@ export function PinnedMessagesProvider({ children }: Readonly<{ children: ReactN
     });
   }, [persist]);
 
+  const value = useMemo(() => ({ isPinned, togglePin }), [isPinned, togglePin]);
+
   return (
-    <PinnedMessagesContext.Provider value={{ isPinned, togglePin }}>
+    <PinnedMessagesContext.Provider value={value}>
       {children}
     </PinnedMessagesContext.Provider>
   );
