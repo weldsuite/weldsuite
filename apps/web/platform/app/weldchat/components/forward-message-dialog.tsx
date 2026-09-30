@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Hash, Lock, X, Clock, Plus, Smile, AtSign, Baseline, User, Users } from 'lucide-react';
+import { Hash, Lock, X, Clock, Plus, Smile, AtSign, Baseline, User, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
@@ -31,6 +31,18 @@ interface ForwardTarget {
   rawId: string;
   name: string;
   kind: 'private' | 'group' | 'channel' | 'user';
+}
+
+const TARGET_KIND_ICONS: Record<ForwardTarget['kind'], LucideIcon> = {
+  user: User,
+  group: Users,
+  private: Lock,
+  channel: Hash,
+};
+
+function TargetKindIcon({ kind, className }: Readonly<{ kind: ForwardTarget['kind']; className: string }>) {
+  const Icon = TARGET_KIND_ICONS[kind];
+  return <Icon className={className} />;
 }
 
 interface RawChannelOption {
@@ -264,6 +276,7 @@ export function ForwardMessageDialog({
           >
             <PopoverAnchor asChild>
               <div
+                role="presentation"
                 className={cn(
                   "flex flex-wrap items-center gap-1.5 min-h-9 rounded-md border border-input bg-transparent dark:bg-input/30 px-2 py-1 text-sm transition-[color,box-shadow]",
                   "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]"
@@ -275,15 +288,7 @@ export function ForwardMessageDialog({
                     key={t.id}
                     className="inline-flex items-center gap-1 rounded bg-accent text-accent-foreground px-1.5 py-[4px] text-xs font-medium"
                   >
-                    {t.kind === 'user' ? (
-                      <User className="h-3 w-3" />
-                    ) : t.kind === 'group' ? (
-                      <Users className="h-3 w-3" />
-                    ) : t.kind === 'private' ? (
-                      <Lock className="h-3 w-3" />
-                    ) : (
-                      <Hash className="h-3 w-3" />
-                    )}
+                    <TargetKindIcon kind={t.kind} className="h-3 w-3" />
                     {t.name}
                     <Button
                       variant="ghost"
@@ -348,15 +353,7 @@ export function ForwardMessageDialog({
                   }}
                   className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left outline-hidden hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
                 >
-                  {it.kind === 'user' ? (
-                    <User className="h-3.5 w-3.5 text-muted-foreground" />
-                  ) : it.kind === 'group' ? (
-                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  ) : it.kind === 'private' ? (
-                    <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                  ) : (
-                    <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
+                  <TargetKindIcon kind={it.kind} className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>{it.name}</span>
                 </Button>
               ))}

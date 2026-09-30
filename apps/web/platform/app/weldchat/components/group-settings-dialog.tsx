@@ -1431,6 +1431,11 @@ function QuietHoursSection({
   );
 }
 
+function deriveCollapseMode(draft: GroupFilterSettings): CollapseMode {
+  if (!draft.collapsedByDefault) return 'expanded';
+  return draft.peekActiveWhenCollapsed ? 'peek' : 'collapsed';
+}
+
 function CollapseBehaviorSection({
   draft,
   update,
@@ -1441,11 +1446,7 @@ function CollapseBehaviorSection({
   setDraft: React.Dispatch<React.SetStateAction<GroupFilterSettings>>;
 }>) {
   const { t } = useI18n();
-  const mode: CollapseMode = !draft.collapsedByDefault
-    ? 'expanded'
-    : draft.peekActiveWhenCollapsed
-      ? 'peek'
-      : 'collapsed';
+  const mode = deriveCollapseMode(draft);
 
   const setMode = (next: CollapseMode) => {
     if (next === 'expanded') {
