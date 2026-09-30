@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql, desc, asc, type SQL } from 'drizzle-orm';
+import { and, eq, gte, lte, sql, desc, asc, type SQL, type SQLWrapper } from 'drizzle-orm';
 import { getScopedDb } from '@/lib/db';
 import {
   mvProjectsSummaryDaily,
@@ -119,6 +119,15 @@ function getDateTruncUnit(groupBy: string): TruncUnit {
   return 'day';
 }
 
+/**
+ * `date_trunc('<unit>', column)`. The unit is embedded as a literal (not a parameter) so PostgreSQL can
+ * match the SELECT and GROUP BY expressions; it is safe because TruncUnit is a whitelisted union.
+ */
+function dateTrunc(unit: TruncUnit, column: SQLWrapper): SQL {
+  const quotedUnit = `'${unit}'`;
+  return sql`date_trunc(${sql.raw(quotedUnit)}, ${column})`;
+}
+
 function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   if (Number.isNaN(d.getTime())) return String(date);
@@ -126,8 +135,6 @@ function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
   switch (truncUnit) {
     case 'hour':
       return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
-    case 'day':
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     case 'week':
       return `Week ${Math.ceil(d.getDate() / 7)}, ${d.toLocaleDateString('en-US', { month: 'short' })}`;
     case 'month':
@@ -136,6 +143,7 @@ function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
       return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
     case 'year':
       return d.getFullYear().toString();
+    case 'day':
     default:
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
@@ -227,7 +235,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
     switch (metric) {
       case 'total_projects':
       case 'projects_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -247,7 +255,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'active_projects': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -312,7 +320,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'completion_rate': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -337,7 +345,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'budget_utilization': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -362,7 +370,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'hours_utilization': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -387,7 +395,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'avg_progress': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -436,7 +444,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
     switch (metric) {
       case 'total_tasks':
       case 'tasks_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -456,7 +464,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
       }
 
       case 'completed_tasks': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -476,7 +484,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
       }
 
       case 'overdue_tasks': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -561,7 +569,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
       }
 
       case 'throughput': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -581,7 +589,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
       }
 
       case 'estimation_accuracy': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -635,7 +643,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
     switch (metric) {
       case 'total_hours':
       case 'hours_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -655,7 +663,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'billable_hours': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -675,7 +683,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'non_billable_hours': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -695,7 +703,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'utilization_rate': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -720,7 +728,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'total_cost': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
