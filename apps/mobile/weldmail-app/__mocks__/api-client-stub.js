@@ -8,8 +8,8 @@ const createClientApi = jest.fn(() => ({ __stub: 'client' }));
 // Mirrors the real NetworkError / isNetworkError from packages/clients/api-client so
 // cache-fallback paths that branch on `isNetworkError(err)` behave in tests.
 class NetworkError extends Error {
-  constructor(message = 'Network request failed', cause) {
-    super(message);
+  constructor(message, cause) {
+    super(message === undefined ? 'Network request failed' : message);
     this.name = 'NetworkError';
     this.isNetworkError = true;
     this.cause = cause;
