@@ -18,6 +18,7 @@ export function RecordingItem({ recording }: Readonly<{ recording: RecordingSumm
   const open = () => {
     if (url) Linking.openURL(url);
   };
+  const pressedOpacity = url ? 1 : 0.6;
 
   return (
     <Pressable
@@ -28,7 +29,7 @@ export function RecordingItem({ recording }: Readonly<{ recording: RecordingSumm
         {
           backgroundColor: colors.card,
           borderColor: colors.border,
-          opacity: pressed ? 0.7 : url ? 1 : 0.6,
+          opacity: pressed ? 0.7 : pressedOpacity,
         },
       ]}
     >
