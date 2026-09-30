@@ -2975,8 +2975,8 @@ function MobileMonthBlock({
         ) : null}
       </div>
       <div className="grid">
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7">
+        {weeks.map((week) => (
+          <div key={format(week[0], 'yyyy-MM-dd')} className="grid grid-cols-7">
             {week.map((day) => {
               const inMonth = isSameMonth(day, month);
               if (!inMonth) {
@@ -3086,6 +3086,28 @@ function MobileMonthView({
 // Week View
 // ============================================================================
 
+/** Height in px of one hour row: 24 rows fill the scroll container, never
+ *  below 48px. Re-measures when the container resizes. */
+function useFittedHourHeight(containerRef: React.RefObject<HTMLDivElement | null>): number {
+  const [hourHeight, setHourHeight] = useState(48);
+
+  useEffect(() => {
+    const updateHeight = () => {
+      if (containerRef.current) {
+        const available = containerRef.current.clientHeight;
+        const calculated = Math.max(48, Math.floor(available / 24));
+        setHourHeight(calculated);
+      }
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [containerRef]);
+
+  return hourHeight;
+}
+
 function WeekView({
   currentDate,
   events,
@@ -3118,21 +3140,7 @@ function WeekView({
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -3176,6 +3184,7 @@ function WeekView({
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
+                    role="presentation"
                     data-calendar-cell
                     className={cn(
                       'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
@@ -3304,7 +3313,7 @@ function DayView({
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -3315,20 +3324,6 @@ function DayView({
     hourHeight,
     onResize: onEventDrop,
   });
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   const { handleDragStart: handleEventDragStart, dragState, justDraggedRef } = useEventDrag({
     hourHeight,
@@ -3350,6 +3345,7 @@ function DayView({
           {HOURS.map((hour) => (
             <div
               key={hour}
+              role="presentation"
               data-calendar-cell
               className={cn(
                 'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
@@ -3529,6 +3525,7 @@ function TimeSlotEvent({
       {/* Resize handle at top edge */}
       {onResizeTopStart && heightPx >= 22 && (
         <div
+          role="presentation"
           className="absolute top-0 left-0 right-0 h-2.5 cursor-ns-resize z-10"
           onMouseDown={(e) => {
             e.stopPropagation();
@@ -3554,6 +3551,7 @@ function TimeSlotEvent({
       {/* Resize handle at bottom edge */}
       {onResizeBottomStart && heightPx >= 22 && (
         <div
+          role="presentation"
           className="absolute bottom-0 left-0 right-0 h-2.5 cursor-ns-resize z-10"
           onMouseDown={(e) => {
             e.stopPropagation();
@@ -3846,8 +3844,13 @@ function EventDetailPanel({
   };
 
   const panel = (
-    <div
+    <dialog
+      open
       className={cn(
+        // <dialog> ships UA styles (absolute, auto margins, padding, fit-content
+        // max sizes, CanvasText colour) that would pull the panel out of the
+        // content row, so reset them and keep the layout identical to a div.
+        'relative m-0 p-0 h-auto max-h-none max-w-none text-inherit',
         'flex flex-col overflow-hidden bg-background border border-border',
         // Desktop: in-flow rounded card sibling in ModuleContent's content row
         // (same shell as FloatingDrawer / EntityDetailView panel mode).
@@ -3857,7 +3860,6 @@ function EventDetailPanel({
         'animate-in slide-in-from-right fade-in-50 duration-200',
       )}
       style={{ width }}
-      role="dialog"
       aria-modal="false"
     >
       <EventNotificationDialog
@@ -4197,7 +4199,7 @@ function EventDetailPanel({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 
   return createPortal(panel, panelSlot);
@@ -5030,21 +5032,7 @@ function FourDayView({
 }) {
   const days = Array.from({ length: 4 }, (_, i) => addDays(currentDate, i));
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -5078,6 +5066,7 @@ function FourDayView({
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
+                    role="presentation"
                     data-calendar-cell
                     className={cn(
                       'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
