@@ -1055,6 +1055,7 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.projects.analyticsBuilder.smoothLines}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.projects.analyticsBuilder.smoothLines}</span>
                       <input
                         type="checkbox"
                         checked={smoothLines}
@@ -1069,6 +1070,7 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.projects.analyticsBuilder.fillArea}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.projects.analyticsBuilder.fillArea}</span>
                       <input
                         type="checkbox"
                         checked={fillArea}
@@ -1083,6 +1085,7 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.projects.analyticsBuilder.showDataPoints}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.projects.analyticsBuilder.showDataPoints}</span>
                       <input
                         type="checkbox"
                         checked={showDataPoints}
@@ -1097,6 +1100,7 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.projects.analyticsBuilder.showLegend}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.projects.analyticsBuilder.showLegend}</span>
                       <input
                         type="checkbox"
                         checked={showLegend}
