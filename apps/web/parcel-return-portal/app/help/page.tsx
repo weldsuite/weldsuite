@@ -323,8 +323,9 @@ export default function HelpPage() {
                   <form onSubmit={handleContactSubmit} className="space-y-4">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Name</label>
+                        <label htmlFor="contact-name" className="text-sm font-medium mb-1 block">Name</label>
                         <Input
+                          id="contact-name"
                           required
                           value={contactForm.name}
                           onChange={(e) => setContactForm({...contactForm, name: e.target.value})}
@@ -332,8 +333,9 @@ export default function HelpPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Email</label>
+                        <label htmlFor="contact-email" className="text-sm font-medium mb-1 block">Email</label>
                         <Input
+                          id="contact-email"
                           required
                           type="email"
                           value={contactForm.email}
@@ -344,16 +346,18 @@ export default function HelpPage() {
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Order Number (Optional)</label>
+                        <label htmlFor="contact-order-number" className="text-sm font-medium mb-1 block">Order Number (Optional)</label>
                         <Input
+                          id="contact-order-number"
                           value={contactForm.orderNumber}
                           onChange={(e) => setContactForm({...contactForm, orderNumber: e.target.value})}
                           placeholder="ORD-123456"
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Subject</label>
+                        <label htmlFor="contact-subject" className="text-sm font-medium mb-1 block">Subject</label>
                         <Input
+                          id="contact-subject"
                           required
                           value={contactForm.subject}
                           onChange={(e) => setContactForm({...contactForm, subject: e.target.value})}
@@ -362,8 +366,9 @@ export default function HelpPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium mb-1 block">Message</label>
+                      <label htmlFor="contact-message" className="text-sm font-medium mb-1 block">Message</label>
                       <Textarea
+                        id="contact-message"
                         required
                         value={contactForm.message}
                         onChange={(e) => setContactForm({...contactForm, message: e.target.value})}

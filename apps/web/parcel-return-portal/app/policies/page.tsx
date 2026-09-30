@@ -214,7 +214,7 @@ export default function PoliciesPage() {
                         <span className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             1
-                          </span>
+                          </span>{' '}
                           Initiate Your Return
                         </span>
                       </AccordionTrigger>
@@ -231,7 +231,7 @@ export default function PoliciesPage() {
                         <span className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             2
-                          </span>
+                          </span>{' '}
                           Get Your Shipping Label
                         </span>
                       </AccordionTrigger>
@@ -248,7 +248,7 @@ export default function PoliciesPage() {
                         <span className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             3
-                          </span>
+                          </span>{' '}
                           Pack Your Items
                         </span>
                       </AccordionTrigger>
@@ -265,7 +265,7 @@ export default function PoliciesPage() {
                         <span className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             4
-                          </span>
+                          </span>{' '}
                           Ship Your Return
                         </span>
                       </AccordionTrigger>
@@ -282,7 +282,7 @@ export default function PoliciesPage() {
                         <span className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             5
-                          </span>
+                          </span>{' '}
                           Receive Your Refund
                         </span>
                       </AccordionTrigger>
