@@ -65,8 +65,7 @@ export default async function AiCostsPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {credits.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                No gateway credit rows yet — run the seed script (
-                <code>packages/core/db/scripts/seed-ai-gateway-credits.ts</code>).
+                No gateway credit rows yet — run the seed script (<code>packages/core/db/scripts/seed-ai-gateway-credits.ts</code>).
               </p>
             )}
             {credits.map((g) => (

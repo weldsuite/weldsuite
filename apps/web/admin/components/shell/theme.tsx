@@ -39,7 +39,8 @@ function prefersDark(): boolean {
 }
 
 function apply(theme: Theme): 'light' | 'dark' {
-  const resolved = theme === 'system' ? (prefersDark() ? 'dark' : 'light') : theme;
+  const systemTheme = prefersDark() ? 'dark' : 'light';
+  const resolved = theme === 'system' ? systemTheme : theme;
   document.documentElement.classList.toggle('dark', resolved === 'dark');
   document.documentElement.style.colorScheme = resolved;
   return resolved;
