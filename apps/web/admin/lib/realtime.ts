@@ -4,6 +4,12 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 
 const INTERNAL_PREFIX = 'https://internal';
 
+function resolveInputUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
 const adapter = {
   fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const baseUrl = process.env.REALTIME_WORKER_URL;
@@ -12,7 +18,7 @@ const adapter = {
       throw new Error('REALTIME_WORKER_URL and REALTIME_INTERNAL_SECRET must be set');
     }
 
-    const inputUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const inputUrl = resolveInputUrl(input);
     const target = inputUrl.replace(INTERNAL_PREFIX, baseUrl);
 
     const headers = new Headers(init?.headers);

@@ -32,6 +32,11 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────
 
+function summarizeEmailDelivery(failed: number, total: number): 'sent' | 'failed' | 'partial' {
+  if (failed === 0) return 'sent';
+  return failed === total ? 'failed' : 'partial';
+}
+
 export type TimeSlot = {
   start: string;
   end: string;
@@ -343,12 +348,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
       console.error('[booking-portal] email send failed', bookingId, (r as PromiseRejectedResult).reason);
     }
 
-    const emailDelivery: 'sent' | 'failed' | 'partial' =
-      failures.length === 0
-        ? 'sent'
-        : failures.length === results.length
-          ? 'failed'
-          : 'partial';
+    const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
     return { success: true, bookingId, emailDelivery };
   } catch (err) {
@@ -631,8 +631,7 @@ export async function rescheduleBooking(
       );
     }
 
-    const emailDelivery: 'sent' | 'failed' | 'partial' =
-      failures.length === 0 ? 'sent' : failures.length === results.length ? 'failed' : 'partial';
+    const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
     return { success: true, bookingId: booking.id, emailDelivery };
   } catch (err) {
