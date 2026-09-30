@@ -76,7 +76,7 @@ function leadAvatar(lead: WelddataLead): string | undefined {
     if (typeof logo === 'string' && logo) return logo;
   }
   if (lead.domain) {
-    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const clean = lead.domain.replace(/^https?:\/\//, '').split('/')[0] ?? '';
     return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
   }
   return undefined;

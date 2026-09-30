@@ -82,6 +82,9 @@ interface ReportViewClientProps {
   allReports: AnalyticsReport[];
 }
 
+/** Ref callback for inline-edit inputs: focus once when the input mounts. */
+const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
+
 export function ReportViewClient({ report, initialCharts, allReports }: Readonly<ReportViewClientProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -618,7 +621,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                     }}
                     onBlur={() => setIsEditingTitle(false)}
                     onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-                    autoFocus
+                    ref={focusOnMount}
                     className="absolute inset-0 text-2xl font-bold tracking-tight bg-transparent border-b border-primary focus:outline-none"
                     placeholder={t.helpdesk.analyticsReports.pageTitle}
                   />
@@ -651,7 +654,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                     }}
                     onBlur={() => setIsEditingDescription(false)}
                     onKeyDown={(e) => e.key === 'Enter' && setIsEditingDescription(false)}
-                    autoFocus
+                    ref={focusOnMount}
                     className="absolute inset-0 text-muted-foreground bg-transparent border-b border-primary focus:outline-none"
                     placeholder={t.helpdesk.analyticsReports.pageDescription}
                   />

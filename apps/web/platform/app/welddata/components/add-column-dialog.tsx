@@ -39,6 +39,33 @@ import { AiUnavailable } from '@/components/ai/ai-unavailable';
 // `actionType === 'ai'` branch below.
 const NON_AI_ENRICHMENT_ACTIONS = ENRICHMENT_ACTIONS.filter((a) => a.type !== 'ai');
 
+interface ColumnConfigInput {
+  actionType: EnrichmentActionType;
+  provider: EmailFinderProvider;
+  prompt: string;
+  model: string;
+  webSearch: boolean;
+}
+
+function buildColumnConfig({ actionType, provider, prompt, model, webSearch }: ColumnConfigInput) {
+  if (actionType === 'email_finder') {
+    return { type: 'email_finder' as const, provider };
+  }
+  if (actionType === 'phone_finder') {
+    return {
+      type: 'phone_finder' as const,
+      source: 'website' as const,
+      webSearchFallback: webSearch || undefined,
+    };
+  }
+  return {
+    type: 'ai' as const,
+    prompt: prompt.trim(),
+    model: model === '__default' ? undefined : model,
+    webSearch: webSearch || undefined,
+  };
+}
+
 interface AddColumnDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,21 +120,7 @@ export function AddColumnDialog({ open, onOpenChange, listId, column }: Readonly
 
   async function handleSave() {
     if (!canSave) return;
-    const config =
-      actionType === 'email_finder'
-        ? { type: 'email_finder' as const, provider }
-        : actionType === 'phone_finder'
-          ? {
-              type: 'phone_finder' as const,
-              source: 'website' as const,
-              webSearchFallback: webSearch || undefined,
-            }
-          : {
-              type: 'ai' as const,
-              prompt: prompt.trim(),
-              model: model === '__default' ? undefined : model,
-              webSearch: webSearch || undefined,
-            };
+    const config = buildColumnConfig({ actionType, provider, prompt, model, webSearch });
     try {
       if (column) {
         await updateColumn.mutateAsync({ id: column.id, listId, data: { name: name.trim(), config } });

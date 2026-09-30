@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -56,6 +56,7 @@ export function FilterLocationInput({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
   const { suggestions, isSearching, search, clear, resetSession } =
     useLocationSearch({ debounceMs: 250, types: SCOPE_TYPES[scope] });
 
@@ -94,6 +95,7 @@ export function FilterLocationInput({
         {/* Tags-input: selected places render as chips inside the field, with
             the search box inline alongside them. */}
         <div
+          role="presentation"
           className={cn(
             'flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 text-sm',
             'focus-within:outline-none focus-within:ring-1 focus-within:ring-ring',
@@ -150,6 +152,7 @@ export function FilterLocationInput({
             // password-manager overlays — this is our own combobox.
             role="combobox"
             aria-expanded={showPopover}
+            aria-controls={listboxId}
             aria-autocomplete="list"
             autoComplete="new-password"
             name={`welddata-location-${scope}`}
@@ -164,6 +167,7 @@ export function FilterLocationInput({
         </div>
       </PopoverAnchor>
       <PopoverContent
+        id={listboxId}
         className="z-[9999] w-(--radix-popover-trigger-width) p-0"
         align="start"
         sideOffset={4}
