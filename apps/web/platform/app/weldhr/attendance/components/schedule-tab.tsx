@@ -1,6 +1,6 @@
 /** Attendance → Schedule: a Mon–Sun week view of shifts. */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
@@ -48,6 +48,72 @@ export function ScheduleTab() {
     return (shifts ?? []).filter((s) => s.employeeId === employeeId && s.startsAt.slice(0, 10) === date);
   }
 
+  let scheduleContent: ReactNode;
+  if (isLoading) {
+    scheduleContent = <PageLoader fullScreen={false} />;
+  } else if (employees.length === 0) {
+    scheduleContent = (
+      <Card className="flex flex-col items-center gap-2 p-10 text-center">
+        <p className="text-sm font-medium">{t('weldhr.attendance.schedule.empty.title')}</p>
+        <p className="max-w-md text-sm text-muted-foreground">{t('weldhr.attendance.schedule.empty.description')}</p>
+        {canCreate && (
+          <Button className="mt-2" onClick={() => setDialog({ date: weekStart })}>
+            {t('weldhr.attendance.schedule.addShift')}
+          </Button>
+        )}
+      </Card>
+    );
+  } else {
+    scheduleContent = (
+      <Card className="overflow-x-auto p-0">
+        <table className="w-full min-w-[840px] border-collapse text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <th className="w-40 px-3 py-2 text-left font-medium">{t('weldhr.attendance.records.table.employee')}</th>
+              {days.map((date) => (
+                <th key={date} className="px-2 py-2 text-left font-medium">
+                  {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map(([employeeId, employeeName]) => (
+              <tr key={employeeId} className="border-b last:border-0">
+                <td className="px-3 py-2 align-top font-medium">{employeeName}</td>
+                {days.map((date) => (
+                  <td
+                    key={date}
+                    className="cursor-pointer px-2 py-2 align-top hover:bg-muted/30"
+                    onClick={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (canCreate) setDialog({ employeeId, date });
+                    }}
+                  >
+                    <div className="space-y-1">
+                      {shiftsFor(employeeId, date).map((shift) => (
+                        <button
+                          key={shift.id}
+                          onClick={() => (canUpdate ? setDialog({ shift }) : undefined)}
+                          className="block w-full rounded-md border bg-card px-1.5 py-1 text-left text-xs shadow-sm hover:border-primary"
+                        >
+                          <div className="font-medium">
+                            {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
+                          </div>
+                          {shift.companyName && <div className="truncate text-muted-foreground">{shift.companyName}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -75,66 +141,7 @@ export function ScheduleTab() {
 
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.attendance.schedule.loadFailed')) : null} />
 
-      {isLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : employees.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 p-10 text-center">
-          <p className="text-sm font-medium">{t('weldhr.attendance.schedule.empty.title')}</p>
-          <p className="max-w-md text-sm text-muted-foreground">{t('weldhr.attendance.schedule.empty.description')}</p>
-          {canCreate && (
-            <Button className="mt-2" onClick={() => setDialog({ date: weekStart })}>
-              {t('weldhr.attendance.schedule.addShift')}
-            </Button>
-          )}
-        </Card>
-      ) : (
-        <Card className="overflow-x-auto p-0">
-          <table className="w-full min-w-[840px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="w-40 px-3 py-2 text-left font-medium">{t('weldhr.attendance.records.table.employee')}</th>
-                {days.map((date) => (
-                  <th key={date} className="px-2 py-2 text-left font-medium">
-                    {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map(([employeeId, employeeName]) => (
-                <tr key={employeeId} className="border-b last:border-0">
-                  <td className="px-3 py-2 align-top font-medium">{employeeName}</td>
-                  {days.map((date) => (
-                    <td
-                      key={date}
-                      className="cursor-pointer px-2 py-2 align-top hover:bg-muted/30"
-                      onClick={(e) => {
-                        if (e.target !== e.currentTarget) return;
-                        if (canCreate) setDialog({ employeeId, date });
-                      }}
-                    >
-                      <div className="space-y-1">
-                        {shiftsFor(employeeId, date).map((shift) => (
-                          <button
-                            key={shift.id}
-                            onClick={() => (canUpdate ? setDialog({ shift }) : undefined)}
-                            className="block w-full rounded-md border bg-card px-1.5 py-1 text-left text-xs shadow-sm hover:border-primary"
-                          >
-                            <div className="font-medium">
-                              {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
-                            </div>
-                            {shift.companyName && <div className="truncate text-muted-foreground">{shift.companyName}</div>}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      )}
+      {scheduleContent}
 
       {dialog && (
         <ShiftDialog
