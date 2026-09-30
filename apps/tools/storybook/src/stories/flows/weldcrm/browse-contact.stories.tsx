@@ -201,7 +201,6 @@ export const Flow: Story = {
                   <p className="mt-2 text-sm font-medium">{selected.jobTitle}</p>
                 ) : (
                   <input
-                    autoFocus
                     value={draftTitle}
                     onChange={(e) => setDraftTitle(e.target.value)}
                     className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"

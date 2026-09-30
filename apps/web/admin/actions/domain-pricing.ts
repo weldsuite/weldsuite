@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
   PRICELIST_CURRENCY,
-  RealtimeRegistrarError,
   normalizeTld,
   splitDomainPricingFromPricelist,
 } from '@weldsuite/realtime-registrar';
@@ -98,12 +97,7 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
   try {
     wholesale = await rtr.getPricelist(PRICELIST_CURRENCY);
   } catch (err) {
-    const message =
-      err instanceof RealtimeRegistrarError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : adminPricingCopy().pricelistFailed;
+    const message = err instanceof Error ? err.message : adminPricingCopy().pricelistFailed;
     return { ok: false, error: message };
   }
 

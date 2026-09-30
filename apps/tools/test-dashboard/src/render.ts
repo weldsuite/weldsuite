@@ -34,6 +34,16 @@ function statusOf(s: SuiteResult): 'pass' | 'fail' | 'empty' {
   return s.failed > 0 ? 'fail' : 'pass';
 }
 
+function pluralFailing(n: number): string {
+  const suffix = n === 1 ? '' : 's';
+  return `${n} failing test${suffix}`;
+}
+
+function failureItem(f: SuiteResult['failures'][number]): string {
+  const message = f.message ? `<span>${esc(f.message)}</span>` : '';
+  return `<li><code>${esc(f.name)}</code>${message}</li>`;
+}
+
 function suiteRow(s: SuiteResult): string {
   const status = statusOf(s);
   const total = Math.max(s.tests, 1);
@@ -48,13 +58,8 @@ function suiteRow(s: SuiteResult): string {
   const failures =
     s.failures.length > 0
       ? `<details class="failures">
-           <summary>${s.failures.length} failing test${s.failures.length === 1 ? '' : 's'}</summary>
-           <ul>${s.failures
-             .map(
-               (f) =>
-                 `<li><code>${esc(f.name)}</code>${f.message ? `<span>${esc(f.message)}</span>` : ''}</li>`,
-             )
-             .join('')}</ul>
+           <summary>${pluralFailing(s.failures.length)}</summary>
+           <ul>${s.failures.map(failureItem).join('')}</ul>
          </details>`
       : '';
 
@@ -87,6 +92,16 @@ function frameworkSection(framework: Framework, suites: SuiteResult[]): string {
     </section>`;
 }
 
+function overallStatus(totals: Dashboard['totals']): 'pass' | 'fail' | 'empty' {
+  if (totals.failed > 0) return 'fail';
+  return totals.tests > 0 ? 'pass' : 'empty';
+}
+
+function overallLabelOf(overall: 'pass' | 'fail' | 'empty', failed: number): string {
+  if (overall === 'fail') return `${failed} failing`;
+  return overall === 'pass' ? 'All passing' : 'No data';
+}
+
 export function renderDashboard(d: Dashboard): string {
   const { totals } = d;
   const order: Framework[] = ['playwright', 'vitest', 'jest', 'unknown'];
@@ -94,9 +109,8 @@ export function renderDashboard(d: Dashboard): string {
     .map((fw) => [fw, d.suites.filter((s) => s.framework === fw)] as const)
     .filter(([, list]) => list.length > 0);
 
-  const overall = totals.failed > 0 ? 'fail' : totals.tests > 0 ? 'pass' : 'empty';
-  const overallLabel =
-    overall === 'fail' ? `${totals.failed} failing` : overall === 'pass' ? 'All passing' : 'No data';
+  const overall = overallStatus(totals);
+  const overallLabel = overallLabelOf(overall, totals.failed);
 
   const meta = [
     d.branch ? `branch <b>${esc(d.branch)}</b>` : null,
