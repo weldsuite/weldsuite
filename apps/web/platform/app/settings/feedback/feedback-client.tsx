@@ -105,6 +105,36 @@ export function FeedbackClient({ initialRequests, initialStats }: Readonly<Feedb
     refreshRequests();
   };
 
+  let requestList: React.ReactNode;
+  if (isPending) {
+    requestList = (
+      <div className="flex items-center justify-center gap-2 py-8">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{ts.loading}</span>
+      </div>
+    );
+  } else if (requests.length === 0) {
+    requestList = (
+      <div className="text-center py-12 border rounded-lg bg-muted/50">
+        <h3 className="text-lg font-medium mb-2">{ts.noRequests}</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          {ts.noRequestsDescription}
+        </p>
+        <Button onClick={() => setSubmitDialogOpen(true)}>
+          {ts.submitIdea}
+        </Button>
+      </div>
+    );
+  } else {
+    requestList = requests.map(request => (
+      <FeatureRequestCard
+        key={request.id}
+        request={request}
+        onVoteUpdate={handleVoteUpdate}
+      />
+    ));
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Page Header */}
@@ -203,30 +233,7 @@ export function FeedbackClient({ initialRequests, initialStats }: Readonly<Feedb
 
       {/* Request List */}
       <div className="space-y-3">
-        {isPending ? (
-          <div className="flex items-center justify-center gap-2 py-8">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{ts.loading}</span>
-          </div>
-        ) : requests.length === 0 ? (
-          <div className="text-center py-12 border rounded-lg bg-muted/50">
-            <h3 className="text-lg font-medium mb-2">{ts.noRequests}</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {ts.noRequestsDescription}
-            </p>
-            <Button onClick={() => setSubmitDialogOpen(true)}>
-              {ts.submitIdea}
-            </Button>
-          </div>
-        ) : (
-          requests.map(request => (
-            <FeatureRequestCard
-              key={request.id}
-              request={request}
-              onVoteUpdate={handleVoteUpdate}
-            />
-          ))
-        )}
+        {requestList}
       </div>
 
       {/* Submit Dialog */}

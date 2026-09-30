@@ -295,6 +295,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
   const isSaving = updatePrintNodeMutation.isPending;
 
   const isLoading = integrationId === 'printnode' ? printNodeLoading : integrationsLoading;
+  const connectLabel = isConnected ? t.settings.actions.disconnect : t.settings.actions.connect;
 
   // Sync connection status from query data
   React.useEffect(() => {
@@ -456,10 +457,8 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                 >
                   {isConnecting || isLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : isConnected ? (
-                    t.settings.actions.disconnect
                   ) : (
-                    t.settings.actions.connect
+                    connectLabel
                   )}
                 </Button>
               </div>
@@ -508,18 +507,18 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-foreground mb-2">{ti.resources}</h3>
                 <div className="space-y-2">
-                  <a href="#" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <button type="button" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                     <Globe className="h-4 w-4" />
                     {ti.website}
-                  </a>
-                  <a href="#" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  </button>
+                  <button type="button" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                     <FileText className="h-4 w-4" />
                     {ti.documentation}
-                  </a>
-                  <a href="#" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  </button>
+                  <button type="button" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                     <Mail className="h-4 w-4" />
                     {ti.support}
-                  </a>
+                  </button>
                 </div>
               </div>
 
@@ -538,10 +537,8 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               >
                 {isConnecting || isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                ) : isConnected ? (
-                  t.settings.actions.disconnect
                 ) : (
-                  t.settings.actions.connect
+                  connectLabel
                 )}
               </Button>
 

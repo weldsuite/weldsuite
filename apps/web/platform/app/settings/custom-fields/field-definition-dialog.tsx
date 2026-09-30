@@ -90,6 +90,12 @@ export function FieldDefinitionDialog({
   // creating from the "All" view.
   const [selectedType, setSelectedType] = useState<string>(entityType);
   const showEntityPicker = selectableEntity && !isEditing;
+  let submitLabel = ts.createField;
+  if (isPending) {
+    submitLabel = t.settings.actions.saving;
+  } else if (isEditing) {
+    submitLabel = ts.updateField;
+  }
 
   const form = useForm<FieldFormValues>({
     resolver: zodResolver(fieldSchema),
@@ -459,7 +465,7 @@ export function FieldDefinitionDialog({
               {t.common.actions.cancel}
             </Button>
             <Button type="submit" disabled={isPending || (isEditing && !form.formState.isDirty)}>
-              {isPending ? t.settings.actions.saving : isEditing ? ts.updateField : ts.createField}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>
