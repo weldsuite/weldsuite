@@ -215,7 +215,7 @@ export default function PoliciesPage() {
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             1
                           </span>
-                          Initiate Your Return
+                          <span>Initiate Your Return</span>
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="pl-11">
@@ -232,7 +232,7 @@ export default function PoliciesPage() {
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             2
                           </span>
-                          Get Your Shipping Label
+                          <span>Get Your Shipping Label</span>
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="pl-11">
@@ -249,7 +249,7 @@ export default function PoliciesPage() {
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             3
                           </span>
-                          Pack Your Items
+                          <span>Pack Your Items</span>
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="pl-11">
@@ -266,7 +266,7 @@ export default function PoliciesPage() {
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             4
                           </span>
-                          Ship Your Return
+                          <span>Ship Your Return</span>
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="pl-11">
@@ -283,7 +283,7 @@ export default function PoliciesPage() {
                           <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
                             5
                           </span>
-                          Receive Your Refund
+                          <span>Receive Your Refund</span>
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="pl-11">
