@@ -1339,6 +1339,12 @@ const PIN_DURATIONS = [
   { label: 'Always', value: 'forever' },
 ];
 
+const PIN_DURATION_MS: Record<string, number | undefined> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
 /** Pin duration picker, then the "notify others?" step. */
 function PinDurationModal({
   visible,
@@ -2039,10 +2045,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       });
       let expiresAt: string | undefined;
       if (duration && duration !== 'forever') {
-        const ms = duration === '24h' ? 24 * 60 * 60 * 1000
-          : duration === '7d' ? 7 * 24 * 60 * 60 * 1000
-          : duration === '30d' ? 30 * 24 * 60 * 60 * 1000
-          : 0;
+        const ms = PIN_DURATION_MS[duration] ?? 0;
         if (ms > 0) expiresAt = new Date(Date.now() + ms).toISOString();
       }
       await appApi.chatMessages.pin(msg.id, { expiresAt, silent });
