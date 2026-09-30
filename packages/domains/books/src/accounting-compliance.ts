@@ -93,6 +93,70 @@ export interface ComplianceCheckResult {
   buyerVatNumber: string | null;
 }
 
+/** Labels of the legally required invoice fields the entity has not filled in. */
+function missingEntityInvoiceFields(entity: Entity, requiredFields: readonly string[]): string[] {
+  const present: Record<string, boolean> = {
+    vatNumber: !!entity.taxIdentifiers?.vatNumber,
+    registrationNumber: !!entity.taxIdentifiers?.registrationNumber,
+    iban: !!entity.bankDetails?.iban,
+    bic: !!entity.bankDetails?.bic,
+  };
+  const labels: Record<string, string> = {
+    vatNumber: 'BTW-nummer',
+    registrationNumber: 'KvK-nummer',
+    iban: 'IBAN',
+    bic: 'BIC',
+  };
+  return requiredFields.filter((field) => field in labels && !present[field]).map((field) => labels[field]);
+}
+
+interface ReverseChargeCheck {
+  errors: string[];
+  warnings: string[];
+  buyerVatNumber: string | null;
+}
+
+/**
+ * Reverse charge / ICL: valid buyer VAT number is a hard condition for the
+ * 0% treatment (an invalid number shifts the liability back to the seller).
+ */
+async function checkReverseChargeBuyer(
+  db: Database,
+  contactId: string | null,
+): Promise<ReverseChargeCheck> {
+  const buyerVatNumber = await getContactVatNumber(db, contactId);
+  if (!buyerVatNumber) {
+    return {
+      errors: [
+        "Reverse-charge / intracommunautaire invoices require the customer's VAT number on their company record.",
+      ],
+      warnings: [],
+      buyerVatNumber,
+    };
+  }
+
+  const vies = await checkVatNumber(db, buyerVatNumber);
+  if (vies.available && !vies.valid) {
+    return {
+      errors: [
+        `Customer VAT number ${buyerVatNumber} failed VIES validation — the 0% reverse-charge treatment is not allowed with an invalid number.`,
+      ],
+      warnings: [],
+      buyerVatNumber,
+    };
+  }
+  if (!vies.available) {
+    return {
+      errors: [],
+      warnings: [
+        `VIES is currently unavailable — could not verify customer VAT number ${buyerVatNumber}. The invoice was finalized; re-validate later.`,
+      ],
+      buyerVatNumber,
+    };
+  }
+  return { errors: [], warnings: [], buyerVatNumber };
+}
+
 /**
  * Validate an invoice against the entity jurisdiction's factuureisen before
  * it is finalized. Returns errors (block) and warnings (proceed, surface).
@@ -111,13 +175,7 @@ export async function validateInvoiceForFinalize(
     const requirements = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(
       entity.locale ?? undefined,
     );
-    const missing: string[] = [];
-    for (const field of requirements.requiredFields) {
-      if (field === 'vatNumber' && !entity.taxIdentifiers?.vatNumber) missing.push('BTW-nummer');
-      if (field === 'registrationNumber' && !entity.taxIdentifiers?.registrationNumber) missing.push('KvK-nummer');
-      if (field === 'iban' && !entity.bankDetails?.iban) missing.push('IBAN');
-      if (field === 'bic' && !entity.bankDetails?.bic) missing.push('BIC');
-    }
+    const missing = missingEntityInvoiceFields(entity, requirements.requiredFields);
     if (missing.length > 0) {
       errors.push(
         `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them in the entity settings before finalizing.`,
@@ -132,26 +190,11 @@ export async function validateInvoiceForFinalize(
     );
   }
 
-  // Reverse charge / ICL: valid buyer VAT number is a hard condition for the
-  // 0% treatment (an invalid number shifts the liability back to the seller).
   if (invoiceUsesReverseCharge(categories)) {
-    buyerVatNumber = await getContactVatNumber(db, invoice.contactId);
-    if (!buyerVatNumber) {
-      errors.push(
-        "Reverse-charge / intracommunautaire invoices require the customer's VAT number on their company record.",
-      );
-    } else {
-      const vies = await checkVatNumber(db, buyerVatNumber);
-      if (vies.available && !vies.valid) {
-        errors.push(
-          `Customer VAT number ${buyerVatNumber} failed VIES validation — the 0% reverse-charge treatment is not allowed with an invalid number.`,
-        );
-      } else if (!vies.available) {
-        warnings.push(
-          `VIES is currently unavailable — could not verify customer VAT number ${buyerVatNumber}. The invoice was finalized; re-validate later.`,
-        );
-      }
-    }
+    const check = await checkReverseChargeBuyer(db, invoice.contactId);
+    buyerVatNumber = check.buyerVatNumber;
+    errors.push(...check.errors);
+    warnings.push(...check.warnings);
   }
 
   return { ok: errors.length === 0, errors, warnings, buyerVatNumber };
