@@ -113,7 +113,8 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
   const renderContent = (content: string) => {
     const lines = content.split('\n');
     const elements: ReactElement[] = [];
-    let listItems: string[] = [];
+    let listItems: { id: number; text: string }[] = [];
+    let nextItemId = 0;
     let listType: ListType | null = null;
     let codeBlock: string[] = [];
     let inCodeBlock = false;
@@ -123,16 +124,16 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
         if (listType === 'bullet') {
           elements.push(
             <ul key={elements.length} className="list-disc list-inside space-y-1 mb-4">
-              {listItems.map((item, i) => (
-                <li key={i}>{item}</li>
+              {listItems.map((item) => (
+                <li key={item.id}>{item.text}</li>
               ))}
             </ul>
           );
         } else if (listType === 'numbered') {
           elements.push(
             <ol key={elements.length} className="list-decimal list-inside space-y-1 mb-4">
-              {listItems.map((item, i) => (
-                <li key={i}>{item}</li>
+              {listItems.map((item) => (
+                <li key={item.id}>{item.text}</li>
               ))}
             </ol>
           );
@@ -170,7 +171,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
           flushList();
           listType = listLine.type;
         }
-        listItems.push(listLine.text);
+        listItems.push({ id: nextItemId++, text: listLine.text });
         return;
       }
 

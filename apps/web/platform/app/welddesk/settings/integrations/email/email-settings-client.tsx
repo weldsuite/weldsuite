@@ -139,12 +139,13 @@ export function EmailSettingsClient() {
             <p className="text-sm text-muted-foreground">{ei.emailConnectedAddressesDesc}</p>
           </div>
 
-          {addressesLoading ? (
+          {addressesLoading && (
             <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t.helpdesk.inbox.loading}
             </div>
-          ) : activeAddresses.length === 0 ? (
+          )}
+          {!addressesLoading && activeAddresses.length === 0 && (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <EmptyStateIllustration>
                 <Mail className="h-12 w-12 text-gray-300 dark:text-muted-foreground" />
@@ -152,7 +153,8 @@ export function EmailSettingsClient() {
               <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{ei.emailNoAddresses}</h3>
               <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed">{ei.emailAddOneBelow}</p>
             </div>
-          ) : (
+          )}
+          {!addressesLoading && activeAddresses.length > 0 && (
             <div className="space-y-2">
               {activeAddresses.map((addr) => (
                 <div
@@ -184,12 +186,14 @@ export function EmailSettingsClient() {
             <p className="text-sm text-muted-foreground">{ei.emailAddAddressDesc}</p>
           </div>
 
-          {mailAccountsLoading ? (
+          {mailAccountsLoading && (
             <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t.helpdesk.inbox.loading}
             </div>
-          ) : availableMailAccounts.length > 0 ? (
+          )}
+
+          {!mailAccountsLoading && availableMailAccounts.length > 0 && (
             <div className="space-y-2">
               {availableMailAccounts.map((account) => (
                 <div
@@ -221,18 +225,18 @@ export function EmailSettingsClient() {
                 </div>
               ))}
             </div>
-          ) : null}
+          )}
 
-          {domainsLoading ? (
+          {domainsLoading && (
             <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t.helpdesk.inbox.loading}
             </div>
-          ) : verifiedDomains.length === 0 ? (
-            !availableMailAccounts.length ? (
-              <p className="text-sm text-muted-foreground">{ei.emailNoVerifiedDomains} {ei.emailGoToSettingsLink}</p>
-            ) : null
-          ) : (
+          )}
+          {!domainsLoading && verifiedDomains.length === 0 && availableMailAccounts.length === 0 && (
+            <p className="text-sm text-muted-foreground">{ei.emailNoVerifiedDomains} {ei.emailGoToSettingsLink}</p>
+          )}
+          {!domainsLoading && verifiedDomains.length > 0 && (
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="local-part">{ei.emailNewAddress}</Label>
