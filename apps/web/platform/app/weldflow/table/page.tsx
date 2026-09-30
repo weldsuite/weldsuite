@@ -570,8 +570,8 @@ const renderTagsCell: CellRenderer = (_field, value) => {
   const remainingItemsCount = value.length - 2;
   return (
     <>
-      {displayedItems.map((item: string, index: number) => (
-        <TagLabel key={index} tag={item} className="flex-shrink-0" />
+      {displayedItems.map((item: string) => (
+        <TagLabel key={item} tag={item} className="flex-shrink-0" />
       ))}
       {remainingItemsCount > 0 && (
         <span style={{ fontSize: '12px', color: '#6b7280', flexShrink: 0 }}>
@@ -610,7 +610,7 @@ const renderCollaboratorAvatar = (person: string | { name?: string }, index: num
   const personName = typeof person === 'string' ? person : (person.name || '');
   return (
     <div
-      key={index}
+      key={personName}
       style={{
         width: '20px',
         height: '20px',
@@ -790,6 +790,18 @@ const omitTimers = (timers: RunningTimers, keys: string[]): RunningTimers => {
   const next = { ...timers };
   for (const key of keys) delete next[key];
   return next;
+};
+
+// Native <input> type used by the inline cell editor
+const getEditInputType = (type: FieldType): "number" | "email" | "text" => {
+  if (type === "number" || type === "currency") return "number";
+  if (type === "email") return "email";
+  return "text";
+};
+
+// Stable callback ref: focuses the inline cell editor once when it mounts
+const focusOnMount = (el: HTMLInputElement | null) => {
+  el?.focus();
 };
 
 // Cell wrapper component that enforces 40px height
@@ -1350,7 +1362,7 @@ export default function TablePage() {
               borderRadius: '4px',
               outline: 'none'
             }}
-            type={field.type === "number" || field.type === "currency" ? "number" : field.type === "email" ? "email" : "text"}
+            type={getEditInputType(field.type)}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={saveCellEdit}
@@ -1361,7 +1373,7 @@ export default function TablePage() {
                 setEditValue("");
               }
             }}
-            autoFocus
+            ref={focusOnMount}
           />
         </CellWrapper>
       );
@@ -1722,10 +1734,10 @@ export default function TablePage() {
           </Popover>
           <TooltipContent side="top" align="start">
             <div className="flex flex-col gap-1">
-              {(row.data[field.id] || []).map((person: string | { name?: string }, index: number) => {
+              {(row.data[field.id] || []).map((person: string | { name?: string }) => {
                 const personName = typeof person === 'string' ? person : (person.name || '');
                 return (
-                  <div key={index} className="text-sm">{personName}</div>
+                  <div key={personName} className="text-sm">{personName}</div>
                 );
               })}
             </div>
@@ -2455,6 +2467,7 @@ export default function TablePage() {
                   </Popover>
                   <div
                     className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-gray-400 bg-transparent transition-colors"
+                    role="presentation"
                     onMouseDown={(e) => handleMouseDown(e, field.id)}
                   />
                 </th>

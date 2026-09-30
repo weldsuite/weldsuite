@@ -303,7 +303,16 @@ export function DomainRegistrationClient() {
           <div key={domain.domain_name} className={`group space-y-2 ${index > 0 ? 'pt-4 mt-4 border-t border-input' : ''}`}>
             <div
               className="flex items-center justify-between cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-expanded={isExpanded}
               onClick={() => toggleDomainExpand(domain.domain_name)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleDomainExpand(domain.domain_name);
+                }
+              }}
             >
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium">{domain.domain_name}</span>
