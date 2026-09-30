@@ -477,8 +477,8 @@ export function AnalyticsDashboardClient({
                         fill="#8884d8"
                         dataKey="value"
                       >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        {pieData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip />
