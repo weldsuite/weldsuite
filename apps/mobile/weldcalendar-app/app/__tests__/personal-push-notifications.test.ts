@@ -25,7 +25,7 @@ describe('Personal calendar notifications', () => {
 
   it('keeps the personal token alive across a workspace switch', () => {
     expect(notificationContext).not.toMatch(/const prepareWorkspaceSwitch = unregisterDevice;/);
-    expect(notificationContext).toMatch(/const prepareWorkspaceSwitch = async \(\)/);
+    expect(notificationContext).toMatch(/const prepareWorkspaceSwitch = useCallback\(async \(\)/);
   });
 
   it('deactivates both tokens on full sign-out', () => {
