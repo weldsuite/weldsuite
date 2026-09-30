@@ -204,8 +204,8 @@ export default function BankReconciliationPage() {
                   {suggestions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{tbp.noMatchesFound}</p>
                   ) : (
-                    suggestions.map((s, i: number) => (
-                      <div key={i} className="border rounded-lg p-3 space-y-2">
+                    suggestions.map((s) => (
+                      <div key={`${s.type}-${s.entityId}`} className="border rounded-lg p-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="text-sm font-medium">{s.entityNumber || s.entityId}</span>
