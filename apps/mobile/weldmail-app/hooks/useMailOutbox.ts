@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
+import { getRandomBytes } from 'expo-crypto';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useCacheOrgId } from '@/hooks/useCacheOrgId';
 import type { SendMailMessageInput } from '@weldsuite/app-api-client';
@@ -20,8 +21,12 @@ import { enqueueOp, loadOutbox, applyOps, type MessagePatch, type OutboxOp } fro
 import { flushMailOutbox } from '@/lib/offline/flush';
 import { isPersonalAccountId, isPersonalMessage } from '@/services/mail-tenant';
 
+function randomSuffix(length: number): string {
+  return Array.from(getRandomBytes(length), (b) => (b % 36).toString(36)).join('');
+}
+
 function newId(): string {
-  return `op_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return `op_${Date.now()}_${randomSuffix(7)}`;
 }
 
 export function useMailOutbox() {
