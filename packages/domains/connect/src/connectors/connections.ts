@@ -413,6 +413,33 @@ export async function startSyncRun(args: {
   return id;
 }
 
+/** SQL merging a watermark patch into `syncWatermarks` (`null` values remove a key), or undefined when empty. */
+function buildWatermarksSql(patch: Record<string, string | null>): ReturnType<typeof sql> | undefined {
+  const setEntries = Object.entries(patch).filter(([, v]) => v !== null) as Array<[string, string]>;
+  const removeKeys = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
+  if (setEntries.length === 0 && removeKeys.length === 0) return undefined;
+
+  let watermarksSql = sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb)`;
+  if (setEntries.length > 0) {
+    watermarksSql = sql`${watermarksSql} || ${JSON.stringify(Object.fromEntries(setEntries))}::jsonb`;
+  }
+  for (const key of removeKeys) {
+    watermarksSql = sql`${watermarksSql} - ${key}`;
+  }
+  return watermarksSql;
+}
+
+/** Connection status after a sync run: auth errors stick, a failed run flags sync_error, paused stays paused. */
+function nextConnectionStatus(
+  current: string | null | undefined,
+  runStatus: ConnectorSyncRunStatus,
+): 'auth_error' | 'sync_error' | 'paused' | 'active' {
+  if (current === 'auth_error') return 'auth_error';
+  if (runStatus === 'error') return 'sync_error';
+  if (current === 'paused') return 'paused';
+  return 'active';
+}
+
 export async function finishSyncRun(args: {
   db: Database;
   runId: string;
@@ -471,18 +498,7 @@ export async function finishSyncRun(args: {
     patch[args.watermark.model] = args.watermark.at;
   }
 
-  const setEntries = Object.entries(patch).filter(([, v]) => v !== null) as Array<[string, string]>;
-  const removeKeys = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
-  let watermarksSql: ReturnType<typeof sql> | undefined;
-  if (setEntries.length > 0 || removeKeys.length > 0) {
-    watermarksSql = sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb)`;
-    if (setEntries.length > 0) {
-      watermarksSql = sql`${watermarksSql} || ${JSON.stringify(Object.fromEntries(setEntries))}::jsonb`;
-    }
-    for (const key of removeKeys) {
-      watermarksSql = sql`${watermarksSql} - ${key}`;
-    }
-  }
+  const watermarksSql = buildWatermarksSql(patch);
 
   await args.db
     .update(schema.connectorConnections)
@@ -493,14 +509,7 @@ export async function finishSyncRun(args: {
       lastErrorAt: args.error ? now : null,
       recordsSynced: sql`${schema.connectorConnections.recordsSynced} + ${applied}`,
       ...(watermarksSql ? { syncWatermarks: watermarksSql } : {}),
-      status:
-        connection?.status === 'auth_error'
-          ? 'auth_error'
-          : args.status === 'error'
-            ? 'sync_error'
-            : connection?.status === 'paused'
-              ? 'paused'
-              : 'active',
+      status: nextConnectionStatus(connection?.status, args.status),
       updatedAt: now,
     })
     .where(eq(schema.connectorConnections.id, args.connectionId));

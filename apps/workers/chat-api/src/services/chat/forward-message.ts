@@ -40,6 +40,50 @@ export type ForwardMessageResult =
   | { ok: true; forwarded: ForwardedMessage[]; authorName: string; authorAvatar: string | null }
   | { ok: false; status: 403 | 404; message: string };
 
+/** Of `channelIds`, the ones the user is not a member of. */
+async function findNonMemberChannels(
+  db: Database,
+  userId: string,
+  channelIds: string[],
+): Promise<string[]> {
+  if (channelIds.length === 0) return [];
+  const memberships = await db
+    .select({ channelId: chatChannelMembers.channelId })
+    .from(chatChannelMembers)
+    .where(
+      and(eq(chatChannelMembers.userId, userId), inArray(chatChannelMembers.channelId, channelIds)),
+    );
+  const memberSet = new Set(memberships.map((m) => m.channelId));
+  return channelIds.filter((id) => !memberSet.has(id));
+}
+
+/** Join the user to every public channel in `channelIds` they are not yet in. */
+async function autoJoinPublicChannels(
+  db: Database,
+  userId: string,
+  channelIds: string[],
+): Promise<void> {
+  const toJoin = await findNonMemberChannels(db, userId, channelIds);
+  const joinedAt = new Date();
+  for (const channelId of toJoin) {
+    await db
+      .insert(chatChannelMembers)
+      .values({
+        id: generateId('cmb'),
+        channelId,
+        userId,
+        role: 'member',
+        joinedAt,
+        createdAt: joinedAt,
+      })
+      .onConflictDoNothing();
+    await db
+      .update(chatChannels)
+      .set({ memberCount: sql`${chatChannels.memberCount} + 1`, updatedAt: joinedAt })
+      .where(eq(chatChannels.id, channelId));
+  }
+}
+
 export async function forwardMessage(
   db: Database,
   params: { sourceChannelId: string; sourceMessageId: string; userId: string },
@@ -121,20 +165,7 @@ export async function forwardMessage(
   }
 
   const nonPublicTargets = uniqueTargets.filter((id) => channelById.get(id)!.type !== 'public');
-  const memberSet = new Set<string>();
-  if (nonPublicTargets.length > 0) {
-    const memberships = await db
-      .select({ channelId: chatChannelMembers.channelId })
-      .from(chatChannelMembers)
-      .where(
-        and(
-          eq(chatChannelMembers.userId, userId),
-          inArray(chatChannelMembers.channelId, nonPublicTargets),
-        ),
-      );
-    for (const m of memberships) memberSet.add(m.channelId);
-  }
-  const inaccessible = nonPublicTargets.filter((id) => !memberSet.has(id));
+  const inaccessible = await findNonMemberChannels(db, userId, nonPublicTargets);
   if (inaccessible.length > 0) {
     return {
       ok: false,
@@ -146,37 +177,7 @@ export async function forwardMessage(
   // Auto-join the forwarder to public targets they haven't joined, so the
   // forwarded message lands in their sidebar and unread tracking works.
   const publicTargets = uniqueTargets.filter((id) => channelById.get(id)!.type === 'public');
-  if (publicTargets.length > 0) {
-    const existing = await db
-      .select({ channelId: chatChannelMembers.channelId })
-      .from(chatChannelMembers)
-      .where(
-        and(
-          eq(chatChannelMembers.userId, userId),
-          inArray(chatChannelMembers.channelId, publicTargets),
-        ),
-      );
-    const joined = new Set(existing.map((r) => r.channelId));
-    const joinedAt = new Date();
-    for (const channelId of publicTargets) {
-      if (joined.has(channelId)) continue;
-      await db
-        .insert(chatChannelMembers)
-        .values({
-          id: generateId('cmb'),
-          channelId,
-          userId,
-          role: 'member',
-          joinedAt,
-          createdAt: joinedAt,
-        })
-        .onConflictDoNothing();
-      await db
-        .update(chatChannels)
-        .set({ memberCount: sql`${chatChannels.memberCount} + 1`, updatedAt: joinedAt })
-        .where(eq(chatChannels.id, channelId));
-    }
-  }
+  await autoJoinPublicChannels(db, userId, publicTargets);
 
   const forwardedContent = input.comment?.trim() ?? '';
   const forwarded: ForwardedMessage[] = [];

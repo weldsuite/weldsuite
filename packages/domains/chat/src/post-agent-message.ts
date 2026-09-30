@@ -64,12 +64,54 @@ function getPublisher(env: PostAgentMessageEnv): RealtimePublisher | null {
   return env.REALTIME ? new RealtimePublisher(env.REALTIME) : null;
 }
 
+/** Realtime message event plus per-member unread bumps; failures are logged, never thrown. */
+async function publishAgentMessageRealtime(
+  rt: RealtimePublisher,
+  db: Database,
+  ctx: PostAgentChatMessageContext,
+  message: { id: string; content: string; parentId?: string | null },
+): Promise<void> {
+  const { orgId, channelId, agentId, agentName, agentIcon } = ctx;
+  const { chatChannelMembers } = schema;
+
+  try {
+    await rt.chatMessage(channelId, {
+      id: message.id,
+      content: message.content,
+      senderId: agentId,
+      senderName: agentName,
+      senderAvatar: agentIcon ?? undefined,
+      authorType: 'agent',
+      threadId: message.parentId ?? undefined,
+    });
+  } catch (e) {
+    console.error('[app-api/chat] agent message realtime publish failed:', e);
+  }
+
+  try {
+    const members = await db
+      .select({ userId: chatChannelMembers.userId, memberType: chatChannelMembers.memberType })
+      .from(chatChannelMembers)
+      .where(eq(chatChannelMembers.channelId, channelId));
+    for (const member of members) {
+      if (member.memberType === 'agent' || member.userId === agentId) continue;
+      try {
+        await rt.chatUserUnreadUpdate(orgId, member.userId, { channelId, unreadCount: 1 });
+      } catch {
+        /* non-critical */
+      }
+    }
+  } catch (e) {
+    console.error('[app-api/chat] agent unread fan-out failed:', e);
+  }
+}
+
 export async function postAgentChatMessage(
   ctx: PostAgentChatMessageContext,
   input: PostAgentChatMessageInput,
 ): Promise<typeof schema.chatMessages.$inferSelect> {
   const { db, env, orgId, channelId, agentId, agentName, agentIcon, invokerUserId } = ctx;
-  const { chatMessages, chatChannels, chatChannelMembers } = schema;
+  const { chatMessages, chatChannels } = schema;
   const rt = getPublisher(env);
 
   const id = generateId('msg');
@@ -122,36 +164,11 @@ export async function postAgentChatMessage(
   const [message] = await db.select().from(chatMessages).where(eq(chatMessages.id, id)).limit(1);
 
   if (rt) {
-    try {
-      await rt.chatMessage(channelId, {
-        id,
-        content: input.content,
-        senderId: agentId,
-        senderName: agentName,
-        senderAvatar: agentIcon ?? undefined,
-        authorType: 'agent',
-        threadId: input.parentId ?? undefined,
-      });
-    } catch (e) {
-      console.error('[app-api/chat] agent message realtime publish failed:', e);
-    }
-
-    try {
-      const members = await db
-        .select({ userId: chatChannelMembers.userId, memberType: chatChannelMembers.memberType })
-        .from(chatChannelMembers)
-        .where(eq(chatChannelMembers.channelId, channelId));
-      for (const member of members) {
-        if (member.memberType === 'agent' || member.userId === agentId) continue;
-        try {
-          await rt.chatUserUnreadUpdate(orgId, member.userId, { channelId, unreadCount: 1 });
-        } catch {
-          /* non-critical */
-        }
-      }
-    } catch (e) {
-      console.error('[app-api/chat] agent unread fan-out failed:', e);
-    }
+    await publishAgentMessageRealtime(rt, db, ctx, {
+      id,
+      content: input.content,
+      parentId: input.parentId,
+    });
   }
 
   return message;
