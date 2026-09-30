@@ -1,6 +1,6 @@
 /** WeldHR workforce portal — access grants for employees and client contacts. */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Plus, RotateCcw, UserX, UserRound, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -420,6 +420,19 @@ function BulkInviteActiveEmployeesDialog({
     }
   }
 
+  let eligibleNotice: ReactNode;
+  if (isLoading) {
+    eligibleNotice = <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+  } else if (eligible.length === 0) {
+    eligibleNotice = <p className="text-sm text-muted-foreground">{t('weldhr.portal.access.bulkInviteNoneEligible')}</p>;
+  } else {
+    eligibleNotice = (
+      <p className="text-sm text-muted-foreground">
+        {t(pluralKey('weldhr.portal.access.bulkInviteConfirm', eligible.length), { count: eligible.length })}
+      </p>
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && !running && onClose()}>
       <DialogContent>
@@ -429,15 +442,7 @@ function BulkInviteActiveEmployeesDialog({
 
         <div className="space-y-3">
           <ErrorBanner error={failure} />
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : eligible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('weldhr.portal.access.bulkInviteNoneEligible')}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {t(pluralKey('weldhr.portal.access.bulkInviteConfirm', eligible.length), { count: eligible.length })}
-            </p>
-          )}
+          {eligibleNotice}
           {progress && (
             <div className="flex items-center gap-2 text-sm">
               {running && <Loader2 className="h-4 w-4 animate-spin" />}
