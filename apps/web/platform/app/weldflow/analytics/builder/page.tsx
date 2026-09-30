@@ -215,6 +215,33 @@ const metrics: Record<string, Array<{ id: string; name: string; description: str
   ],
 };
 
+interface CenterTotalLabelProps {
+  // Injected by recharts (cloned onto the element) once the label is placed.
+  readonly viewBox?: { cx?: number; cy?: number };
+  readonly value: string;
+  readonly valueClassName: string;
+  readonly caption: string;
+}
+
+function CenterTotalLabel({ viewBox, value, valueClassName, caption }: CenterTotalLabelProps) {
+  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+  return (
+    <text
+      x={viewBox.cx}
+      y={viewBox.cy}
+      textAnchor="middle"
+      dominantBaseline="middle"
+    >
+      <tspan x={viewBox.cx} y={viewBox.cy} className={valueClassName}>
+        {value}
+      </tspan>
+      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
+        {caption}
+      </tspan>
+    </text>
+  );
+}
+
 export default function ProjectsAnalyticsBuilderPage() {
   const { t } = useI18n();
   const router = useRouter();
@@ -523,8 +550,7 @@ export default function ProjectsAnalyticsBuilderPage() {
                             wrapperStyle={{ zIndex: 1000, outline: 'none' }}
                             content={<ChartTooltipContent hideLabel />}
                           />
-                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                          <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
+                          <ChartLegend content={<ChartLegendContent />} />
                           <Bar
                             dataKey="desktop"
                             stackId="a"
@@ -594,34 +620,13 @@ export default function ProjectsAnalyticsBuilderPage() {
                             strokeWidth={5}
                           >
                             <RechartsLabel
-                              content={({ viewBox }) => {
-                                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                  const totalVisitors = mixedBarChartData.reduce((acc, curr) => acc + curr.visitors, 0)
-                                  return (
-                                    <text
-                                      x={viewBox.cx}
-                                      y={viewBox.cy}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                    >
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={viewBox.cy}
-                                        className="fill-foreground text-3xl font-bold"
-                                      >
-                                        {totalVisitors.toLocaleString()}
-                                      </tspan>
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={(viewBox.cy || 0) + 24}
-                                        className="fill-muted-foreground"
-                                      >
-                                        {t.projects.analyticsBuilder.total}
-                                      </tspan>
-                                    </text>
-                                  )
-                                }
-                              }}
+                              content={
+                                <CenterTotalLabel
+                                  value={mixedBarChartData.reduce((acc, curr) => acc + curr.visitors, 0).toLocaleString()}
+                                  valueClassName="fill-foreground text-3xl font-bold"
+                                  caption={t.projects.analyticsBuilder.total}
+                                />
+                              }
                             />
                           </Pie>
                         </RechartsPieChart>
@@ -682,33 +687,13 @@ export default function ProjectsAnalyticsBuilderPage() {
                           <RadialBar dataKey="visitors" background cornerRadius={10} />
                           <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
                             <RechartsLabel
-                              content={({ viewBox }) => {
-                                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                  return (
-                                    <text
-                                      x={viewBox.cx}
-                                      y={viewBox.cy}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                    >
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={viewBox.cy}
-                                        className="fill-foreground text-4xl font-bold"
-                                      >
-                                        {mixedBarChartData[0].visitors.toLocaleString()}
-                                      </tspan>
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={(viewBox.cy || 0) + 24}
-                                        className="fill-muted-foreground"
-                                      >
-                                        {t.projects.analyticsBuilder.total}
-                                      </tspan>
-                                    </text>
-                                  )
-                                }
-                              }}
+                              content={
+                                <CenterTotalLabel
+                                  value={mixedBarChartData[0].visitors.toLocaleString()}
+                                  valueClassName="fill-foreground text-4xl font-bold"
+                                  caption={t.projects.analyticsBuilder.total}
+                                />
+                              }
                             />
                           </PolarRadiusAxis>
                         </RadialBarChart>

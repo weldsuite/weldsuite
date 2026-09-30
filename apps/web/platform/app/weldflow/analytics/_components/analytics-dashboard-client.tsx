@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -103,8 +103,8 @@ function periodLabel(period: ProjectKpiPeriod, td: DashboardLabels): string {
 function KpiSkeletonGrid({ count }: Readonly<{ count: number }>) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {Array.from({ length: count }).map((_, i) => (
-        <Card key={i}>
+      {Array.from({ length: count }, (_, i) => `kpi-skeleton-${i}`).map((id) => (
+        <Card key={id}>
           <CardHeader className="pb-2">
             <Skeleton className="h-4 w-24" />
           </CardHeader>
@@ -294,6 +294,43 @@ export function AnalyticsDashboardClient({
 
   const cards = buildKpiCards(summary, td, hideActiveProjects);
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = <KpiSkeletonGrid count={hideActiveProjects ? 5 : 6} />;
+  } else if (isError || !summary) {
+    body = (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground">
+          {td.noChartData}
+        </CardContent>
+      </Card>
+    );
+  } else {
+    body = (
+      <>
+        <KpiCardGrid cards={cards} />
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {!hideActiveProjects && (
+            <ProjectsByStatusCard td={td} data={statusData} config={statusConfig} />
+          )}
+
+          {!hideActiveProjects && (
+            <ProjectsByHealthCard td={td} data={healthData} config={healthConfig} />
+          )}
+
+          <ThroughputCard
+            td={td}
+            period={period}
+            summary={summary}
+            config={throughputConfig}
+            fullWidth={hideActiveProjects}
+          />
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -315,37 +352,7 @@ export function AnalyticsDashboardClient({
         </Select>
       </div>
 
-      {isLoading ? (
-        <KpiSkeletonGrid count={hideActiveProjects ? 5 : 6} />
-      ) : isError || !summary ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            {td.noChartData}
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <KpiCardGrid cards={cards} />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            {!hideActiveProjects && (
-              <ProjectsByStatusCard td={td} data={statusData} config={statusConfig} />
-            )}
-
-            {!hideActiveProjects && (
-              <ProjectsByHealthCard td={td} data={healthData} config={healthConfig} />
-            )}
-
-            <ThroughputCard
-              td={td}
-              period={period}
-              summary={summary}
-              config={throughputConfig}
-              fullWidth={hideActiveProjects}
-            />
-          </div>
-        </>
-      )}
+      {body}
     </div>
   );
 }
