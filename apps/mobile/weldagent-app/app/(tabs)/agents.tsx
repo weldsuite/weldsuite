@@ -53,6 +53,43 @@ export default function AgentsScreen() {
     );
   }, [agents, search]);
 
+  const renderContent = () => {
+    if (error && !loading) {
+      return <ErrorState message={error} onRetry={() => void load()} />;
+    }
+    if (loading) return <ListSkeleton />;
+    if (filtered.length === 0) {
+      return (
+        <EmptyState
+          title={agents.length === 0 ? t.agents.emptyTitle : t.agents.noResultsTitle}
+          subtitle={agents.length === 0 ? t.agents.emptySub : undefined}
+        />
+      );
+    }
+    return (
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
+        }
+      >
+        {filtered.map((agent) => (
+          <RecordRow
+            key={agent.id}
+            title={agent.name || t.agents.untitled}
+            subtitle={agent.description ?? undefined}
+            meta={format(t.agents.lastRun, {
+              time: formatRelativeTime(agent.lastRunAt, t.relativeTime, format),
+            })}
+            amount={plural(agent.totalRuns, { one: t.agents.runs, other: t.agents.runs })}
+            leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
+            badge={<StatusBadge status={agent.status} />}
+            onPress={() => router.push(`/agent/${agent.id}`)}
+          />
+        ))}
+      </ScrollView>
+    );
+  };
+
   return (
     <Screen
       header={
@@ -80,37 +117,7 @@ export default function AgentsScreen() {
         />
       }
     >
-      {error && !loading ? (
-        <ErrorState message={error} onRetry={() => void load()} />
-      ) : loading ? (
-        <ListSkeleton />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          title={agents.length === 0 ? t.agents.emptyTitle : t.agents.noResultsTitle}
-          subtitle={agents.length === 0 ? t.agents.emptySub : undefined}
-        />
-      ) : (
-        <ScrollView
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
-          }
-        >
-          {filtered.map((agent) => (
-            <RecordRow
-              key={agent.id}
-              title={agent.name || t.agents.untitled}
-              subtitle={agent.description ?? undefined}
-              meta={format(t.agents.lastRun, {
-                time: formatRelativeTime(agent.lastRunAt, t.relativeTime, format),
-              })}
-              amount={plural(agent.totalRuns, { one: t.agents.runs, other: t.agents.runs })}
-              leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
-              badge={<StatusBadge status={agent.status} />}
-              onPress={() => router.push(`/agent/${agent.id}`)}
-            />
-          ))}
-        </ScrollView>
-      )}
+      {renderContent()}
     </Screen>
   );
 }
