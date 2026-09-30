@@ -29,6 +29,16 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Accordion } from '@weldsuite/mobile-ui/components/Accordion';
 
+function Section({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
+      <View style={styles.sectionBody}>{children}</View>
+    </View>
+  );
+}
+
 /**
  * UI Gallery — a Storybook-style preview of every @weldsuite/mobile-ui primitive.
  * Lives in the mobile _template so every scaffolded app ships with a living
@@ -49,13 +59,6 @@ export default function UIGalleryScreen() {
   const [select, setSelect] = useState<string | null>(null);
   const [chipSelected, setChipSelected] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
-      <View style={styles.sectionBody}>{children}</View>
-    </View>
-  );
 
   return (
     <ScrollView

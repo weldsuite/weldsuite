@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react';
+import type { ColorValue } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { LayoutDashboard, Bot, Sparkles, Activity, MoreHorizontal } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +12,26 @@ import {
 } from '@/components/floating-tab-bar';
 import { useI18n } from '@/lib/i18n';
 
+type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
+type TabIconProps = { color: ColorValue; size: number };
+
+const renderTabBar = (props: TabBarProps) => (
+  <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />
+);
+const renderHomeIcon = ({ color, size }: TabIconProps) => (
+  <LayoutDashboard size={size} color={color} strokeWidth={2.2} />
+);
+const renderAgentsIcon = ({ color, size }: TabIconProps) => <Bot size={size} color={color} strokeWidth={2.2} />;
+const renderNewChatIcon = ({ color, size }: TabIconProps) => (
+  <Sparkles size={size} color={color} strokeWidth={2.2} />
+);
+const renderActivityIcon = ({ color, size }: TabIconProps) => (
+  <Activity size={size} color={color} strokeWidth={2.2} />
+);
+const renderMoreIcon = ({ color, size }: TabIconProps) => (
+  <MoreHorizontal size={size} color={color} strokeWidth={2.2} />
+);
+
 export default function TabLayout() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -18,7 +40,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
+      tabBar={renderTabBar}
       screenOptions={{
         ...floatingTabBarScreenOptions,
         headerShown: false,
@@ -32,21 +54,21 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t.tabs.home,
-          tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: renderHomeIcon,
         }}
       />
       <Tabs.Screen
         name="agents"
         options={{
           title: t.tabs.agents,
-          tabBarIcon: ({ color, size }) => <Bot size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: renderAgentsIcon,
         }}
       />
       <Tabs.Screen
         name="new-placeholder"
         options={{
           title: t.tabs.newChat,
-          tabBarIcon: ({ color, size }) => <Sparkles size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: renderNewChatIcon,
         }}
         listeners={{
           tabPress: (e) => {
@@ -59,14 +81,14 @@ export default function TabLayout() {
         name="activity"
         options={{
           title: t.tabs.activity,
-          tabBarIcon: ({ color, size }) => <Activity size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: renderActivityIcon,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: t.tabs.more,
-          tabBarIcon: ({ color, size }) => <MoreHorizontal size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: renderMoreIcon,
         }}
       />
     </Tabs>
