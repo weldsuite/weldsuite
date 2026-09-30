@@ -76,7 +76,18 @@ export interface ComposeReplyParams {
   references: string;
 }
 
-const ADDRESS_PATTERN = /[^\s<>,;"']+@[^\s<>,;"']+/g;
+/** Characters that end an address token: whitespace, angle brackets, separators, quotes. */
+const ADDRESS_SEPARATOR = /[\s<>,;"']+/;
+
+/**
+ * True when the token has an `@` with at least one character on each side.
+ * Checked with string scans instead of a `[^...]+@[^...]+` regex, which
+ * backtracks quadratically on long tokens without an `@`.
+ */
+function isAddressToken(token: string): boolean {
+  const at = token.indexOf('@', 1);
+  return at !== -1 && at < token.length - 1;
+}
 
 /**
  * Bare email addresses from a recipient value: a `{ name, email }` list, a
@@ -91,7 +102,7 @@ export function recipientAddresses(recipients: any): string[] {
   for (const r of list) {
     const raw = typeof r === 'string' ? r : r?.email;
     if (typeof raw !== 'string') continue;
-    out.push(...(raw.match(ADDRESS_PATTERN) ?? []));
+    out.push(...raw.split(ADDRESS_SEPARATOR).filter(isAddressToken));
   }
   return out;
 }

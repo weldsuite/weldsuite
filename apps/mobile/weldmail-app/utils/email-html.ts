@@ -38,8 +38,8 @@ export function sanitizeEmailHtml(html: string): string {
       // Drop inline event-handler attributes: onclick=, onerror=, onload=, …
       .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
       // Neutralise javascript:/vbscript: and data:text/html URIs in href/src/etc.
-      .replace(/((?:href|src|xlink:href|action|formaction)\s*=\s*["']?)\s*(?:javascript|vbscript)\s*:/gi, '$1#')
-      .replace(/((?:href|src|xlink:href)\s*=\s*["']?)\s*data\s*:\s*text\/html/gi, '$1#')
+      .replace(/((?:href|src|xlink:href|action|formaction)\s*=(?:\s*["'])?)\s*(?:javascript|vbscript)\s*:/gi, '$1#')
+      .replace(/((?:href|src|xlink:href)\s*=(?:\s*["'])?)\s*data\s*:\s*text\/html/gi, '$1#')
   );
 }
 
@@ -58,18 +58,32 @@ export function sanitizeEmailHtml(html: string): string {
  */
 export function trimTrailingEmptyHtml(html: string): string {
   if (!html) return '';
-  // A trailing run of: whitespace, &nbsp;, <br>, or a block (p/div/span/o:p)
-  // whose only content is more of the same. Iterating collapses one level of
-  // nesting per pass (e.g. `<div><br></div>` → gone).
-  const trailing =
-    /(?:\s|&nbsp;|&#160;|<br\s*\/?>|<(p|div|span|o:p)\b[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/\1\s*>)+$/i;
+  // Strips trailing units (whitespace, &nbsp;, <br>, or a block (p/div/span/o:p)
+  // whose only content is more of the same) until nothing changes. Iterating
+  // collapses one level of nesting per pass (e.g. `<div><br></div>` → gone).
   let out = html;
   let prev: string;
   do {
     prev = out;
-    out = out.replace(trailing, '');
+    out = stripTrailingEmptyUnit(out);
   } while (out !== prev);
   return out;
+}
+
+const TRAILING_BR = /<br\s*\/?>$/i;
+const TRAILING_EMPTY_BLOCK = /<(p|div|span|o:p)\b[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/\1\s*>$/i;
+
+/**
+ * Remove trailing empty units from the end of `html`. Plain string scans handle
+ * the whitespace/entity cases because a `(?:\s|...)+$` regex backtracks
+ * quadratically on long whitespace runs.
+ */
+function stripTrailingEmptyUnit(html: string): string {
+  const trimmed = html.trimEnd();
+  if (trimmed.length !== html.length) return trimmed;
+  const tail = html.slice(-6).toLowerCase();
+  if (tail === '&nbsp;' || tail === '&#160;') return html.slice(0, -6);
+  return html.replace(TRAILING_BR, '').replace(TRAILING_EMPTY_BLOCK, '');
 }
 
 /** Canvas every HTML email is authored against (Gmail/Outlook reading pane). */
