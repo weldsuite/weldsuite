@@ -79,7 +79,7 @@ interface PersonLike {
 
 // A complete, syntactically valid email address (used to decide whether Enter
 // should commit the typed text verbatim or resolve the highlighted suggestion).
-const isCompleteEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const isCompleteEmail = (value: string) => /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/.test(value.trim());
 
 interface ComposePageProps {
   accountId?: string;
@@ -970,6 +970,7 @@ export default function ComposePage(props: ComposePageProps = {}) {
 
   return (
     <div
+      role="presentation"
       className="h-full flex flex-col bg-white dark:bg-background"
       onKeyDown={(e) => {
         if (!isSendShortcut(e)) return;
@@ -1291,6 +1292,7 @@ function ToRecipientsInput({
 
   return (
     <div
+      role="presentation"
       className="flex-1 flex flex-wrap items-center gap-1 min-w-0 min-h-[26px] cursor-text"
       onClick={() => inputRef.current?.focus()}
     >

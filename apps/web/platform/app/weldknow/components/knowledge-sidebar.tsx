@@ -281,6 +281,99 @@ export function KnowledgeSidebar() {
     [expandedPages, activePageId, favoritePageIds, canCreate, canDelete, togglePage, router, handleCreatePage, handleToggleFavorite, t],
   );
 
+  const renderSpaces = () => {
+    if (spacesLoading || treeLoading) {
+      return (
+        <div className="space-y-2 px-1.5 py-1">
+          <Skeleton className="h-5 w-full" />
+          <Skeleton className="h-5 w-full" />
+          <Skeleton className="h-5 w-2/3" />
+        </div>
+      );
+    }
+    if (spaces.length === 0) {
+      return (
+        <div className="px-2 py-4 text-center">
+          <p className="text-xs text-muted-foreground mb-2">{t.sidebar.noSpacesTitle}</p>
+          {canCreate && (
+            <Button size="sm" variant="outline" onClick={() => setShowCreateSpace(true)}>
+              {t.sidebar.createSpace}
+            </Button>
+          )}
+        </div>
+      );
+    }
+    return spaces.map((space) => {
+      const isExpanded = expandedSpaces.has(space.id) || expandedSpaces.size === 0;
+      const tree = treesBySpace.get(space.id) ?? [];
+      return (
+        <Collapsible key={space.id} open={isExpanded} onOpenChange={() => toggleSpace(space.id)}>
+          <div className="group flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-muted/60">
+            <CollapsibleTrigger asChild>
+              <button type="button" className="flex flex-1 items-center gap-1.5 min-w-0 text-left">
+                <ChevronRight
+                  className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-90')}
+                />
+                <span className="shrink-0">{space.icon || '📁'}</span>
+                <span className="flex-1 min-w-0 truncate text-sm font-medium">{space.name}</span>
+              </button>
+            </CollapsibleTrigger>
+            <div className="flex items-center opacity-0 group-hover:opacity-100">
+              {canCreate && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() => handleCreatePage(space.id, null)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t.sidebar.newPage}</TooltipContent>
+                </Tooltip>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-5 w-5">
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setEditingSpace(space)}>
+                    {t.sidebar.rename}
+                  </DropdownMenuItem>
+                  {canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-red-600 focus:text-red-600"
+                        onClick={() => setDeletingSpace(space)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t.sidebar.delete}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+          <CollapsibleContent>
+            {tree.length === 0 ? (
+              <div className="px-8 py-1.5 text-xs text-muted-foreground">
+                {t.sidebar.noPagesInSpace}
+              </div>
+            ) : (
+              tree.map((node) => renderPageNode(node, space, 1))
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      );
+    });
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-3 py-3 border-b">
@@ -297,17 +390,18 @@ export function KnowledgeSidebar() {
                 {t.sidebar.favorites}
               </div>
               {favorites.map((fav) => (
-                <div
+                <button
                   key={fav.id}
+                  type="button"
                   className={cn(
-                    'flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm cursor-pointer hover:bg-muted/60',
+                    'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm cursor-pointer hover:bg-muted/60',
                     activePageId === fav.pageId && 'bg-muted font-medium',
                   )}
                   onClick={() => router.push(`/weldknow/page/${fav.pageId}`)}
                 >
                   <Star className="h-3.5 w-3.5 shrink-0 fill-yellow-400 text-yellow-400" />
                   <span className="flex-1 min-w-0 truncate">{fav.title || t.sidebar.untitled}</span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -320,92 +414,7 @@ export function KnowledgeSidebar() {
               </span>
             </div>
 
-            {spacesLoading || treeLoading ? (
-              <div className="space-y-2 px-1.5 py-1">
-                <Skeleton className="h-5 w-full" />
-                <Skeleton className="h-5 w-full" />
-                <Skeleton className="h-5 w-2/3" />
-              </div>
-            ) : spaces.length === 0 ? (
-              <div className="px-2 py-4 text-center">
-                <p className="text-xs text-muted-foreground mb-2">{t.sidebar.noSpacesTitle}</p>
-                {canCreate && (
-                  <Button size="sm" variant="outline" onClick={() => setShowCreateSpace(true)}>
-                    {t.sidebar.createSpace}
-                  </Button>
-                )}
-              </div>
-            ) : (
-              spaces.map((space) => {
-                const isExpanded = expandedSpaces.has(space.id) || expandedSpaces.size === 0;
-                const tree = treesBySpace.get(space.id) ?? [];
-                return (
-                  <Collapsible key={space.id} open={isExpanded} onOpenChange={() => toggleSpace(space.id)}>
-                    <div className="group flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-muted/60">
-                      <CollapsibleTrigger asChild>
-                        <button type="button" className="flex flex-1 items-center gap-1.5 min-w-0 text-left">
-                          <ChevronRight
-                            className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-90')}
-                          />
-                          <span className="shrink-0">{space.icon || '📁'}</span>
-                          <span className="flex-1 min-w-0 truncate text-sm font-medium">{space.name}</span>
-                        </button>
-                      </CollapsibleTrigger>
-                      <div className="flex items-center opacity-0 group-hover:opacity-100">
-                        {canCreate && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5"
-                                onClick={() => handleCreatePage(space.id, null)}
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t.sidebar.newPage}</TooltipContent>
-                          </Tooltip>
-                        )}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-5 w-5">
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => setEditingSpace(space)}>
-                              {t.sidebar.rename}
-                            </DropdownMenuItem>
-                            {canDelete && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-red-600 focus:text-red-600"
-                                  onClick={() => setDeletingSpace(space)}
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  {t.sidebar.delete}
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                    <CollapsibleContent>
-                      {tree.length === 0 ? (
-                        <div className="px-8 py-1.5 text-xs text-muted-foreground">
-                          {t.sidebar.noPagesInSpace}
-                        </div>
-                      ) : (
-                        tree.map((node) => renderPageNode(node, space, 1))
-                      )}
-                    </CollapsibleContent>
-                  </Collapsible>
-                );
-              })
-            )}
+            {renderSpaces()}
           </div>
         </div>
       </ScrollArea>
