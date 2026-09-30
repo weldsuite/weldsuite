@@ -115,10 +115,24 @@ function applyTaskFilters(items: Task[], filters: ActiveFilter[]): Task[] {
   return result;
 }
 
+/** Everyone assigned to a task (multi-assignee list, else the single assignee). */
+function getTaskAssignees(task: Task): NonNullable<Task['assignees']> {
+  if (task.assignees && task.assignees.length > 0) return task.assignees;
+  return task.assignee ? [task.assignee] : [];
+}
+
 /** Ids of everyone assigned to a task (multi-assignee list, else the single assignee). */
 function getTaskAssigneeIds(task: Task): string[] {
-  if (task.assignees && task.assignees.length > 0) return task.assignees.map((a) => a.id);
-  return task.assignee ? [task.assignee.id] : [];
+  return getTaskAssignees(task).map((a) => a.id);
+}
+
+/** Opens the task on Enter/Space, but only when the row itself (not a nested control) has focus. */
+function handleRowActivateKey(e: React.KeyboardEvent<HTMLElement>, activate: () => void): void {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    activate();
+  }
 }
 
 /** Compact label for a repeating task's badge (e.g. `2w`, `3d`, `M`). */
@@ -642,14 +656,17 @@ export default function CrmTasksClient() {
     return (
       <div
         key={task.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openTaskPanel(task)}
+        onKeyDown={(e) => handleRowActivateKey(e, () => openTaskPanel(task))}
         className={cn(
           "flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
           task.status === 'done' && "opacity-50"
         )}
       >
         {/* Checkbox */}
-        <div className="w-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="w-4 flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -682,7 +699,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Company */}
-        <div className="w-[140px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[140px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <CompanyPicker
             taskId={task.id}
             linkedCompany={task.linkedCompany}
@@ -695,7 +712,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -719,7 +736,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
@@ -756,7 +773,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -791,14 +808,9 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           {(() => {
-            const resolvedList = (task.assignees && task.assignees.length > 0
-              ? task.assignees
-              : task.assignee
-                ? [task.assignee]
-                : []
-            ).map((a) => {
+            const resolvedList = getTaskAssignees(task).map((a) => {
               const fromDirectory = availableAssignees.find((m) => m.id === a.id);
               return {
                 id: a.id,
@@ -917,7 +929,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
