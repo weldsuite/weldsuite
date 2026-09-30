@@ -176,14 +176,14 @@ function MeetingChatDataProvider({
         attachments:
           ready.length > 0
             ? ready.map((a) => ({
-                id: a.id ?? `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                id: a.id ?? `att_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
                 fileName: a.fileName,
                 fileSize: a.fileSize ?? 0,
                 mimeType: a.mimeType ?? 'application/octet-stream',
                 url: a.url,
               }))
             : undefined,
-        _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
       });
     },
     [meetingId, sendMessageMutate],

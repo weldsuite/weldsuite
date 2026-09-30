@@ -464,7 +464,7 @@ export function MessageInput({
       ...replyFields(replyTo),
       mentions: mentions.length > 0 ? mentions : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
-      _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     clearInput();
   }, [content, channelId, parentId, mentions, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
@@ -476,7 +476,7 @@ export function MessageInput({
       parentId,
       ...replyFields(replyTo),
       attachments: [clipAttachment],
-      _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     setReplyTo(null);
   }, [channelId, parentId, sendMessage, replyTo, setReplyTo]);
