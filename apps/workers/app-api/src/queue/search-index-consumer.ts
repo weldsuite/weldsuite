@@ -74,6 +74,63 @@ export function groupBatch(
   return byWorkspace;
 }
 
+type Embedder = ReturnType<typeof createEmbedder>;
+type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+
+function ackAll(job: PendingIndex): void {
+  for (const m of job.messages) m.ack();
+}
+
+function retryAll(job: PendingIndex): void {
+  for (const m of job.messages) m.retry();
+}
+
+/** Index one coalesced record, acking its messages on success and retrying on failure. */
+async function processJob(db: TenantDb, embedder: Embedder, job: PendingIndex): Promise<void> {
+  try {
+    const result = await indexEntity(db, embedder, job.entityType, job.entityId);
+    if (result.embedded > 0 || result.removed > 0) {
+      console.log(
+        `[search-index-consumer] ${job.entityType}/${job.entityId}: ` +
+          `${result.embedded} embedded, ${result.skipped} unchanged, ${result.removed} removed`,
+      );
+    }
+    ackAll(job);
+  } catch (err) {
+    console.error(
+      `[search-index-consumer] failed ${job.entityType}/${job.entityId}:`,
+      err instanceof Error ? err.message : err,
+    );
+    retryAll(job);
+  }
+}
+
+/** Index every job of one workspace over a single tenant DB connection. */
+async function processWorkspace(
+  env: Env,
+  embedder: Embedder,
+  workspaceId: string,
+  jobs: Map<string, PendingIndex>,
+): Promise<void> {
+  let db: TenantDb;
+  try {
+    db = await getTenantDbForWorkspace(env, workspaceId);
+  } catch (err) {
+    // A workspace that cannot be resolved is usually deleted, not down.
+    // Ack rather than retry so its backlog does not recycle forever.
+    console.error(
+      `[search-index-consumer] cannot resolve workspace ${workspaceId} — dropping ${jobs.size} job(s):`,
+      err instanceof Error ? err.message : err,
+    );
+    for (const job of jobs.values()) ackAll(job);
+    return;
+  }
+
+  for (const job of jobs.values()) {
+    await processJob(db, embedder, job);
+  }
+}
+
 export async function handleSearchIndexBatch(
   batch: MessageBatch<EntityEventMessage>,
   env: Env,
@@ -81,7 +138,7 @@ export async function handleSearchIndexBatch(
   const byWorkspace = groupBatch(batch.messages);
   if (byWorkspace.size === 0) return;
 
-  let embedder: ReturnType<typeof createEmbedder>;
+  let embedder: Embedder;
   try {
     embedder = createEmbedder(env);
   } catch (err) {
@@ -97,37 +154,6 @@ export async function handleSearchIndexBatch(
   }
 
   for (const [workspaceId, jobs] of byWorkspace) {
-    let db: Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
-    try {
-      db = await getTenantDbForWorkspace(env, workspaceId);
-    } catch (err) {
-      // A workspace that cannot be resolved is usually deleted, not down.
-      // Ack rather than retry so its backlog does not recycle forever.
-      console.error(
-        `[search-index-consumer] cannot resolve workspace ${workspaceId} — dropping ${jobs.size} job(s):`,
-        err instanceof Error ? err.message : err,
-      );
-      for (const job of jobs.values()) job.messages.forEach((m) => m.ack());
-      continue;
-    }
-
-    for (const job of jobs.values()) {
-      try {
-        const result = await indexEntity(db, embedder, job.entityType, job.entityId);
-        if (result.embedded > 0 || result.removed > 0) {
-          console.log(
-            `[search-index-consumer] ${job.entityType}/${job.entityId}: ` +
-              `${result.embedded} embedded, ${result.skipped} unchanged, ${result.removed} removed`,
-          );
-        }
-        job.messages.forEach((m) => m.ack());
-      } catch (err) {
-        console.error(
-          `[search-index-consumer] failed ${job.entityType}/${job.entityId}:`,
-          err instanceof Error ? err.message : err,
-        );
-        job.messages.forEach((m) => m.retry());
-      }
-    }
+    await processWorkspace(env, embedder, workspaceId, jobs);
   }
 }
