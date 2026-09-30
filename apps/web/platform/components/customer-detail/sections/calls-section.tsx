@@ -38,6 +38,16 @@ function formatDuration(seconds?: number) {
 }
 
 // Extend Activity with computed fields for EntityList
+function getDirectionPresentation(direction: string, t: (key: string) => string) {
+  if (direction === 'inbound') {
+    return { Icon: PhoneIncoming, color: 'text-green-600', label: t('sweep.weldcrm.callsSection.inbound') };
+  }
+  if (direction === 'missed') {
+    return { Icon: PhoneMissed, color: 'text-red-500', label: t('sweep.weldcrm.callsSection.missed') };
+  }
+  return { Icon: PhoneOutgoing, color: 'text-blue-600', label: t('sweep.weldcrm.callsSection.outbound') };
+}
+
 interface CallItem extends Activity {
   computedDirection: string;
   computedStatus: string;
@@ -171,15 +181,7 @@ export function CallsSection({ customer, activities }: Readonly<CallsSectionProp
   // Row renderer
   const renderCallRow = useCallback((call: CallItem) => {
     const direction = call.computedDirection;
-    const DirectionIcon = direction === 'inbound' ? PhoneIncoming
-      : direction === 'missed' ? PhoneMissed
-      : PhoneOutgoing;
-    const directionColor = direction === 'inbound' ? 'text-green-600'
-      : direction === 'missed' ? 'text-red-500'
-      : 'text-blue-600';
-    const directionLabel = direction === 'inbound' ? t('sweep.weldcrm.callsSection.inbound')
-      : direction === 'missed' ? t('sweep.weldcrm.callsSection.missed')
-      : t('sweep.weldcrm.callsSection.outbound');
+    const { Icon: DirectionIcon, color: directionColor, label: directionLabel } = getDirectionPresentation(direction, t);
     const status = call.computedStatus;
 
     return (

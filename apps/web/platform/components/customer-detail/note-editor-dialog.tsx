@@ -40,7 +40,19 @@ export interface Note {
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  // Linear-time equivalent of html.replace(/<[^>]*>/g, ''): drop every "<" up to the next ">".
+  // An unterminated "<" (no later ">") is kept, as the regex would not match it either.
+  let result = '';
+  let cursor = 0;
+  while (cursor < html.length) {
+    const open = html.indexOf('<', cursor);
+    if (open === -1) break;
+    const close = html.indexOf('>', open + 1);
+    if (close === -1) break;
+    result += html.slice(cursor, open);
+    cursor = close + 1;
+  }
+  return (result + html.slice(cursor)).trim();
 }
 
 // Helper to get note title from content
