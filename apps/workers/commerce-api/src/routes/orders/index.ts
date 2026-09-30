@@ -19,6 +19,7 @@ import { createOrderSchema, updateOrderSchema } from '@weldsuite/core-api-client
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '@weldsuite/worker-kit/db';
 
@@ -132,7 +133,7 @@ app.post('/', requirePermission('orders:create'), zValidator('json', createOrder
   const orderNumber =
     typeof data.orderNumber === 'string' && data.orderNumber.length > 0
       ? data.orderNumber
-      : `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      : `ORD-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
   try {
     await db
       .insert(t)

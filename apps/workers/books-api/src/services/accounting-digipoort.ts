@@ -20,6 +20,8 @@
  * - 'production' — real transmission to production.
  */
 
+import { randomString } from '@weldsuite/worker-kit/random';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -164,7 +166,7 @@ function escapeXml(value: string): string {
  */
 function generateKenmerk(): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 8);
+  const random = randomString(6);
   return `WS-${timestamp}-${random}`;
 }
 

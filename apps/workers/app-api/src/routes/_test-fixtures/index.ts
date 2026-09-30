@@ -2292,7 +2292,7 @@ async function dropNeonTenantDb(
     // Legacy shared project — drop the per-workspace database + role only.
     if (workspace.neonBranchId && workspace.neonDatabaseName) {
       const res = await fetch(
-        `${NEON_API_BASE}/projects/${workspace.neonProjectId}/branches/${workspace.neonBranchId}/databases/${workspace.neonDatabaseName}`,
+        `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}/branches/${encodeURIComponent(workspace.neonBranchId)}/databases/${encodeURIComponent(workspace.neonDatabaseName)}`,
         { method: 'DELETE', headers },
       );
       if (!okOrGone(res.status)) {
@@ -2303,7 +2303,7 @@ async function dropNeonTenantDb(
     }
     if (workspace.neonBranchId && workspace.neonRoleName) {
       const res = await fetch(
-        `${NEON_API_BASE}/projects/${workspace.neonProjectId}/branches/${workspace.neonBranchId}/roles/${workspace.neonRoleName}`,
+        `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}/branches/${encodeURIComponent(workspace.neonBranchId)}/roles/${encodeURIComponent(workspace.neonRoleName)}`,
         { method: 'DELETE', headers },
       );
       if (!okOrGone(res.status)) {
@@ -2317,7 +2317,7 @@ async function dropNeonTenantDb(
 
   // Dedicated project — delete the entire Neon project.
   const res = await fetch(
-    `${NEON_API_BASE}/projects/${workspace.neonProjectId}`,
+    `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}`,
     { method: 'DELETE', headers },
   );
   if (!okOrGone(res.status)) {
@@ -2337,7 +2337,7 @@ async function deleteClerkOrg(
   clerkOrgId: string,
 ): Promise<void> {
   const res = await fetch(
-    `https://api.clerk.com/v1/organizations/${clerkOrgId}`,
+    `https://api.clerk.com/v1/organizations/${encodeURIComponent(clerkOrgId)}`,
     {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${clerkSecretKey}` },

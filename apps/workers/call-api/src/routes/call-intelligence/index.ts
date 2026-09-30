@@ -206,7 +206,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
     let credentialId: string | null = null;
 
     const listResp = await fetch(
-      `https://api.telnyx.com/v2/telephony_credentials?filter[connection_id]=${sipConnectionId}&page[size]=1`,
+      `https://api.telnyx.com/v2/telephony_credentials?filter[connection_id]=${encodeURIComponent(sipConnectionId)}&page[size]=1`,
       { headers: { Authorization: `Bearer ${apiKey}` } },
     );
     if (listResp.ok) {
@@ -230,7 +230,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
     }
 
     const tokenResp = await fetch(
-      `https://api.telnyx.com/v2/telephony_credentials/${credentialId}/token`,
+      `https://api.telnyx.com/v2/telephony_credentials/${encodeURIComponent(credentialId)}/token`,
       { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` } },
     );
     if (!tokenResp.ok) {
