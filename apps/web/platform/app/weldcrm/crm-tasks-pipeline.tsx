@@ -164,6 +164,14 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || !onClick || isDragging) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   const cardContent = (
     <>
       {/* Task number */}
@@ -250,9 +258,12 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",

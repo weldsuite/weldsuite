@@ -1163,7 +1163,7 @@ interface TimeGridViewProps {
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
   selectedEndDate?: Date;
@@ -2619,6 +2619,7 @@ function MonthView({
               return (
                 <div
                   key={key}
+                  role="presentation"
                   data-calendar-cell
                   data-date={key}
                   className={cn(
@@ -3472,6 +3473,7 @@ function TimeSlotEvent({
 
   return (
     <div
+      role="presentation"
       className={cn(
         "absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden hover:brightness-95 transition-[filter,opacity] z-[2] border border-white/10 text-left items-start justify-start select-none group/event",
         dimmed && "opacity-40 pointer-events-none",
@@ -4648,6 +4650,12 @@ function GuestSearchInput({
     return items.slice(0, 8);
   }, [contacts, members, selectedIds, value]);
 
+  const pickGuest = (e: React.MouseEvent, item: GuestResult) => {
+    e.preventDefault();
+    onSelect({ id: item.id, name: item.name, email: item.email });
+    setOpen(false);
+  };
+
   const showDropdown = open && value.length >= 1 && results.length > 0;
   const hasMembers = results.some((r) => r.type === 'member');
   const hasContacts = results.some((r) => r.type === 'contact');
@@ -4678,11 +4686,7 @@ function GuestSearchInput({
               variant="ghost"
               key={item.id}
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect({ id: item.id, name: item.name, email: item.email });
-                setOpen(false);
-              }}
+              onMouseDown={(e) => pickGuest(e, item)}
             >
               <div className="h-[24px] w-[24px] rounded-[5.5px] bg-blue-500/10 flex items-center justify-center shrink-0">
                 <span className="text-xs font-medium text-blue-600">{item.initial}</span>
@@ -4704,11 +4708,7 @@ function GuestSearchInput({
               variant="ghost"
               key={item.id}
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect({ id: item.id, name: item.name, email: item.email });
-                setOpen(false);
-              }}
+              onMouseDown={(e) => pickGuest(e, item)}
             >
               <div className="h-[24px] w-[24px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0">
                 <span className="text-xs font-medium text-primary">{item.initial}</span>
@@ -4787,6 +4787,26 @@ function DatePickerField({
 // Inline Select Row (Popover-based select for quick-create card)
 // ============================================================================
 
+/**
+ * Shared state for the inline-row dropdowns: open flag, the row element ref and the
+ * fixed position just below the row. `toggle` re-measures the row on every open/close.
+ */
+function useRowDropdown() {
+  const [open, setOpen] = useState(false);
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const toggle = () => {
+    if (rowRef.current) {
+      const rect = rowRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
+    }
+    setOpen(!open);
+  };
+
+  return { open, setOpen, rowRef, pos, toggle };
+}
+
 function InlineSelectRow({
   icon,
   value,
@@ -4800,17 +4820,7 @@ function InlineSelectRow({
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-
-  const handleClick = () => {
-    if (rowRef.current) {
-      const rect = rowRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
-    }
-    setOpen(!open);
-  };
+  const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
 
   return (
     <>
@@ -4960,18 +4970,8 @@ function CalendarSelectRow({
   onChange: (id: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
-  const [open, setOpen] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
   const selected = calendars.find((c) => c.id === selectedId) || calendars[0];
-
-  const handleClick = () => {
-    if (rowRef.current) {
-      const rect = rowRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
-    }
-    setOpen(!open);
-  };
 
   return (
     // Single wrapper so the open dropdown's fixed overlay/popover don't become
@@ -5296,7 +5296,7 @@ function ScheduleView({
 }: {
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
   const items: ScheduleItem[] = useMemo(() => {
@@ -5374,8 +5374,11 @@ function ScheduleView({
     return (
       <div
         key={item.id}
-        className="flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        role="button"
+        tabIndex={0}
+        className="flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={(e) => onSelectEvent(item.event, e)}
+        onKeyDown={activateOnKey(() => onSelectEvent(item.event))}
       >
         {/* Color dot */}
         <div className="w-[16px] md:w-[24px] shrink-0 flex justify-center">
