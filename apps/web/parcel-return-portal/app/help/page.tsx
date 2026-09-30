@@ -274,7 +274,7 @@ export default function HelpPage() {
                   {filteredQuestions.length > 0 ? (
                     <Accordion type="single" collapsible className="w-full">
                       {filteredQuestions.map((item, index) => (
-                        <AccordionItem key={index} value={`item-${index}`}>
+                        <AccordionItem key={item.question} value={`item-${index}`}>
                           <AccordionTrigger className="text-left">
                             {item.question}
                           </AccordionTrigger>
@@ -298,8 +298,8 @@ export default function HelpPage() {
             <TabsContent value="contact" className="space-y-6">
               {/* Contact Options */}
               <div className="grid md:grid-cols-3 gap-4 mb-6">
-                {CONTACT_OPTIONS.map((option, index) => (
-                  <Card key={index} className="hover:shadow-md transition-shadow">
+                {CONTACT_OPTIONS.map((option) => (
+                  <Card key={option.title} className="hover:shadow-md transition-shadow">
                     <CardContent className="pt-6 text-center">
                       <option.icon className="h-10 w-10 mx-auto mb-3 text-blue-600" />
                       <h3 className="font-semibold mb-1">{option.title}</h3>
