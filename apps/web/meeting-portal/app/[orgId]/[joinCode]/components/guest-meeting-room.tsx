@@ -6,7 +6,7 @@
  */
 
 import type RealtimeKitClient from '@cloudflare/realtimekit';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
 
 import {
   MeetingRoomView,
@@ -41,6 +41,40 @@ type RtkClientWithAi = RealtimeKitClient & {
     off?: (event: 'transcript', cb: (t: RtkTranscript) => void) => void;
   };
 };
+
+type GuestChatSlotArgs = Parameters<NonNullable<ComponentProps<typeof MeetingRoomView>['chatPanelSlot']>>[0];
+
+interface GuestChatSlotOptions {
+  meetingId: string;
+  orgId: string;
+  guestName: string;
+  guestEmail: string;
+  participants: ComponentProps<typeof GuestChatPanel>['participants'];
+}
+
+/**
+ * Builds the `chatPanelSlot` render prop. Lives at module level (not inside
+ * the room component) so the slot renderer is not a component defined during
+ * another component's render.
+ */
+function createGuestChatSlot({ meetingId, orgId, guestName, guestEmail, participants }: GuestChatSlotOptions) {
+  return function renderGuestChat({ isOpen, onClose, onOpen, notificationHost }: GuestChatSlotArgs) {
+    return (
+      <GuestChatPanel
+        meetingId={meetingId}
+        orgId={orgId}
+        guestName={guestName}
+        guestEmail={guestEmail}
+        guestUserId={`guest:${guestEmail.toLowerCase()}`}
+        isOpen={isOpen}
+        onClose={onClose}
+        onOpen={onOpen}
+        notificationHost={notificationHost}
+        participants={participants}
+      />
+    );
+  };
+}
 
 interface GuestMeetingRoomProps {
   rtkClient: RealtimeKitClient | null;
@@ -427,20 +461,17 @@ export function GuestMeetingRoom({
             selfIsHost={false}
           />
         }
-        chatPanelSlot={meetingId && guestEmail ? ({ isOpen, onClose, onOpen, notificationHost }) => (
-          <GuestChatPanel
-            meetingId={meetingId}
-            orgId={orgId}
-            guestName={guestName}
-            guestEmail={guestEmail}
-            guestUserId={`guest:${guestEmail.toLowerCase()}`}
-            isOpen={isOpen}
-            onClose={onClose}
-            onOpen={onOpen}
-            notificationHost={notificationHost}
-            participants={mentionParticipants}
-          />
-        ) : undefined}
+        chatPanelSlot={
+          meetingId && guestEmail
+            ? createGuestChatSlot({
+                meetingId,
+                orgId,
+                guestName,
+                guestEmail,
+                participants: mentionParticipants,
+              })
+            : undefined
+        }
       />
       {pipNode}
     </div>

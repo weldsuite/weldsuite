@@ -6,6 +6,16 @@ import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-ses
 import { guestLeaveInputSchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
 
+/** A meeting is past once its end (or, without one, start + 1h) has elapsed; undated meetings count as past. */
+function isMeetingPast(
+  meeting: { scheduledEnd: Date | string | null; scheduledStart: Date | string | null } | undefined,
+  now: Date,
+): boolean {
+  if (meeting?.scheduledEnd) return new Date(meeting.scheduledEnd).getTime() < now.getTime();
+  if (meeting?.scheduledStart) return new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000;
+  return true;
+}
+
 /**
  * POST /api/meeting/leave
  * Guest leaves a meeting session.
@@ -75,11 +85,7 @@ export async function POST(request: NextRequest) {
         .where(eq(meetings.id, meetingId))
         .limit(1);
 
-      const isPast = meeting?.scheduledEnd
-        ? new Date(meeting.scheduledEnd).getTime() < now.getTime()
-        : meeting?.scheduledStart
-          ? new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000
-          : true;
+      const isPast = isMeetingPast(meeting, now);
 
       await db.update(meetings).set({
         activeSessionId: null,

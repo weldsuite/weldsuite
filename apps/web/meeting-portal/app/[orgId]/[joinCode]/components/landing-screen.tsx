@@ -386,20 +386,41 @@ export function LandingScreen({
   );
 }
 
+type AttendeePerson = { name: string; role: string; avatar?: string };
+
+function getAttendeePeople(meetingInfo: MeetingInfo | null): AttendeePerson[] {
+  if (meetingInfo?.attendees?.length) return meetingInfo.attendees;
+  if (meetingInfo?.organizerName) return [{ name: meetingInfo.organizerName, role: 'organizer' }];
+  return [];
+}
+
+function getAttendeesLabel(people: AttendeePerson[]): string {
+  if (people.length === 1) return people[0]!.name;
+  if (people.length <= 3) return people.map(a => a.name).join(', ');
+  return `${people.slice(0, 2).map(a => a.name).join(', ')} and ${people.length - 2} more`;
+}
+
+/** Stable keys for the avatar stack: name + role, suffixed when the pair repeats. */
+function keyAttendees(people: AttendeePerson[]): Array<{ key: string; person: AttendeePerson }> {
+  const seen = new Map<string, number>();
+  return people.map((person) => {
+    const base = `${person.role}:${person.name}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { key: `${base}:${count}`, person };
+  });
+}
+
 function AttendeesRow({ meetingInfo }: Readonly<{ meetingInfo: MeetingInfo | null }>) {
-  const people = meetingInfo?.attendees?.length
-    ? meetingInfo.attendees
-    : meetingInfo?.organizerName
-      ? [{ name: meetingInfo.organizerName, role: 'organizer' }]
-      : [];
+  const people = getAttendeePeople(meetingInfo);
   if (people.length === 0) return null;
 
   return (
     <div className="flex items-center gap-2 mt-3">
       <div className="flex -space-x-1.5">
-        {people.slice(0, 3).map((a, i) => (
+        {keyAttendees(people.slice(0, 3)).map(({ key, person: a }) => (
           <div
-            key={i}
+            key={key}
             className="w-[22px] h-[22px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background text-[10px] font-medium text-gray-600 dark:text-muted-foreground overflow-hidden"
           >
             {'avatar' in a && a.avatar ? (
@@ -417,12 +438,7 @@ function AttendeesRow({ meetingInfo }: Readonly<{ meetingInfo: MeetingInfo | nul
         )}
       </div>
       <span className="text-[13px] text-muted-foreground">
-        {people.length === 1
-          ? people[0]!.name
-          : people.length <= 3
-            ? people.map(a => a.name).join(', ')
-            : `${people.slice(0, 2).map(a => a.name).join(', ')} and ${people.length - 2} more`
-        }
+        {getAttendeesLabel(people)}
       </span>
     </div>
   );

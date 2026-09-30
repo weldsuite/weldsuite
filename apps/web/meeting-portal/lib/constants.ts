@@ -17,9 +17,10 @@ export const POLLING_INTERVAL_MS = {
 /**
  * Same shape used by the join form before we adopted RHF + zodResolver.
  * Kept here so the disabled-state guard in the landing form stays consistent
- * with the schema validation done inside zodResolver.
+ * with the schema validation done inside zodResolver. Domain labels exclude
+ * `.` so the pattern cannot backtrack super-linearly.
  */
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 // ── Person theme palette ──────────────────────────────────────────────────
 
