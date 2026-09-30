@@ -103,13 +103,15 @@ export function DashboardClient() {
           <CardTitle>{t.social.dashboard.recentActivity}</CardTitle>
         </CardHeader>
         <CardContent>
-          {postsLoading ? (
+          {postsLoading && (
             <div className="flex items-center justify-center h-24">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : posts.length === 0 ? (
+          )}
+          {!postsLoading && posts.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-6">{t.social.posts.noPosts}</p>
-          ) : (
+          )}
+          {!postsLoading && posts.length > 0 && (
             <div className="space-y-3">
               {posts.map((post: SocialPost) => (
                 <div key={post.id} className="flex items-start justify-between gap-3 py-2 border-b last:border-0">
