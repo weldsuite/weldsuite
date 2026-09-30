@@ -441,6 +441,57 @@ const getDefaultValueForFieldType = (type: FieldType) => {
   }
 };
 
+type RunningTimers = Record<string, { startTime: number; elapsed: number }>;
+
+const formatHms = (hours: number, minutes: number, seconds: number) =>
+  `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+// Remaining time of a countdown timer as HH:MM:SS, or null once it has run out.
+const formatCountdown = (timer: { startTime: number; elapsed: number }, now: number): string | null => {
+  const remaining = timer.elapsed - (now - timer.startTime);
+  if (remaining <= 0) return null;
+  const totalSeconds = Math.ceil(remaining / 1000);
+  return formatHms(Math.floor(totalSeconds / 3600), Math.floor((totalSeconds % 3600) / 60), totalSeconds % 60);
+};
+
+// Elapsed time of a count-up (time tracking) timer as HH:MM:SS.
+const formatElapsed = (timer: { startTime: number; elapsed: number }, now: number): string => {
+  const elapsed = timer.elapsed + (now - timer.startTime);
+  return formatHms(Math.floor(elapsed / 3600000), Math.floor((elapsed % 3600000) / 60000), Math.floor((elapsed % 60000) / 1000));
+};
+
+// Recompute the display value of every running timer. Countdown timers that
+// reached zero are reported in `finishedKeys` (and shown as 00:00:00).
+function advanceTimerRows(prevRows: Row[], timers: RunningTimers, fields: Field[]) {
+  const rows = [...prevRows];
+  const finishedKeys: string[] = [];
+  let hasChanges = false;
+  const now = Date.now();
+
+  for (const [timerKey, timer] of Object.entries(timers)) {
+    const [rowId, fieldId] = timerKey.split('-');
+    const rowIndex = rows.findIndex(r => r.id === rowId);
+    if (rowIndex === -1) continue;
+
+    const isCountdown = fields.find(f => f.id === fieldId)?.type === 'timer';
+    const countdown = isCountdown ? formatCountdown(timer, now) : null;
+    const finished = isCountdown && countdown === null;
+    const timeString = finished ? '00:00:00' : (countdown ?? formatElapsed(timer, now));
+    if (finished) finishedKeys.push(timerKey);
+    else if (rows[rowIndex].data[fieldId] === timeString) continue;
+    hasChanges = true;
+    rows[rowIndex] = { ...rows[rowIndex], data: { ...rows[rowIndex].data, [fieldId]: timeString } };
+  }
+
+  return { rows, finishedKeys, hasChanges };
+}
+
+const omitTimers = (timers: RunningTimers, keys: string[]): RunningTimers => {
+  const next = { ...timers };
+  for (const key of keys) delete next[key];
+  return next;
+};
+
 // Cell wrapper component that enforces 40px height
 const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: React.MouseEventHandler<HTMLDivElement>; style?: React.CSSProperties }> = ({ children, onClick, style }) => (
   <div
@@ -572,67 +623,16 @@ export default function TablePage() {
 
     const interval = setInterval(() => {
       setRows(prevRows => {
-        const updatedRows = [...prevRows];
-        let hasChanges = false;
+        const { rows: nextRows, finishedKeys, hasChanges } = advanceTimerRows(prevRows, runningTimers, fields);
 
-        Object.entries(runningTimers).forEach(([timerKey, timer]) => {
-          const [rowId, fieldId] = timerKey.split('-');
-          const rowIndex = updatedRows.findIndex(r => r.id === rowId);
-
-          if (rowIndex !== -1) {
-            const field = fields.find(f => f.id === fieldId);
-
-            if (field?.type === 'timer') {
-              // Countdown timer
-              const remaining = timer.elapsed - (Date.now() - timer.startTime);
-              if (remaining <= 0) {
-                // Timer finished
-                updatedRows[rowIndex] = {
-                  ...updatedRows[rowIndex],
-                  data: { ...updatedRows[rowIndex].data, [fieldId]: "00:00:00" }
-                };
-                setRunningTimers(prev => {
-                  const newTimers = { ...prev };
-                  delete newTimers[timerKey];
-                  return newTimers;
-                });
-                toast.success(st('sweep.weldflow.tablePage.timerFinished'));
-                hasChanges = true;
-              } else {
-                const totalSeconds = Math.ceil(remaining / 1000);
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const seconds = totalSeconds % 60;
-                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-                if (updatedRows[rowIndex].data[fieldId] !== timeString) {
-                  updatedRows[rowIndex] = {
-                    ...updatedRows[rowIndex],
-                    data: { ...updatedRows[rowIndex].data, [fieldId]: timeString }
-                  };
-                  hasChanges = true;
-                }
-              }
-            } else {
-              // Time tracking (count up)
-              const elapsed = timer.elapsed + (Date.now() - timer.startTime);
-              const hours = Math.floor(elapsed / 3600000);
-              const minutes = Math.floor((elapsed % 3600000) / 60000);
-              const seconds = Math.floor((elapsed % 60000) / 1000);
-              const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-              if (updatedRows[rowIndex].data[fieldId] !== timeString) {
-                updatedRows[rowIndex] = {
-                  ...updatedRows[rowIndex],
-                  data: { ...updatedRows[rowIndex].data, [fieldId]: timeString }
-                };
-                hasChanges = true;
-              }
-            }
+        if (finishedKeys.length > 0) {
+          setRunningTimers(prev => omitTimers(prev, finishedKeys));
+          for (let i = 0; i < finishedKeys.length; i++) {
+            toast.success(st('sweep.weldflow.tablePage.timerFinished'));
           }
-        });
+        }
 
-        return hasChanges ? updatedRows : prevRows;
+        return hasChanges ? nextRows : prevRows;
       });
     }, 1000);
 

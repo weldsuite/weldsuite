@@ -17,6 +17,119 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+type PurchaseTexts = ReturnType<typeof useI18n>['t']['host']['purchaseSuccess'];
+type PurchaseExtraTexts = ReturnType<typeof useI18n>['t']['host']['purchaseSuccessExtra'];
+
+type HeaderState = 'completed' | 'failed' | 'timedOut' | 'processing';
+
+function getHeaderState(allCompleted: boolean, allFailed: boolean, timedOut: boolean): HeaderState {
+  if (allCompleted) return 'completed';
+  if (allFailed) return 'failed';
+  if (timedOut) return 'timedOut';
+  return 'processing';
+}
+
+const HEADER_CONTAINER_CLASS: Record<HeaderState, string> = {
+  completed: 'w-14 h-14 rounded-xl bg-green-500/10',
+  failed: 'w-14 h-14 rounded-xl bg-red-500/10',
+  timedOut: 'w-14 h-14 rounded-xl bg-amber-500/10',
+  processing: 'w-20 h-20 rounded-full bg-blue-500/10',
+};
+
+const HEADER_ICON: Record<HeaderState, React.ReactNode> = {
+  completed: <CheckCircle2 className="h-7 w-7 text-green-600" />,
+  failed: <XCircle className="h-7 w-7 text-red-600" />,
+  timedOut: <AlertCircle className="h-7 w-7 text-amber-700" />,
+  processing: <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />,
+};
+
+function getHeaderTitle(state: HeaderState, ts: PurchaseTexts): string {
+  switch (state) {
+    case 'completed':
+      return ts.registrationComplete;
+    case 'failed':
+      return ts.registrationFailed;
+    case 'timedOut':
+      return ts.registrationTimedOut;
+    default:
+      return ts.processingDomains;
+  }
+}
+
+function getHeaderSubtitle(
+  state: HeaderState,
+  totalDomains: number,
+  ts: PurchaseTexts,
+  tse: PurchaseExtraTexts,
+): React.ReactNode {
+  switch (state) {
+    case 'completed':
+      return totalDomains > 1
+        ? tse.domainsReadyPlural.replace('{count}', String(totalDomains))
+        : tse.domainReadySingular;
+    case 'failed':
+      return <>{tse.contactSupportPrefix}<a href="https://www.weldsuite.org/support" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">{ts.contactSupport}</a></>;
+    case 'timedOut':
+      return ts.pollingTimedOut;
+    default:
+      return ts.processingCount
+        .replace('{count}', String(totalDomains))
+        .replace('{plural}', totalDomains > 1 ? 's' : '');
+  }
+}
+
+const ROW_TONE: Record<string, { box: string; icon: string }> = {
+  completed: { box: 'bg-green-500/10', icon: 'text-green-600' },
+  failed: { box: 'bg-red-500/10', icon: 'text-red-600' },
+  timeout: { box: 'bg-amber-500/10', icon: 'text-amber-700' },
+};
+const ROW_TONE_DEFAULT = { box: 'bg-muted', icon: 'text-muted-foreground' };
+
+function DomainRow({
+  status,
+  ts,
+  tse,
+  statusBadge,
+  onOpenDomain,
+}: {
+  status: DomainPurchaseStatusResponse | undefined;
+  ts: PurchaseTexts;
+  tse: PurchaseExtraTexts;
+  statusBadge: React.ReactNode;
+  onOpenDomain: (domainId: string) => void;
+}) {
+  const tone = (status && ROW_TONE[status.status]) || ROW_TONE_DEFAULT;
+  const openableDomainId = status?.status === 'completed' ? status.domainId : undefined;
+  return (
+    <div className="p-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tone.box}`}>
+          <Globe className={`h-5 w-5 ${tone.icon}`} />
+        </div>
+        <div>
+          <p className="font-medium">{status?.domainName || ts.loadingStatus}</p>
+          {status?.totalPrice && (
+            <p className="text-sm text-muted-foreground">${tse.pricePerYear.replace('{price}', status.totalPrice.toFixed(2))}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {statusBadge}
+        {openableDomainId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onOpenDomain(openableDomainId)}
+            className="rounded-lg"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DomainPurchaseSuccessPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -88,6 +201,7 @@ export default function DomainPurchaseSuccessPage() {
   const allCompleted = completedCount === totalDomains;
   const allFailed = failedCount === totalDomains;
   const timedOut = !isPolling && timedOutCount > 0 && !allCompleted && !allFailed;
+  const headerState = getHeaderState(allCompleted, allFailed, timedOut);
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -145,47 +259,15 @@ export default function DomainPurchaseSuccessPage() {
       <div className="max-w-2xl mx-auto space-y-8">
         {/* Header */}
         <div className="text-center space-y-4">
-          <div className={`flex items-center justify-center mx-auto ${
-            allCompleted
-              ? 'w-14 h-14 rounded-xl bg-green-500/10'
-              : allFailed
-              ? 'w-14 h-14 rounded-xl bg-red-500/10'
-              : timedOut
-              ? 'w-14 h-14 rounded-xl bg-amber-500/10'
-              : 'w-20 h-20 rounded-full bg-blue-500/10'
-          }`}>
-            {allCompleted ? (
-              <CheckCircle2 className="h-7 w-7 text-green-600" />
-            ) : allFailed ? (
-              <XCircle className="h-7 w-7 text-red-600" />
-            ) : timedOut ? (
-              <AlertCircle className="h-7 w-7 text-amber-700" />
-            ) : (
-              <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />
-            )}
+          <div className={`flex items-center justify-center mx-auto ${HEADER_CONTAINER_CLASS[headerState]}`}>
+            {HEADER_ICON[headerState]}
           </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {allCompleted
-                ? ts.registrationComplete
-                : allFailed
-                ? ts.registrationFailed
-                : timedOut
-                ? ts.registrationTimedOut
-                : ts.processingDomains}
+              {getHeaderTitle(headerState, ts)}
             </h1>
             <p className="text-muted-foreground mt-1">
-              {allCompleted
-                ? (totalDomains > 1
-                    ? tse.domainsReadyPlural.replace('{count}', String(totalDomains))
-                    : tse.domainReadySingular)
-                : allFailed
-                ? <>{tse.contactSupportPrefix}<a href="https://www.weldsuite.org/support" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">{ts.contactSupport}</a></>
-                : timedOut
-                ? ts.pollingTimedOut
-                : ts.processingCount
-                    .replace('{count}', String(totalDomains))
-                    .replace('{plural}', totalDomains > 1 ? 's' : '')}
+              {getHeaderSubtitle(headerState, totalDomains, ts, tse)}
             </p>
           </div>
         </div>
@@ -213,48 +295,14 @@ export default function DomainPurchaseSuccessPage() {
             {registrationIds.map((regId) => {
               const status = statuses.get(regId);
               return (
-                <div key={regId} className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      status?.status === 'completed'
-                        ? 'bg-green-500/10'
-                        : status?.status === 'failed'
-                        ? 'bg-red-500/10'
-                        : status?.status === 'timeout'
-                        ? 'bg-amber-500/10'
-                        : 'bg-muted'
-                    }`}>
-                      <Globe className={`h-5 w-5 ${
-                        status?.status === 'completed'
-                          ? 'text-green-600'
-                          : status?.status === 'failed'
-                          ? 'text-red-600'
-                          : status?.status === 'timeout'
-                          ? 'text-amber-700'
-                          : 'text-muted-foreground'
-                      }`} />
-                    </div>
-                    <div>
-                      <p className="font-medium">{status?.domainName || ts.loadingStatus}</p>
-                      {status?.totalPrice && (
-                        <p className="text-sm text-muted-foreground">${tse.pricePerYear.replace('{price}', status.totalPrice.toFixed(2))}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {getStatusBadge(status?.status)}
-                    {status?.status === 'completed' && status?.domainId && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => router.push(`/weldhost/domains/${status.domainId}`)}
-                        className="rounded-lg"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                <DomainRow
+                  key={regId}
+                  status={status}
+                  ts={ts}
+                  tse={tse}
+                  statusBadge={getStatusBadge(status?.status)}
+                  onOpenDomain={(domainId) => router.push(`/weldhost/domains/${domainId}`)}
+                />
               );
             })}
           </div>
