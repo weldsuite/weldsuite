@@ -336,10 +336,12 @@ export function DomainDetailContent({
     // record). Users can never lock or unlock from the UI — they only see
     // the protection and the reason.
     const primarySystemLock = locks.find((l) => l.source !== 'user');
-    const lockBadgeLabel =
-      primarySystemLock?.source === 'weldmail' ? td.usedByEmail :
-      primarySystemLock ? td.usedBy.replace('{source}', primarySystemLock.source) :
-      td.filterLocked;
+    let lockBadgeLabel = td.filterLocked;
+    if (primarySystemLock?.source === 'weldmail') {
+      lockBadgeLabel = td.usedByEmail;
+    } else if (primarySystemLock) {
+      lockBadgeLabel = td.usedBy.replace('{source}', primarySystemLock.source);
+    }
 
     return (
       <div
@@ -774,12 +776,24 @@ function daysUntil(value: string | undefined | null): number | null {
   return Math.floor((new Date(value).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
-function StatusPill({ kind, children }: Readonly<{ kind: 'ok' | 'warn' | 'err' | 'muted'; children: React.ReactNode }>) {
-  const cls =
-    kind === 'ok' ? 'bg-green-100 text-green-700 dark:bg-emerald-950 dark:text-emerald-300' :
-    kind === 'warn' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' :
-    kind === 'err' ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
-    'bg-muted text-foreground';
+type StatusKind = 'ok' | 'warn' | 'err' | 'muted';
+
+const STATUS_PILL_CLASS: Record<StatusKind, string> = {
+  ok: 'bg-green-100 text-green-700 dark:bg-emerald-950 dark:text-emerald-300',
+  warn: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  err: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  muted: 'bg-muted text-foreground',
+};
+
+function domainStatusKind(status: string): StatusKind {
+  if (status === 'active') return 'ok';
+  if (status === 'pending') return 'warn';
+  if (status === 'expired' || status === 'suspended') return 'err';
+  return 'muted';
+}
+
+function StatusPill({ kind, children }: Readonly<{ kind: StatusKind; children: React.ReactNode }>) {
+  const cls = STATUS_PILL_CLASS[kind];
   return <span className={cn('text-xs px-2 py-0.5 rounded-full', cls)}>{children}</span>;
 }
 
@@ -806,16 +820,23 @@ function DomainSidebarDetails({
 
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
   const days = daysUntil(domain.expiresAt);
-  const statusKind: 'ok' | 'warn' | 'err' | 'muted' =
-    domain.status === 'active' ? 'ok' :
-    domain.status === 'pending' ? 'warn' :
-    domain.status === 'expired' || domain.status === 'suspended' ? 'err' :
-    'muted';
+  const statusKind = domainStatusKind(domain.status);
 
   const nameservers: string[] =
     (Array.isArray(domain.nameservers) && domain.nameservers.length > 0
       ? domain.nameservers
       : (dnsZone?.externalNameservers as string[] | undefined)) || [];
+
+  let expiryBadge: React.ReactNode = null;
+  if (days !== null) {
+    if (days < 0) {
+      expiryBadge = <StatusPill kind="err">{td.expiredDaysAgo.replace('{days}', String(Math.abs(days)))}</StatusPill>;
+    } else if (days < 30) {
+      expiryBadge = <StatusPill kind="warn">{td.daysLeft.replace('{days}', String(days))}</StatusPill>;
+    } else {
+      expiryBadge = <span className="text-sm text-foreground">{td.daysRemaining.replace('{days}', String(days))}</span>;
+    }
+  }
 
   const contactRow = (label: string, contact: DomainContact | null | undefined) => {
     if (!contact?.email) return null;
@@ -862,13 +883,7 @@ function DomainSidebarDetails({
         {days !== null && (
           <div className="flex items-center gap-3">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            {days < 0 ? (
-              <StatusPill kind="err">{td.expiredDaysAgo.replace('{days}', String(Math.abs(days)))}</StatusPill>
-            ) : days < 30 ? (
-              <StatusPill kind="warn">{td.daysLeft.replace('{days}', String(days))}</StatusPill>
-            ) : (
-              <span className="text-sm text-foreground">{td.daysRemaining.replace('{days}', String(days))}</span>
-            )}
+            {expiryBadge}
           </div>
         )}
         {dnsZone?.status && (

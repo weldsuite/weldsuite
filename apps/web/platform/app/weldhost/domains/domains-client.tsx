@@ -202,7 +202,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
