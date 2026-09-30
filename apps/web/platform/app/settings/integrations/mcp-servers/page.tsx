@@ -100,6 +100,12 @@ const mcpIcon = (
   />
 );
 
+function getConnectionStatusStyle(status: string) {
+  if (status === 'active') return { color: 'text-emerald-600 dark:text-emerald-400', Icon: CheckCircle2 };
+  if (status === 'error') return { color: 'text-red-500', Icon: XCircle };
+  return { color: 'text-muted-foreground', Icon: AlertCircle };
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -273,6 +279,14 @@ export default function McpServersPage() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const connected = connections.length > 0;
 
+  let tokenLabel = tm.dialog.headerValueLabel;
+  if (form.authType === 'bearer') tokenLabel = tm.dialog.tokenLabel;
+  else if (form.authType === 'api_key') tokenLabel = tm.dialog.apiKeyLabel;
+
+  let submitLabel = tm.dialog.add;
+  if (isSaving) submitLabel = tm.dialog.saving;
+  else if (editingId) submitLabel = tm.dialog.save;
+
   return (
     <>
       <IntegrationDetailLayout
@@ -322,10 +336,7 @@ export default function McpServersPage() {
           <div className="space-y-3">
             {connections.map((conn) => {
               const tools = conn.settings?.discoveredTools || [];
-              const statusColor = conn.status === 'active' ? 'text-emerald-600 dark:text-emerald-400' :
-                conn.status === 'error' ? 'text-red-500' : 'text-muted-foreground';
-              const StatusIcon = conn.status === 'active' ? CheckCircle2 :
-                conn.status === 'error' ? XCircle : AlertCircle;
+              const { color: statusColor, Icon: StatusIcon } = getConnectionStatusStyle(conn.status);
 
               return (
                 <Card key={conn.id}>
@@ -494,7 +505,7 @@ export default function McpServersPage() {
             {form.authType !== 'none' && (
               <div>
                 <label className="text-sm font-medium">
-                  {form.authType === 'bearer' ? tm.dialog.tokenLabel : form.authType === 'api_key' ? tm.dialog.apiKeyLabel : tm.dialog.headerValueLabel}
+                  {tokenLabel}
                 </label>
                 <Input
                   value={form.accessToken}
@@ -510,7 +521,7 @@ export default function McpServersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{tm.dialog.cancel}</Button>
             <Button onClick={handleSubmit} disabled={isSaving}>
-              {isSaving ? tm.dialog.saving : editingId ? tm.dialog.save : tm.dialog.add}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

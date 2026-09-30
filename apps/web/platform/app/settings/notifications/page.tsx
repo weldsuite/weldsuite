@@ -1,6 +1,7 @@
 
 import * as React from 'react';
 import {
+  CellContext,
   ColumnDef,
   flexRender,
   getCoreRowModel,
@@ -79,6 +80,7 @@ interface ChannelRow {
   label: string;
   icon: LucideIcon;
   checked: boolean;
+  disabled: boolean;
   onChange: (v: boolean) => void;
 }
 
@@ -88,7 +90,64 @@ interface ModuleRow {
   icon: LucideIcon;
   appCode: string;
   enabled: boolean;
+  disabled: boolean;
+  onToggle: (v: boolean) => void;
 }
+
+function ChannelNameCell({ row }: CellContext<ChannelRow, unknown>) {
+  const Icon = row.original.icon;
+  return (
+    <div className="flex items-center gap-2">
+      <Icon className="h-4 w-4 text-muted-foreground" />
+      <span className="font-medium text-sm">{row.original.label}</span>
+    </div>
+  );
+}
+
+function ChannelSwitchCell({ row }: CellContext<ChannelRow, unknown>) {
+  return (
+    <div className="flex justify-end">
+      <Switch
+        checked={row.original.checked}
+        onCheckedChange={row.original.onChange}
+        disabled={row.original.disabled}
+      />
+    </div>
+  );
+}
+
+function ModuleNameCell({ row }: CellContext<ModuleRow, unknown>) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+        <AppIcon icon={row.original.appCode} className="max-h-4 max-w-4 h-auto w-auto object-contain" />
+      </div>
+      <span className="font-medium text-sm">{row.original.label}</span>
+    </div>
+  );
+}
+
+function ModuleSwitchCell({ row }: CellContext<ModuleRow, unknown>) {
+  return (
+    <div className="flex justify-end">
+      <Switch
+        checked={row.original.enabled}
+        onCheckedChange={row.original.onToggle}
+        disabled={row.original.disabled}
+      />
+    </div>
+  );
+}
+
+const CHANNEL_COLUMNS: ColumnDef<ChannelRow>[] = [
+  { id: 'channel', header: '', cell: ChannelNameCell },
+  { id: 'enabled', header: '', size: 60, cell: ChannelSwitchCell },
+];
+
+const MODULE_COLUMNS: ColumnDef<ModuleRow>[] = [
+  { id: 'module', header: '', cell: ModuleNameCell },
+  { id: 'enabled', header: '', size: 60, cell: ModuleSwitchCell },
+];
 
 // Hour options for digest send time
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
@@ -176,47 +235,18 @@ export default function NotificationsSettingsPage() {
   };
 
   // Channel table data
+  const channelsDisabled = saving || prefs.doNotDisturb;
   const channelData = React.useMemo<ChannelRow[]>(() => [
-    { id: 'inApp', label: ts.channels.inApp, icon: Bell, checked: prefs.defaultInApp, onChange: (v) => handleDefaultChange('inApp', v) },
-    { id: 'email', label: ts.channels.email, icon: Mail, checked: prefs.defaultEmail, onChange: (v) => handleDefaultChange('email', v) },
-    { id: 'push', label: ts.channels.push, icon: Smartphone, checked: prefs.defaultPush, onChange: (v) => handleDefaultChange('push', v) },
-    { id: 'desktop', label: ts.channels.desktop, icon: Monitor, checked: prefs.defaultDesktop, onChange: (v) => handleDefaultChange('desktop', v) },
+    { id: 'inApp', label: ts.channels.inApp, icon: Bell, checked: prefs.defaultInApp, disabled: channelsDisabled, onChange: (v) => handleDefaultChange('inApp', v) },
+    { id: 'email', label: ts.channels.email, icon: Mail, checked: prefs.defaultEmail, disabled: channelsDisabled, onChange: (v) => handleDefaultChange('email', v) },
+    { id: 'push', label: ts.channels.push, icon: Smartphone, checked: prefs.defaultPush, disabled: channelsDisabled, onChange: (v) => handleDefaultChange('push', v) },
+    { id: 'desktop', label: ts.channels.desktop, icon: Monitor, checked: prefs.defaultDesktop, disabled: channelsDisabled, onChange: (v) => handleDefaultChange('desktop', v) },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleDefaultChange is a fresh closure every render; including it would defeat this memo's caching without changing behavior.
-  ], [ts.channels.inApp, ts.channels.email, ts.channels.push, ts.channels.desktop, prefs.defaultInApp, prefs.defaultEmail, prefs.defaultPush, prefs.defaultDesktop]);
-
-  const channelColumns = React.useMemo<ColumnDef<ChannelRow>[]>(() => [
-    {
-      id: 'channel',
-      header: '',
-      cell: ({ row }) => {
-        const Icon = row.original.icon;
-        return (
-          <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium text-sm">{row.original.label}</span>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'enabled',
-      header: '',
-      size: 60,
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <Switch
-            checked={row.original.checked}
-            onCheckedChange={row.original.onChange}
-            disabled={saving || prefs.doNotDisturb}
-          />
-        </div>
-      ),
-    },
-  ], [saving, prefs.doNotDisturb]);
+  ], [ts.channels.inApp, ts.channels.email, ts.channels.push, ts.channels.desktop, prefs.defaultInApp, prefs.defaultEmail, prefs.defaultPush, prefs.defaultDesktop, channelsDisabled]);
 
   const channelTable = useReactTable({
     data: channelData,
-    columns: channelColumns,
+    columns: CHANNEL_COLUMNS,
     getCoreRowModel: getCoreRowModel(),
   });
 
@@ -239,48 +269,20 @@ export default function NotificationsSettingsPage() {
       icon: module.icon,
       appCode: module.appCode,
       enabled: mp?.[module.key]?.enabled ?? true,
+      disabled: channelsDisabled,
+      onToggle: (v: boolean) => handleModuleToggle(module.key, v),
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleModuleToggle is a fresh closure every render and only depends on preferences, which are already listed.
   }, [
+    channelsDisabled,
     ts.modules.helpdesk, ts.modules.crm, ts.modules.mail,
     ts.modules.projects, ts.modules.parcel, ts.modules.workflows, ts.modules.weldchat,
     ts.modules.dailyDigest, preferences?.modulePreferences,
   ]);
 
-  const moduleColumns = React.useMemo<ColumnDef<ModuleRow>[]>(() => [
-    {
-      id: 'module',
-      header: '',
-      cell: ({ row }) => {
-        return (
-          <div className="flex items-center gap-2">
-            <div className="flex h-4 w-4 shrink-0 items-center justify-center">
-              <AppIcon icon={row.original.appCode} className="max-h-4 max-w-4 h-auto w-auto object-contain" />
-            </div>
-            <span className="font-medium text-sm">{row.original.label}</span>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'enabled',
-      header: '',
-      size: 60,
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <Switch
-            checked={row.original.enabled}
-            onCheckedChange={(v) => handleModuleToggle(row.original.key, v)}
-            disabled={saving || prefs.doNotDisturb}
-          />
-        </div>
-      ),
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleModuleToggle is a fresh closure every render; including it would defeat this memo's caching without changing behavior.
-  ], [saving, prefs.doNotDisturb]);
-
   const moduleTable = useReactTable({
     data: moduleData,
-    columns: moduleColumns,
+    columns: MODULE_COLUMNS,
     getCoreRowModel: getCoreRowModel(),
   });
 
