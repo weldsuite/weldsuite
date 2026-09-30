@@ -20,6 +20,80 @@ interface ProvisioningScreenProps {
   skipRetry?: boolean;
 }
 
+const STEP_LABEL_CLASS: Record<ProvisioningStep['status'], string> = {
+  completed: 'text-gray-900',
+  in_progress: 'text-gray-700',
+  pending: 'text-gray-400',
+};
+
+function StepIndicator({ status }: Readonly<{ status: ProvisioningStep['status'] }>) {
+  if (status === 'completed') {
+    return (
+      <motion.div
+        initial={{ scale: 0.5, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+      >
+        <CheckCircle2 className="h-[18px] w-[18px] text-gray-900" />
+      </motion.div>
+    );
+  }
+  if (status === 'in_progress') {
+    return <Loader2 className="h-[18px] w-[18px] animate-spin text-gray-400" />;
+  }
+  return <div className="h-[18px] w-[18px] rounded-full border-[1.5px] border-gray-200" />;
+}
+
+function FailedNotice({ retrying, onRetry }: Readonly<{ retrying: boolean; onRetry: () => void }>) {
+  const t = getTranslations('common');
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="mt-8"
+    >
+      <h2 className="text-sm font-semibold text-gray-900">
+        {t.onboarding.provisioning.failedTitle}
+      </h2>
+      <p className="text-sm text-gray-500 mt-1.5">
+        {t.onboarding.provisioning.failedMessage}
+      </p>
+      <Button
+        onClick={onRetry}
+        disabled={retrying}
+        className="mt-4"
+      >
+        {retrying ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          t.onboarding.provisioning.tryAgain
+        )}
+      </Button>
+    </motion.div>
+  );
+}
+
+function TakingLongerNotice() {
+  const t = getTranslations('common');
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="mt-8 text-center"
+    >
+      <p className="text-sm text-gray-500">
+        {t.onboarding.provisioning.takingLonger}{' '}
+        <Button
+          variant="link"
+          onClick={() => window.location.reload()}
+          className="text-gray-900 font-medium hover:underline"
+        >
+          {t.onboarding.provisioning.refresh}
+        </Button>
+      </p>
+    </motion.div>
+  );
+}
+
 export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningScreenProps>) {
   const t = getTranslations('common');
   const { orgId } = useAuth();
@@ -183,28 +257,9 @@ export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningS
               className="flex items-center gap-3 py-3"
             >
               <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                {step.status === 'completed' ? (
-                  <motion.div
-                    initial={{ scale: 0.5, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                  >
-                    <CheckCircle2 className="h-[18px] w-[18px] text-gray-900" />
-                  </motion.div>
-                ) : step.status === 'in_progress' ? (
-                  <Loader2 className="h-[18px] w-[18px] animate-spin text-gray-400" />
-                ) : (
-                  <div className="h-[18px] w-[18px] rounded-full border-[1.5px] border-gray-200" />
-                )}
+                <StepIndicator status={step.status} />
               </div>
-              <span
-                className={`text-sm ${
-                  step.status === 'completed'
-                    ? 'text-gray-900'
-                    : step.status === 'in_progress'
-                    ? 'text-gray-700'
-                    : 'text-gray-400'
-                }`}
-              >
+              <span className={`text-sm ${STEP_LABEL_CLASS[step.status]}`}>
                 {step.label}
               </span>
             </motion.div>
@@ -213,47 +268,10 @@ export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningS
 
 
         {isFailed ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-8"
-          >
-            <h2 className="text-sm font-semibold text-gray-900">
-              {t.onboarding.provisioning.failedTitle}
-            </h2>
-            <p className="text-sm text-gray-500 mt-1.5">
-              {t.onboarding.provisioning.failedMessage}
-            </p>
-            <Button
-              onClick={handleRetry}
-              disabled={retrying}
-              className="mt-4"
-            >
-              {retrying ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                t.onboarding.provisioning.tryAgain
-              )}
-            </Button>
-          </motion.div>
-        ) : pollCount >= MAX_POLL_ATTEMPTS ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-8 text-center"
-          >
-            <p className="text-sm text-gray-500">
-              {t.onboarding.provisioning.takingLonger}{' '}
-              <Button
-                variant="link"
-                onClick={() => window.location.reload()}
-                className="text-gray-900 font-medium hover:underline"
-              >
-                {t.onboarding.provisioning.refresh}
-              </Button>
-            </p>
-          </motion.div>
-        ) : null}
+          <FailedNotice retrying={retrying} onRetry={handleRetry} />
+        ) : (
+          pollCount >= MAX_POLL_ATTEMPTS && <TakingLongerNotice />
+        )}
       </div>
     </div>
   );

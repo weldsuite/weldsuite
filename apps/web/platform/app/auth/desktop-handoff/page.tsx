@@ -7,6 +7,28 @@ import { getTranslations } from '@/lib/i18n';
 
 type Phase = 'minting' | 'redirecting' | 'error' | 'done';
 
+function PhaseIcon({ phase }: { phase: Phase }) {
+  if (phase === 'error') {
+    return (
+      <div className="h-14 w-14 rounded-full bg-red-50 flex items-center justify-center text-red-600">
+        <AlertTriangle className="h-7 w-7" />
+      </div>
+    );
+  }
+  if (phase === 'done') {
+    return (
+      <div className="h-14 w-14 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+        <CheckCircle2 className="h-7 w-7" />
+      </div>
+    );
+  }
+  return (
+    <div className="h-14 w-14 rounded-full bg-gray-50 flex items-center justify-center">
+      <Loader2 className="h-7 w-7 animate-spin text-gray-500" />
+    </div>
+  );
+}
+
 /**
  * Runs in the user's **system browser** after the platform completes a Clerk
  * sign-in for a `?desktop=1` flow. Mints a single-use sign-in ticket and
@@ -67,19 +89,7 @@ export default function DesktopHandoffPage() {
     <div className="min-h-screen flex items-center justify-center bg-white px-6">
       <div className="w-full max-w-md text-center space-y-6">
         <div className="flex justify-center">
-          {phase === 'error' ? (
-            <div className="h-14 w-14 rounded-full bg-red-50 flex items-center justify-center text-red-600">
-              <AlertTriangle className="h-7 w-7" />
-            </div>
-          ) : phase === 'done' ? (
-            <div className="h-14 w-14 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-              <CheckCircle2 className="h-7 w-7" />
-            </div>
-          ) : (
-            <div className="h-14 w-14 rounded-full bg-gray-50 flex items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-gray-500" />
-            </div>
-          )}
+          <PhaseIcon phase={phase} />
         </div>
 
         {phase === 'minting' && (
