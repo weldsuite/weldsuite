@@ -1,3 +1,4 @@
+import type { ColorValue } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { LayoutDashboard, FileText, Camera, Receipt, MoreHorizontal } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +11,32 @@ import {
 } from '@/components/floating-tab-bar';
 import { useI18n } from '@/lib/i18n';
 
+type TabIconProps = { color: ColorValue; size: number };
+
+function renderTabBar(props: unknown) {
+  return <FloatingTabBar {...(props as FloatingTabBarProps)} />;
+}
+
+function HomeTabIcon({ color, size }: TabIconProps) {
+  return <LayoutDashboard size={size} color={color} strokeWidth={2.2} />;
+}
+
+function InvoicesTabIcon({ color, size }: TabIconProps) {
+  return <FileText size={size} color={color} strokeWidth={2.2} />;
+}
+
+function ScanTabIcon({ color, size }: TabIconProps) {
+  return <Camera size={size} color={color} strokeWidth={2.2} />;
+}
+
+function ExpensesTabIcon({ color, size }: TabIconProps) {
+  return <Receipt size={size} color={color} strokeWidth={2.2} />;
+}
+
+function MoreTabIcon({ color, size }: TabIconProps) {
+  return <MoreHorizontal size={size} color={color} strokeWidth={2.2} />;
+}
+
 export default function TabLayout() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -18,7 +45,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
+      tabBar={renderTabBar}
       screenOptions={{
         ...floatingTabBarScreenOptions,
         headerShown: false,
@@ -32,21 +59,21 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t.tabs.home,
-          tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="invoices"
         options={{
           title: t.tabs.invoices,
-          tabBarIcon: ({ color, size }) => <FileText size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: InvoicesTabIcon,
         }}
       />
       <Tabs.Screen
         name="scan-placeholder"
         options={{
           title: t.tabs.scan,
-          tabBarIcon: ({ color, size }) => <Camera size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: ScanTabIcon,
         }}
         listeners={{
           tabPress: (e) => {
@@ -59,14 +86,14 @@ export default function TabLayout() {
         name="expenses"
         options={{
           title: t.tabs.expenses,
-          tabBarIcon: ({ color, size }) => <Receipt size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: ExpensesTabIcon,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: t.tabs.more,
-          tabBarIcon: ({ color, size }) => <MoreHorizontal size={size} color={color} strokeWidth={2.2} />,
+          tabBarIcon: MoreTabIcon,
         }}
       />
     </Tabs>
