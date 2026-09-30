@@ -231,7 +231,7 @@ function computeQuickCreatePosForClick(
   const leftBound = getCalendarLeftBound(calBody);
   const rect = cell.getBoundingClientRect();
 
-  if (cell.hasAttribute('data-date')) {
+  if ('date' in cell.dataset) {
     // Month view: position next to the clicked cell. Align Y with the last
     // event button, where the preview will appear.
     const eventBtns = cell.querySelectorAll('button');
