@@ -68,6 +68,9 @@ import {
   computeEllipseBounds,
   computeRectangleBounds,
   computeResizeUpdate,
+  consolidateErasedPaths,
+  createElementFromTouch,
+  createOffsetCopy,
   findArrowHandle,
   findConnectionTarget,
   findErasedElementIds,
@@ -75,6 +78,7 @@ import {
   getArrowCurvePoints,
   getArrowHandleUpdate,
   getElementConnectionPoints,
+  getEllipseRadii,
   getFillModeUpdates,
   getToolbarSync,
   hitTestElement,
@@ -83,6 +87,9 @@ import {
   isFillableShape,
   patchElement,
   snapshotDragStart,
+  touchDistance,
+  touchMidpoint,
+  translateFromStart,
   trimEraserPath,
 } from './whiteboard-geometry';
 import type {
@@ -95,12 +102,39 @@ import type {
   DragStart,
   Point,
   ResizeHandle,
+  TouchPoint,
   WhiteboardElement,
 } from './whiteboard-geometry';
-import { EraserPreview, ToolButton, getCanvasCursor, getCanvasSvgStyle } from './whiteboard-parts';
+import {
+  ConnectionHandles,
+  ConnectionHoverPoints,
+  CornerRadiusHandles,
+  EraserPreview,
+  ResizeHandles,
+  ToolButton,
+  areBoundsEqual,
+  focusTextareaAtEnd,
+  getCanvasCursor,
+  getCanvasSvgStyle,
+  getTextAnchor,
+  positionTextConnectionPoints,
+  setPaddedBounds,
+} from './whiteboard-parts';
 
 // Fixed zoom stops. Module scope so the array identity is stable across renders.
 const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5]; // Same as commerce builder
+
+// Touch hit-test slack for arrows and freehand paths, in canvas units: a bit
+// larger than a mouse pointer needs.
+const TOUCH_LINE_TOLERANCE = 15;
+
+/** Index of the zoom stop closest to `scale`. */
+function nearestZoomIndex(scale: number): number {
+  return zoomLevels.reduce(
+    (prev, curr, index) => (Math.abs(curr - scale) < Math.abs(zoomLevels[prev] - scale) ? index : prev),
+    0
+  );
+}
 
 type Tool = 'select' | 'pan' | 'rectangle' | 'circle' | 'text' | 'sticky' | 'pen' | 'eraser' | 'arrow';
 
@@ -1008,37 +1042,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     };
   }, [isPresentMode]);
 
-  // Simplify path by removing redundant points
-  const simplifyPath = (points: { x: number; y: number }[]): { x: number; y: number }[] => {
-    if (points.length <= 2) return points;
-    
-    const simplified: { x: number; y: number }[] = [points[0]];
-    let prevPoint = points[0];
-    
-    for (let i = 1; i < points.length - 1; i++) {
-      const point = points[i];
-      const nextPoint = points[i + 1];
-      
-      // Calculate angle between segments
-      const angle1 = Math.atan2(point.y - prevPoint.y, point.x - prevPoint.x);
-      const angle2 = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
-      const angleDiff = Math.abs(angle1 - angle2);
-      
-      // Keep point if angle changes significantly or distance is large
-      const dist = Math.sqrt(
-        Math.pow(point.x - prevPoint.x, 2) + Math.pow(point.y - prevPoint.y, 2)
-      );
-      
-      if (angleDiff > 0.1 || dist > 10) {
-        simplified.push(point);
-        prevPoint = point;
-      }
-    }
-    
-    simplified.push(points[points.length - 1]);
-    return simplified;
-  };
-
   // Batch process eraser updates for performance
   const processBatchedErasing = useCallback(() => {
     if (eraserUpdateQueue.current.length === 0) return;
@@ -1761,6 +1764,83 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const isTouchPanningRef = useRef(false);
   const [isTouchActive, setIsTouchActive] = useState(false); // State to disable transitions during touch
 
+  // Screen touch -> canvas coordinates (null until the canvas is mounted)
+  const touchToCanvasPoint = useCallback((touch: TouchPoint): Point | null => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: (touch.clientX - rect.left - panPosition.x) / zoom,
+      y: (touch.clientY - rect.top - panPosition.y) / zoom,
+    };
+  }, [panPosition, zoom]);
+
+  // Select tool: pick the touched element and start dragging it, or deselect
+  const beginTouchSelect = useCallback((point: Point) => {
+    // Find element at touch position
+    const touchedElement = [...elements].reverse().find(el => hitTestElement(el, point, zoom, TOUCH_LINE_TOLERANCE));
+
+    if (!touchedElement) {
+      // Touched empty space - deselect
+      setSelectedElement(null);
+      setSelectedElements(new Set());
+      return;
+    }
+
+    // Select and start dragging the element
+    setSelectedElement(touchedElement.id);
+    setSelectedElements(new Set());
+    setIsDraggingElement(true);
+    setDragStartPos(point);
+    setDragElementStart(snapshotDragStart(touchedElement));
+  }, [elements, zoom]);
+
+  // Start drawing/placing based on the active tool
+  const beginTouchTool = useCallback((point: Point) => {
+    if (tool === 'select') {
+      beginTouchSelect(point);
+      return;
+    }
+    if (tool !== 'rectangle' && tool !== 'circle' && tool !== 'arrow' && tool !== 'pen') return;
+
+    setIsDrawing(true);
+    if (tool === 'pen') setCurrentPath([{ x: point.x, y: point.y }]);
+    setSelectedElement(null);
+    setSelectedElements(new Set());
+  }, [tool, beginTouchSelect]);
+
+  const beginSingleTouch = useCallback((touch: React.Touch) => {
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      panX: panPosition.x,
+      panY: panPosition.y,
+    };
+
+    // For pan tool, use touch panning directly
+    // For other tools, set up for drawing via screenToCanvas
+    if (tool === 'pan') {
+      isTouchPanningRef.current = true;
+      return;
+    }
+    isTouchPanningRef.current = false;
+
+    // Calculate canvas point and set start point for drawing
+    const point = touchToCanvasPoint(touch);
+    if (!point) return;
+    setStartPoint(point);
+    beginTouchTool(point);
+  }, [panPosition, tool, touchToCanvasPoint, beginTouchTool]);
+
+  // Two touches - prepare for pinch-to-zoom
+  const beginPinch = useCallback((touch1: React.Touch, touch2: React.Touch) => {
+    isTouchPanningRef.current = false;
+    setIsDrawing(false); // Cancel any drawing in progress
+
+    // Initial distance and center point between touches
+    lastTouchDistanceRef.current = touchDistance(touch1, touch2);
+    lastTouchCenterRef.current = touchMidpoint(touch1, touch2);
+  }, []);
+
   // Handle touch start - for mobile panning and pinch-to-zoom
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     // Only handle pure touch events
@@ -1771,242 +1851,106 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     setIsTouchActive(true); // Disable transitions during touch
 
     if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      touchStartRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        panX: panPosition.x,
-        panY: panPosition.y,
-      };
-
-      // For pan tool, use touch panning directly
-      // For other tools, set up for drawing via screenToCanvas
-      if (tool === 'pan') {
-        isTouchPanningRef.current = true;
-      } else {
-        isTouchPanningRef.current = false;
-        // Calculate canvas point and set start point for drawing
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (rect) {
-          const canvasX = (touch.clientX - rect.left - panPosition.x) / zoom;
-          const canvasY = (touch.clientY - rect.top - panPosition.y) / zoom;
-          const point = { x: canvasX, y: canvasY };
-          setStartPoint(point);
-
-          // Handle select tool - check if touching an element
-          if (tool === 'select') {
-            // Find element at touch position
-            const touchedElement = [...elements].reverse().find(el => {
-              switch (el.type) {
-                case 'rectangle':
-                case 'sticky':
-                  return point.x >= el.x! && point.x <= el.x! + el.width! &&
-                         point.y >= el.y! && point.y <= el.y! + el.height!;
-                case 'circle': {
-                  const rx = el.radiusX ?? el.radius ?? 50;
-                  const ry = el.radiusY ?? el.radius ?? 50;
-                  const normalizedDist = Math.pow(point.x - el.x, 2) / (rx * rx) + Math.pow(point.y - el.y, 2) / (ry * ry);
-                  return normalizedDist <= 1;
-                }
-                case 'text': {
-                  const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0.6);
-                  const textHeight = (el.fontSize || 16) * 1.5;
-                  return point.x >= el.x && point.x <= el.x + textWidth &&
-                         point.y >= el.y - textHeight && point.y <= el.y;
-                }
-                case 'arrow': {
-                  const lineLength = Math.sqrt(
-                    Math.pow((el.endX || el.x) - el.x, 2) +
-                    Math.pow((el.endY || el.y) - el.y, 2)
-                  );
-                  if (lineLength === 0) return false;
-                  const t = Math.max(0, Math.min(1, (
-                    (point.x - el.x) * ((el.endX || el.x) - el.x) +
-                    (point.y - el.y) * ((el.endY || el.y) - el.y)
-                  ) / (lineLength * lineLength)));
-                  const projX = el.x + t * ((el.endX || el.x) - el.x);
-                  const projY = el.y + t * ((el.endY || el.y) - el.y);
-                  const distToLine = Math.sqrt(Math.pow(point.x - projX, 2) + Math.pow(point.y - projY, 2));
-                  return distToLine <= 15; // Slightly larger touch target
-                }
-                case 'path': {
-                  if (!el.points || el.points.length < 2) return false;
-                  for (let i = 0; i < el.points.length - 1; i++) {
-                    const p1 = el.points[i];
-                    const p2 = el.points[i + 1];
-                    const segLength = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-                    if (segLength === 0) continue;
-                    const segT = Math.max(0, Math.min(1, (
-                      (point.x - p1.x) * (p2.x - p1.x) +
-                      (point.y - p1.y) * (p2.y - p1.y)
-                    ) / (segLength * segLength)));
-                    const segProjX = p1.x + segT * (p2.x - p1.x);
-                    const segProjY = p1.y + segT * (p2.y - p1.y);
-                    const segDist = Math.sqrt(Math.pow(point.x - segProjX, 2) + Math.pow(point.y - segProjY, 2));
-                    if (segDist <= 15) return true; // Slightly larger touch target
-                  }
-                  return false;
-                }
-                default:
-                  return false;
-              }
-            });
-
-            if (touchedElement) {
-              // Select and start dragging the element
-              setSelectedElement(touchedElement.id);
-              setSelectedElements(new Set());
-              setIsDraggingElement(true);
-              setDragStartPos(point);
-              setDragElementStart({
-                x: touchedElement.x || 0,
-                y: touchedElement.y || 0,
-                endX: touchedElement.endX,
-                endY: touchedElement.endY,
-                points: touchedElement.points ? [...touchedElement.points] : undefined,
-              });
-            } else {
-              // Touched empty space - deselect
-              setSelectedElement(null);
-              setSelectedElements(new Set());
-            }
-          } else if (tool === 'rectangle' || tool === 'circle' || tool === 'arrow') {
-            // Start drawing/placing based on tool
-            setIsDrawing(true);
-            setSelectedElement(null);
-            setSelectedElements(new Set());
-          } else if (tool === 'pen') {
-            setIsDrawing(true);
-            setCurrentPath([{ x: canvasX, y: canvasY }]);
-            setSelectedElement(null);
-            setSelectedElements(new Set());
-          }
-        }
-      }
+      beginSingleTouch(e.touches[0]);
     } else if (e.touches.length === 2) {
-      // Two touches - prepare for pinch-to-zoom
-      isTouchPanningRef.current = false;
-      setIsDrawing(false); // Cancel any drawing in progress
-
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-
-      // Calculate initial distance between touches
-      const distance = Math.sqrt(
-        Math.pow(touch2.clientX - touch1.clientX, 2) +
-        Math.pow(touch2.clientY - touch1.clientY, 2)
-      );
-      lastTouchDistanceRef.current = distance;
-
-      // Calculate center point between touches
-      lastTouchCenterRef.current = {
-        x: (touch1.clientX + touch2.clientX) / 2,
-        y: (touch1.clientY + touch2.clientY) / 2,
-      };
+      beginPinch(e.touches[0], e.touches[1]);
     }
-  }, [panPosition, tool, zoom, elements]);
+  }, [beginSingleTouch, beginPinch]);
+
+  // Pan mode - move the canvas
+  const panWithTouch = useCallback((touch: React.Touch, start: { x: number; y: number; panX: number; panY: number }) => {
+    const newX = start.panX + (touch.clientX - start.x);
+    const newY = start.panY + (touch.clientY - start.y);
+    setPanPosition(clampPanPosition(newX, newY, zoom));
+  }, [clampPanPosition, zoom]);
+
+  // Handle element dragging or drawing tools
+  const dragOrDrawWithTouch = useCallback((touch: React.Touch) => {
+    const point = touchToCanvasPoint(touch);
+    if (!point) return;
+
+    // Handle element dragging (select tool)
+    if (isDraggingElement && selectedElement) {
+      const deltaX = point.x - dragStartPos.x;
+      const deltaY = point.y - dragStartPos.y;
+      setElements(prev => prev.map(el =>
+        el.id === selectedElement ? translateFromStart(el, dragElementStart, deltaX, deltaY) : el
+      ));
+    } else if (tool === 'pen' && isDrawing) {
+      // Pen drawing
+      setCurrentPath(prev => [...prev, { x: point.x, y: point.y }]);
+      setCurrentPoint({ x: point.x, y: point.y, shiftKey: false });
+    } else if (isDrawing) {
+      // Update current point for rectangle/circle/arrow preview
+      setCurrentPoint({ x: point.x, y: point.y, shiftKey: false });
+    }
+  }, [touchToCanvasPoint, isDraggingElement, selectedElement, dragStartPos, dragElementStart, tool, isDrawing]);
+
+  // Two touches - pinch-to-zoom
+  const pinchZoomWithTouches = useCallback((touch1: React.Touch, touch2: React.Touch, lastDistance: number) => {
+    // Calculate zoom delta from the change in distance between touches
+    const newDistance = touchDistance(touch1, touch2);
+    const scale = newDistance / lastDistance;
+    const newZoom = Math.min(Math.max(0.025, zoom * scale), 5);
+
+    const center = touchMidpoint(touch1, touch2);
+
+    // Adjust pan position to zoom towards the center point
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (lastTouchCenterRef.current && rect) {
+      const scaleRatio = newZoom / zoom;
+      const canvasCenterX = center.x - rect.left;
+      const canvasCenterY = center.y - rect.top;
+
+      setPanPosition(prev => {
+        const newX = canvasCenterX - (canvasCenterX - prev.x) * scaleRatio;
+        const newY = canvasCenterY - (canvasCenterY - prev.y) * scaleRatio;
+        return clampPanPosition(newX, newY, newZoom);
+      });
+    }
+
+    // Update zoom
+    setZoomIndex(nearestZoomIndex(newZoom));
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+
+    // Update refs for next move
+    lastTouchDistanceRef.current = newDistance;
+    lastTouchCenterRef.current = center;
+  }, [zoom, clampPanPosition]);
 
   // Handle touch move - pan canvas, pinch-to-zoom, or drawing
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 1 && touchStartRef.current) {
       e.preventDefault();
-      const touch = e.touches[0];
-
       if (isTouchPanningRef.current) {
-        // Pan mode - move the canvas
-        const deltaX = touch.clientX - touchStartRef.current.x;
-        const deltaY = touch.clientY - touchStartRef.current.y;
-
-        const newX = touchStartRef.current.panX + deltaX;
-        const newY = touchStartRef.current.panY + deltaY;
-        const clamped = clampPanPosition(newX, newY, zoom);
-        setPanPosition(clamped);
+        panWithTouch(e.touches[0], touchStartRef.current);
       } else {
-        // Handle element dragging or drawing tools
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (rect) {
-          const canvasX = (touch.clientX - rect.left - panPosition.x) / zoom;
-          const canvasY = (touch.clientY - rect.top - panPosition.y) / zoom;
-          const point = { x: canvasX, y: canvasY };
-
-          // Handle element dragging (select tool)
-          if (isDraggingElement && selectedElement) {
-            const deltaX = point.x - dragStartPos.x;
-            const deltaY = point.y - dragStartPos.y;
-            setElements(prev => prev.map(el => {
-              if (el.id !== selectedElement) return el;
-              const updates: Partial<WhiteboardElement> = {
-                x: dragElementStart.x + deltaX,
-                y: dragElementStart.y + deltaY,
-              };
-              if (el.type === 'arrow' && dragElementStart.endX !== undefined && dragElementStart.endY !== undefined) {
-                updates.endX = dragElementStart.endX + deltaX;
-                updates.endY = dragElementStart.endY + deltaY;
-              }
-              if (el.type === 'path' && dragElementStart.points) {
-                updates.points = dragElementStart.points.map(p => ({ x: p.x + deltaX, y: p.y + deltaY }));
-              }
-              return { ...el, ...updates };
-            }));
-          } else if (tool === 'pen' && isDrawing) {
-            // Pen drawing
-            setCurrentPath(prev => [...prev, { x: canvasX, y: canvasY }]);
-            setCurrentPoint({ x: canvasX, y: canvasY, shiftKey: false });
-          } else if (isDrawing) {
-            // Update current point for rectangle/circle/arrow preview
-            setCurrentPoint({ x: canvasX, y: canvasY, shiftKey: false });
-          }
-        }
+        dragOrDrawWithTouch(e.touches[0]);
       }
     } else if (e.touches.length === 2 && lastTouchDistanceRef.current !== null) {
-      // Two touches - pinch-to-zoom
       e.preventDefault();
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-
-      // Calculate new distance
-      const newDistance = Math.sqrt(
-        Math.pow(touch2.clientX - touch1.clientX, 2) +
-        Math.pow(touch2.clientY - touch1.clientY, 2)
-      );
-
-      // Calculate zoom delta
-      const scale = newDistance / lastTouchDistanceRef.current;
-      const newZoom = Math.min(Math.max(0.025, zoom * scale), 5);
-
-      // Calculate center point between touches
-      const centerX = (touch1.clientX + touch2.clientX) / 2;
-      const centerY = (touch1.clientY + touch2.clientY) / 2;
-
-      // Adjust pan position to zoom towards the center point
-      if (lastTouchCenterRef.current) {
-        const scaleRatio = newZoom / zoom;
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (rect) {
-          const canvasCenterX = centerX - rect.left;
-          const canvasCenterY = centerY - rect.top;
-
-          setPanPosition(prev => {
-            const newX = canvasCenterX - (canvasCenterX - prev.x) * scaleRatio;
-            const newY = canvasCenterY - (canvasCenterY - prev.y) * scaleRatio;
-            return clampPanPosition(newX, newY, newZoom);
-          });
-        }
-      }
-
-      // Update zoom
-      const nearestIndex = zoomLevels.reduce((prev, curr, index) => {
-        return Math.abs(curr - newZoom) < Math.abs(zoomLevels[prev] - newZoom) ? index : prev;
-      }, 0);
-      setZoomIndex(nearestIndex);
-      zoomRef.current = newZoom;
-      setZoom(newZoom);
-
-      // Update refs for next move
-      lastTouchDistanceRef.current = newDistance;
-      lastTouchCenterRef.current = { x: centerX, y: centerY };
+      pinchZoomWithTouches(e.touches[0], e.touches[1], lastTouchDistanceRef.current);
     }
-  }, [zoom, clampPanPosition, panPosition, tool, isDrawing, isDraggingElement, selectedElement, dragStartPos, dragElementStart]);
+  }, [panWithTouch, dragOrDrawWithTouch, pinchZoomWithTouches]);
+
+  // All touches ended while drawing - create the shape for the active tool
+  const finishTouchDrawing = useCallback((touch: React.Touch | undefined) => {
+    const end = touch ? touchToCanvasPoint(touch) : null;
+    if (!end) return;
+
+    const newElement = createElementFromTouch(tool, startPoint, end, currentPath, {
+      fillMode,
+      selectedColor,
+      strokeColor,
+      strokeWidth,
+      arrowType,
+    });
+    if (!newElement) return;
+
+    setElements(prev => [...prev, newElement]);
+    addToHistory();
+  }, [touchToCanvasPoint, tool, startPoint, currentPath, fillMode, selectedColor, strokeColor, strokeWidth, arrowType, addToHistory]);
 
   // Handle touch end - finalize drawing, dragging, or end panning
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
@@ -2019,85 +1963,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
       // All touches ended - finalize drawing if we were drawing
       if (!isTouchPanningRef.current && touchStartRef.current && isDrawing) {
-        const touch = e.changedTouches[0];
-        const rect = canvasRef.current?.getBoundingClientRect();
-
-        if (touch && rect) {
-          const endX = (touch.clientX - rect.left - panPosition.x) / zoom;
-          const endY = (touch.clientY - rect.top - panPosition.y) / zoom;
-
-          // Create element based on tool
-          if (tool === 'rectangle') {
-            const width = Math.abs(endX - startPoint.x);
-            const height = Math.abs(endY - startPoint.y);
-            if (width > 5 || height > 5) {
-              const newRect: WhiteboardElement = {
-                id: Date.now().toString(),
-                type: 'rectangle',
-                x: Math.min(startPoint.x, endX),
-                y: Math.min(startPoint.y, endY),
-                width,
-                height,
-                color: fillMode === 'stroke' ? 'transparent' : selectedColor,
-                strokeColor: fillMode === 'fill' ? 'transparent' : strokeColor,
-                strokeWidth: strokeWidth,
-              };
-              setElements(prev => [...prev, newRect]);
-              addToHistory();
-            }
-          } else if (tool === 'circle') {
-            const width = Math.abs(endX - startPoint.x);
-            const height = Math.abs(endY - startPoint.y);
-            const radiusX = width / 2;
-            const radiusY = height / 2;
-            if (radiusX > 5 || radiusY > 5) {
-              const centerX = Math.min(startPoint.x, endX) + radiusX;
-              const centerY = Math.min(startPoint.y, endY) + radiusY;
-              const newCircle: WhiteboardElement = {
-                id: Date.now().toString(),
-                type: 'circle',
-                x: centerX,
-                y: centerY,
-                radiusX,
-                radiusY,
-                color: fillMode === 'stroke' ? 'transparent' : selectedColor,
-                strokeColor: fillMode === 'fill' ? 'transparent' : strokeColor,
-                strokeWidth: strokeWidth,
-              };
-              setElements(prev => [...prev, newCircle]);
-              addToHistory();
-            }
-          } else if (tool === 'arrow') {
-            const length = Math.sqrt(Math.pow(endX - startPoint.x, 2) + Math.pow(endY - startPoint.y, 2));
-            if (length > 5) {
-              const newArrow: WhiteboardElement = {
-                id: Date.now().toString(),
-                type: 'arrow',
-                x: startPoint.x,
-                y: startPoint.y,
-                endX: endX,
-                endY: endY,
-                strokeColor: strokeColor,
-                strokeWidth: strokeWidth,
-                arrowType: arrowType,
-              };
-              setElements(prev => [...prev, newArrow]);
-              addToHistory();
-            }
-          } else if (tool === 'pen' && currentPath.length > 1) {
-            const newPath: WhiteboardElement = {
-              id: Date.now().toString(),
-              type: 'path',
-              x: 0,
-              y: 0,
-              points: currentPath,
-              strokeColor: strokeColor,
-              strokeWidth: strokeWidth,
-            };
-            setElements(prev => [...prev, newPath]);
-            addToHistory();
-          }
-        }
+        finishTouchDrawing(e.changedTouches[0]);
       }
 
       // Reset states
@@ -2123,7 +1989,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       lastTouchCenterRef.current = null;
       isTouchPanningRef.current = true;
     }
-  }, [panPosition, zoom, tool, isDrawing, isDraggingElement, startPoint, currentPath, fillMode, selectedColor, strokeColor, strokeWidth, arrowType, addToHistory]);
+  }, [panPosition, isDrawing, isDraggingElement, addToHistory, finishTouchDrawing]);
 
   // Handle right-click context menu
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -2368,6 +2234,99 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     }
   }, [selectedElements, selectedElement, isConnected, broadcastElementDelete, elements, addToHistory, deleteElementWithBroadcast]);
 
+  // Duplicate the multi-selection, or the single selected element, next to the
+  // originals. Returns whether there was a selection to duplicate.
+  const duplicateSelection = useCallback((): boolean => {
+    if (selectedElements.size > 0) {
+      // Duplicate multiple selected elements
+      const newElements = elements
+        .filter(el => selectedElements.has(el.id))
+        .map((el, index) => createOffsetCopy(el, `${Date.now()}-${index}`));
+      setElements([...elements, ...newElements]);
+      setSelectedElement(null);
+      setSelectedElements(new Set(newElements.map(el => el.id)));
+      setTimeout(addToHistory, 100);
+      return true;
+    }
+
+    if (!selectedElement) return false;
+
+    // Duplicate single selected element
+    const element = elements.find(el => el.id === selectedElement);
+    if (element) {
+      const newElement = createOffsetCopy(element, Date.now().toString());
+      setElements([...elements, newElement]);
+      setSelectedElement(newElement.id);
+      setTimeout(addToHistory, 100);
+    }
+    return true;
+  }, [selectedElement, selectedElements, elements, addToHistory]);
+
+  // Move the selected element to the front (or back) of the stacking order.
+  // Returns whether there was a selected element.
+  const reorderSelectedElement = useCallback((toFront: boolean): boolean => {
+    if (!selectedElement) return false;
+
+    const elementIndex = elements.findIndex(el => el.id === selectedElement);
+    const canMove = toFront
+      ? elementIndex !== -1 && elementIndex !== elements.length - 1
+      : elementIndex > 0;
+    if (canMove) {
+      const newElements = [...elements];
+      const [element] = newElements.splice(elementIndex, 1);
+      if (toFront) {
+        newElements.push(element);
+      } else {
+        newElements.unshift(element);
+      }
+      setElements(newElements);
+      setTimeout(addToHistory, 100);
+    }
+    return true;
+  }, [selectedElement, elements, addToHistory]);
+
+  // Cmd/Ctrl + key shortcuts. Returns whether the key was handled (so the
+  // browser default should be suppressed).
+  const runModShortcut = useCallback((key: string): boolean => {
+    switch (key) {
+      case 'c': // Copy
+        if (!selectedElement && selectedElements.size === 0) return false;
+        copyElement();
+        return true;
+      case 'v': // Paste
+        if (clipboard.length === 0) return false;
+        pasteElement();
+        return true;
+      case 'd': // Duplicate
+        return duplicateSelection();
+      case ']': // Bring to front
+        return reorderSelectedElement(true);
+      case '[': // Send to back
+        return reorderSelectedElement(false);
+      case 'a': // Select all
+        setSelectedElements(new Set(elements.map(el => el.id)));
+        setSelectedElement(null);
+        return true;
+      default:
+        return false;
+    }
+  }, [selectedElement, selectedElements, clipboard, elements, copyElement, pasteElement, duplicateSelection, reorderSelectedElement]);
+
+  // Escape: deselect all and reset tool to select
+  const resetToSelectTool = useCallback(() => {
+    setSelectedElement(null);
+    setSelectedElements(new Set());
+    setContextMenu(null);
+    setTool('select');
+    setIsDrawing(false);
+    setIsErasing(false);
+    setCurrentPath([]);
+    // Remove focus from any focused element (toolbar buttons, etc.)
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
+
   // Keyboard shortcuts for copy, paste, delete, duplicate
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2380,165 +2339,116 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-      // Copy: Cmd/Ctrl + C
-      if (cmdOrCtrl && e.key === 'c') {
-        if (selectedElement || selectedElements.size > 0) {
-          e.preventDefault();
-          copyElement();
-        }
-      }
-
-      // Paste: Cmd/Ctrl + V
-      if (cmdOrCtrl && e.key === 'v') {
-        if (clipboard.length > 0) {
-          e.preventDefault();
-          pasteElement();
-        }
-      }
-
-      // Duplicate: Cmd/Ctrl + D
-      if (cmdOrCtrl && e.key === 'd') {
-        if (selectedElements.size > 0) {
-          // Duplicate multiple selected elements
-          e.preventDefault();
-          const elementsToDuplicate = elements.filter(el => selectedElements.has(el.id));
-          const newElements: WhiteboardElement[] = elementsToDuplicate.map((el, index) => ({
-            ...el,
-            id: `${Date.now()}-${index}`,
-            x: el.x + 20,
-            y: el.y + 20,
-            ...(el.type === 'arrow' && el.endX && el.endY ? {
-              endX: el.endX + 20,
-              endY: el.endY + 20,
-            } : {}),
-            ...(el.type === 'path' && el.points ? {
-              points: el.points.map(p => ({ x: p.x + 20, y: p.y + 20 })),
-            } : {}),
-          }));
-          setElements([...elements, ...newElements]);
-          setSelectedElement(null);
-          setSelectedElements(new Set(newElements.map(el => el.id)));
-          setTimeout(addToHistory, 100);
-        } else if (selectedElement) {
-          // Duplicate single selected element
-          e.preventDefault();
-          const element = elements.find(el => el.id === selectedElement);
-          if (element) {
-            const newElement: WhiteboardElement = {
-              ...element,
-              id: Date.now().toString(),
-              x: element.x + 20,
-              y: element.y + 20,
-              ...(element.type === 'arrow' && element.endX && element.endY ? {
-                endX: element.endX + 20,
-                endY: element.endY + 20,
-              } : {}),
-              ...(element.type === 'path' && element.points ? {
-                points: element.points.map(p => ({ x: p.x + 20, y: p.y + 20 })),
-              } : {}),
-            };
-            setElements([...elements, newElement]);
-            setSelectedElement(newElement.id);
-            setTimeout(addToHistory, 100);
-          }
-        }
+      // Copy, paste, duplicate, z-order and select-all: Cmd/Ctrl + C/V/D/]/[/A
+      if (cmdOrCtrl && runModShortcut(e.key)) {
+        e.preventDefault();
       }
 
       // Delete: Backspace or Delete
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        if (selectedElement || selectedElements.size > 0) {
-          e.preventDefault();
-          deleteSelectedElement();
-        }
-      }
-
-      // Bring to front: Cmd/Ctrl + ]
-      if (cmdOrCtrl && e.key === ']') {
-        if (selectedElement) {
-          e.preventDefault();
-          const elementIndex = elements.findIndex(el => el.id === selectedElement);
-          if (elementIndex !== -1 && elementIndex !== elements.length - 1) {
-            const element = elements[elementIndex];
-            const newElements = [...elements];
-            newElements.splice(elementIndex, 1);
-            newElements.push(element);
-            setElements(newElements);
-            setTimeout(addToHistory, 100);
-          }
-        }
-      }
-
-      // Send to back: Cmd/Ctrl + [
-      if (cmdOrCtrl && e.key === '[') {
-        if (selectedElement) {
-          e.preventDefault();
-          const elementIndex = elements.findIndex(el => el.id === selectedElement);
-          if (elementIndex > 0) {
-            const element = elements[elementIndex];
-            const newElements = [...elements];
-            newElements.splice(elementIndex, 1);
-            newElements.unshift(element);
-            setElements(newElements);
-            setTimeout(addToHistory, 100);
-          }
-        }
-      }
-
-      // Select all: Cmd/Ctrl + A
-      if (cmdOrCtrl && e.key === 'a') {
+      if ((e.key === 'Backspace' || e.key === 'Delete') && (selectedElement || selectedElements.size > 0)) {
         e.preventDefault();
-        const allIds = new Set(elements.map(el => el.id));
-        setSelectedElements(allIds);
-        setSelectedElement(null);
+        deleteSelectedElement();
       }
 
-      // Escape: Deselect all and reset tool to select
       if (e.key === 'Escape') {
-        setSelectedElement(null);
-        setSelectedElements(new Set());
-        setContextMenu(null);
-        setTool('select');
-        setIsDrawing(false);
-        setIsErasing(false);
-        setCurrentPath([]);
-        // Remove focus from any focused element (toolbar buttons, etc.)
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
+        resetToSelectTool();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElement, selectedElements, clipboard, elements, editingElement, copyElement, pasteElement, addToHistory, deleteSelectedElement]);
+  }, [selectedElement, selectedElements, editingElement, runModShortcut, deleteSelectedElement, resetToSelectTool]);
 
   // Cleanup eraser paths periodically for performance
   useEffect(() => {
     const interval = setInterval(() => {
-      setElements(prev => prev.map(element => {
-        if (element.erasedPaths && element.erasedPaths.length > 0) {
-          // Consolidate and simplify erased paths
-          const totalPoints = element.erasedPaths.reduce((sum, stroke) => sum + stroke.points.length, 0);
-          if (totalPoints > 500) {
-            // Too many points, merge and simplify aggressively
-            const allPoints = element.erasedPaths.flatMap(s => s.points);
-            const avgSize = element.erasedPaths.reduce((sum, s) => sum + s.size, 0) / element.erasedPaths.length;
-            const simplified = simplifyPath(allPoints);
-            return {
-              ...element,
-              erasedPaths: [{
-                points: simplified,
-                size: avgSize
-              }]
-            };
-          }
-        }
-        return element;
-      }));
+      // Consolidate and simplify erased paths
+      setElements(prev => prev.map(element => consolidateErasedPaths(element)));
     }, 5000); // Run every 5 seconds
 
     return () => clearInterval(interval);
   }, []);
+
+  // Zoom one stop in (+1) or out (-1), keeping the viewport center fixed
+  const stepZoom = useCallback((direction: 1 | -1) => {
+    // Use the tracked index directly
+    const newIndex = zoomIndex + direction;
+    if (newIndex < 0 || newIndex >= zoomLevels.length) return;
+
+    const newScale = zoomLevels[newIndex];
+    const scaleRatio = newScale / zoom;
+
+    // Get viewport center
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+
+      // Adjust pan to zoom towards viewport center
+      setPanPosition(prev => {
+        const newX = centerX - (centerX - prev.x) * scaleRatio;
+        const newY = centerY - (centerY - prev.y) * scaleRatio;
+        return clampPanPosition(newX, newY, newScale);
+      });
+    }
+
+    setZoomIndex(newIndex);
+    zoomRef.current = newScale;
+    setZoom(newScale);
+    setIsZooming(true);
+    if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+    zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 200);
+  }, [zoomIndex, zoom, clampPanPosition]);
+
+  // Reset to 100% with the canvas origin centered in the viewport
+  const resetZoom = useCallback(() => {
+    zoomRef.current = 1;
+    setZoom(1);
+    setZoomIndex(8); // Index 8 = 100%
+    const { width: vw, height: vh } = viewportSizeRef.current;
+    setPanPosition({ x: vw / 2, y: vh / 2 });
+  }, []);
+
+  // Zoom shortcuts - snap to discrete zoom levels
+  const handleZoomShortcut = useCallback((e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+
+    if (e.key === '=' || e.key === '+') {
+      e.preventDefault();
+      stepZoom(1);
+    } else if (e.key === '-') {
+      e.preventDefault();
+      stepZoom(-1);
+    } else if (e.key === '0') {
+      e.preventDefault();
+      resetZoom();
+    }
+  }, [stepZoom, resetZoom]);
+
+  // Undo/redo, delete, escape and space-to-pan shortcuts
+  const handleEditShortcut = useCallback((e: KeyboardEvent) => {
+    const isModKey = e.metaKey || e.ctrlKey;
+    const isRedo = e.key === 'y' || (e.key === 'z' && e.shiftKey);
+
+    if (isModKey && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if (isModKey && isRedo) {
+      e.preventDefault();
+      redo();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      deleteSelectedElement();
+    } else if (e.key === 'Escape') {
+      setSelectedElement(null);
+      setSelectedElements(new Set());
+      setSelectionBox(null);
+      setIsSelecting(false);
+      setTool('select');
+    } else if (e.key === ' ' && !e.repeat) {
+      e.preventDefault();
+      setTool('pan');
+    }
+  }, [undo, redo, deleteSelectedElement]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -2551,96 +2461,8 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
         return;
       }
 
-      // Undo/Redo shortcuts
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        redo();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        deleteSelectedElement();
-      } else if (e.key === 'Escape') {
-        setSelectedElement(null);
-        setSelectedElements(new Set());
-        setSelectionBox(null);
-        setIsSelecting(false);
-        setTool('select');
-      } else if (e.key === ' ' && !e.repeat) {
-        e.preventDefault();
-        setTool('pan');
-      }
-      
-      // Zoom shortcuts - snap to discrete zoom levels
-      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
-        e.preventDefault();
-        
-        // Use the tracked index directly
-        if (zoomIndex < zoomLevels.length - 1) {
-          const newIndex = zoomIndex + 1;
-          const newScale = zoomLevels[newIndex];
-          const scaleRatio = newScale / zoom;
-          
-          // Get viewport center
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            
-            // Adjust pan to zoom towards viewport center
-            setPanPosition(prev => {
-              const newX = centerX - (centerX - prev.x) * scaleRatio;
-              const newY = centerY - (centerY - prev.y) * scaleRatio;
-              return clampPanPosition(newX, newY, newScale);
-            });
-          }
-
-          setZoomIndex(newIndex);
-          zoomRef.current = newScale;
-          setZoom(newScale);
-          setIsZooming(true);
-          if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
-          zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 200);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-        e.preventDefault();
-
-        // Use the tracked index directly
-        if (zoomIndex > 0) {
-          const newIndex = zoomIndex - 1;
-          const newScale = zoomLevels[newIndex];
-          const scaleRatio = newScale / zoom;
-
-          // Get viewport center
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-
-            // Adjust pan to zoom towards viewport center
-            setPanPosition(prev => {
-              const newX = centerX - (centerX - prev.x) * scaleRatio;
-              const newY = centerY - (centerY - prev.y) * scaleRatio;
-              return clampPanPosition(newX, newY, newScale);
-            });
-          }
-
-          setZoomIndex(newIndex);
-          zoomRef.current = newScale;
-          setZoom(newScale);
-          setIsZooming(true);
-          if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
-          zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 200);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
-        e.preventDefault();
-        zoomRef.current = 1;
-        setZoom(1);
-        setZoomIndex(8); // Index 8 = 100%
-        // Center canvas origin in viewport
-        const { width: vw, height: vh } = viewportSizeRef.current;
-        setPanPosition({ x: vw / 2, y: vh / 2 });
-      }
+      handleEditShortcut(e);
+      handleZoomShortcut(e);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -2655,1271 +2477,554 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedElement, elements, undo, redo, zoom, zoomIndex, editingElement, clampPanPosition, deleteSelectedElement]);
+  }, [editingElement, handleEditShortcut, handleZoomShortcut]);
+
+  // Select a single element (clearing any multi-selection)
+  const selectSingleElement = (elementId: string) => {
+    setSelectedElement(elementId);
+    setSelectedElements(new Set());
+  };
+
+  // Fill/stroke for SVG shapes: 'transparent' means no paint at all
+  const toSvgPaint = (color: string | undefined) => (color === 'transparent' ? 'none' : displayColor(color));
+
+  // Update an element's text as the user types
+  const updateElementText = (elementId: string, text: string) => {
+    const updated = elements.map(el =>
+      el.id === elementId ? { ...el, text } : el
+    );
+    setElements(updated);
+  };
+
+  // Start dragging a new arrow connection out of an element's connection point
+  const beginConnection = (elementId: string, name: ConnectionPointName, position: Point) => {
+    setIsDrawingConnection(true);
+    setConnectionStart({ elementId, point: name, x: position.x, y: position.y });
+    setConnectionEndPoint(position);
+  };
+
+  // Draggable connection points of a selected element
+  const renderConnectionHandles = (element: WhiteboardElement, isTextElement = false) => {
+    const points = getConnectionPoints(element);
+    if (!points) return null;
+    return (
+      <ConnectionHandles
+        points={points}
+        isTextElement={isTextElement}
+        onStart={(name, position) => beginConnection(element.id, name, position)}
+      />
+    );
+  };
+
+  // Connection points shown when hovering during connection drawing
+  const renderConnectionHover = (element: WhiteboardElement) => {
+    if (!isDrawingConnection || hoveredConnectionElement !== element.id) return null;
+    const points = getConnectionPoints(element);
+    if (!points) return null;
+    return <ConnectionHoverPoints points={points} snappedPoint={snappedConnectionPoint} />;
+  };
+
+  const renderRectangleElement = (element: WhiteboardElement) => {
+    const width = element.width || 0;
+    const height = element.height || 0;
+    const radius = element.borderRadius || 0;
+
+    return (
+      <>
+        <rect
+          x={element.x}
+          y={element.y}
+          width={element.width}
+          height={element.height}
+          rx={radius}
+          ry={radius}
+          fill={toSvgPaint(element.color)}
+          stroke={toSvgPaint(element.strokeColor)}
+          strokeWidth={element.strokeWidth || strokeWidth}
+          className="cursor-pointer"
+          onClick={() => selectSingleElement(element.id)}
+        />
+        {/* Selection border for single selection */}
+        {selectedElement === element.id && (
+          <>
+            <rect
+              x={element.x}
+              y={element.y}
+              width={width}
+              height={height}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={1.5}
+              rx={element.borderRadius || 2}
+              ry={element.borderRadius || 2}
+              pointerEvents="none"
+            />
+            {/* Resize handles */}
+            <ResizeHandles left={element.x} top={element.y} right={element.x + width} bottom={element.y + height} />
+            {/* Corner radius handles - inside corners */}
+            <CornerRadiusHandles
+              x={element.x}
+              y={element.y}
+              width={width}
+              height={height}
+              radius={radius}
+              onDragStart={(corner, e) => {
+                setIsDraggingCornerRadius(corner);
+                const point = screenToCanvas(e.clientX, e.clientY);
+                setCornerRadiusDragStart({ x: point.x, y: point.y, initialRadius: radius });
+              }}
+            />
+            {/* Connection points */}
+            {renderConnectionHandles(element)}
+          </>
+        )}
+        {renderConnectionHover(element)}
+      </>
+    );
+  };
+
+  const renderCircleElement = (element: WhiteboardElement) => {
+    // Support both legacy radius and new radiusX/radiusY for ellipses
+    const { rx: ellipseRx, ry: ellipseRy } = getEllipseRadii(element);
+
+    return (
+      <>
+        <ellipse
+          cx={element.x}
+          cy={element.y}
+          rx={ellipseRx}
+          ry={ellipseRy}
+          fill={toSvgPaint(element.color)}
+          stroke={toSvgPaint(element.strokeColor)}
+          strokeWidth={element.strokeWidth || strokeWidth}
+          className="cursor-pointer"
+          onClick={() => selectSingleElement(element.id)}
+        />
+        {/* Selection border for single selection */}
+        {selectedElement === element.id && (
+          <>
+            <rect
+              x={element.x - ellipseRx}
+              y={element.y - ellipseRy}
+              width={ellipseRx * 2}
+              height={ellipseRy * 2}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={1.5}
+              rx={2}
+              ry={2}
+              pointerEvents="none"
+            />
+            {/* Resize handles */}
+            <ResizeHandles
+              left={element.x - ellipseRx}
+              top={element.y - ellipseRy}
+              right={element.x + ellipseRx}
+              bottom={element.y + ellipseRy}
+            />
+            {/* Connection points */}
+            {renderConnectionHandles(element)}
+          </>
+        )}
+        {renderConnectionHover(element)}
+      </>
+    );
+  };
+
+  // Text being edited in place
+  const handleTextBlur = (e: React.FocusEvent<HTMLTextAreaElement>, elementId: string) => {
+    // Don't close if clicking within the toolbar
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (relatedTarget?.closest('.fixed.z-50')) {
+      return;
+    }
+    // Remove text element if empty (check the actual textarea value)
+    const textValue = (e.target as HTMLTextAreaElement).value;
+    if (!textValue || textValue.trim() === '') {
+      deleteElementWithBroadcast(elementId);
+      setSelectedElement(null);
+    } else {
+      // Broadcast text change
+      broadcastElementUpdate(elementId, { text: textValue });
+    }
+    setEditingElement(null);
+    setTimeout(addToHistory, 100);
+  };
+
+  const handleTextKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, elementId: string) => {
+    e.stopPropagation();
+    if (e.key !== 'Escape') return;
+
+    // Remove text element if empty when pressing Escape
+    const textValue = (e.target as HTMLTextAreaElement).value;
+    if (!textValue || textValue.trim() === '') {
+      setElements(prev => prev.filter(el => el.id !== elementId));
+      setSelectedElement(null);
+    }
+    setEditingElement(null);
+  };
+
+  const renderTextEditor = (element: WhiteboardElement, textFontSize: number) => {
+    const textElementLines = (element.text || '').split('\n');
+    const maxLineLength = Math.max(...textElementLines.map(line => line.length), 1);
+    const estimatedTextWidth = Math.max(200, maxLineLength * textFontSize * 0.7 + 40);
+    const textAreaHeight = Math.max(textFontSize * 2, textElementLines.length * textFontSize * 1.5 + 20);
+
+    return (
+      <foreignObject
+        x={element.x}
+        y={element.y - textFontSize}
+        width={estimatedTextWidth}
+        height={textAreaHeight}
+        style={{ pointerEvents: 'auto', overflow: 'visible' }}
+      >
+        <textarea
+          ref={(textarea) => focusTextareaAtEnd(textarea)}
+          placeholder={st('sweep.weldflow.whiteboardView.typeSomethingPlaceholder')}
+          className="bg-transparent border-none outline-none resize-none placeholder:text-gray-400"
+          style={{
+            fontSize: textFontSize,
+            color: displayColor(element.color),
+            width: '100%',
+            height: '100%',
+            padding: '0',
+            margin: '0',
+            lineHeight: `${textFontSize * 1.5}px`,
+            background: 'transparent',
+            border: 'none',
+            caretColor: displayColor(element.color),
+            fontWeight: element.fontWeight || 'normal',
+            fontStyle: element.fontStyle || 'normal',
+            textDecoration: element.textDecoration || 'none',
+            fontFamily: 'inherit',
+          }}
+          value={element.text || ''}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => updateElementText(element.id, e.target.value)}
+          onBlur={(e) => handleTextBlur(e, element.id)}
+          onKeyDown={(e) => handleTextKeyDown(e, element.id)}
+        />
+      </foreignObject>
+    );
+  };
+
+  // Start dragging a text element (or follow its link on Ctrl+click)
+  const handleTextMouseDown = (e: React.MouseEvent<SVGRectElement>, element: WhiteboardElement) => {
+    e.stopPropagation();
+    if (element.link && e.ctrlKey) {
+      window.open(element.link, '_blank');
+      return;
+    }
+    const point = screenToCanvas(e.clientX, e.clientY);
+    setSelectedElement(element.id);
+    setSelectedElements(new Set());
+    setIsDraggingElement(true);
+    setDragStartPos(point);
+    setDragElementStart({ x: element.x || 0, y: element.y || 0 });
+  };
+
+  // Size the text hit area (and selection rect) to the measured text, and
+  // publish the measured bounds for arrow connections and the toolbar
+  const syncTextHitArea = (node: SVGRectElement | null, element: WhiteboardElement) => {
+    if (!node) return;
+
+    // Get the text element's bounding box to size the hit area
+    const textEl = node.parentElement?.querySelector('text');
+    if (!textEl) return;
+    const bbox = textEl.getBBox();
+    setPaddedBounds(node, bbox, 6, 4);
+
+    // Also update selection rect if present (for single or multi selection)
+    const selRect = node.parentElement?.querySelector('.selection-rect') as SVGRectElement;
+    if (selRect) {
+      setPaddedBounds(selRect, bbox, 6, 4);
+    }
+
+    // Store bounding box in ref for arrow connection positioning
+    if (!areBoundsEqual(textBoundingBoxesRef.current.get(element.id), bbox)) {
+      textBoundingBoxesRef.current.set(element.id, {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      });
+      // Trigger arrow position update
+      setTextBboxVersion(v => v + 1);
+    }
+
+    // Update connection points positions
+    positionTextConnectionPoints(node.parentElement, bbox);
+
+    // Store bounding box for toolbar positioning (only for single selection to avoid infinite loop)
+    const isSingleSelection = selectedElement === element.id && !selectedElements.has(element.id);
+    if (isSingleSelection && !areBoundsEqual(textBoundingBox, bbox)) {
+      setTextBoundingBox({ x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height });
+    }
+  };
+
+  const renderTextLabel = (element: WhiteboardElement, textFontSize: number) => (
+    <text
+      x={element.x}
+      y={element.y}
+      fill={element.text ? displayColor(element.color) : '#9ca3af'}
+      fontSize={textFontSize}
+      fontWeight={element.fontWeight || 'normal'}
+      fontStyle={element.text ? (element.fontStyle || 'normal') : 'italic'}
+      textDecoration={element.textDecoration || 'none'}
+      textAnchor={getTextAnchor(element.textAlign)}
+      className="pointer-events-none select-none"
+      style={element.link ? { textDecoration: 'underline' } : {}}
+    >
+      {(element.text || 'Type something...').split('\n').map((line, index) => (
+        <tspan
+          key={index}
+          x={element.x}
+          dy={index === 0 ? 0 : textFontSize * 1.5}
+        >
+          {line || ' '}
+        </tspan>
+      ))}
+    </text>
+  );
+
+  const renderTextDisplay = (element: WhiteboardElement, textFontSize: number) => (
+    <>
+      {/* Invisible hit area - always present for clicking/dragging */}
+      <rect
+        className="hit-area cursor-move"
+        x={element.x - 6}
+        y={element.y - textFontSize - 4}
+        width={30}
+        height={textFontSize + 8}
+        fill="transparent"
+        stroke="none"
+        onMouseDown={(e) => handleTextMouseDown(e, element)}
+        onDoubleClick={() => setEditingElement(element.id)}
+        ref={(node) => syncTextHitArea(node, element)}
+      />
+      {renderTextLabel(element, textFontSize)}
+      {/* Selection border - visible when single or multi selected */}
+      {(selectedElement === element.id || selectedElements.has(element.id)) && (
+        <rect
+          className="selection-rect pointer-events-none"
+          x={element.x - 6}
+          y={element.y - textFontSize - 4}
+          width={30}
+          height={textFontSize + 8}
+          fill="none"
+          stroke="#3b82f6"
+          strokeWidth={1.5}
+          rx={4}
+          ry={4}
+        />
+      )}
+      {/* Connection points for text */}
+      {selectedElement === element.id && renderConnectionHandles(element, true)}
+      {renderConnectionHover(element)}
+    </>
+  );
+
+  const renderTextElement = (element: WhiteboardElement) => {
+    const textFontSize = element.fontSize || 16;
+
+    return (
+      <g>
+        {editingElement === element.id
+          ? renderTextEditor(element, textFontSize)
+          : renderTextDisplay(element, textFontSize)}
+      </g>
+    );
+  };
+
+  const renderStickyElement = (element: WhiteboardElement) => {
+    // Use stored height if available, otherwise calculate based on text content
+    const textLines = (element.text || '').split('\n');
+    const lineHeight = (element.fontSize || 16) * 1.5;
+    const minHeight = 200;
+    const padding = 24; // p-3 = 12px top + 12px bottom
+    const autoCalculatedHeight = Math.max(minHeight, (textLines.length * lineHeight) + padding + 20);
+    const stickyHeight = element.height || autoCalculatedHeight;
+    const isEditing = editingElement === element.id;
+
+    return (
+      <g>
+        <rect
+          x={element.x}
+          y={element.y}
+          width={element.width}
+          height={stickyHeight}
+          fill={element.color}
+          stroke="none"
+          rx="4"
+          className={cn(
+            "cursor-pointer drop-shadow-md",
+            selectedElement === element.id && "stroke-blue-500 stroke-2"
+          )}
+          onClick={() => selectSingleElement(element.id)}
+          onDoubleClick={() => setEditingElement(element.id)}
+        />
+        <foreignObject
+          x={element.x}
+          y={element.y}
+          width={element.width}
+          height={stickyHeight}
+          style={{ pointerEvents: isEditing ? 'auto' : 'none' }}
+        >
+          <div className="h-full" style={{ padding: '12px 12px 12px 12px' }}>
+            {isEditing ? (
+              <textarea
+                ref={(textarea) => focusTextareaAtEnd(textarea)}
+                className="w-full h-full bg-transparent border-none outline-none resize-none text-gray-800 overflow-auto sticky-note-scrollbar"
+                placeholder={st('sweep.weldflow.whiteboardView.addTextPlaceholder')}
+                value={element.text}
+                style={{
+                  fontSize: element.fontSize,
+                  lineHeight: `${lineHeight}px`,
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: 'rgba(209, 213, 219, 0.4) transparent',
+                  paddingRight: '2px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => updateElementText(element.id, e.target.value)}
+                onBlur={(e) => {
+                  // Broadcast text change
+                  broadcastElementUpdate(element.id, { text: (e.target as HTMLTextAreaElement).value });
+                  setEditingElement(null);
+                  setTimeout(addToHistory, 100);
+                }}
+              />
+            ) : (
+              <div
+                className="w-full h-full whitespace-pre-wrap break-words overflow-hidden"
+                style={{ fontSize: element.fontSize, lineHeight: `${lineHeight}px` }}
+              >
+                {element.text}
+              </div>
+            )}
+          </div>
+        </foreignObject>
+
+        {/* Resize handles */}
+        {selectedElement === element.id && !isEditing && (
+          <>
+            <ResizeHandles
+              left={element.x}
+              top={element.y}
+              right={element.x + element.width!}
+              bottom={element.y + stickyHeight}
+              tagged={false}
+            />
+            {/* Connection points for sticky notes */}
+            {renderConnectionHandles(element)}
+          </>
+        )}
+        {renderConnectionHover(element)}
+      </g>
+    );
+  };
+
+  const renderPathElement = (element: WhiteboardElement) => {
+    const pathData = element.points?.map((p, i) =>
+      i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
+    ).join(' ');
+    return (
+      <path
+        d={pathData}
+        fill="none"
+        stroke={displayColor(element.strokeColor)}
+        strokeWidth={element.strokeWidth || strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="cursor-pointer"
+        onClick={() => setSelectedElement(element.id)}
+      />
+    );
+  };
+
+  const renderArrowElement = (element: WhiteboardElement) => {
+    if (element.endX === undefined || element.endY === undefined) return null;
+
+    const isArrowSelected = selectedElement === element.id;
+    const curvePoints = isArrowSelected ? getArrowCurvePoints(element) : null;
+
+    return (
+      <g
+        className="cursor-pointer"
+        onClick={() => {
+          // Only select if not already selected (clicking canvas will handle deselection)
+          if (!isArrowSelected) {
+            setSelectedElement(element.id);
+          }
+        }}
+      >
+        {renderArrowLine(element, isArrowSelected)}
+        {/* Drag handles when selected */}
+        {isArrowSelected && curvePoints && (
+          <>
+            {/* Start point handle */}
+            <circle
+              cx={curvePoints.startX}
+              cy={curvePoints.startY}
+              r={7}
+              fill="white"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              className="cursor-move"
+              style={{ pointerEvents: 'none' }}
+            />
+            {/* End point handle */}
+            <circle
+              cx={curvePoints.endX}
+              cy={curvePoints.endY}
+              r={7}
+              fill="white"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              className="cursor-move"
+              style={{ pointerEvents: 'none' }}
+            />
+            {/* Curve control handle (midpoint) */}
+            <circle
+              cx={curvePoints.curveMidX}
+              cy={curvePoints.curveMidY}
+              r={6}
+              fill="#3b82f6"
+              stroke="white"
+              strokeWidth={2}
+              className="cursor-move"
+              style={{ pointerEvents: 'none' }}
+            />
+          </>
+        )}
+      </g>
+    );
+  };
+
+  const renderElementContent = (element: WhiteboardElement) => {
+    switch (element.type) {
+      case 'rectangle':
+        return renderRectangleElement(element);
+      case 'circle':
+        return renderCircleElement(element);
+      case 'text':
+        return renderTextElement(element);
+      case 'sticky':
+        return renderStickyElement(element);
+      case 'path':
+        return renderPathElement(element);
+      case 'arrow':
+        return renderArrowElement(element);
+      default:
+        return null;
+    }
+  };
 
   // Render element with eraser mask
   const renderElement = (element: WhiteboardElement) => {
     const maskId = `mask-${element.id}`;
     const needsMask = element.erasedPaths && element.erasedPaths.length > 0;
-    
-    const elementContent = () => {
-    switch (element.type) {
-      case 'rectangle':
-        return (
-          <>
-            <rect
-              x={element.x}
-              y={element.y}
-              width={element.width}
-              height={element.height}
-              rx={element.borderRadius || 0}
-              ry={element.borderRadius || 0}
-              fill={element.color === 'transparent' ? 'none' : displayColor(element.color)}
-              stroke={element.strokeColor === 'transparent' ? 'none' : displayColor(element.strokeColor)}
-              strokeWidth={element.strokeWidth || strokeWidth}
-              className="cursor-pointer"
-              onClick={() => {
-                setSelectedElement(element.id);
-                setSelectedElements(new Set());
-              }}
-            />
-            {/* Selection border for single selection */}
-            {selectedElement === element.id && (
-              <>
-                <rect
-                  x={element.x}
-                  y={element.y}
-                  width={element.width || 0}
-                  height={element.height || 0}
-                  fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth={1.5}
-                  rx={element.borderRadius || 2}
-                  ry={element.borderRadius || 2}
-                  pointerEvents="none"
-                />
-                {/* Resize handles */}
-                {/* Top-left handle */}
-                <circle
-                  cx={element.x}
-                  cy={element.y}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-nw-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="nw"
-                />
-                {/* Top-right handle */}
-                <circle
-                  cx={element.x! + (element.width || 0)}
-                  cy={element.y}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-ne-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="ne"
-                />
-                {/* Bottom-left handle */}
-                <circle
-                  cx={element.x}
-                  cy={element.y! + (element.height || 0)}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-sw-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="sw"
-                />
-                {/* Bottom-right handle */}
-                <circle
-                  cx={element.x! + (element.width || 0)}
-                  cy={element.y! + (element.height || 0)}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-se-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="se"
-                />
-                {/* Corner radius handles - inside corners */}
-                {(() => {
-                  const radius = element.borderRadius || 0;
-                  const offset = Math.max(12, radius + 6); // Position based on current radius
-                  const handleSize = 5;
-                  return (
-                    <>
-                      {/* Top-left corner radius handle */}
-                      <circle
-                        cx={element.x! + offset}
-                        cy={element.y! + offset}
-                        r={handleSize}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-pointer"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDraggingCornerRadius('tl');
-                          const point = screenToCanvas(e.clientX, e.clientY);
-                          setCornerRadiusDragStart({ x: point.x, y: point.y, initialRadius: radius });
-                        }}
-                      />
-                      {/* Top-right corner radius handle */}
-                      <circle
-                        cx={element.x! + (element.width || 0) - offset}
-                        cy={element.y! + offset}
-                        r={handleSize}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-pointer"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDraggingCornerRadius('tr');
-                          const point = screenToCanvas(e.clientX, e.clientY);
-                          setCornerRadiusDragStart({ x: point.x, y: point.y, initialRadius: radius });
-                        }}
-                      />
-                      {/* Bottom-left corner radius handle */}
-                      <circle
-                        cx={element.x! + offset}
-                        cy={element.y! + (element.height || 0) - offset}
-                        r={handleSize}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-pointer"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDraggingCornerRadius('bl');
-                          const point = screenToCanvas(e.clientX, e.clientY);
-                          setCornerRadiusDragStart({ x: point.x, y: point.y, initialRadius: radius });
-                        }}
-                      />
-                      {/* Bottom-right corner radius handle */}
-                      <circle
-                        cx={element.x! + (element.width || 0) - offset}
-                        cy={element.y! + (element.height || 0) - offset}
-                        r={handleSize}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-pointer"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDraggingCornerRadius('br');
-                          const point = screenToCanvas(e.clientX, e.clientY);
-                          setCornerRadiusDragStart({ x: point.x, y: point.y, initialRadius: radius });
-                        }}
-                      />
-                    </>
-                  );
-                })()}
-                {/* Connection points */}
-                {(() => {
-                  const points = getConnectionPoints(element);
-                  if (!points) return null;
-                  return (
-                    <>
-                      {/* Top connection point */}
-                      <circle
-                        cx={points.top.x}
-                        cy={points.top.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'top', x: points.top.x, y: points.top.y });
-                          setConnectionEndPoint(points.top);
-                        }}
-                      />
-                      {/* Right connection point */}
-                      <circle
-                        cx={points.right.x}
-                        cy={points.right.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'right', x: points.right.x, y: points.right.y });
-                          setConnectionEndPoint(points.right);
-                        }}
-                      />
-                      {/* Bottom connection point */}
-                      <circle
-                        cx={points.bottom.x}
-                        cy={points.bottom.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'bottom', x: points.bottom.x, y: points.bottom.y });
-                          setConnectionEndPoint(points.bottom);
-                        }}
-                      />
-                      {/* Left connection point */}
-                      <circle
-                        cx={points.left.x}
-                        cy={points.left.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'left', x: points.left.x, y: points.left.y });
-                          setConnectionEndPoint(points.left);
-                        }}
-                      />
-                    </>
-                  );
-                })()}
-              </>
-            )}
-            {/* Connection points shown when hovering during connection drawing */}
-            {isDrawingConnection && hoveredConnectionElement === element.id && (
-              (() => {
-                const points = getConnectionPoints(element);
-                if (!points) return null;
-                return (
-                  <>
-                    {/* Top connection point */}
-                    <circle
-                      cx={points.top.x}
-                      cy={points.top.y}
-                      r={snappedConnectionPoint === 'top' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'top' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Right connection point */}
-                    <circle
-                      cx={points.right.x}
-                      cy={points.right.y}
-                      r={snappedConnectionPoint === 'right' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'right' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Bottom connection point */}
-                    <circle
-                      cx={points.bottom.x}
-                      cy={points.bottom.y}
-                      r={snappedConnectionPoint === 'bottom' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'bottom' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Left connection point */}
-                    <circle
-                      cx={points.left.x}
-                      cy={points.left.y}
-                      r={snappedConnectionPoint === 'left' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'left' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </>
-                );
-              })()
-            )}
-          </>
-        );
 
-      case 'circle':
-        // Support both legacy radius and new radiusX/radiusY for ellipses
-        {
-const ellipseRx = element.radiusX ?? element.radius ?? 50;
-        const ellipseRy = element.radiusY ?? element.radius ?? 50;
-        return (
-          <>
-            <ellipse
-              cx={element.x}
-              cy={element.y}
-              rx={ellipseRx}
-              ry={ellipseRy}
-              fill={element.color === 'transparent' ? 'none' : displayColor(element.color)}
-              stroke={element.strokeColor === 'transparent' ? 'none' : displayColor(element.strokeColor)}
-              strokeWidth={element.strokeWidth || strokeWidth}
-              className="cursor-pointer"
-              onClick={() => {
-                setSelectedElement(element.id);
-                setSelectedElements(new Set());
-              }}
-            />
-            {/* Selection border for single selection */}
-            {selectedElement === element.id && (
-              <>
-                <rect
-                  x={element.x - ellipseRx}
-                  y={element.y - ellipseRy}
-                  width={ellipseRx * 2}
-                  height={ellipseRy * 2}
-                  fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth={1.5}
-                  rx={2}
-                  ry={2}
-                  pointerEvents="none"
-                />
-                {/* Resize handles */}
-                {/* Top-left handle */}
-                <circle
-                  cx={element.x - ellipseRx}
-                  cy={element.y - ellipseRy}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-nw-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="nw"
-                />
-                {/* Top-right handle */}
-                <circle
-                  cx={element.x + ellipseRx}
-                  cy={element.y - ellipseRy}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-ne-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="ne"
-                />
-                {/* Bottom-left handle */}
-                <circle
-                  cx={element.x - ellipseRx}
-                  cy={element.y + ellipseRy}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-sw-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="sw"
-                />
-                {/* Bottom-right handle */}
-                <circle
-                  cx={element.x + ellipseRx}
-                  cy={element.y + ellipseRy}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-se-resize"
-                  style={{ pointerEvents: 'all' }}
-                  data-handle="se"
-                />
-                {/* Connection points */}
-                {(() => {
-                  const points = getConnectionPoints(element);
-                  if (!points) return null;
-                  return (
-                    <>
-                      {/* Top connection point */}
-                      <circle
-                        cx={points.top.x}
-                        cy={points.top.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'top', x: points.top.x, y: points.top.y });
-                          setConnectionEndPoint(points.top);
-                        }}
-                      />
-                      {/* Right connection point */}
-                      <circle
-                        cx={points.right.x}
-                        cy={points.right.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'right', x: points.right.x, y: points.right.y });
-                          setConnectionEndPoint(points.right);
-                        }}
-                      />
-                      {/* Bottom connection point */}
-                      <circle
-                        cx={points.bottom.x}
-                        cy={points.bottom.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'bottom', x: points.bottom.x, y: points.bottom.y });
-                          setConnectionEndPoint(points.bottom);
-                        }}
-                      />
-                      {/* Left connection point */}
-                      <circle
-                        cx={points.left.x}
-                        cy={points.left.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'left', x: points.left.x, y: points.left.y });
-                          setConnectionEndPoint(points.left);
-                        }}
-                      />
-                    </>
-                  );
-                })()}
-              </>
-            )}
-            {/* Connection points shown when hovering during connection drawing */}
-            {isDrawingConnection && hoveredConnectionElement === element.id && (
-              (() => {
-                const points = getConnectionPoints(element);
-                if (!points) return null;
-                return (
-                  <>
-                    {/* Top connection point */}
-                    <circle
-                      cx={points.top.x}
-                      cy={points.top.y}
-                      r={snappedConnectionPoint === 'top' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'top' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Right connection point */}
-                    <circle
-                      cx={points.right.x}
-                      cy={points.right.y}
-                      r={snappedConnectionPoint === 'right' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'right' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Bottom connection point */}
-                    <circle
-                      cx={points.bottom.x}
-                      cy={points.bottom.y}
-                      r={snappedConnectionPoint === 'bottom' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'bottom' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Left connection point */}
-                    <circle
-                      cx={points.left.x}
-                      cy={points.left.y}
-                      r={snappedConnectionPoint === 'left' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'left' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </>
-                );
-              })()
-            )}
-          </>
-        );
-        }
-
-      case 'text':
-        {
-const isTextEditing = editingElement === element.id;
-        const textFontSize = element.fontSize || 16;
-        const textElementLines = (element.text || '').split('\n');
-        const maxLineLength = Math.max(...textElementLines.map(line => line.length), 1);
-        const estimatedTextWidth = Math.max(200, maxLineLength * textFontSize * 0.7 + 40);
-        const textAreaHeight = Math.max(textFontSize * 2, textElementLines.length * textFontSize * 1.5 + 20);
-
-        return (
-          <g>
-            {isTextEditing ? (
-              <foreignObject
-                x={element.x}
-                y={element.y - textFontSize}
-                width={estimatedTextWidth}
-                height={textAreaHeight}
-                style={{ pointerEvents: 'auto', overflow: 'visible' }}
-              >
-                <textarea
-                  ref={(textarea) => {
-                    if (textarea && document.activeElement !== textarea) {
-                      // Use setTimeout to ensure React has finished rendering
-                      setTimeout(() => {
-                        textarea.focus();
-                        // Move cursor to end of text
-                        const len = textarea.value?.length || 0;
-                        textarea.setSelectionRange(len, len);
-                      }, 0);
-                    }
-                  }}
-                  placeholder={st('sweep.weldflow.whiteboardView.typeSomethingPlaceholder')}
-                  className="bg-transparent border-none outline-none resize-none placeholder:text-gray-400"
-                  style={{
-                    fontSize: textFontSize,
-                    color: displayColor(element.color),
-                    width: '100%',
-                    height: '100%',
-                    padding: '0',
-                    margin: '0',
-                    lineHeight: `${textFontSize * 1.5}px`,
-                    background: 'transparent',
-                    border: 'none',
-                    caretColor: displayColor(element.color),
-                    fontWeight: element.fontWeight || 'normal',
-                    fontStyle: element.fontStyle || 'normal',
-                    textDecoration: element.textDecoration || 'none',
-                    fontFamily: 'inherit',
-                  }}
-                  value={element.text || ''}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    const updated = elements.map(el =>
-                      el.id === element.id ? { ...el, text: e.target.value } : el
-                    );
-                    setElements(updated);
-                  }}
-                  onBlur={(e) => {
-                    // Don't close if clicking within the toolbar
-                    const relatedTarget = e.relatedTarget as HTMLElement;
-                    if (relatedTarget?.closest('.fixed.z-50')) {
-                      return;
-                    }
-                    // Remove text element if empty (check the actual textarea value)
-                    const textValue = (e.target as HTMLTextAreaElement).value;
-                    if (!textValue || textValue.trim() === '') {
-                      deleteElementWithBroadcast(element.id);
-                      setSelectedElement(null);
-                    } else {
-                      // Broadcast text change
-                      broadcastElementUpdate(element.id, { text: textValue });
-                    }
-                    setEditingElement(null);
-                    setTimeout(addToHistory, 100);
-                  }}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Escape') {
-                      // Remove text element if empty when pressing Escape
-                      const textValue = (e.target as HTMLTextAreaElement).value;
-                      if (!textValue || textValue.trim() === '') {
-                        setElements(prev => prev.filter(el => el.id !== element.id));
-                        setSelectedElement(null);
-                      }
-                      setEditingElement(null);
-                    }
-                  }}
-                />
-              </foreignObject>
-            ) : (
-              <>
-                {/* Invisible hit area - always present for clicking/dragging */}
-                <rect
-                  className="hit-area cursor-move"
-                  x={element.x - 6}
-                  y={element.y - textFontSize - 4}
-                  width={30}
-                  height={textFontSize + 8}
-                  fill="transparent"
-                  stroke="none"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    if (element.link && e.ctrlKey) {
-                      window.open(element.link, '_blank');
-                      return;
-                    }
-                    const point = screenToCanvas(e.clientX, e.clientY);
-                    setSelectedElement(element.id);
-                    setSelectedElements(new Set());
-                    setIsDraggingElement(true);
-                    setDragStartPos(point);
-                    setDragElementStart({ x: element.x || 0, y: element.y || 0 });
-                  }}
-                  onDoubleClick={() => {
-                    setEditingElement(element.id);
-                  }}
-                  ref={(node) => {
-                    if (node) {
-                      // Get the text element's bounding box to size the hit area
-                      const textEl = node.parentElement?.querySelector('text');
-                      if (textEl) {
-                        const bbox = textEl.getBBox();
-                        node.setAttribute('x', String(bbox.x - 6));
-                        node.setAttribute('y', String(bbox.y - 4));
-                        node.setAttribute('width', String(bbox.width + 12));
-                        node.setAttribute('height', String(bbox.height + 8));
-
-                        // Also update selection rect if present (for single or multi selection)
-                        const selRect = node.parentElement?.querySelector('.selection-rect') as SVGRectElement;
-                        if (selRect) {
-                          selRect.setAttribute('x', String(bbox.x - 6));
-                          selRect.setAttribute('y', String(bbox.y - 4));
-                          selRect.setAttribute('width', String(bbox.width + 12));
-                          selRect.setAttribute('height', String(bbox.height + 8));
-                        }
-
-                        // Store bounding box in ref for arrow connection positioning
-                        const existingBbox = textBoundingBoxesRef.current.get(element.id);
-                        const bboxChanged = !existingBbox ||
-                          existingBbox.x !== bbox.x ||
-                          existingBbox.y !== bbox.y ||
-                          existingBbox.width !== bbox.width ||
-                          existingBbox.height !== bbox.height;
-
-                        if (bboxChanged) {
-                          textBoundingBoxesRef.current.set(element.id, {
-                            x: bbox.x,
-                            y: bbox.y,
-                            width: bbox.width,
-                            height: bbox.height
-                          });
-                          // Trigger arrow position update
-                          setTextBboxVersion(v => v + 1);
-                        }
-
-                        // Update connection points positions
-                        const connPoints = node.parentElement?.querySelectorAll('.text-connection-point');
-                        if (connPoints && connPoints.length === 4) {
-                          const centerX = bbox.x + bbox.width / 2;
-                          const centerY = bbox.y + bbox.height / 2;
-                          // Top
-                          connPoints[0].setAttribute('cx', String(centerX));
-                          connPoints[0].setAttribute('cy', String(bbox.y - 4));
-                          // Right
-                          connPoints[1].setAttribute('cx', String(bbox.x + bbox.width + 6));
-                          connPoints[1].setAttribute('cy', String(centerY));
-                          // Bottom
-                          connPoints[2].setAttribute('cx', String(centerX));
-                          connPoints[2].setAttribute('cy', String(bbox.y + bbox.height + 4));
-                          // Left
-                          connPoints[3].setAttribute('cx', String(bbox.x - 6));
-                          connPoints[3].setAttribute('cy', String(centerY));
-                        }
-
-                        // Store bounding box for toolbar positioning (only for single selection to avoid infinite loop)
-                        if (selectedElement === element.id && !selectedElements.has(element.id)) {
-                          if (!textBoundingBox ||
-                              textBoundingBox.x !== bbox.x ||
-                              textBoundingBox.y !== bbox.y ||
-                              textBoundingBox.width !== bbox.width ||
-                              textBoundingBox.height !== bbox.height) {
-                            setTextBoundingBox({ x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height });
-                          }
-                        }
-                      }
-                    }
-                  }}
-                />
-                <text
-                  x={element.x}
-                  y={element.y}
-                  fill={element.text ? displayColor(element.color) : '#9ca3af'}
-                  fontSize={textFontSize}
-                  fontWeight={element.fontWeight || 'normal'}
-                  fontStyle={element.text ? (element.fontStyle || 'normal') : 'italic'}
-                  textDecoration={element.textDecoration || 'none'}
-                  textAnchor={element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start'}
-                  className="pointer-events-none select-none"
-                  style={element.link ? { textDecoration: 'underline' } : {}}
-                >
-                  {(element.text || 'Type something...').split('\n').map((line, index) => (
-                    <tspan
-                      key={index}
-                      x={element.x}
-                      dy={index === 0 ? 0 : textFontSize * 1.5}
-                    >
-                      {line || ' '}
-                    </tspan>
-                  ))}
-                </text>
-                {/* Selection border - visible when single or multi selected */}
-                {(selectedElement === element.id || selectedElements.has(element.id)) && (
-                  <rect
-                    className="selection-rect pointer-events-none"
-                    x={element.x - 6}
-                    y={element.y - textFontSize - 4}
-                    width={30}
-                    height={textFontSize + 8}
-                    fill="none"
-                    stroke="#3b82f6"
-                    strokeWidth={1.5}
-                    rx={4}
-                    ry={4}
-                  />
-                )}
-                {/* Connection points for text */}
-                {selectedElement === element.id && !isTextEditing && (
-                  (() => {
-                    const points = getConnectionPoints(element);
-                    if (!points) return null;
-                    return (
-                      <>
-                        {/* Top connection point */}
-                        <circle
-                          cx={points.top.x}
-                          cy={points.top.y}
-                          r={5}
-                          fill="#3b82f6"
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair text-connection-point"
-                          style={{ pointerEvents: 'all' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            const circle = e.currentTarget;
-                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
-                            setIsDrawingConnection(true);
-                            setConnectionStart({ elementId: element.id, point: 'top', x: cx, y: cy });
-                            setConnectionEndPoint({ x: cx, y: cy });
-                          }}
-                        />
-                        {/* Right connection point */}
-                        <circle
-                          cx={points.right.x}
-                          cy={points.right.y}
-                          r={5}
-                          fill="#3b82f6"
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair text-connection-point"
-                          style={{ pointerEvents: 'all' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            const circle = e.currentTarget;
-                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
-                            setIsDrawingConnection(true);
-                            setConnectionStart({ elementId: element.id, point: 'right', x: cx, y: cy });
-                            setConnectionEndPoint({ x: cx, y: cy });
-                          }}
-                        />
-                        {/* Bottom connection point */}
-                        <circle
-                          cx={points.bottom.x}
-                          cy={points.bottom.y}
-                          r={5}
-                          fill="#3b82f6"
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair text-connection-point"
-                          style={{ pointerEvents: 'all' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            const circle = e.currentTarget;
-                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
-                            setIsDrawingConnection(true);
-                            setConnectionStart({ elementId: element.id, point: 'bottom', x: cx, y: cy });
-                            setConnectionEndPoint({ x: cx, y: cy });
-                          }}
-                        />
-                        {/* Left connection point */}
-                        <circle
-                          cx={points.left.x}
-                          cy={points.left.y}
-                          r={5}
-                          fill="#3b82f6"
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair text-connection-point"
-                          style={{ pointerEvents: 'all' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            const circle = e.currentTarget;
-                            const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
-                            const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
-                            setIsDrawingConnection(true);
-                            setConnectionStart({ elementId: element.id, point: 'left', x: cx, y: cy });
-                            setConnectionEndPoint({ x: cx, y: cy });
-                          }}
-                        />
-                      </>
-                    );
-                  })()
-                )}
-                {/* Connection points shown when hovering during connection drawing */}
-                {isDrawingConnection && hoveredConnectionElement === element.id && (
-                  (() => {
-                    const points = getConnectionPoints(element);
-                    if (!points) return null;
-                    return (
-                      <>
-                        {/* Top connection point */}
-                        <circle
-                          cx={points.top.x}
-                          cy={points.top.y}
-                          r={snappedConnectionPoint === 'top' ? 10 : 6}
-                          fill={snappedConnectionPoint === 'top' ? '#22c55e' : '#3b82f6'}
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair"
-                          style={{ pointerEvents: 'none' }}
-                        />
-                        {/* Right connection point */}
-                        <circle
-                          cx={points.right.x}
-                          cy={points.right.y}
-                          r={snappedConnectionPoint === 'right' ? 10 : 6}
-                          fill={snappedConnectionPoint === 'right' ? '#22c55e' : '#3b82f6'}
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair"
-                          style={{ pointerEvents: 'none' }}
-                        />
-                        {/* Bottom connection point */}
-                        <circle
-                          cx={points.bottom.x}
-                          cy={points.bottom.y}
-                          r={snappedConnectionPoint === 'bottom' ? 10 : 6}
-                          fill={snappedConnectionPoint === 'bottom' ? '#22c55e' : '#3b82f6'}
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair"
-                          style={{ pointerEvents: 'none' }}
-                        />
-                        {/* Left connection point */}
-                        <circle
-                          cx={points.left.x}
-                          cy={points.left.y}
-                          r={snappedConnectionPoint === 'left' ? 10 : 6}
-                          fill={snappedConnectionPoint === 'left' ? '#22c55e' : '#3b82f6'}
-                          stroke="white"
-                          strokeWidth={2}
-                          className="cursor-crosshair"
-                          style={{ pointerEvents: 'none' }}
-                        />
-                      </>
-                    );
-                  })()
-                )}
-              </>
-            )}
-          </g>
-        );
-        }
-
-      case 'sticky':
-        // Use stored height if available, otherwise calculate based on text content
-        {
-const textLines = (element.text || '').split('\n');
-        const lineHeight = (element.fontSize || 16) * 1.5;
-        const minHeight = 200;
-        const padding = 24; // p-3 = 12px top + 12px bottom
-        const autoCalculatedHeight = Math.max(minHeight, (textLines.length * lineHeight) + padding + 20);
-        const stickyHeight = element.height || autoCalculatedHeight;
-        const isEditing = editingElement === element.id;
-
-        return (
-          <g>
-            <rect
-              x={element.x}
-              y={element.y}
-              width={element.width}
-              height={stickyHeight}
-              fill={element.color}
-              stroke="none"
-              rx="4"
-              className={cn(
-                "cursor-pointer drop-shadow-md",
-                selectedElement === element.id && "stroke-blue-500 stroke-2"
-              )}
-              onClick={() => {
-                setSelectedElement(element.id);
-                setSelectedElements(new Set());
-              }}
-              onDoubleClick={() => {
-                setEditingElement(element.id);
-              }}
-            />
-            <foreignObject
-              x={element.x}
-              y={element.y}
-              width={element.width}
-              height={stickyHeight}
-              style={{ pointerEvents: isEditing ? 'auto' : 'none' }}
-            >
-              <div className="h-full" style={{ padding: '12px 12px 12px 12px' }}>
-                {isEditing ? (
-                  <textarea
-                    ref={(textarea) => {
-                      if (textarea && document.activeElement !== textarea) {
-                        // Use setTimeout to ensure React has finished rendering
-                        setTimeout(() => {
-                          textarea.focus();
-                          // Move cursor to end of text
-                          const len = textarea.value?.length || 0;
-                          textarea.setSelectionRange(len, len);
-                        }, 0);
-                      }
-                    }}
-                    className="w-full h-full bg-transparent border-none outline-none resize-none text-gray-800 overflow-auto sticky-note-scrollbar"
-                    placeholder={st('sweep.weldflow.whiteboardView.addTextPlaceholder')}
-                    value={element.text}
-                    style={{
-                      fontSize: element.fontSize,
-                      lineHeight: `${lineHeight}px`,
-                      scrollbarWidth: 'thin',
-                      scrollbarColor: 'rgba(209, 213, 219, 0.4) transparent',
-                      paddingRight: '2px'
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      const updated = elements.map(el =>
-                        el.id === element.id ? { ...el, text: e.target.value } : el
-                      );
-                      setElements(updated);
-                    }}
-                    onBlur={(e) => {
-                      // Broadcast text change
-                      broadcastElementUpdate(element.id, { text: (e.target as HTMLTextAreaElement).value });
-                      setEditingElement(null);
-                      setTimeout(addToHistory, 100);
-                    }}
-                  />
-                ) : (
-                  <div
-                    className="w-full h-full whitespace-pre-wrap break-words overflow-hidden"
-                    style={{ fontSize: element.fontSize, lineHeight: `${lineHeight}px` }}
-                  >
-                    {element.text}
-                  </div>
-                )}
-              </div>
-            </foreignObject>
-
-            {/* Resize handles */}
-            {selectedElement === element.id && !isEditing && (
-              <>
-                {/* Top-left handle */}
-                <circle
-                  cx={element.x}
-                  cy={element.y}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-nw-resize"
-                  style={{ pointerEvents: 'all' }}
-                />
-                {/* Top-right handle */}
-                <circle
-                  cx={element.x! + element.width!}
-                  cy={element.y}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-ne-resize"
-                  style={{ pointerEvents: 'all' }}
-                />
-                {/* Bottom-left handle */}
-                <circle
-                  cx={element.x}
-                  cy={element.y! + stickyHeight}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-sw-resize"
-                  style={{ pointerEvents: 'all' }}
-                />
-                {/* Bottom-right handle */}
-                <circle
-                  cx={element.x! + element.width!}
-                  cy={element.y! + stickyHeight}
-                  r={6}
-                  fill="white"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  className="cursor-se-resize"
-                  style={{ pointerEvents: 'all' }}
-                />
-                {/* Connection points for sticky notes */}
-                {(() => {
-                  const points = getConnectionPoints(element);
-                  if (!points) return null;
-                  return (
-                    <>
-                      {/* Top connection point */}
-                      <circle
-                        cx={points.top.x}
-                        cy={points.top.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'top', x: points.top.x, y: points.top.y });
-                          setConnectionEndPoint(points.top);
-                        }}
-                      />
-                      {/* Right connection point */}
-                      <circle
-                        cx={points.right.x}
-                        cy={points.right.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'right', x: points.right.x, y: points.right.y });
-                          setConnectionEndPoint(points.right);
-                        }}
-                      />
-                      {/* Bottom connection point */}
-                      <circle
-                        cx={points.bottom.x}
-                        cy={points.bottom.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'bottom', x: points.bottom.x, y: points.bottom.y });
-                          setConnectionEndPoint(points.bottom);
-                        }}
-                      />
-                      {/* Left connection point */}
-                      <circle
-                        cx={points.left.x}
-                        cy={points.left.y}
-                        r={5}
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth={2}
-                        className="cursor-crosshair"
-                        style={{ pointerEvents: 'all' }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setIsDrawingConnection(true);
-                          setConnectionStart({ elementId: element.id, point: 'left', x: points.left.x, y: points.left.y });
-                          setConnectionEndPoint(points.left);
-                        }}
-                      />
-                    </>
-                  );
-                })()}
-              </>
-            )}
-            {/* Connection points shown when hovering during connection drawing */}
-            {isDrawingConnection && hoveredConnectionElement === element.id && (
-              (() => {
-                const points = getConnectionPoints(element);
-                if (!points) return null;
-                return (
-                  <>
-                    {/* Top connection point */}
-                    <circle
-                      cx={points.top.x}
-                      cy={points.top.y}
-                      r={snappedConnectionPoint === 'top' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'top' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Right connection point */}
-                    <circle
-                      cx={points.right.x}
-                      cy={points.right.y}
-                      r={snappedConnectionPoint === 'right' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'right' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Bottom connection point */}
-                    <circle
-                      cx={points.bottom.x}
-                      cy={points.bottom.y}
-                      r={snappedConnectionPoint === 'bottom' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'bottom' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {/* Left connection point */}
-                    <circle
-                      cx={points.left.x}
-                      cy={points.left.y}
-                      r={snappedConnectionPoint === 'left' ? 10 : 6}
-                      fill={snappedConnectionPoint === 'left' ? '#22c55e' : '#3b82f6'}
-                      stroke="white"
-                      strokeWidth={2}
-                      className="cursor-crosshair"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </>
-                );
-              })()
-            )}
-          </g>
-        );
-        }
-      
-      case 'path':
-        {
-const pathData = element.points?.map((p, i) => 
-          i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
-        ).join(' ');
-        return (
-          <path
-            d={pathData}
-            fill="none"
-            stroke={displayColor(element.strokeColor)}
-            strokeWidth={element.strokeWidth || strokeWidth}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="cursor-pointer"
-            onClick={() => setSelectedElement(element.id)}
-          />
-        );
-        }
-      
-      case 'arrow':
-        if (element.endX !== undefined && element.endY !== undefined) {
-          const isArrowSelected = selectedElement === element.id;
-          const curvePoints = isArrowSelected ? getArrowCurvePoints(element) : null;
-
-          return (
-            <g
-              className="cursor-pointer"
-              onClick={() => {
-                // Only select if not already selected (clicking canvas will handle deselection)
-                if (!isArrowSelected) {
-                  setSelectedElement(element.id);
-                }
-              }}
-            >
-              {renderArrowLine(element, isArrowSelected)}
-              {/* Drag handles when selected */}
-              {isArrowSelected && curvePoints && (
-                <>
-                  {/* Start point handle */}
-                  <circle
-                    cx={curvePoints.startX}
-                    cy={curvePoints.startY}
-                    r={7}
-                    fill="white"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    className="cursor-move"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* End point handle */}
-                  <circle
-                    cx={curvePoints.endX}
-                    cy={curvePoints.endY}
-                    r={7}
-                    fill="white"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    className="cursor-move"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* Curve control handle (midpoint) */}
-                  <circle
-                    cx={curvePoints.curveMidX}
-                    cy={curvePoints.curveMidY}
-                    r={6}
-                    fill="#3b82f6"
-                    stroke="white"
-                    strokeWidth={2}
-                    className="cursor-move"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                </>
-              )}
-            </g>
-          );
-        }
-        return null;
-      
-      default:
-        return null;
-    }
-    };
-    
     // Render selection border for multi-selected elements using ref to get actual bounds
     const renderSelectionBorder = () => {
       if (!selectedElements.has(element.id)) return null;
@@ -3983,7 +3088,7 @@ const pathData = element.points?.map((p, i) =>
             </mask>
           </defs>
           <g mask={`url(#${maskId})`}>
-            {elementContent()}
+            {renderElementContent(element)}
           </g>
           {renderSelectionBorder()}
         </g>
@@ -3992,7 +3097,7 @@ const pathData = element.points?.map((p, i) =>
 
     return (
       <g key={element.id}>
-        {elementContent()}
+        {renderElementContent(element)}
         {renderSelectionBorder()}
       </g>
     );

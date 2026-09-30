@@ -297,10 +297,8 @@ function distanceToSegmentOrNull(point: Point, a: Point, b: Point): number | nul
   return Math.sqrt(Math.pow(point.x - projX, 2) + Math.pow(point.y - projY, 2));
 }
 
-function hitTestArrow(el: WhiteboardElement, point: Point, zoom: number): boolean {
-  // Check proximity to the arrow line. Tolerance scales with zoom so
-  // the clickable strip stays ~12px wide on screen at any zoom level.
-  const hitTolerance = 12 / zoom;
+function hitTestArrow(el: WhiteboardElement, point: Point, hitTolerance: number): boolean {
+  // Check proximity to the arrow line.
   const distToLine = distanceToSegmentOrNull(
     point,
     { x: el.x, y: el.y },
@@ -309,11 +307,9 @@ function hitTestArrow(el: WhiteboardElement, point: Point, zoom: number): boolea
   return distToLine !== null && distToLine <= hitTolerance;
 }
 
-function hitTestPath(el: WhiteboardElement, point: Point, zoom: number): boolean {
+function hitTestPath(el: WhiteboardElement, point: Point, hitTolerance: number): boolean {
   if (!el.points || el.points.length < 2) return false;
-  // Check proximity to any segment of the path. Tolerance scales with
-  // zoom so freehand strokes stay clickable at any zoom level.
-  const hitTolerance = 12 / zoom;
+  // Check proximity to any segment of the path.
   for (let i = 0; i < el.points.length - 1; i++) {
     const segDist = distanceToSegmentOrNull(point, el.points[i], el.points[i + 1]);
     if (segDist !== null && segDist <= hitTolerance) return true;
@@ -321,8 +317,17 @@ function hitTestPath(el: WhiteboardElement, point: Point, zoom: number): boolean
   return false;
 }
 
-/** Whether `point` (canvas coordinates) falls on the element. */
-export function hitTestElement(el: WhiteboardElement, point: Point, zoom: number): boolean {
+/**
+ * Whether `point` (canvas coordinates) falls on the element. Lines (arrows and
+ * freehand paths) are hit within `lineTolerance`, which by default scales with
+ * zoom so the clickable strip stays ~12px wide on screen at any zoom level.
+ */
+export function hitTestElement(
+  el: WhiteboardElement,
+  point: Point,
+  zoom: number,
+  lineTolerance: number = 12 / zoom
+): boolean {
   switch (el.type) {
     case 'rectangle':
     case 'sticky':
@@ -343,9 +348,9 @@ export function hitTestElement(el: WhiteboardElement, point: Point, zoom: number
              point.y >= el.y - textHeight && point.y <= el.y;
     }
     case 'arrow':
-      return hitTestArrow(el, point, zoom);
+      return hitTestArrow(el, point, lineTolerance);
     case 'path':
-      return hitTestPath(el, point, zoom);
+      return hitTestPath(el, point, lineTolerance);
     default:
       return false;
   }
@@ -721,7 +726,7 @@ export function findConnectionTarget(
 // ---------------------------------------------------------------------------
 
 /** Element moved by (dx, dy) relative to the geometry captured at drag start. */
-function translateFromStart(el: WhiteboardElement, start: DragStart, dx: number, dy: number): WhiteboardElement {
+export function translateFromStart(el: WhiteboardElement, start: DragStart, dx: number, dy: number): WhiteboardElement {
   const updates: Partial<WhiteboardElement> = { x: start.x + dx, y: start.y + dy };
   // Handle arrow endpoints
   if (el.type === 'arrow' && start.endX !== undefined && start.endY !== undefined) {
@@ -1138,4 +1143,198 @@ export function getToolbarSync(element: WhiteboardElement): ToolbarSync {
   if (element.fontSize) sync.fontSize = element.fontSize;
   if (isFillableShape(element)) sync.fillMode = deriveFillMode(element);
   return sync;
+}
+
+// ---------------------------------------------------------------------------
+// Touch gestures
+// ---------------------------------------------------------------------------
+
+/** Minimal shape of a touch point (satisfied by both `React.Touch` and DOM `Touch`). */
+export interface TouchPoint {
+  clientX: number;
+  clientY: number;
+}
+
+/** Distance between two touches, in screen pixels. */
+export function touchDistance(a: TouchPoint, b: TouchPoint): number {
+  return Math.sqrt(Math.pow(b.clientX - a.clientX, 2) + Math.pow(b.clientY - a.clientY, 2));
+}
+
+/** Screen-space midpoint of two touches. */
+export function touchMidpoint(a: TouchPoint, b: TouchPoint): Point {
+  return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+}
+
+/** Toolbar styling applied to shapes created by a touch gesture. */
+export interface ShapeStyle {
+  fillMode: FillMode;
+  selectedColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  arrowType: ArrowType;
+}
+
+// A drag shorter than this (in canvas units) is treated as an accidental tap.
+const MIN_TOUCH_SHAPE_SIZE = 5;
+
+function getShapeColors(style: ShapeStyle): { color: string; strokeColor: string } {
+  return {
+    color: style.fillMode === 'stroke' ? 'transparent' : style.selectedColor,
+    strokeColor: style.fillMode === 'fill' ? 'transparent' : style.strokeColor,
+  };
+}
+
+function createTouchRectangle(start: Point, end: Point, style: ShapeStyle): WhiteboardElement | null {
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+  if (!(width > MIN_TOUCH_SHAPE_SIZE || height > MIN_TOUCH_SHAPE_SIZE)) return null;
+  return {
+    id: Date.now().toString(),
+    type: 'rectangle',
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width,
+    height,
+    ...getShapeColors(style),
+    strokeWidth: style.strokeWidth,
+  };
+}
+
+function createTouchCircle(start: Point, end: Point, style: ShapeStyle): WhiteboardElement | null {
+  const radiusX = Math.abs(end.x - start.x) / 2;
+  const radiusY = Math.abs(end.y - start.y) / 2;
+  if (!(radiusX > MIN_TOUCH_SHAPE_SIZE || radiusY > MIN_TOUCH_SHAPE_SIZE)) return null;
+  return {
+    id: Date.now().toString(),
+    type: 'circle',
+    x: Math.min(start.x, end.x) + radiusX,
+    y: Math.min(start.y, end.y) + radiusY,
+    radiusX,
+    radiusY,
+    ...getShapeColors(style),
+    strokeWidth: style.strokeWidth,
+  };
+}
+
+function createTouchArrow(start: Point, end: Point, style: ShapeStyle): WhiteboardElement | null {
+  if (!(distanceBetween(start, end) > MIN_TOUCH_SHAPE_SIZE)) return null;
+  return {
+    id: Date.now().toString(),
+    type: 'arrow',
+    x: start.x,
+    y: start.y,
+    endX: end.x,
+    endY: end.y,
+    strokeColor: style.strokeColor,
+    strokeWidth: style.strokeWidth,
+    arrowType: style.arrowType,
+  };
+}
+
+function createTouchPath(path: Point[], style: ShapeStyle): WhiteboardElement | null {
+  if (path.length <= 1) return null;
+  return {
+    id: Date.now().toString(),
+    type: 'path',
+    x: 0,
+    y: 0,
+    points: path,
+    strokeColor: style.strokeColor,
+    strokeWidth: style.strokeWidth,
+  };
+}
+
+/**
+ * The element a finished touch gesture should create for the active tool, or
+ * null when the gesture is too small (or the tool draws nothing on touch end).
+ */
+export function createElementFromTouch(
+  tool: string,
+  start: Point,
+  end: Point,
+  path: Point[],
+  style: ShapeStyle
+): WhiteboardElement | null {
+  switch (tool) {
+    case 'rectangle':
+      return createTouchRectangle(start, end, style);
+    case 'circle':
+      return createTouchCircle(start, end, style);
+    case 'arrow':
+      return createTouchArrow(start, end, style);
+    case 'pen':
+      return createTouchPath(path, style);
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Copies and path simplification
+// ---------------------------------------------------------------------------
+
+/** Copy of `el` under a new id, shifted by `offset` so it doesn't sit on the original. */
+export function createOffsetCopy(el: WhiteboardElement, id: string, offset = 20): WhiteboardElement {
+  return {
+    ...el,
+    id,
+    x: el.x + offset,
+    y: el.y + offset,
+    ...(el.type === 'arrow' && el.endX && el.endY ? {
+      endX: el.endX + offset,
+      endY: el.endY + offset,
+    } : {}),
+    ...(el.type === 'path' && el.points ? {
+      points: el.points.map(p => ({ x: p.x + offset, y: p.y + offset })),
+    } : {}),
+  };
+}
+
+/** Simplify path by removing redundant points. */
+export function simplifyPath(points: Point[]): Point[] {
+  if (points.length <= 2) return points;
+
+  const simplified: Point[] = [points[0]];
+  let prevPoint = points[0];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const point = points[i];
+    const nextPoint = points[i + 1];
+
+    // Calculate angle between segments
+    const angle1 = Math.atan2(point.y - prevPoint.y, point.x - prevPoint.x);
+    const angle2 = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
+    const angleDiff = Math.abs(angle1 - angle2);
+
+    // Keep point if angle changes significantly or distance is large
+    const dist = distanceBetween(point, prevPoint);
+
+    if (angleDiff > 0.1 || dist > 10) {
+      simplified.push(point);
+      prevPoint = point;
+    }
+  }
+
+  simplified.push(points[points.length - 1]);
+  return simplified;
+}
+
+// Erased-stroke point count above which an element's strokes are merged.
+const MAX_ERASED_POINTS = 500;
+
+/**
+ * Merge an element's eraser strokes into one simplified stroke once they hold
+ * too many points; returns the element untouched otherwise.
+ */
+export function consolidateErasedPaths(element: WhiteboardElement): WhiteboardElement {
+  const strokes = element.erasedPaths;
+  if (!strokes || strokes.length === 0) return element;
+
+  const totalPoints = strokes.reduce((sum, stroke) => sum + stroke.points.length, 0);
+  if (totalPoints <= MAX_ERASED_POINTS) return element;
+
+  // Too many points, merge and simplify aggressively
+  const allPoints = strokes.flatMap(s => s.points);
+  const avgSize = strokes.reduce((sum, s) => sum + s.size, 0) / strokes.length;
+  return { ...element, erasedPaths: [{ points: simplifyPath(allPoints), size: avgSize }] };
 }
