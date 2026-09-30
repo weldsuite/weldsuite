@@ -151,13 +151,16 @@ export function WebhooksClient({ webhooks: initialWebhooks, isLoading = false }:
   const renderRow = useCallback((webhook: WebhookView) => (
     <div
       key={webhook.id}
-      onClick={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}
-      className="flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
+      className="relative flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
     >
-      <div className="min-w-[200px] flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{webhook.name}</div>
-        <div className="text-xs text-muted-foreground font-mono truncate">{webhook.url}</div>
-      </div>
+      <button
+        type="button"
+        onClick={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}
+        className="min-w-[200px] flex-1 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
+      >
+        <span className="block text-sm font-medium truncate">{webhook.name}</span>
+        <span className="block text-xs text-muted-foreground font-mono truncate">{webhook.url}</span>
+      </button>
 
       <div className="w-[110px]">
         {webhook.isEnabled ? (
@@ -192,7 +195,7 @@ export function WebhooksClient({ webhooks: initialWebhooks, isLoading = false }:
         )}
       </div>
 
-      <div className="w-[48px] flex-shrink-0 flex justify-end" onClick={(e) => e.stopPropagation()}>
+      <div className="relative z-10 w-[48px] flex-shrink-0 flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">

@@ -123,23 +123,26 @@ export function TemplatesClient() {
       return (
         <div
           key={template.id}
-          onClick={() => setSelectedTemplate(template)}
-          className="flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
+          className="relative flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
         >
           {/* Icon + Name + Description */}
-          <div className="min-w-[280px] flex-1 flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-md bg-muted/50 dark:bg-secondary border border-border flex items-center justify-center flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setSelectedTemplate(template)}
+            className="min-w-[280px] flex-1 flex items-center gap-3 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
+          >
+            <span className="w-8 h-8 rounded-md bg-muted/50 dark:bg-secondary border border-border flex items-center justify-center flex-shrink-0">
               <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="flex flex-col min-w-0">
+            </span>
+            <span className="flex flex-col min-w-0">
               <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
                 {template.name}
               </span>
               <span className="text-xs text-muted-foreground truncate">
                 {template.description}
               </span>
-            </div>
-          </div>
+            </span>
+          </button>
 
           {/* Category badge */}
           <div className="w-[140px]">
@@ -196,7 +199,7 @@ export function TemplatesClient() {
           </div>
 
           {/* Use button */}
-          <div className="w-[110px] flex-shrink-0 flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <div className="relative z-10 w-[110px] flex-shrink-0 flex justify-end">
             <Button
               size="sm"
               variant="outline"
@@ -243,7 +246,13 @@ export function TemplatesClient() {
       {/* Template Detail Dialog */}
       {selectedTemplate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in duration-200">
-          <div className="fixed inset-0 bg-black/50 animate-in fade-in duration-200" onClick={() => setSelectedTemplate(null)} />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="fixed inset-0 cursor-default bg-black/50 animate-in fade-in duration-200"
+            onClick={() => setSelectedTemplate(null)}
+          />
           <div className="relative bg-background rounded-xl shadow-lg w-[1000px] max-w-[95vw] h-[700px] max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
             {/* Header */}
             <header className="flex h-12 shrink-0 items-center justify-end border-b px-4">
