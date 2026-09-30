@@ -20,7 +20,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
@@ -31,7 +31,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getRecordings } from '@weldsuite/cloudflare-realtime';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
@@ -100,13 +100,8 @@ async function canAccessMeetingById(
   return 'ok';
 }
 
-app.get('/', requirePermission('meetings:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-  const scope = await scopeFor(c);
-
-  const conditions: any[] = [isNull(t.deletedAt)];
+function buildListFilters(q: Record<string, string>, scope: string | undefined): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.organizerId, scope));
   if (q.search) {
     conditions.push(like(t.title, `%${q.search}%`));
@@ -135,6 +130,16 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
       sql`(${t.attendees} @> ${byPerson}::jsonb OR ${t.attendees} @> ${byContact}::jsonb)`,
     );
   }
+  return conditions;
+}
+
+app.get('/', requirePermission('meetings:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const scope = await scopeFor(c);
+
+  const conditions = buildListFilters(q, scope);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
@@ -521,6 +526,41 @@ app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
   }
 });
 
+/** Remove a transcription and its segments (used to retry a failed attempt). */
+async function deleteTranscription(db: Database, transcriptionId: string): Promise<void> {
+  const { crmTranscriptions, crmTranscriptSegments } = schema;
+  await db
+    .delete(crmTranscriptSegments)
+    .where(eq(crmTranscriptSegments.transcriptionId, transcriptionId));
+  await db
+    .delete(crmTranscriptions)
+    .where(eq(crmTranscriptions.id, transcriptionId));
+}
+
+interface TranscribeWorkflowParams {
+  transcriptionId: string;
+  fileKey: string | undefined;
+  fileUrl: string | undefined;
+  language: string | undefined;
+  estimatedMinutes: number;
+  creditRate: number;
+  entityId: string;
+  workspaceId: string;
+}
+
+/**
+ * Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow. The binding is
+ * guarded — if not present in this worker, log a warning.
+ */
+async function dispatchTranscribeWorkflow(env: Env, params: TranscribeWorkflowParams): Promise<void> {
+  const transcribeWorkflow = (env as any).TRANSCRIBE_RECORDING as Workflow | undefined;
+  if (!transcribeWorkflow) {
+    console.warn('[app-api/meetings] TRANSCRIBE_RECORDING binding not configured — skipping workflow dispatch');
+    return;
+  }
+  await transcribeWorkflow.create({ id: params.transcriptionId, params });
+}
+
 /**
  * POST /:id/recording/transcribe - Trigger transcription for a meeting recording
  */
@@ -539,7 +579,7 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     const access = await canAccessMeetingById(c, meetingId);
     if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
     if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { meetingSessions, crmTranscriptions, crmTranscriptSegments } = schema;
+    const { meetingSessions, crmTranscriptions } = schema;
 
     // Find the latest ended session with a recording URL
     const [session] = await db
@@ -583,14 +623,7 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     }
 
     // Delete a previous failed attempt and retry
-    if (existing && existing.status === 'failed') {
-      await db
-        .delete(crmTranscriptSegments)
-        .where(eq(crmTranscriptSegments.transcriptionId, existing.id));
-      await db
-        .delete(crmTranscriptions)
-        .where(eq(crmTranscriptions.id, existing.id));
-    }
+    if (existing?.status === 'failed') await deleteTranscription(db, existing.id);
 
     const transcriptionId = generateId('trans');
     const now = new Date();
@@ -615,24 +648,16 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     // Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow (hosted in this
     // worker under the transcribe-recording-v2* names since W4).
     // The binding is guarded — if not present in this worker, log a warning.
-    const transcribeWorkflow = (c.env as any).TRANSCRIBE_RECORDING as Workflow | undefined;
-    if (!transcribeWorkflow) {
-      console.warn('[app-api/meetings] TRANSCRIBE_RECORDING binding not configured — skipping workflow dispatch');
-    } else {
-      await transcribeWorkflow.create({
-        id: transcriptionId,
-        params: {
-          transcriptionId,
-          fileKey,
-          fileUrl: fileKey ? undefined : session.recordingUrl,
-          language: body.language,
-          estimatedMinutes,
-          creditRate: DEFAULT_TRANSCRIPTION_CREDIT_RATE,
-          entityId: meetingId,
-          workspaceId: orgId,
-        },
-      });
-    }
+    await dispatchTranscribeWorkflow(c.env, {
+      transcriptionId,
+      fileKey,
+      fileUrl: fileKey ? undefined : session.recordingUrl,
+      language: body.language,
+      estimatedMinutes,
+      creditRate: DEFAULT_TRANSCRIPTION_CREDIT_RATE,
+      entityId: meetingId,
+      workspaceId: orgId,
+    });
 
     return success(c, { id: transcriptionId, status: 'pending' }, 201);
   } catch (err) {

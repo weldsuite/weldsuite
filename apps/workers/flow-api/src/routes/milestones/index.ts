@@ -4,9 +4,9 @@
  * Permissions: milestones:read | milestones:create | milestones:update | milestones:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMilestoneSchema, updateMilestoneSchema } from '@weldsuite/core-api-client/schemas/milestones';
@@ -21,15 +21,14 @@ const t = schema.milestones;
 
 const PROJECT_DENIED = 'You are not a member of this project';
 
-app.get('/', requirePermission('milestones:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+/** List filters (project access, status, search). Resolves to null when the project is off-limits. */
+async function buildListFilters(c: AppContext, q: Record<string, string>): Promise<SQL[] | null> {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (q.projectId !== undefined && q.projectId !== '') conditions.push(eq(t.projectId, q.projectId));
   if (q.projectId) {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
+    if (!(await canAccessProject(c, q.projectId))) return null;
   } else {
     const accessible = await accessibleProjectIds(c);
     if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
@@ -38,6 +37,16 @@ app.get('/', requirePermission('milestones:read'), async (c) => {
   if (q.search) {
     conditions.push(like(t.name, `%${q.search}%`));
   }
+  return conditions;
+}
+
+app.get('/', requirePermission('milestones:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+
+  const conditions = await buildListFilters(c, q);
+  if (!conditions) return error.forbidden(c, PROJECT_DENIED);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })

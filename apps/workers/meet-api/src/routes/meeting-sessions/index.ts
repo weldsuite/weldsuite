@@ -25,7 +25,7 @@ import { createMeetingSessionSchema, updateMeetingSessionSchema } from '@weldsui
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   createMeeting as createRtkMeeting,
   addParticipant,
@@ -34,7 +34,7 @@ import {
   getRecordings,
 } from '@weldsuite/cloudflare-realtime';
 import { endMeetingSession, publishSessionStarted, publishMeetingUpdated } from '../../services/weldmeet/meeting-lifecycle';
-import { resolveParticipantLink } from '../../lib/participant-resolver';
+import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/participant-resolver';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import type { Context } from 'hono';
 
@@ -77,6 +77,107 @@ async function getMemberDisplayCached(
       Promise.resolve(),
   );
   return result;
+}
+
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+type SessionRow = typeof schema.meetingSessions.$inferSelect;
+type MeetingRow = typeof schema.meetings.$inferSelect;
+
+/** Build the session-participant record for a freshly joined RTK participant. */
+function buildSessionParticipant(
+  userId: string,
+  userName: string,
+  avatar: string | undefined,
+  link: ResolvedParticipantLink,
+  cfSessionId: string,
+): MeetingSessionParticipant {
+  return {
+    userId,
+    userName,
+    userAvatar: avatar,
+    joinedAt: new Date().toISOString(),
+    cfSessionId,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+    ...(link.workspaceMemberId ? { workspaceMemberId: link.workspaceMemberId } : {}),
+    ...(link.personId ? { personId: link.personId } : {}),
+  };
+}
+
+/**
+ * If the meeting still points at a live session, end it when it is stale
+ * (empty for a minute, or waiting for 5); otherwise report a conflict.
+ */
+async function endStaleSessionOrConflict(
+  db: Database,
+  env: Env,
+  orgId: string,
+  meetingId: string,
+  activeSessionId: string,
+): Promise<'ok' | 'conflict'> {
+  const [existingSession] = await db.select().from(t).where(eq(t.id, activeSessionId)).limit(1);
+  if (!existingSession || existingSession.status === 'ended') return 'ok';
+
+  const age = Date.now() - new Date(existingSession.createdAt).getTime();
+  const participants: MeetingSessionParticipant[] = existingSession.participants ?? [];
+  const activeParticipants = participants.filter((p) => !p.leftAt);
+  const isStale =
+    (activeParticipants.length === 0 && age > 60_000) ||
+    (existingSession.status === 'waiting' && age > 5 * 60_000);
+
+  if (!isStale) return 'conflict';
+  await endMeetingSession(db, env, orgId, existingSession.id, existingSession, meetingId);
+  return 'ok';
+}
+
+/** Register the calling member with RTK as part of `POST /start?join=true`. */
+async function joinStartedSession(
+  c: AppContext,
+  params: {
+    orgId: string;
+    userId: string;
+    userName: string;
+    memberPicture: string | undefined;
+    rtkMeetingId: string;
+    isHost: boolean;
+  },
+): Promise<{ authToken: string; entry: MeetingSessionParticipant }> {
+  const { orgId, userId, userName, memberPicture, rtkMeetingId, isHost } = params;
+  const link = await resolveParticipantLink(c.get('tenantDb'), c.env, orgId, { userId, name: userName });
+  const avatar = link.avatarUrl ?? memberPicture;
+  const rtkParticipant = await addParticipant(c.env, rtkMeetingId, {
+    name: userName,
+    customParticipantId: userId,
+    presetName: isHost ? RTK_PRESETS.HOST : RTK_PRESETS.MEMBER,
+    picture: avatar,
+  });
+  return {
+    authToken: rtkParticipant.token,
+    entry: buildSessionParticipant(userId, userName, avatar, link, rtkParticipant.id),
+  };
+}
+
+/**
+ * Host-control policy gates for joining. Returns the blocking outcome, or
+ * null when the user may join.
+ */
+function checkJoinPolicy(
+  meeting: MeetingRow,
+  session: SessionRow,
+  userId: string,
+): 'locked' | 'host_must_join_first' | null {
+  if (meeting.lockAfterStart && session.status === 'active') {
+    const attendees = (meeting.attendees ?? []) as Array<{ userId?: string }>;
+    const isPreInvited = attendees.some((a) => a.userId === userId);
+    if (!isPreInvited) return 'locked';
+  }
+
+  if (meeting.hostMustJoinFirst) {
+    const hostPresent = !!session.participants?.some?.((p) => p.userId === meeting.organizerId);
+    if (!hostPresent) return 'host_must_join_first';
+  }
+  return null;
 }
 
 // ============================================================================
@@ -218,26 +319,8 @@ app.post(
 
       // Check no active session already
       if (meeting.activeSessionId) {
-        const [existingSession] = await db
-          .select()
-          .from(t)
-          .where(eq(t.id, meeting.activeSessionId))
-          .limit(1);
-
-        if (existingSession && existingSession.status !== 'ended') {
-          const age = Date.now() - new Date(existingSession.createdAt).getTime();
-          const participants: MeetingSessionParticipant[] = existingSession.participants ?? [];
-          const activeParticipants = participants.filter((p) => !p.leftAt);
-          const isStale =
-            (activeParticipants.length === 0 && age > 60_000) ||
-            (existingSession.status === 'waiting' && age > 5 * 60_000);
-
-          if (isStale) {
-            await endMeetingSession(db, c.env, orgId, existingSession.id, existingSession, meetingId);
-          } else {
-            return error.conflict(c, 'A session is already active for this meeting');
-          }
-        }
+        const outcome = await endStaleSessionOrConflict(db, c.env, orgId, meetingId, meeting.activeSessionId);
+        if (outcome === 'conflict') return error.conflict(c, 'A session is already active for this meeting');
       }
       timings.stale = Date.now() - t0;
 
@@ -265,30 +348,16 @@ app.post(
       let firstParticipantEntry: MeetingSessionParticipant | undefined;
 
       if (joinInline) {
-        const link = await resolveParticipantLink(db, c.env, orgId, {
-          userId,
-          name: userName,
-        });
-        const avatar = link.avatarUrl ?? member.picture;
-        const rtkParticipant = await addParticipant(c.env, rtkMeeting.id, {
-          name: userName,
-          customParticipantId: userId,
-          presetName: isHost ? RTK_PRESETS.HOST : RTK_PRESETS.MEMBER,
-          picture: avatar,
-        });
-        authToken = rtkParticipant.token;
-        firstParticipantEntry = {
+        const joined = await joinStartedSession(c, {
+          orgId,
           userId,
           userName,
-          userAvatar: avatar,
-          joinedAt: new Date().toISOString(),
-          cfSessionId: rtkParticipant.id,
-          hasAudio: false,
-          hasVideo: false,
-          hasScreenShare: false,
-          ...(link.workspaceMemberId ? { workspaceMemberId: link.workspaceMemberId } : {}),
-          ...(link.personId ? { personId: link.personId } : {}),
-        };
+          memberPicture: member.picture,
+          rtkMeetingId: rtkMeeting.id,
+          isHost,
+        });
+        authToken = joined.authToken;
+        firstParticipantEntry = joined.entry;
         timings.rtkJoin = Date.now() - t0;
       }
 
@@ -386,21 +455,12 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     const isHost = meeting?.organizerId === userId;
 
     // Host-control policy gates
-    if (meeting && !isHost) {
-      if (meeting.lockAfterStart && session.status === 'active') {
-        const attendees = (meeting.attendees ?? []) as Array<{ userId?: string }>;
-        const isPreInvited = attendees.some((a) => a.userId === userId);
-        if (!isPreInvited) {
-          return error.forbidden(c, 'This meeting is locked. New participants are not allowed.');
-        }
-      }
-
-      if (meeting.hostMustJoinFirst) {
-        const hostPresent = !!session.participants?.some?.((p) => p.userId === meeting.organizerId);
-        if (!hostPresent) {
-          return success(c, { sessionId, status: 'waiting' as const, reason: 'host_must_join_first' });
-        }
-      }
+    const blocked = meeting && !isHost ? checkJoinPolicy(meeting, session, userId) : null;
+    if (blocked === 'locked') {
+      return error.forbidden(c, 'This meeting is locked. New participants are not allowed.');
+    }
+    if (blocked === 'host_must_join_first') {
+      return success(c, { sessionId, status: 'waiting' as const, reason: 'host_must_join_first' });
     }
 
     const [author] = await db
@@ -424,18 +484,7 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
       picture: avatar,
     });
 
-    const participant: MeetingSessionParticipant = {
-      userId,
-      userName,
-      userAvatar: avatar,
-      joinedAt: new Date().toISOString(),
-      cfSessionId: rtkParticipant.id,
-      hasAudio: false,
-      hasVideo: false,
-      hasScreenShare: false,
-      ...(link.workspaceMemberId ? { workspaceMemberId: link.workspaceMemberId } : {}),
-      ...(link.personId ? { personId: link.personId } : {}),
-    };
+    const participant = buildSessionParticipant(userId, userName, avatar, link, rtkParticipant.id);
 
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
     const filtered = participants.filter((p) => p.userId !== userId);
