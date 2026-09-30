@@ -148,6 +148,17 @@ export default function UserDetailsScreen() {
     return `GMT${sign}${h}`;
   }, []);
 
+  const messagesPane = dmChannelId ? (
+    <ChannelView channelId={dmChannelId} hideHeader hideBackButton />
+  ) : (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyStateText}>No conversation with this person yet.</Text>
+      <TouchableOpacity style={styles.messageBtn} onPress={handleMessage}>
+        <Text style={styles.messageBtnText}>Start conversation</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -205,16 +216,7 @@ export default function UserDetailsScreen() {
 
         {/* Messages tab renders an embedded ChannelView */}
         {activeTab === 'messages' ? (
-          dmChannelId ? (
-            <ChannelView channelId={dmChannelId} hideHeader hideBackButton />
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No conversation with this person yet.</Text>
-              <TouchableOpacity style={styles.messageBtn} onPress={handleMessage}>
-                <Text style={styles.messageBtnText}>Start conversation</Text>
-              </TouchableOpacity>
-            </View>
-          )
+          messagesPane
         ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
