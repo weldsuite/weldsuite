@@ -281,9 +281,21 @@ function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonl
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
-        <div className="flex items-center gap-3 min-w-0">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={file.fileName}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+    >
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t.common.actions.close}
+        className="absolute inset-0 h-full w-full cursor-default outline-none"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
+        <div className="pointer-events-auto flex items-center gap-3 min-w-0">
           <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-white/10">
             <Icon className="h-4 w-4 text-white" />
           </div>
@@ -292,12 +304,12 @@ function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonl
             <p className="text-xs text-white/60">{formatFileSize(file.size)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="pointer-events-auto flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
-            onClick={(e) => { e.stopPropagation(); onDownload(file); }}
+            onClick={() => onDownload(file)}
           >
             <Download className="h-4 w-4" />
           </Button>
@@ -305,14 +317,14 @@ function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonl
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
-            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            onClick={onClose}
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      <div className="max-w-[90vw] max-h-[85vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+      <div className="relative max-w-[90vw] max-h-[85vh] flex items-center justify-center">
         {content}
       </div>
     </div>
@@ -1061,7 +1073,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
           <span className="text-sm text-gray-500">{formatDate(file.createdAt)}</span>
         </div>
 
-        <div className="relative z-10 w-[80px] flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 w-[80px] flex justify-end gap-1">
           {!file.isFolder && (
             <Button
               variant="ghost"
