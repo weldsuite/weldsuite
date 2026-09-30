@@ -1118,6 +1118,11 @@ export default function ConversationDetailClient({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the subject input when the user switches into edit mode (replaces `autoFocus`)
+  useEffect(() => {
+    if (isEditingSubject) subjectInputRef.current?.focus();
+  }, [isEditingSubject]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef<boolean>(false);
 
@@ -1692,17 +1697,19 @@ export default function ConversationDetailClient({
                   setIsEditingSubject(false);
                 }}
                 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground bg-transparent outline-none border border-blue-500 dark:border-blue-400 rounded-md px-2 py-0.5 min-w-[80px] w-full -ml-0.5"
-                autoFocus
               />
             ) : (
-              <div
-                className="flex items-center min-w-0 group cursor-text border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
-                onClick={() => {
-                  setIsEditingSubject(true);
-                }}
-              >
-                <h1 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground truncate">
-                  {conversation.subject || 'No subject'}
+              <div className="relative flex items-center min-w-0 group cursor-text border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors">
+                <h1 className="min-w-0 text-sm md:text-lg font-medium text-gray-900 dark:text-foreground truncate">
+                  <button
+                    type="button"
+                    className="max-w-full cursor-text truncate text-left font-[inherit] after:absolute after:inset-0 after:content-['']"
+                    onClick={() => {
+                      setIsEditingSubject(true);
+                    }}
+                  >
+                    <span>{conversation.subject || 'No subject'}</span>
+                  </button>
                 </h1>
                 {/*
                   WELDDESK AI IS OFFLINE (see the welddesk-ai note above). This
@@ -1717,7 +1724,7 @@ export default function ConversationDetailClient({
                   size="icon"
                   onClick={(e) => e.stopPropagation()}
                   disabled
-                  className="flex-shrink-0 p-1 ml-1 text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-100"
+                  className="relative flex-shrink-0 p-1 ml-1 text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-100"
                   title={ti.generateSubjectWithAI}
                 >
                   <svg className="h-3.5 w-3.5" viewBox="0 0 889.29 618.69" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
