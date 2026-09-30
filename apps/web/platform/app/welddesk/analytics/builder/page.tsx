@@ -82,6 +82,43 @@ const mixedBarChartData = [
   { browser: "other", visitors: 90, fill: "var(--chart-5)" },
 ]
 
+interface CenterTotalLabelProps {
+  /** Injected by Recharts when the element is passed as a <Label content>. */
+  viewBox?: { cx?: number; cy?: number };
+  total: number;
+  valueClassName: string;
+}
+
+// Rendered in the middle of the donut / radial charts. Module-level so its identity is stable across renders.
+function CenterTotalLabel({ viewBox, total, valueClassName }: Readonly<CenterTotalLabelProps>) {
+  if (!viewBox || viewBox.cx === undefined || viewBox.cy === undefined) return null;
+  return (
+    <text
+      x={viewBox.cx}
+      y={viewBox.cy}
+      textAnchor="middle"
+      dominantBaseline="middle"
+    >
+      <tspan
+        x={viewBox.cx}
+        y={viewBox.cy}
+        className={valueClassName}
+      >
+        {total.toLocaleString()}
+      </tspan>
+      <tspan
+        x={viewBox.cx}
+        y={viewBox.cy + 24}
+        className="fill-muted-foreground"
+      >
+        Total
+      </tspan>
+    </text>
+  )
+}
+
+const totalMixedVisitors = mixedBarChartData.reduce((acc, curr) => acc + curr.visitors, 0)
+
 const negativeBarChartData = [
   { month: "January", visitors: 186 },
   { month: "February", visitors: 205 },
@@ -571,34 +608,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                             strokeWidth={5}
                           >
                             <RechartsLabel
-                              content={({ viewBox }) => {
-                                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                  const totalVisitors = mixedBarChartData.reduce((acc, curr) => acc + curr.visitors, 0)
-                                  return (
-                                    <text
-                                      x={viewBox.cx}
-                                      y={viewBox.cy}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                    >
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={viewBox.cy}
-                                        className="fill-foreground text-3xl font-bold"
-                                      >
-                                        {totalVisitors.toLocaleString()}
-                                      </tspan>
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={(viewBox.cy || 0) + 24}
-                                        className="fill-muted-foreground"
-                                      >
-                                        Total
-                                      </tspan>
-                                    </text>
-                                  )
-                                }
-                              }}
+                              content={<CenterTotalLabel total={totalMixedVisitors} valueClassName="fill-foreground text-3xl font-bold" />}
                             />
                           </Pie>
                         </RechartsPieChart>
@@ -659,33 +669,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                           <RadialBar dataKey="visitors" background cornerRadius={10} />
                           <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
                             <RechartsLabel
-                              content={({ viewBox }) => {
-                                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                  return (
-                                    <text
-                                      x={viewBox.cx}
-                                      y={viewBox.cy}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                    >
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={viewBox.cy}
-                                        className="fill-foreground text-4xl font-bold"
-                                      >
-                                        {mixedBarChartData[0].visitors.toLocaleString()}
-                                      </tspan>
-                                      <tspan
-                                        x={viewBox.cx}
-                                        y={(viewBox.cy || 0) + 24}
-                                        className="fill-muted-foreground"
-                                      >
-                                        Total
-                                      </tspan>
-                                    </text>
-                                  )
-                                }
-                              }}
+                              content={<CenterTotalLabel total={mixedBarChartData[0].visitors} valueClassName="fill-foreground text-4xl font-bold" />}
                             />
                           </PolarRadiusAxis>
                         </RadialBarChart>
@@ -1047,6 +1031,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.helpdesk.analyticsReports.smoothLines}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.helpdesk.analyticsReports.smoothLines}</span>
                       <input
                         type="checkbox"
                         checked={smoothLines}
@@ -1061,6 +1046,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.helpdesk.analyticsReports.fillArea}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.helpdesk.analyticsReports.fillArea}</span>
                       <input
                         type="checkbox"
                         checked={fillArea}
@@ -1075,6 +1061,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.helpdesk.analyticsReports.showDataPoints}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.helpdesk.analyticsReports.showDataPoints}</span>
                       <input
                         type="checkbox"
                         checked={showDataPoints}
@@ -1089,6 +1076,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-gray-700 dark:text-muted-foreground">{t.helpdesk.analyticsReports.showLegend}</Label>
                     <label className="relative inline-flex items-center cursor-pointer">
+                      <span className="sr-only">{t.helpdesk.analyticsReports.showLegend}</span>
                       <input
                         type="checkbox"
                         checked={showLegend}
