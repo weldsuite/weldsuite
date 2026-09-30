@@ -2125,6 +2125,83 @@ function TemplateCard({ template, onClick }: { template: WorkflowTemplate; onCli
   );
 }
 
+function TemplateCategoryHeading({
+  category,
+  count,
+  className,
+}: {
+  category: LocalizedCategory;
+  count: number;
+  className?: string;
+}) {
+  const CatIcon = category.icon;
+  return (
+    <div className={className}>
+      <CatIcon className="h-4 w-4 text-muted-foreground" />
+      <h3 className="text-sm font-medium">{category.label}</h3>
+      <span className="text-xs text-muted-foreground">({count})</span>
+    </div>
+  );
+}
+
+function TemplateResults({
+  templates,
+  categories,
+  selectedCategory,
+  emptyLabel,
+  onTemplateClick,
+}: {
+  templates: WorkflowTemplate[];
+  categories: LocalizedCategory[];
+  selectedCategory: string;
+  emptyLabel: string;
+  onTemplateClick: (template: WorkflowTemplate) => void;
+}) {
+  if (templates.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Sparkles className="h-8 w-8 mb-2" />
+        <p className="text-sm">{emptyLabel}</p>
+      </div>
+    );
+  }
+
+  if (selectedCategory !== "all") {
+    const cat = categories.find(c => c.id === selectedCategory);
+    return (
+      <div>
+        {cat && (
+          <TemplateCategoryHeading category={cat} count={templates.length} className="flex items-center gap-2 mb-3" />
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          {templates.map((template) => (
+            <TemplateCard key={template.id} template={template} onClick={() => onTemplateClick(template)} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {categories.filter(c => c.id !== "all").map(category => {
+        const categoryTemplates = templates.filter(t => t.category === category.id);
+        if (categoryTemplates.length === 0) return null;
+        return (
+          <div key={category.id}>
+            <TemplateCategoryHeading category={category} count={categoryTemplates.length} className="flex items-center gap-2 mb-3" />
+            <div className="grid grid-cols-2 gap-3">
+              {categoryTemplates.map((template) => (
+                <TemplateCard key={template.id} template={template} onClick={() => onTemplateClick(template)} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function WorkflowTemplateDialog({
   open,
   onOpenChange,
@@ -2374,54 +2451,13 @@ export function WorkflowTemplateDialog({
                   />
                 </div>
 
-                {filteredTemplates.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                    <Sparkles className="h-8 w-8 mb-2" />
-                    <p className="text-sm">{t.weldconnect.templates.noTemplates}</p>
-                  </div>
-                ) : selectedCategory !== "all" ? (
-                  <div>
-                    {(() => {
-                      const cat = categories.find(c => c.id === selectedCategory);
-                      if (!cat) return null;
-                      const CatIcon = cat.icon;
-                      return (
-                        <div className="flex items-center gap-2 mb-3">
-                          <CatIcon className="h-4 w-4 text-muted-foreground" />
-                          <h3 className="text-sm font-medium">{cat.label}</h3>
-                          <span className="text-xs text-muted-foreground">({filteredTemplates.length})</span>
-                        </div>
-                      );
-                    })()}
-                    <div className="grid grid-cols-2 gap-3">
-                      {filteredTemplates.map((template) => (
-                        <TemplateCard key={template.id} template={template} onClick={() => handleTemplateClick(template)} />
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {categories.filter(c => c.id !== "all").map(category => {
-                      const categoryTemplates = filteredTemplates.filter(t => t.category === category.id);
-                      if (categoryTemplates.length === 0) return null;
-                      const CatIcon = category.icon;
-                      return (
-                        <div key={category.id}>
-                          <div className="flex items-center gap-2 mb-3">
-                            <CatIcon className="h-4 w-4 text-muted-foreground" />
-                            <h3 className="text-sm font-medium">{category.label}</h3>
-                            <span className="text-xs text-muted-foreground">({categoryTemplates.length})</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            {categoryTemplates.map((template) => (
-                              <TemplateCard key={template.id} template={template} onClick={() => handleTemplateClick(template)} />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <TemplateResults
+                  templates={filteredTemplates}
+                  categories={categories}
+                  selectedCategory={selectedCategory}
+                  emptyLabel={t.weldconnect.templates.noTemplates}
+                  onTemplateClick={handleTemplateClick}
+                />
               </div>
 
               {/* Footer */}
