@@ -521,33 +521,23 @@ export interface ImportPeopleResult {
   changedRows: ImportChangedRow[];
 }
 
-/**
- * Upsert a batch of people. Each record is matched to an existing person by
- * `partyCode` first, then by case-insensitive `email`; matches are patched,
- * the rest are created. People are imported standalone — no company linking.
- * Per-row failures are collected and never abort the batch. The caller submits
- * batches of ≤500.
- */
-export async function importPeople(
+const importNorm = (s?: string | null) => s?.trim() ?? '';
+const importHasName = (r: ImportPersonRecord) =>
+  !!(importNorm(r.firstName) || importNorm(r.lastName) || importNorm(r.fullName) || importNorm(r.email));
+
+interface ImportLookups {
+  byPartyCode: Map<string, PersonRow>;
+  byEmail: Map<string, PersonRow>;
+}
+
+/** Existing people matching any record's partyCode / email, keyed for O(1) matching. */
+async function loadImportLookups(
   db: Database,
   records: ImportPersonRecord[],
-): Promise<ImportPeopleResult> {
+): Promise<ImportLookups> {
   const { people } = schema;
-  const result: ImportPeopleResult = {
-    imported: 0,
-    updated: 0,
-    failed: 0,
-    total: records.length,
-    errors: [],
-    changedRows: [],
-  };
-
-  const norm = (s?: string | null) => s?.trim() ?? '';
-  const hasName = (r: ImportPersonRecord) =>
-    !!(norm(r.firstName) || norm(r.lastName) || norm(r.fullName) || norm(r.email));
-
-  const partyCodes = [...new Set(records.map((r) => norm(r.partyCode)).filter(Boolean))];
-  const emails = [...new Set(records.map((r) => norm(r.email).toLowerCase()).filter(Boolean))];
+  const partyCodes = [...new Set(records.map((r) => importNorm(r.partyCode)).filter(Boolean))];
+  const emails = [...new Set(records.map((r) => importNorm(r.email).toLowerCase()).filter(Boolean))];
 
   const byPartyCode = new Map<string, PersonRow>();
   const byEmail = new Map<string, PersonRow>();
@@ -571,76 +561,124 @@ export async function importPeople(
       );
     for (const r of rows) if (r.email) byEmail.set(r.email.toLowerCase(), r);
   }
+  return { byPartyCode, byEmail };
+}
+
+/** Human-readable reference for a record, used in the per-row error report. */
+function importRowRef(rec: ImportPersonRecord, index: number): string {
+  return (
+    importNorm(rec.partyCode) ||
+    importNorm(rec.email) ||
+    importNorm(rec.fullName) ||
+    `${importNorm(rec.firstName)} ${importNorm(rec.lastName)}`.trim() ||
+    `#${index + 1}`
+  );
+}
+
+/** Make a freshly written person matchable by later rows of the same batch. */
+function indexImportedPerson(lookups: ImportLookups, row: PersonRow): void {
+  if (row.partyCode) lookups.byPartyCode.set(row.partyCode, row);
+  if (row.email) lookups.byEmail.set(row.email.toLowerCase(), row);
+}
+
+async function importUpdateMatched(
+  db: Database,
+  lookups: ImportLookups,
+  result: ImportPeopleResult,
+  rec: ImportPersonRecord,
+  match: PersonRow,
+  rowError: (error: string) => void,
+): Promise<void> {
+  // Merge imported custom fields into the existing blob so a partial
+  // import doesn't wipe custom fields the row already had (updatePerson
+  // overwrites `customFields` wholesale — correct for the edit form, not
+  // for an import that maps only some columns).
+  const recForUpdate = rec.customFields
+    ? {
+        ...rec,
+        customFields: {
+          ...((match.customFields as Record<string, unknown> | null) ?? {}),
+          ...rec.customFields,
+        },
+      }
+    : rec;
+  const updated = await updatePerson(
+    db,
+    match.id,
+    recForUpdate as unknown as UpdatePersonInput,
+  );
+  if (!updated) {
+    rowError('Matched person no longer exists');
+    return;
+  }
+  result.updated++;
+  result.changedRows.push({ id: updated.row.id, action: 'updated', row: updated.row });
+  indexImportedPerson(lookups, updated.row);
+}
+
+async function importCreateNew(
+  db: Database,
+  lookups: ImportLookups,
+  result: ImportPeopleResult,
+  rec: ImportPersonRecord,
+  rowError: (error: string) => void,
+): Promise<void> {
+  if (!importHasName(rec)) {
+    rowError('Missing a name or email to create a person');
+    return;
+  }
+  const created = await insertPersonRow(
+    db,
+    rec as unknown as CreatePersonInput & { partyCode?: string | null },
+  );
+  // Phase 1 dual-write: mirror the customFields blob into the typed values table.
+  await syncValuesForEntity(db, 'person', created.id, created.customFields);
+  result.imported++;
+  result.changedRows.push({ id: created.id, action: 'created', row: created });
+  indexImportedPerson(lookups, created);
+}
+
+/**
+ * Upsert a batch of people. Each record is matched to an existing person by
+ * `partyCode` first, then by case-insensitive `email`; matches are patched,
+ * the rest are created. People are imported standalone — no company linking.
+ * Per-row failures are collected and never abort the batch. The caller submits
+ * batches of ≤500.
+ */
+export async function importPeople(
+  db: Database,
+  records: ImportPersonRecord[],
+): Promise<ImportPeopleResult> {
+  const result: ImportPeopleResult = {
+    imported: 0,
+    updated: 0,
+    failed: 0,
+    total: records.length,
+    errors: [],
+    changedRows: [],
+  };
+
+  const lookups = await loadImportLookups(db, records);
 
   for (let i = 0; i < records.length; i++) {
     const rec = records[i]!;
-    const ref =
-      norm(rec.partyCode) ||
-      norm(rec.email) ||
-      norm(rec.fullName) ||
-      `${norm(rec.firstName)} ${norm(rec.lastName)}`.trim() ||
-      `#${i + 1}`;
+    const ref = importRowRef(rec, i);
+    const rowError = (error: string) => {
+      result.failed++;
+      result.errors.push({ row: i + 1, ref, error });
+    };
     try {
-      const pc = norm(rec.partyCode);
-      const em = norm(rec.email).toLowerCase();
-      const match = (pc && byPartyCode.get(pc)) || (em && byEmail.get(em)) || null;
+      const pc = importNorm(rec.partyCode);
+      const em = importNorm(rec.email).toLowerCase();
+      const match = (pc && lookups.byPartyCode.get(pc)) || (em && lookups.byEmail.get(em)) || null;
 
       if (match) {
-        // Merge imported custom fields into the existing blob so a partial
-        // import doesn't wipe custom fields the row already had (updatePerson
-        // overwrites `customFields` wholesale — correct for the edit form, not
-        // for an import that maps only some columns).
-        const recForUpdate = rec.customFields
-          ? {
-              ...rec,
-              customFields: {
-                ...((match.customFields as Record<string, unknown> | null) ?? {}),
-                ...rec.customFields,
-              },
-            }
-          : rec;
-        const updated = await updatePerson(
-          db,
-          match.id,
-          recForUpdate as unknown as UpdatePersonInput,
-        );
-        if (!updated) {
-          result.failed++;
-          result.errors.push({ row: i + 1, ref, error: 'Matched person no longer exists' });
-          continue;
-        }
-        result.updated++;
-        result.changedRows.push({ id: updated.row.id, action: 'updated', row: updated.row });
-        if (updated.row.partyCode) byPartyCode.set(updated.row.partyCode, updated.row);
-        if (updated.row.email) byEmail.set(updated.row.email.toLowerCase(), updated.row);
+        await importUpdateMatched(db, lookups, result, rec, match, rowError);
       } else {
-        if (!hasName(rec)) {
-          result.failed++;
-          result.errors.push({
-            row: i + 1,
-            ref,
-            error: 'Missing a name or email to create a person',
-          });
-          continue;
-        }
-        const created = await insertPersonRow(
-          db,
-          rec as unknown as CreatePersonInput & { partyCode?: string | null },
-        );
-        // Phase 1 dual-write: mirror the customFields blob into the typed values table.
-        await syncValuesForEntity(db, 'person', created.id, created.customFields);
-        result.imported++;
-        result.changedRows.push({ id: created.id, action: 'created', row: created });
-        if (created.partyCode) byPartyCode.set(created.partyCode, created);
-        if (created.email) byEmail.set(created.email.toLowerCase(), created);
+        await importCreateNew(db, lookups, result, rec, rowError);
       }
     } catch (err) {
-      result.failed++;
-      result.errors.push({
-        row: i + 1,
-        ref,
-        error: err instanceof Error ? err.message : 'Import failed',
-      });
+      rowError(err instanceof Error ? err.message : 'Import failed');
     }
   }
 
@@ -1096,6 +1134,39 @@ export async function resolveByEmails(
 }
 
 /**
+ * Distinct lower-cased addresses (from/to) across an account's most recent
+ * 200 messages — the "recently-messaged" set that recent correspondents are
+ * resolved from. The cap keeps the query fast.
+ */
+async function recentAccountEmails(db: Database, accountId: string): Promise<string[]> {
+  const { mailMessages } = schema;
+  const recentMessages = await db
+    .select({
+      fromEmail: sql<string | null>`(${mailMessages.from}->>'email')`,
+      toEmails: mailMessages.to,
+    })
+    .from(mailMessages)
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        isNull(mailMessages.deletedAt),
+      ),
+    )
+    .orderBy(desc(mailMessages.sentDate))
+    .limit(200);
+
+  const emailSet = new Set<string>();
+  for (const row of recentMessages) {
+    if (row.fromEmail) emailSet.add(row.fromEmail.trim().toLowerCase());
+    if (!Array.isArray(row.toEmails)) continue;
+    for (const addr of row.toEmails as Array<{ email?: string }>) {
+      if (addr?.email) emailSet.add(addr.email.trim().toLowerCase());
+    }
+  }
+  return Array.from(emailSet).slice(0, 200);
+}
+
+/**
  * Return recently-touched Person rows, ordered by `updatedAt` desc.
  *
  * The mail pipeline upserts/touches a person row on every inbound/outbound
@@ -1113,39 +1184,11 @@ export async function listRecentCorrespondents(
   db: Database,
   opts: { accountId?: string; limit?: number },
 ): Promise<PersonSummary[]> {
-  const { people, mailMessages } = schema;
+  const { people } = schema;
   const limit = Math.min(opts.limit ?? 10, 50);
 
   if (opts.accountId) {
-    // Prefer a "recently-messaged" join: find distinct email addresses in
-    // the account's messages (from/to), then resolve to people. We look at
-    // the most recent 200 messages to keep the query fast.
-    const recentMessages = await db
-      .select({
-        fromEmail: sql<string | null>`(${mailMessages.from}->>'email')`,
-        toEmails: mailMessages.to,
-      })
-      .from(mailMessages)
-      .where(
-        and(
-          eq(mailMessages.accountId, opts.accountId),
-          isNull(mailMessages.deletedAt),
-        ),
-      )
-      .orderBy(desc(mailMessages.sentDate))
-      .limit(200);
-
-    const emailSet = new Set<string>();
-    for (const row of recentMessages) {
-      if (row.fromEmail) emailSet.add(row.fromEmail.trim().toLowerCase());
-      if (Array.isArray(row.toEmails)) {
-        for (const addr of row.toEmails as Array<{ email?: string }>) {
-          if (addr?.email) emailSet.add(addr.email.trim().toLowerCase());
-        }
-      }
-    }
-
-    const emailList = Array.from(emailSet).slice(0, 200);
+    const emailList = await recentAccountEmails(db, opts.accountId);
     if (emailList.length === 0) return [];
 
     const rows = await db

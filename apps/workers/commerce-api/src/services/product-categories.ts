@@ -389,6 +389,59 @@ export interface MemberPage {
   nextCursor: string | null;
 }
 
+type ProductRow = typeof products.$inferSelect;
+
+/**
+ * Curated order lives on the junction row, so page in memory over the
+ * membership list — it is already bounded by the category's size and avoids a
+ * correlated ordering join.
+ */
+async function pageManualMembers(
+  db: Database,
+  memberIds: { productId: string; position: number | null }[],
+  cursor: string | undefined,
+  limit: number,
+): Promise<MemberPage> {
+  const ordered = [...memberIds].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const startIndex = cursor ? ordered.findIndex((m) => m.productId === cursor) + 1 : 0;
+  const pageIds = ordered.slice(startIndex, startIndex + limit).map((m) => m.productId);
+  const rows = pageIds.length
+    ? await db
+        .select()
+        .from(products)
+        .where(and(inArray(products.id, pageIds), isNull(products.deletedAt)))
+    : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const orderedRows = pageIds.map((id) => byId.get(id)).filter((r): r is ProductRow => !!r);
+  const hasMore = startIndex + limit < ordered.length;
+  return {
+    rows: orderedRows,
+    totalCount: ordered.length,
+    hasMore,
+    nextCursor: hasMore && pageIds.length ? pageIds[pageIds.length - 1] : null,
+  };
+}
+
+/** Resolve the keyset predicate for the cursor product, if it still exists. */
+async function loadCursorPredicate(
+  db: Database,
+  cursor: string,
+  sort: CategorySortOrder,
+): Promise<SQL | null> {
+  const [cur] = await db
+    .select({
+      id: products.id,
+      createdAt: products.createdAt,
+      name: products.name,
+      price: products.price,
+      salesCount: products.salesCount,
+    })
+    .from(products)
+    .where(eq(products.id, cursor))
+    .limit(1);
+  return cur ? cursorPredicate(sort, cur) : null;
+}
+
 /**
  * List the products in a category, whichever way it gets its members.
  *
@@ -417,29 +470,7 @@ export async function listCategoryMembers(
     }
     base.push(inArray(products.id, memberIds.map((m) => m.productId)));
 
-    if (sortOrder === 'manual') {
-      // Curated order lives on the junction row, so page in memory over the
-      // membership list — it is already bounded by the category's size and
-      // avoids a correlated ordering join.
-      const ordered = [...memberIds].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-      const startIndex = opts.cursor ? ordered.findIndex((m) => m.productId === opts.cursor) + 1 : 0;
-      const pageIds = ordered.slice(startIndex, startIndex + limit).map((m) => m.productId);
-      const rows = pageIds.length
-        ? await db
-            .select()
-            .from(products)
-            .where(and(inArray(products.id, pageIds), isNull(products.deletedAt)))
-        : [];
-      const byId = new Map(rows.map((r) => [r.id, r]));
-      const ordered_rows = pageIds.map((id) => byId.get(id)).filter((r): r is typeof products.$inferSelect => !!r);
-      const hasMore = startIndex + limit < ordered.length;
-      return {
-        rows: ordered_rows,
-        totalCount: ordered.length,
-        hasMore,
-        nextCursor: hasMore && pageIds.length ? pageIds[pageIds.length - 1] : null,
-      };
-    }
+    if (sortOrder === 'manual') return pageManualMembers(db, memberIds, opts.cursor, limit);
   } else {
     const predicate = rulesToPredicate(
       category.rules,
@@ -454,18 +485,8 @@ export async function listCategoryMembers(
   const filters = [...base];
 
   if (opts.cursor) {
-    const [cur] = await db
-      .select({
-        id: products.id,
-        createdAt: products.createdAt,
-        name: products.name,
-        price: products.price,
-        salesCount: products.salesCount,
-      })
-      .from(products)
-      .where(eq(products.id, opts.cursor))
-      .limit(1);
-    if (cur) base.push(cursorPredicate(effectiveSort, cur));
+    const cursorFilter = await loadCursorPredicate(db, opts.cursor, effectiveSort);
+    if (cursorFilter) base.push(cursorFilter);
   }
 
   const [rows, countRes] = await Promise.all([
