@@ -333,43 +333,8 @@ export class RoomClient {
       return;
     }
 
-    // Handle presence updates
-    if (msg.type === 'presence:join') {
-      const joinMsg = msg as Extract<RoomEvent, { type: 'presence:join' }>;
-      this._presence = [
-        ...this._presence.filter((m) => m.userId !== joinMsg.member.userId),
-        joinMsg.member,
-      ];
-      this.notifyPresence();
-    } else if (msg.type === 'presence:leave') {
-      const leaveMsg = msg as Extract<RoomEvent, { type: 'presence:leave' }>;
-      this._presence = this._presence.filter((m) => m.userId !== leaveMsg.userId);
-      this.notifyPresence();
-    }
-
-    // Handle typing updates
-    if (msg.type === 'typing') {
-      const typingMsg = msg as Extract<RoomEvent, { type: 'typing' }>;
-      if (typingMsg.isTyping) {
-        this._typing.set(typingMsg.userId, {
-          userId: typingMsg.userId,
-          userName: typingMsg.userName,
-        });
-        // Auto-clear after 6s if no stop received
-        this.clearTypingTimer(typingMsg.userId);
-        this.typingTimers.set(
-          typingMsg.userId,
-          setTimeout(() => {
-            this._typing.delete(typingMsg.userId);
-            this.notifyTyping();
-          }, 6000),
-        );
-      } else {
-        this._typing.delete(typingMsg.userId);
-        this.clearTypingTimer(typingMsg.userId);
-      }
-      this.notifyTyping();
-    }
+    this.applyPresence(msg);
+    this.applyTyping(msg);
 
     // Dispatch to registered handlers
     const handlers = this.eventHandlers.get(msg.type);
@@ -382,6 +347,45 @@ export class RoomClient {
         }
       }
     }
+  }
+
+  private applyPresence(msg: { type: string }): void {
+    if (msg.type === 'presence:join') {
+      const joinMsg = msg as Extract<RoomEvent, { type: 'presence:join' }>;
+      this._presence = [
+        ...this._presence.filter((m) => m.userId !== joinMsg.member.userId),
+        joinMsg.member,
+      ];
+      this.notifyPresence();
+    } else if (msg.type === 'presence:leave') {
+      const leaveMsg = msg as Extract<RoomEvent, { type: 'presence:leave' }>;
+      this._presence = this._presence.filter((m) => m.userId !== leaveMsg.userId);
+      this.notifyPresence();
+    }
+  }
+
+  private applyTyping(msg: { type: string }): void {
+    if (msg.type !== 'typing') return;
+    const typingMsg = msg as Extract<RoomEvent, { type: 'typing' }>;
+    if (typingMsg.isTyping) {
+      this._typing.set(typingMsg.userId, {
+        userId: typingMsg.userId,
+        userName: typingMsg.userName,
+      });
+      // Auto-clear after 6s if no stop received
+      this.clearTypingTimer(typingMsg.userId);
+      this.typingTimers.set(
+        typingMsg.userId,
+        setTimeout(() => {
+          this._typing.delete(typingMsg.userId);
+          this.notifyTyping();
+        }, 6000),
+      );
+    } else {
+      this._typing.delete(typingMsg.userId);
+      this.clearTypingTimer(typingMsg.userId);
+    }
+    this.notifyTyping();
   }
 
   private handleClose(): void {

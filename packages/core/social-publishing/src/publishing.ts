@@ -491,29 +491,13 @@ function buildPlatformContent(
   });
 }
 
-/**
- * Publish or schedule a `socialPosts` row through PostPeer. Loads the post and
- * its target accounts, builds the PostPeer payload, calls the API, persists the
- * `postpeerPostId`, status, and per-platform results, and records a KV mapping
- * so the delivery webhook can resolve the workspace later.
- */
-export async function publishPost(
-  db: Database,
-  ctx: SocialPublishingContext,
-  orgId: string,
-  postId: string,
-  options: PublishPostOptions,
-): Promise<PublishPostResult> {
-  const client = getPostPeerClient(ctx);
-  if (!client) throw new PostPeerNotConfiguredError();
+type SocialPostRow = typeof socialPosts.$inferSelect;
+type PostPeerClientHandle = NonNullable<ReturnType<typeof getPostPeerClient>>;
+type PublishMediaItem = { type: 'image' | 'video' | 'gif'; url: string };
+type PublishPlatformInput = { platform: SocialPlatformContent['platform']; accountId: string };
 
-  const [post] = await db
-    .select()
-    .from(socialPosts)
-    .where(and(eq(socialPosts.id, postId), isNull(socialPosts.deletedAt)))
-    .limit(1);
-  if (!post) throw new Error(`Social post not found: ${postId}`);
-
+/** Resolve the post's target accounts to PostPeer-connected publish targets. */
+async function resolvePublishTargets(db: Database, post: SocialPostRow): Promise<PublishTarget[]> {
   const targetIds = (post.targetAccountIds ?? []) as string[];
   if (targetIds.length === 0) throw new Error('Post has no target accounts');
 
@@ -534,37 +518,43 @@ export async function publishPost(
   if (targets.length === 0) {
     throw new Error('No PostPeer-connected accounts among the post targets');
   }
-  const platforms = targets.map((t) => ({
-    platform: t.platform,
-    accountId: t.postpeerIntegrationId,
-  }));
+  return targets;
+}
 
-  // Resolve the schedule up front, while the row is still untouched: a bad or
-  // missing time must fail before the claim below flips the row to `publishing`.
-  const schedule = options.now ? undefined : toPostPeerSchedule(requireScheduledAt(options));
-
-  // Resolve media urls.
+/** Resolve media urls. */
+async function loadMediaItems(
+  db: Database,
+  post: SocialPostRow,
+): Promise<PublishMediaItem[] | undefined> {
   const mediaIds = (post.mediaIds ?? []) as string[];
-  let mediaItems: Array<{ type: 'image' | 'video' | 'gif'; url: string }> | undefined;
-  if (mediaIds.length > 0) {
-    const media = await db
-      .select()
-      .from(socialMedia)
-      .where(inArray(socialMedia.id, mediaIds));
-    mediaItems = media
-      .filter((m) => !!m.url)
-      .map((m) => ({
-        type: (m.mediaType ?? 'image') as 'image' | 'video' | 'gif',
-        url: m.url as string,
-      }));
-  }
+  if (mediaIds.length === 0) return undefined;
+  const media = await db
+    .select()
+    .from(socialMedia)
+    .where(inArray(socialMedia.id, mediaIds));
+  return media
+    .filter((m) => !!m.url)
+    .map((m) => ({
+      type: (m.mediaType ?? 'image') as PublishMediaItem['type'],
+      url: m.url as string,
+    }));
+}
 
-  // Idempotency — atomically claim the publishing slot. A single conditional
-  // UPDATE flips the row to `publishing` only if it isn't already
-  // `publishing`/`published`, so two concurrent publish calls can't both pass a
-  // read-then-write guard and double-submit to PostPeer (TOCTOU). The loser
-  // updates zero rows and is rejected. Done after read-only validation so a
-  // validation error can't leave the row stuck in `publishing`.
+/**
+ * Idempotency — atomically claim the publishing slot. A single conditional
+ * UPDATE flips the row to `publishing` only if it isn't already
+ * `publishing`/`published`, so two concurrent publish calls can't both pass a
+ * read-then-write guard and double-submit to PostPeer (TOCTOU). The loser
+ * updates zero rows and is rejected. Done after read-only validation so a
+ * validation error can't leave the row stuck in `publishing`.
+ *
+ * Returns the claimed row's publish attempt number.
+ */
+async function claimPublishSlot(
+  db: Database,
+  postId: string,
+  options: PublishPostOptions,
+): Promise<number> {
   const claimSet: Record<string, unknown> = {
     status: 'publishing',
     lastPublishAttemptAt: new Date(),
@@ -592,75 +582,114 @@ export async function publishPost(
   if (claimed.length === 0) {
     throw new SocialPublishConflictError('Post is already being published or has been published');
   }
+  return claimed[0]?.publishAttempts ?? 0;
+}
 
-  // Credit metering — charge the prepaid wallet per target platform BEFORE
-  // submitting to PostPeer. The (postId, attempt) idempotency key means a
-  // retried request can't double-charge; failures are refunded below.
-  // Insufficient balance fails CLOSED (402); an unavailable master DB fails
-  // open with a loud warning (degraded mode), matching the other workers.
-  const creditCost = platforms.length * SERVICE_CREDIT_RATES.socialPostPerPlatform;
-  let creditTransactionId: string | null = null;
-  const metering = await resolveMetering(ctx, orgId);
-  if (metering) {
-    const attempt = claimed[0]?.publishAttempts ?? 0;
-    let charge: Awaited<ReturnType<typeof consumeCredits>> | null = null;
-    try {
-      charge = await consumeCredits(metering.masterDb, {
-        workspaceId: metering.internalWsId,
-        amount: creditCost,
-        serviceType: 'social_post',
-        idempotencyKey: `social:${postId}:${attempt}`,
-        referenceId: postId,
-        referenceType: 'social_post',
-        description: `Social post to ${platforms.length} platform(s)${options.now ? '' : ' (scheduled)'}`,
-        metadata: {
-          postId,
-          platforms: platforms.map((p) => p.platform),
-          scheduled: !options.now,
-        },
-      });
-    } catch (err) {
-      console.error('[social-publishing] credit charge FAILED (publishing unmetered!):', err);
-    }
-    if (charge) {
-      if (!charge.ok) {
-        // Release the claim so the user can retry after topping up.
-        await db
-          .update(socialPosts)
-          .set({ status: post.status, lastPublishError: 'insufficient_credits', updatedAt: new Date() })
-          .where(eq(socialPosts.id, postId));
-        throw new SocialInsufficientCreditsError(charge.currentBalance, creditCost);
-      }
-      creditTransactionId = charge.transactionId;
-    }
+/**
+ * Credit metering — charge the prepaid wallet per target platform BEFORE
+ * submitting to PostPeer. The (postId, attempt) idempotency key means a
+ * retried request can't double-charge; failures are refunded by the caller.
+ * Insufficient balance fails CLOSED (402); an unavailable master DB fails
+ * open with a loud warning (degraded mode), matching the other workers.
+ *
+ * Returns the ledger transaction id, or null when the post went unmetered.
+ */
+async function chargePublishCredits(
+  db: Database,
+  metering: MeteringContext | null,
+  args: {
+    post: SocialPostRow;
+    postId: string;
+    attempt: number;
+    platforms: PublishPlatformInput[];
+    creditCost: number;
+    now: boolean;
+  },
+): Promise<string | null> {
+  if (!metering) return null;
+  const { post, postId, attempt, platforms, creditCost } = args;
+  let charge: Awaited<ReturnType<typeof consumeCredits>> | null = null;
+  try {
+    charge = await consumeCredits(metering.masterDb, {
+      workspaceId: metering.internalWsId,
+      amount: creditCost,
+      serviceType: 'social_post',
+      idempotencyKey: `social:${postId}:${attempt}`,
+      referenceId: postId,
+      referenceType: 'social_post',
+      description: `Social post to ${platforms.length} platform(s)${args.now ? '' : ' (scheduled)'}`,
+      metadata: {
+        postId,
+        platforms: platforms.map((p) => p.platform),
+        scheduled: !args.now,
+      },
+    });
+  } catch (err) {
+    console.error('[social-publishing] credit charge FAILED (publishing unmetered!):', err);
   }
-
-  // If a PostPeer scheduled post already exists for this row (e.g. reschedule,
-  // or publish-now of a scheduled post), cancel it FIRST so the old scheduled
-  // time can't still fire alongside the new submission (double-post). Cancel is
-  // best-effort: a 404 (already gone) must not block the new submission.
-  if (post.postpeerPostId && post.status === 'scheduled') {
-    try {
-      await client.deletePost(post.postpeerPostId);
-    } catch (err) {
-      console.warn(
-        `[social-publishing] failed to cancel previous PostPeer post ${post.postpeerPostId}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
+  if (!charge) return null;
+  if (!charge.ok) {
+    // Release the claim so the user can retry after topping up.
+    await db
+      .update(socialPosts)
+      .set({ status: post.status, lastPublishError: 'insufficient_credits', updatedAt: new Date() })
+      .where(eq(socialPosts.id, postId));
+    throw new SocialInsufficientCreditsError(charge.currentBalance, creditCost);
   }
+  return charge.transactionId;
+}
 
-  let result: PostPeerCreatePostResult;
+/**
+ * If a PostPeer scheduled post already exists for this row (e.g. reschedule,
+ * or publish-now of a scheduled post), cancel it FIRST so the old scheduled
+ * time can't still fire alongside the new submission (double-post). Cancel is
+ * best-effort: a 404 (already gone) must not block the new submission.
+ */
+async function cancelPreviousSchedule(
+  client: PostPeerClientHandle,
+  post: SocialPostRow,
+): Promise<void> {
+  if (!post.postpeerPostId || post.status !== 'scheduled') return;
+  try {
+    await client.deletePost(post.postpeerPostId);
+  } catch (err) {
+    console.warn(
+      `[social-publishing] failed to cancel previous PostPeer post ${post.postpeerPostId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * Submit the post to PostPeer. On failure the row is marked `failed`, the full
+ * charge is refunded (nothing was submitted) and the original error rethrown.
+ */
+async function submitToPostPeer(
+  db: Database,
+  client: PostPeerClientHandle,
+  args: {
+    post: SocialPostRow;
+    postId: string;
+    platforms: PublishPlatformInput[];
+    mediaItems: PublishMediaItem[] | undefined;
+    now: boolean;
+    schedule: ReturnType<typeof toPostPeerSchedule> | undefined;
+    metering: MeteringContext | null;
+    creditTransactionId: string | null;
+    creditCost: number;
+  },
+): Promise<PostPeerCreatePostResult> {
+  const { post, postId, schedule, metering, creditTransactionId } = args;
   try {
     // Publish-now carries no schedule at all: PostPeer's body schema is closed
     // (`additionalProperties: false`), so send only the fields that branch
     // actually takes. `timezone` belongs with `scheduledFor` — see
     // `toPostPeerSchedule` for why it is always UTC on the wire.
-    result = await client.createPost({
+    return await client.createPost({
       content: post.content,
-      platforms,
-      mediaItems,
-      publishNow: options.now ? true : undefined,
+      platforms: args.platforms,
+      mediaItems: args.mediaItems,
+      publishNow: args.now ? true : undefined,
       scheduledFor: schedule?.scheduledFor,
       timezone: schedule?.timezone,
     });
@@ -675,7 +704,7 @@ export async function publishPost(
       try {
         await refundCredits(metering.masterDb, {
           workspaceId: metering.internalWsId,
-          amount: creditCost,
+          amount: args.creditCost,
           idempotencyKey: `social_refund:${creditTransactionId}`,
           referenceId: postId,
           referenceType: 'social_post',
@@ -687,39 +716,145 @@ export async function publishPost(
     }
     throw err;
   }
+}
+
+/**
+ * Refund platforms that failed immediately (publish-now only — scheduled
+ * posts report failures later via webhook, handled in reconcileFromWebhook).
+ * Returns the number of credits refunded.
+ */
+async function refundImmediateFailures(
+  metering: MeteringContext | null,
+  creditTransactionId: string | null,
+  postId: string,
+  platformContent: SocialPlatformContent[],
+): Promise<number> {
+  if (!metering || !creditTransactionId) return 0;
+  const failedCount = platformContent.filter((p) => p.status === 'failed').length;
+  if (failedCount === 0) return 0;
+  const refundAmount = failedCount * SERVICE_CREDIT_RATES.socialPostPerPlatform;
+  try {
+    await refundCredits(metering.masterDb, {
+      workspaceId: metering.internalWsId,
+      amount: refundAmount,
+      idempotencyKey: `social_refund:${creditTransactionId}:immediate`,
+      referenceId: postId,
+      referenceType: 'social_post',
+      description: `Social publish failed on ${failedCount} platform(s) — partial refund`,
+    });
+    return refundAmount;
+  } catch (refundErr) {
+    console.error('[social-publishing] partial refund FAILED:', refundErr);
+    return 0;
+  }
+}
+
+/**
+ * Map PostPeer post id → workspace so the delivery webhook can find the
+ * tenant. Master DB rather than KV: any worker can publish, and all three
+ * already reach master (a KV binding would tie publishing to one worker).
+ *
+ * Best-effort — the post IS live on PostPeer at this point, so a failure to
+ * write the index must not turn a successful publish into an error. The cost
+ * of losing it is that the delivery webhook can't reconcile, leaving the row
+ * on `publishing` until the next analytics sync corrects it.
+ */
+async function indexPostpeerPost(
+  ctx: SocialPublishingContext,
+  orgId: string,
+  postId: string,
+  postpeerPostId: string | undefined,
+): Promise<void> {
+  if (!postpeerPostId) return;
+  try {
+    await ctx
+      .masterDb()
+      .insert(postpeerPostIndex)
+      .values({ postpeerPostId, clerkOrgId: orgId, socialPostId: postId })
+      .onConflictDoNothing();
+  } catch (err) {
+    console.error(
+      `[social-publishing] failed to index PostPeer post ${postpeerPostId} — delivery webhook will not reconcile:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+function resolvePublishStatus(now: boolean, allFailed: boolean): PublishPostResult['status'] {
+  if (!now) return 'scheduled';
+  return allFailed ? 'failed' : 'published';
+}
+
+/**
+ * Publish or schedule a `socialPosts` row through PostPeer. Loads the post and
+ * its target accounts, builds the PostPeer payload, calls the API, persists the
+ * `postpeerPostId`, status, and per-platform results, and records a KV mapping
+ * so the delivery webhook can resolve the workspace later.
+ */
+export async function publishPost(
+  db: Database,
+  ctx: SocialPublishingContext,
+  orgId: string,
+  postId: string,
+  options: PublishPostOptions,
+): Promise<PublishPostResult> {
+  const client = getPostPeerClient(ctx);
+  if (!client) throw new PostPeerNotConfiguredError();
+
+  const [post] = await db
+    .select()
+    .from(socialPosts)
+    .where(and(eq(socialPosts.id, postId), isNull(socialPosts.deletedAt)))
+    .limit(1);
+  if (!post) throw new Error(`Social post not found: ${postId}`);
+
+  const targets = await resolvePublishTargets(db, post);
+  const platforms = targets.map((t) => ({
+    platform: t.platform,
+    accountId: t.postpeerIntegrationId,
+  }));
+
+  // Resolve the schedule up front, while the row is still untouched: a bad or
+  // missing time must fail before the claim below flips the row to `publishing`.
+  const schedule = options.now ? undefined : toPostPeerSchedule(requireScheduledAt(options));
+
+  const mediaItems = await loadMediaItems(db, post);
+
+  const attempt = await claimPublishSlot(db, postId, options);
+
+  const creditCost = platforms.length * SERVICE_CREDIT_RATES.socialPostPerPlatform;
+  const metering = await resolveMetering(ctx, orgId);
+  const creditTransactionId = await chargePublishCredits(db, metering, {
+    post,
+    postId,
+    attempt,
+    platforms,
+    creditCost,
+    now: options.now,
+  });
+
+  await cancelPreviousSchedule(client, post);
+
+  const result = await submitToPostPeer(db, client, {
+    post,
+    postId,
+    platforms,
+    mediaItems,
+    now: options.now,
+    schedule,
+    metering,
+    creditTransactionId,
+    creditCost,
+  });
 
   const platformContent = buildPlatformContent(targets, result.platforms ?? [], options.now);
   const anyFailed = platformContent.some((p) => p.status === 'failed');
   const allFailed = platformContent.length > 0 && platformContent.every((p) => p.status === 'failed');
+  const status = resolvePublishStatus(options.now, allFailed);
 
-  const status: PublishPostResult['status'] = options.now
-    ? allFailed
-      ? 'failed'
-      : 'published'
-    : 'scheduled';
-
-  // Refund platforms that failed immediately (publish-now only — scheduled
-  // posts report failures later via webhook, handled in reconcileFromWebhook).
-  let refundedCredits = 0;
-  if (metering && creditTransactionId && options.now) {
-    const failedCount = platformContent.filter((p) => p.status === 'failed').length;
-    if (failedCount > 0) {
-      const refundAmount = failedCount * SERVICE_CREDIT_RATES.socialPostPerPlatform;
-      try {
-        await refundCredits(metering.masterDb, {
-          workspaceId: metering.internalWsId,
-          amount: refundAmount,
-          idempotencyKey: `social_refund:${creditTransactionId}:immediate`,
-          referenceId: postId,
-          referenceType: 'social_post',
-          description: `Social publish failed on ${failedCount} platform(s) — partial refund`,
-        });
-        refundedCredits = refundAmount;
-      } catch (refundErr) {
-        console.error('[social-publishing] partial refund FAILED:', refundErr);
-      }
-    }
-  }
+  const refundedCredits = options.now
+    ? await refundImmediateFailures(metering, creditTransactionId, postId, platformContent)
+    : 0;
 
   await db
     .update(socialPosts)
@@ -737,30 +872,74 @@ export async function publishPost(
     })
     .where(eq(socialPosts.id, postId));
 
-  // Map PostPeer post id → workspace so the delivery webhook can find the
-  // tenant. Master DB rather than KV: any worker can publish, and all three
-  // already reach master (a KV binding would tie publishing to one worker).
-  //
-  // Best-effort — the post IS live on PostPeer at this point, so a failure to
-  // write the index must not turn a successful publish into an error. The cost
-  // of losing it is that the delivery webhook can't reconcile, leaving the row
-  // on `publishing` until the next analytics sync corrects it.
-  if (result.postId) {
-    try {
-      await ctx
-        .masterDb()
-        .insert(postpeerPostIndex)
-        .values({ postpeerPostId: result.postId, clerkOrgId: orgId, socialPostId: postId })
-        .onConflictDoNothing();
-    } catch (err) {
-      console.error(
-        `[social-publishing] failed to index PostPeer post ${result.postId} — delivery webhook will not reconcile:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
+  await indexPostpeerPost(ctx, orgId, postId, result.postId);
 
   return { postId, postpeerPostId: result.postId, status, platformContent };
+}
+
+/**
+ * Delete a post's live PostPeer schedule, if it has one. Any failure other
+ * than "already gone" aborts the cancel.
+ */
+async function cancelUpstreamSchedule(
+  ctx: SocialPublishingContext,
+  post: SocialPostRow,
+  postId: string,
+): Promise<void> {
+  if (!post.postpeerPostId || post.status !== 'scheduled') return;
+  const client = getPostPeerClient(ctx);
+  if (!client) {
+    throw new SocialCancelUpstreamError(
+      `Cannot cancel scheduled post ${postId}: PostPeer is not configured, so its live schedule (${post.postpeerPostId}) cannot be removed`,
+    );
+  }
+  try {
+    await client.deletePost(post.postpeerPostId);
+  } catch (err) {
+    // 404 means the schedule is already gone upstream — the desired end state.
+    // Anything else (network, 5xx, auth) leaves it possibly still armed.
+    if (err instanceof PostPeerError && err.status === 404) {
+      console.warn(
+        `[social-publishing] PostPeer post ${post.postpeerPostId} already absent — treating cancel as done`,
+      );
+      return;
+    }
+    console.error(
+      `[social-publishing] failed to cancel PostPeer post ${post.postpeerPostId} — post left scheduled:`,
+      err instanceof Error ? err.message : err,
+    );
+    throw new SocialCancelUpstreamError(
+      `Failed to remove the scheduled post from PostPeer — it is still scheduled to publish. Please try again.`,
+      err,
+    );
+  }
+}
+
+/**
+ * Refund the credits charged when the post was scheduled. Idempotent on the
+ * original ledger transaction, so a repeated cancel can't double-refund.
+ */
+async function refundCancelledPost(
+  ctx: SocialPublishingContext,
+  orgId: string,
+  post: SocialPostRow,
+  postId: string,
+): Promise<void> {
+  if (!post.creditTransactionId || (post.creditsConsumed ?? 0) <= 0) return;
+  const metering = await resolveMetering(ctx, orgId);
+  if (!metering) return;
+  try {
+    await refundCredits(metering.masterDb, {
+      workspaceId: metering.internalWsId,
+      amount: post.creditsConsumed as number,
+      idempotencyKey: `social_refund_cancel:${post.creditTransactionId}`,
+      referenceId: postId,
+      referenceType: 'social_post',
+      description: 'Scheduled social post cancelled — refund',
+    });
+  } catch (refundErr) {
+    console.error('[social-publishing] cancel refund FAILED:', refundErr);
+  }
 }
 
 /**
@@ -797,34 +976,7 @@ export async function cancelPost(
   // Remove the live schedule upstream BEFORE touching the local row, and treat
   // any failure as fatal — see SocialCancelUpstreamError for why this must not
   // be best-effort.
-  if (post.postpeerPostId && post.status === 'scheduled') {
-    const client = getPostPeerClient(ctx);
-    if (!client) {
-      throw new SocialCancelUpstreamError(
-        `Cannot cancel scheduled post ${postId}: PostPeer is not configured, so its live schedule (${post.postpeerPostId}) cannot be removed`,
-      );
-    }
-    try {
-      await client.deletePost(post.postpeerPostId);
-    } catch (err) {
-      // 404 means the schedule is already gone upstream — the desired end state.
-      // Anything else (network, 5xx, auth) leaves it possibly still armed.
-      if (err instanceof PostPeerError && err.status === 404) {
-        console.warn(
-          `[social-publishing] PostPeer post ${post.postpeerPostId} already absent — treating cancel as done`,
-        );
-      } else {
-        console.error(
-          `[social-publishing] failed to cancel PostPeer post ${post.postpeerPostId} — post left scheduled:`,
-          err instanceof Error ? err.message : err,
-        );
-        throw new SocialCancelUpstreamError(
-          `Failed to remove the scheduled post from PostPeer — it is still scheduled to publish. Please try again.`,
-          err,
-        );
-      }
-    }
-  }
+  await cancelUpstreamSchedule(ctx, post, postId);
 
   // Atomic guard: only unschedule if the row is still the one we just cancelled
   // upstream (mirrors the publishPost claim).
@@ -875,25 +1027,7 @@ export async function cancelPost(
     );
   }
 
-  // Refund the credits charged when the post was scheduled. Idempotent on the
-  // original ledger transaction, so a repeated cancel can't double-refund.
-  if (post.creditTransactionId && (post.creditsConsumed ?? 0) > 0) {
-    const metering = await resolveMetering(ctx, orgId);
-    if (metering) {
-      try {
-        await refundCredits(metering.masterDb, {
-          workspaceId: metering.internalWsId,
-          amount: post.creditsConsumed as number,
-          idempotencyKey: `social_refund_cancel:${post.creditTransactionId}`,
-          referenceId: postId,
-          referenceType: 'social_post',
-          description: 'Scheduled social post cancelled — refund',
-        });
-      } catch (refundErr) {
-        console.error('[social-publishing] cancel refund FAILED:', refundErr);
-      }
-    }
-  }
+  await refundCancelledPost(ctx, orgId, post, postId);
 
   return true;
 }
@@ -978,6 +1112,78 @@ export async function resolvePostpeerPost(
   return (await legacyKv.get(postMapKey(postpeerPostId), 'json')) as PostMapEntry | null;
 }
 
+/** Merge per-platform results by accountId, preserving our internal mapping. */
+function mergePlatformResults(
+  existing: SocialPlatformContent[],
+  incomingPlatforms: PostPeerPlatformResult[],
+): { merged: SocialPlatformContent[]; newlyFailedAccountIds: string[] } {
+  const newlyFailedAccountIds: string[] = [];
+  const merged: SocialPlatformContent[] = existing.map((pc) => {
+    const match = incomingPlatforms.find(
+      (p) => p.accountId === pc.accountId || normalisePlatform(p.platform) === pc.platform,
+    );
+    if (!match) return pc;
+    if (!match.success && pc.status !== 'failed') newlyFailedAccountIds.push(pc.accountId);
+    return {
+      ...pc,
+      publishedUrl: match.platformPostUrl ?? pc.publishedUrl,
+      status: match.success ? 'published' : 'failed',
+      error: match.error ?? pc.error,
+      publishedAt: match.success ? pc.publishedAt ?? new Date().toISOString() : pc.publishedAt,
+    } satisfies SocialPlatformContent;
+  });
+  return { merged, newlyFailedAccountIds };
+}
+
+function resolveWebhookStatus(
+  published: boolean,
+  failed: boolean,
+  current: SocialPostRow['status'],
+): SocialPostRow['status'] {
+  if (published && !failed) return 'published';
+  if (failed && !published) return 'failed';
+  return current;
+}
+
+/**
+ * Refund credits for platforms that just flipped to failed. Idempotent per
+ * (transaction, account) — webhook replays can't double-refund. Returns the
+ * post's remaining `creditsConsumed`.
+ */
+async function refundWebhookFailures(
+  ctx: SocialPublishingContext,
+  orgId: string,
+  post: SocialPostRow,
+  internalPostId: string,
+  newlyFailedAccountIds: string[],
+): Promise<number> {
+  let creditsConsumed = post.creditsConsumed ?? 0;
+  if (!post.creditTransactionId || creditsConsumed <= 0 || newlyFailedAccountIds.length === 0) {
+    return creditsConsumed;
+  }
+  const metering = await resolveMetering(ctx, orgId);
+  if (!metering) return creditsConsumed;
+  for (const accountId of newlyFailedAccountIds) {
+    const refundAmount = Math.min(SERVICE_CREDIT_RATES.socialPostPerPlatform, creditsConsumed);
+    if (refundAmount <= 0) break;
+    try {
+      await refundCredits(metering.masterDb, {
+        workspaceId: metering.internalWsId,
+        amount: refundAmount,
+        idempotencyKey: `social_refund:${post.creditTransactionId}:${accountId}`,
+        referenceId: internalPostId,
+        referenceType: 'social_post',
+        description: 'Social platform delivery failed — refund',
+        metadata: { accountId },
+      });
+      creditsConsumed -= refundAmount;
+    } catch (refundErr) {
+      console.error('[social-publishing] webhook failure refund FAILED:', refundErr);
+    }
+  }
+  return creditsConsumed;
+}
+
 /**
  * Apply a PostPeer delivery webhook to the matching `socialPosts` row. Updates
  * status, per-platform permalinks, and publishedAt. Tenant-scoped — the caller
@@ -1001,57 +1207,24 @@ export async function reconcileFromWebhook(
     .limit(1);
   if (!post) return false;
 
-  // Merge per-platform results by accountId, preserving our internal mapping.
-  const existing = (post.platformContent ?? []) as SocialPlatformContent[];
-  const newlyFailedAccountIds: string[] = [];
-  const merged: SocialPlatformContent[] = existing.map((pc) => {
-    const match = incomingPlatforms.find(
-      (p) => p.accountId === pc.accountId || normalisePlatform(p.platform) === pc.platform,
-    );
-    if (!match) return pc;
-    if (!match.success && pc.status !== 'failed') newlyFailedAccountIds.push(pc.accountId);
-    return {
-      ...pc,
-      publishedUrl: match.platformPostUrl ?? pc.publishedUrl,
-      status: match.success ? 'published' : 'failed',
-      error: match.error ?? pc.error,
-      publishedAt: match.success ? pc.publishedAt ?? new Date().toISOString() : pc.publishedAt,
-    } satisfies SocialPlatformContent;
-  });
+  const { merged, newlyFailedAccountIds } = mergePlatformResults(
+    (post.platformContent ?? []) as SocialPlatformContent[],
+    incomingPlatforms,
+  );
 
   const failed = event.includes('failed') || merged.some((p) => p.status === 'failed');
   const published =
     event.includes('published') || (merged.length > 0 && merged.every((p) => p.status === 'published'));
 
-  const nextStatus: typeof post.status =
-    published && !failed ? 'published' : failed && !published ? 'failed' : post.status;
+  const nextStatus = resolveWebhookStatus(published, failed, post.status);
 
-  // Refund credits for platforms that just flipped to failed. Idempotent per
-  // (transaction, account) — webhook replays can't double-refund.
-  let creditsConsumed = post.creditsConsumed ?? 0;
-  if (post.creditTransactionId && creditsConsumed > 0 && newlyFailedAccountIds.length > 0) {
-    const metering = await resolveMetering(ctx, orgId);
-    if (metering) {
-      for (const accountId of newlyFailedAccountIds) {
-        const refundAmount = Math.min(SERVICE_CREDIT_RATES.socialPostPerPlatform, creditsConsumed);
-        if (refundAmount <= 0) break;
-        try {
-          await refundCredits(metering.masterDb, {
-            workspaceId: metering.internalWsId,
-            amount: refundAmount,
-            idempotencyKey: `social_refund:${post.creditTransactionId}:${accountId}`,
-            referenceId: internalPostId,
-            referenceType: 'social_post',
-            description: 'Social platform delivery failed — refund',
-            metadata: { accountId },
-          });
-          creditsConsumed -= refundAmount;
-        } catch (refundErr) {
-          console.error('[social-publishing] webhook failure refund FAILED:', refundErr);
-        }
-      }
-    }
-  }
+  const creditsConsumed = await refundWebhookFailures(
+    ctx,
+    orgId,
+    post,
+    internalPostId,
+    newlyFailedAccountIds,
+  );
 
   await db
     .update(socialPosts)
