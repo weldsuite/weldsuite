@@ -631,6 +631,9 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
           ref={titleRef}
           contentEditable
           suppressContentEditableWarning
+          role="textbox"
+          tabIndex={0}
+          aria-label={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
           onInput={handleTitleInput}
           onKeyDown={handleTitleKeyDown}
           dir="ltr"
@@ -654,6 +657,10 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
             ref={contentRef}
             contentEditable
             suppressContentEditableWarning
+            role="textbox"
+            tabIndex={0}
+            aria-multiline="true"
+            aria-label={st('sweep.welddesk.newsEditor.contentPlaceholder')}
             onInput={handleContentInput}
             onKeyDown={handleContentKeyDown}
             dir="ltr"
