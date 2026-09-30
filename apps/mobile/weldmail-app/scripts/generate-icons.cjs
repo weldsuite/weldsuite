@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Rebuild WeldMail splash + adaptive icons from the platform brand mark.
  *

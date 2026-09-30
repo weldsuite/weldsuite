@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { hasAppPermission } from '@weldsuite/permissions';
 
@@ -97,8 +97,13 @@ export function PermissionProvider({ children }: Readonly<{ children: React.Reac
     [isLoading, permissions, denies, appEnforced],
   );
 
+  const value = useMemo(
+    () => ({ permissions, role, isOwner, isLoading, can }),
+    [permissions, role, isOwner, isLoading, can],
+  );
+
   return (
-    <PermissionContext.Provider value={{ permissions, role, isOwner, isLoading, can }}>
+    <PermissionContext.Provider value={value}>
       {children}
     </PermissionContext.Provider>
   );
