@@ -56,6 +56,147 @@ export interface ThreadSummary {
   messages: typeof mailMessages.$inferSelect[];
 }
 
+type MessageRow = typeof mailMessages.$inferSelect;
+
+/**
+ * The account-scope conditions for a thread listing: one verified account, or
+ * the union of every account the caller can read. Null when nothing is readable.
+ */
+async function resolveAccountScope(
+  db: Database,
+  userId: string,
+  accountId: string | undefined,
+): Promise<SQL | null> {
+  if (accountId) {
+    // Single-account variant — verify access first.
+    const [account] = await db
+      .select()
+      .from(mailAccounts)
+      .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
+      .limit(1);
+    if (!account) return null;
+    const admin = await isAdminOrOwner(db, userId);
+    if (!hasAccessToAccount(account, userId, admin)) return null;
+    return eq(mailMessages.accountId, accountId);
+  }
+
+  // Unified variant — every account the caller can read.
+  const admin = await isAdminOrOwner(db, userId);
+  const accountConditions: SQL[] = [isNull(mailAccounts.deletedAt)!];
+  if (!admin) accountConditions.push(userAccessCondition(userId));
+  const accessibleAccounts = await db
+    .select({ id: mailAccounts.id })
+    .from(mailAccounts)
+    .where(and(...accountConditions));
+  if (accessibleAccounts.length === 0) return null;
+  return inArray(
+    mailMessages.accountId,
+    accessibleAccounts.map((a) => a.id),
+  );
+}
+
+/** Flip scheduled messages whose send time has passed to `sent`, in the DB and in the given rows. */
+async function resolveExpiredScheduled(db: Database, messages: MessageRow[]): Promise<void> {
+  const now = new Date();
+  const expired = messages.filter(
+    (m) => m.sendStatus === 'scheduled' && m.scheduledFor && new Date(m.scheduledFor) <= now,
+  );
+  if (expired.length === 0) return;
+
+  await db
+    .update(mailMessages)
+    .set({ sendStatus: 'sent', sentDate: now, scheduledFor: null, updatedAt: now })
+    .where(
+      inArray(
+        mailMessages.id,
+        expired.map((m) => m.id),
+      ),
+    );
+  for (const msg of expired) {
+    msg.sendStatus = 'sent';
+    msg.scheduledFor = null;
+    msg.sentDate = now;
+  }
+}
+
+function groupMessagesByThread(messages: MessageRow[]): Map<string, MessageRow[]> {
+  const threadMap = new Map<string, MessageRow[]>();
+  for (const msg of messages) {
+    const key = `${msg.accountId}::${msg.threadId ?? msg.id}`;
+    const bucket = threadMap.get(key) ?? [];
+    bucket.push(msg);
+    threadMap.set(key, bucket);
+  }
+  return threadMap;
+}
+
+function summarizeThreadMessages(threadMessages: MessageRow[]): {
+  participants: string[];
+  labels: string[];
+  hasAttachments: boolean;
+  isStarred: boolean;
+  unreadCount: number;
+} {
+  const participants = new Set<string>();
+  const labels = new Set<string>();
+  let hasAttachments = false;
+  let isStarred = false;
+  let unreadCount = 0;
+  for (const msg of threadMessages) {
+    const from = msg.from as { name?: string; email?: string } | null;
+    const sender = from?.name || from?.email;
+    if (sender) participants.add(sender);
+    if (Array.isArray(msg.labels)) {
+      for (const l of msg.labels as string[]) labels.add(l);
+    }
+    if (msg.hasAttachments) hasAttachments = true;
+    if (!msg.isRead) unreadCount += 1;
+  }
+  if (labels.has('STARRED')) isStarred = true;
+  return { participants: [...participants], labels: [...labels], hasAttachments, isStarred, unreadCount };
+}
+
+function buildThreadSummary(
+  row: { accountId: string; threadId: string },
+  threadMessages: MessageRow[],
+): ThreadSummary {
+  threadMessages.sort(
+    (a, b) =>
+      dateOf(a.receivedDate, a.sentDate, a.createdAt) -
+      dateOf(b.receivedDate, b.sentDate, b.createdAt),
+  );
+
+  const first = threadMessages[0]!;
+  const latest = threadMessages[threadMessages.length - 1]!;
+  const { participants, labels, hasAttachments, isStarred, unreadCount } =
+    summarizeThreadMessages(threadMessages);
+
+  const latestFrom = latest.from as { name?: string; email?: string } | null;
+  const latestSender = latestFrom?.name || latestFrom?.email || 'Unknown';
+  const latestSenderEmail = latestFrom?.email ?? '';
+
+  return {
+    threadId: row.threadId,
+    accountId: row.accountId,
+    subject: normalizeSubject(first.subject),
+    participants,
+    latestMessageId: latest.id,
+    latestSender,
+    latestSenderEmail,
+    latestSenderAvatarUrl: null,
+    latestDate: latest.receivedDate ?? latest.sentDate ?? latest.createdAt ?? null,
+    preview: latest.preview ?? '',
+    messageCount: threadMessages.length,
+    unreadCount,
+    hasAttachments,
+    isStarred,
+    labels,
+    scheduledFor: latest.scheduledFor ?? null,
+    sendStatus: latest.sendStatus ?? null,
+    messages: threadMessages,
+  };
+}
+
 export async function listThreadsByLabel(
   db: Database,
   userId: string,
@@ -67,30 +208,9 @@ export async function listThreadsByLabel(
 
   const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
-  if (input.accountId) {
-    // Single-account variant — verify access first.
-    const [account] = await db
-      .select()
-      .from(mailAccounts)
-      .where(and(eq(mailAccounts.id, input.accountId), isNull(mailAccounts.deletedAt)))
-      .limit(1);
-    if (!account) return { threads: [], totalCount: 0 };
-    const admin = await isAdminOrOwner(db, userId);
-    if (!hasAccessToAccount(account, userId, admin)) return { threads: [], totalCount: 0 };
-    baseConditions.push(eq(mailMessages.accountId, input.accountId));
-  } else {
-    // Unified variant — every account the caller can read.
-    const admin = await isAdminOrOwner(db, userId);
-    const accountConditions: SQL[] = [isNull(mailAccounts.deletedAt)!];
-    if (!admin) accountConditions.push(userAccessCondition(userId));
-    const accessibleAccounts = await db
-      .select({ id: mailAccounts.id })
-      .from(mailAccounts)
-      .where(and(...accountConditions));
-    const accountIds = accessibleAccounts.map((a) => a.id);
-    if (accountIds.length === 0) return { threads: [], totalCount: 0 };
-    baseConditions.push(inArray(mailMessages.accountId, accountIds));
-  }
+  const accountScope = await resolveAccountScope(db, userId, input.accountId);
+  if (!accountScope) return { threads: [], totalCount: 0 };
+  baseConditions.push(accountScope);
 
   if (input.labelSlug !== 'all') {
     baseConditions.push(labelCondition(input.labelSlug));
@@ -143,89 +263,16 @@ export async function listThreadsByLabel(
     .orderBy(asc(mailMessages.sentDate));
 
   // ---- auto-resolve expired scheduled messages ------------------------
-  const now = new Date();
-  const expired = messages.filter(
-    (m) => m.sendStatus === 'scheduled' && m.scheduledFor && new Date(m.scheduledFor) <= now,
-  );
-  if (expired.length > 0) {
-    const ids = expired.map((m) => m.id);
-    await db
-      .update(mailMessages)
-      .set({ sendStatus: 'sent', sentDate: now, scheduledFor: null, updatedAt: now })
-      .where(inArray(mailMessages.id, ids));
-    for (const msg of expired) {
-      msg.sendStatus = 'sent';
-      msg.scheduledFor = null;
-      msg.sentDate = now;
-    }
-  }
+  await resolveExpiredScheduled(db, messages);
 
   // ---- group + summarise ----------------------------------------------
-  const threadMap = new Map<string, typeof messages>();
-  for (const msg of messages) {
-    const key = `${msg.accountId}::${msg.threadId ?? msg.id}`;
-    const bucket = threadMap.get(key) ?? [];
-    bucket.push(msg);
-    threadMap.set(key, bucket);
-  }
+  const threadMap = groupMessagesByThread(messages);
 
   const summaries: ThreadSummary[] = [];
   for (const r of threadRows) {
-    const key = `${r.accountId}::${r.threadId}`;
-    const threadMessages = threadMap.get(key);
+    const threadMessages = threadMap.get(`${r.accountId}::${r.threadId}`);
     if (!threadMessages || threadMessages.length === 0) continue;
-    threadMessages.sort(
-      (a, b) =>
-        dateOf(a.receivedDate, a.sentDate, a.createdAt) -
-        dateOf(b.receivedDate, b.sentDate, b.createdAt),
-    );
-
-    const first = threadMessages[0]!;
-    const latest = threadMessages[threadMessages.length - 1]!;
-
-    const participants = new Set<string>();
-    const labels = new Set<string>();
-    let hasAttachments = false;
-    let isStarred = false;
-    let unreadCount = 0;
-    for (const msg of threadMessages) {
-      const from = msg.from as { name?: string; email?: string } | null;
-      const sender = from?.name || from?.email;
-      if (sender) participants.add(sender);
-      if (Array.isArray(msg.labels)) {
-        for (const l of msg.labels as string[]) {
-          labels.add(l);
-          if (l === 'STARRED') isStarred = true;
-        }
-      }
-      if (msg.hasAttachments) hasAttachments = true;
-      if (!msg.isRead) unreadCount += 1;
-    }
-
-    const latestFrom = latest.from as { name?: string; email?: string } | null;
-    const latestSender = latestFrom?.name || latestFrom?.email || 'Unknown';
-    const latestSenderEmail = latestFrom?.email ?? '';
-
-    summaries.push({
-      threadId: r.threadId,
-      accountId: r.accountId,
-      subject: normalizeSubject(first.subject),
-      participants: [...participants],
-      latestMessageId: latest.id,
-      latestSender,
-      latestSenderEmail,
-      latestSenderAvatarUrl: null,
-      latestDate: latest.receivedDate ?? latest.sentDate ?? latest.createdAt ?? null,
-      preview: latest.preview ?? '',
-      messageCount: threadMessages.length,
-      unreadCount,
-      hasAttachments,
-      isStarred,
-      labels: [...labels],
-      scheduledFor: latest.scheduledFor ?? null,
-      sendStatus: latest.sendStatus ?? null,
-      messages: threadMessages,
-    });
+    summaries.push(buildThreadSummary(r, threadMessages));
   }
 
   // ---- enrich with contact names + avatars ----------------------------
@@ -247,7 +294,7 @@ function normalizeSubject(subject: string | null): string {
   return subject.replace(/^(Re:|Fwd:|Fw:)\s*/i, '');
 }
 
-async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): Promise<void> {
+function collectThreadSenderEmails(summaries: ThreadSummary[]): Set<string> {
   const emails = new Set<string>();
   for (const t of summaries) {
     if (t.latestSenderEmail) emails.add(t.latestSenderEmail.toLowerCase());
@@ -256,6 +303,53 @@ async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): P
       if (from?.email) emails.add(from.email.toLowerCase());
     }
   }
+  return emails;
+}
+
+function buildContactLookups(
+  contactRows: Array<{
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    avatarUrl: string | null;
+  }>,
+): { nameByEmail: Map<string, string>; avatarByEmail: Map<string, string> } {
+  const nameByEmail = new Map<string, string>();
+  const avatarByEmail = new Map<string, string>();
+  for (const row of contactRows) {
+    if (!row.email) continue;
+    const key = row.email.toLowerCase();
+    const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
+    if (fullName && !nameByEmail.has(key)) nameByEmail.set(key, fullName);
+    if (row.avatarUrl && !avatarByEmail.has(key)) avatarByEmail.set(key, row.avatarUrl);
+  }
+  return { nameByEmail, avatarByEmail };
+}
+
+/** Rewrite each message's `from` with the resolved contact name + avatar, where one is known. */
+function applyContactsToMessages(
+  messages: MessageRow[],
+  nameByEmail: Map<string, string>,
+  avatarByEmail: Map<string, string>,
+): void {
+  for (const msg of messages) {
+    const from = msg.from as { name?: string; email?: string } | null;
+    if (!from?.email) continue;
+    const key = from.email.toLowerCase();
+    const contactName = nameByEmail.get(key);
+    const avatarUrl = avatarByEmail.get(key);
+    if (contactName || avatarUrl) {
+      (msg as { from: unknown }).from = {
+        ...from,
+        name: contactName ?? from.name,
+        avatarUrl: avatarUrl ?? null,
+      };
+    }
+  }
+}
+
+async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): Promise<void> {
+  const emails = collectThreadSenderEmails(summaries);
   if (emails.size === 0) return;
 
   const contactRows = await db
@@ -268,15 +362,7 @@ async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): P
     .from(contacts)
     .where(and(inArray(contacts.email, [...emails]), isNull(contacts.deletedAt)));
 
-  const nameByEmail = new Map<string, string>();
-  const avatarByEmail = new Map<string, string>();
-  for (const row of contactRows) {
-    if (!row.email) continue;
-    const key = row.email.toLowerCase();
-    const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
-    if (fullName && !nameByEmail.has(key)) nameByEmail.set(key, fullName);
-    if (row.avatarUrl && !avatarByEmail.has(key)) avatarByEmail.set(key, row.avatarUrl);
-  }
+  const { nameByEmail, avatarByEmail } = buildContactLookups(contactRows);
 
   for (const t of summaries) {
     if (t.latestSenderEmail) {
@@ -285,20 +371,6 @@ async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): P
       if (contactName) t.latestSender = contactName;
       t.latestSenderAvatarUrl = avatarByEmail.get(key) ?? null;
     }
-    for (const msg of t.messages) {
-      const from = msg.from as { name?: string; email?: string } | null;
-      if (from?.email) {
-        const key = from.email.toLowerCase();
-        const contactName = nameByEmail.get(key);
-        const avatarUrl = avatarByEmail.get(key);
-        if (contactName || avatarUrl) {
-          (msg as { from: unknown }).from = {
-            ...from,
-            name: contactName ?? from.name,
-            avatarUrl: avatarUrl ?? null,
-          };
-        }
-      }
-    }
+    applyContactsToMessages(t.messages, nameByEmail, avatarByEmail);
   }
 }

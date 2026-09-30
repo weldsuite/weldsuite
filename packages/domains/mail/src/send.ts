@@ -149,6 +149,213 @@ async function findSentByIdempotencyKey(
   };
 }
 
+type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer; fileKey: string };
+type MailAccountRow = typeof mailAccounts.$inferSelect;
+type TransmitResult = Awaited<ReturnType<typeof cfEmail.sendEmail>>;
+
+/** Load the account and make sure the caller may send from it (otherwise it looks like it doesn't exist). */
+async function loadSendableAccount(db: Database, userId: string, accountId: string): Promise<MailAccountRow> {
+  const [account] = await db
+    .select()
+    .from(mailAccounts)
+    .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
+    .limit(1);
+  if (!account) throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
+
+  const admin = await isAdminOrOwner(db, userId);
+  if (!hasAccessToAccount(account, userId, admin)) {
+    throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
+  }
+  return account;
+}
+
+function buildExtraHeaders(data: SendComposeInput): Record<string, string> | undefined {
+  const extraHeaders: Record<string, string> = {};
+  if (data.inReplyTo) extraHeaders['In-Reply-To'] = data.inReplyTo;
+  if (data.references?.length) extraHeaders['References'] = data.references.join(' ');
+  return Object.keys(extraHeaders).length ? extraHeaders : undefined;
+}
+
+/** Hand the envelope to the Cloudflare `send_email` binding (or fake it under dry-run). */
+async function transmitEmail(
+  env: MailSendEnv,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  htmlBody: string | undefined,
+  attachments: ResolvedAttachment[],
+  dryRun: boolean | undefined,
+): Promise<TransmitResult> {
+  if (dryRun) {
+    return { messageId: `<dryrun-${generateId('msg')}@e2e.test>`, pendingVerification: false };
+  }
+  const fromAddress = account.displayName ? `${account.displayName} <${account.email}>` : account.email;
+  return cfEmail.sendEmail(env, {
+    from: fromAddress,
+    to: data.to,
+    subject: data.subject || '(No subject)',
+    html: htmlBody,
+    text: data.body,
+    cc: data.cc,
+    bcc: data.bcc,
+    replyTo: data.replyTo,
+    headers: buildExtraHeaders(data),
+    attachments: attachments.length
+      ? attachments.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          content: a.content,
+        }))
+      : undefined,
+  });
+}
+
+/** Thread stitching: replies inherit the parent's thread, anything else starts its own. */
+async function resolveThreadId(
+  db: Database,
+  accountId: string,
+  data: SendComposeInput,
+  fallbackThreadId: string,
+): Promise<string> {
+  const lookupIds = [...(data.inReplyTo ? [data.inReplyTo] : []), ...(data.references ?? [])];
+  if (lookupIds.length === 0) return fallbackThreadId;
+
+  const providerIds = lookupIds
+    .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
+    .filter(Boolean);
+  const [parent] = await db
+    .select({ threadId: mailMessages.threadId })
+    .from(mailMessages)
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        or(
+          inArray(mailMessages.messageId, lookupIds),
+          inArray(mailMessages.mailcowMessageId, providerIds),
+        ),
+      ),
+    )
+    .limit(1);
+  return parent?.threadId || fallbackThreadId;
+}
+
+interface SentCopyInput {
+  messageId: string;
+  smtpMessageId: string;
+  externalMessageId: string;
+  threadId: string;
+  htmlBody: string | undefined;
+  attachmentCount: number;
+  now: Date;
+}
+
+/**
+ * Persist the SENT copy. Returns the already-persisted result when a concurrent
+ * send with the same idempotency key won the unique-index race, otherwise null.
+ */
+async function persistSentCopy(
+  db: Database,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  copy: SentCopyInput,
+): Promise<SendResult | null> {
+  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, attachmentCount, now } = copy;
+  const textPreview = (data.body || (htmlBody ?? '').replace(/<[^>]*>/g, '')).slice(0, 200);
+  try {
+    await db.insert(mailMessages).values({
+      id: messageId,
+      accountId: account.id,
+      labels: ['SENT'],
+      messageId: smtpMessageId,
+      threadId,
+      from: { email: account.email, name: account.displayName || undefined },
+      to: data.to.map((email) => ({ email })),
+      cc: data.cc?.map((email) => ({ email })),
+      bcc: data.bcc?.map((email) => ({ email })),
+      subject: data.subject || '(No subject)',
+      preview: textPreview,
+      textBody: data.body,
+      htmlBody,
+      sentDate: now,
+      isRead: true,
+      source: 'sent',
+      inReplyTo: data.inReplyTo,
+      references: data.references,
+      isReply: !!data.inReplyTo,
+      externalMessageId,
+      idempotencyKey: data.idempotencyKey,
+      hasAttachments: attachmentCount > 0,
+      attachmentCount,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return null;
+  } catch (insertErr) {
+    // A concurrent send with the same idempotency key won the unique-index
+    // race: return its persisted row instead of double-recording. (The provider
+    // send already happened above; a true concurrent double-send is a narrow,
+    // documented edge — sequential offline replay is guarded by the pre-check.)
+    if (!data.idempotencyKey) throw insertErr;
+    const existing = await findSentByIdempotencyKey(db, account.id, data.idempotencyKey);
+    if (!existing) throw insertErr;
+    return existing;
+  }
+}
+
+/** Persist attachment pointers (best-effort). */
+async function persistAttachmentPointers(
+  db: Database,
+  messageId: string,
+  attachments: ResolvedAttachment[],
+  now: Date,
+): Promise<void> {
+  for (const att of attachments) {
+    try {
+      await db.insert(mailAttachments).values({
+        id: generateId('attach'),
+        messageId,
+        fileName: att.filename,
+        contentType: att.contentType || 'application/octet-stream',
+        size: att.content.byteLength,
+        storagePath: att.fileKey,
+        isInline: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      console.error(
+        `[mail-send] Failed to persist attachment ${att.filename} for message ${messageId}:`,
+        err,
+      );
+    }
+  }
+}
+
+/** Upsert recipients into contacts in the background (inline when there is no `waitUntil`). */
+async function upsertRecipientContacts(
+  env: MailSendEnv,
+  db: Database,
+  orgId: string,
+  data: SendComposeInput,
+  waitUntil: ExecutionContext['waitUntil'] | undefined,
+): Promise<void> {
+  const upsertJob = upsertMailContacts(env, db, orgId, {
+    to: data.to.map((email) => ({ email })),
+    cc: data.cc?.map((email) => ({ email })),
+    bcc: data.bcc?.map((email) => ({ email })),
+  });
+  if (waitUntil) {
+    waitUntil(upsertJob);
+    return;
+  }
+  // Falls back to inline await — slower send response but correct.
+  await upsertJob;
+}
+
+function toSmtpMessageId(externalMessageId: string): string {
+  const raw = externalMessageId.replace(/^<|>$/g, '');
+  return raw.startsWith('<') ? raw : `<${raw}>`;
+}
+
 export async function sendAndPersist(
   env: MailSendEnv,
   db: Database,
@@ -167,17 +374,7 @@ export async function sendAndPersist(
   }
 
   // ---- Account + access check ------------------------------------------
-  const [account] = await db
-    .select()
-    .from(mailAccounts)
-    .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
-    .limit(1);
-  if (!account) throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
-
-  const admin = await isAdminOrOwner(db, userId);
-  if (!hasAccessToAccount(account, userId, admin)) {
-    throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
-  }
+  const account = await loadSendableAccount(db, userId, accountId);
 
   // ---- Idempotency: short-circuit a replayed send ----------------------
   // If this key already produced a SENT message, return it without sending
@@ -210,129 +407,30 @@ export async function sendAndPersist(
   const resolvedAttachments = await resolveAttachments(env, orgId, data);
 
   // ---- Send via Cloudflare ---------------------------------------------
-  const fromAddress = account.displayName
-    ? `${account.displayName} <${account.email}>`
-    : account.email;
-
-  const extraHeaders: Record<string, string> = {};
-  if (data.inReplyTo) extraHeaders['In-Reply-To'] = data.inReplyTo;
-  if (data.references?.length) extraHeaders['References'] = data.references.join(' ');
-
-  const sendResult = opts?.dryRun
-    ? { messageId: `<dryrun-${generateId('msg')}@e2e.test>`, pendingVerification: false }
-    : await cfEmail.sendEmail(env, {
-        from: fromAddress,
-        to: data.to,
-        subject: data.subject || '(No subject)',
-        html: htmlBody,
-        text: data.body,
-        cc: data.cc,
-        bcc: data.bcc,
-        replyTo: data.replyTo,
-        headers: Object.keys(extraHeaders).length ? extraHeaders : undefined,
-        attachments: resolvedAttachments.length
-          ? resolvedAttachments.map((a) => ({
-              filename: a.filename,
-              contentType: a.contentType,
-              content: a.content,
-            }))
-          : undefined,
-      });
+  const sendResult = await transmitEmail(env, account, data, htmlBody, resolvedAttachments, opts?.dryRun);
 
   const externalMessageId = sendResult.messageId;
-  const smtpMessageIdRaw = externalMessageId.replace(/^<|>$/g, '');
-  const smtpMessageId = smtpMessageIdRaw.startsWith('<') ? smtpMessageIdRaw : `<${smtpMessageIdRaw}>`;
+  const smtpMessageId = toSmtpMessageId(externalMessageId);
   const messageId = generateId('msg');
   const now = new Date();
 
   // ---- Thread stitching (replies inherit parent thread) ----------------
-  let threadId: string = smtpMessageId;
-  const lookupIds = [...(data.inReplyTo ? [data.inReplyTo] : []), ...(data.references ?? [])];
-  if (lookupIds.length > 0) {
-    const providerIds = lookupIds
-      .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
-      .filter(Boolean);
-    const [parent] = await db
-      .select({ threadId: mailMessages.threadId })
-      .from(mailMessages)
-      .where(
-        and(
-          eq(mailMessages.accountId, accountId),
-          or(
-            inArray(mailMessages.messageId, lookupIds),
-            inArray(mailMessages.mailcowMessageId, providerIds),
-          ),
-        ),
-      )
-      .limit(1);
-    if (parent?.threadId) threadId = parent.threadId;
-  }
+  const threadId = await resolveThreadId(db, accountId, data, smtpMessageId);
 
   // ---- Persist SENT copy ------------------------------------------------
-  const textPreview = (data.body || (htmlBody ?? '').replace(/<[^>]*>/g, '')).slice(0, 200);
-  try {
-    await db.insert(mailMessages).values({
-      id: messageId,
-      accountId,
-      labels: ['SENT'],
-      messageId: smtpMessageId,
-      threadId,
-      from: { email: account.email, name: account.displayName || undefined },
-      to: data.to.map((email) => ({ email })),
-      cc: data.cc?.map((email) => ({ email })),
-      bcc: data.bcc?.map((email) => ({ email })),
-      subject: data.subject || '(No subject)',
-      preview: textPreview,
-      textBody: data.body,
-      htmlBody,
-      sentDate: now,
-      isRead: true,
-      source: 'sent',
-      inReplyTo: data.inReplyTo,
-      references: data.references,
-      isReply: !!data.inReplyTo,
-      externalMessageId,
-      idempotencyKey: data.idempotencyKey,
-      hasAttachments: resolvedAttachments.length > 0,
-      attachmentCount: resolvedAttachments.length,
-      createdAt: now,
-      updatedAt: now,
-    });
-  } catch (insertErr) {
-    // A concurrent send with the same idempotency key won the unique-index
-    // race: return its persisted row instead of double-recording. (The provider
-    // send already happened above; a true concurrent double-send is a narrow,
-    // documented edge — sequential offline replay is guarded by the pre-check.)
-    if (data.idempotencyKey) {
-      const existing = await findSentByIdempotencyKey(db, accountId, data.idempotencyKey);
-      if (existing) return existing;
-    }
-    throw insertErr;
-  }
+  const replayed = await persistSentCopy(db, account, data, {
+    messageId,
+    smtpMessageId,
+    externalMessageId,
+    threadId,
+    htmlBody,
+    attachmentCount: resolvedAttachments.length,
+    now,
+  });
+  if (replayed) return replayed;
 
   // ---- Persist attachment pointers (best-effort) -----------------------
-  if (resolvedAttachments.length > 0) {
-    for (const att of resolvedAttachments) {
-      try {
-        await db.insert(mailAttachments).values({
-          id: generateId('attach'),
-          messageId,
-          fileName: att.filename,
-          contentType: att.contentType || 'application/octet-stream',
-          size: att.content.byteLength,
-          storagePath: att.fileKey,
-          isInline: false,
-          createdAt: now,
-          updatedAt: now,
-        });
-      } catch (err) {
-        console.error(
-          `[mail-send] Failed to persist attachment ${att.filename} for message ${messageId}:`,
-          err,
-        );
-      }
-    }
-  }
+  await persistAttachmentPointers(db, messageId, resolvedAttachments, now);
 
   // ---- Bump daily counter ----------------------------------------------
   await db
@@ -343,19 +441,7 @@ export async function sendAndPersist(
   // ---- Background: upsert recipients into contacts ---------------------
   // Skipped under dry-run so test sends don't create real `people` rows that
   // /reset can't find (they carry no test marker).
-  if (!opts?.dryRun) {
-    const upsertJob = upsertMailContacts(env, db, orgId, {
-      to: data.to.map((email) => ({ email })),
-      cc: data.cc?.map((email) => ({ email })),
-      bcc: data.bcc?.map((email) => ({ email })),
-    });
-    if (waitUntil) {
-      waitUntil(upsertJob);
-    } else {
-      // Falls back to inline await — slower send response but correct.
-      await upsertJob;
-    }
-  }
+  if (!opts?.dryRun) await upsertRecipientContacts(env, db, orgId, data, waitUntil);
 
   return {
     messageId,

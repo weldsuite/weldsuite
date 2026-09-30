@@ -342,6 +342,17 @@ export interface PaginatedResult<T> {
   };
 }
 
+/** Compare two sort values; nulls sort last (asc) / first (desc), mixed types compare equal. */
+function compareSortValues(av: unknown, bv: unknown, order: 'asc' | 'desc'): number {
+  const dir = order === 'asc' ? 1 : -1;
+  if (av == null && bv == null) return 0;
+  if (av == null) return dir;
+  if (bv == null) return -dir;
+  if (typeof av === 'string' && typeof bv === 'string') return dir * av.localeCompare(bv);
+  if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv);
+  return 0;
+}
+
 export function queryArray<T>(items: T[], options: QueryOptions<T>): PaginatedResult<T> {
   let result = [...items];
 
@@ -369,21 +380,13 @@ export function queryArray<T>(items: T[], options: QueryOptions<T>): PaginatedRe
   if (options.sortBy) {
     const sortBy = options.sortBy as string;
     const order = options.sortOrder ?? 'asc';
-    result = [...result].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[sortBy];
-      const bv = (b as Record<string, unknown>)[sortBy];
-      if (av == null && bv == null) return 0;
-      if (av == null) return order === 'asc' ? 1 : -1;
-      if (bv == null) return order === 'asc' ? -1 : 1;
-      if (typeof av === 'string' && typeof bv === 'string') {
-        const cmp = av.localeCompare(bv);
-        return order === 'asc' ? cmp : -cmp;
-      }
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return order === 'asc' ? av - bv : bv - av;
-      }
-      return 0;
-    });
+    result = [...result].sort((a, b) =>
+      compareSortValues(
+        (a as Record<string, unknown>)[sortBy],
+        (b as Record<string, unknown>)[sortBy],
+        order,
+      ),
+    );
   }
 
   const page = options.page ?? 1;

@@ -213,6 +213,162 @@ function rollUpStatements(db: Database, productId: string, variantId: string | n
   return statements;
 }
 
+/** The product columns the ledger needs to validate and price a stock change. */
+interface LedgerProduct {
+  id: string;
+  sku: string | null;
+  trackLots: boolean | null;
+  trackExpiry: boolean | null;
+  allowBackorder: boolean | null;
+}
+
+/** The bucket a stock change landed in, and its on-hand quantity afterwards. */
+interface ResolvedBucket {
+  inventoryId: string;
+  newQuantity: number;
+}
+
+type IncrementResult = { id: string; quantityOnHand: number | null }[];
+
+function insufficientStock(onHand: number, delta: number): StockLedgerError {
+  return new StockLedgerError(
+    `Insufficient stock: ${onHand} on hand, ${-delta} requested`,
+    'INSUFFICIENT_STOCK',
+  );
+}
+
+/**
+ * Traceability is enforced only on receipt. Demanding a lot on the way out
+ * would block correcting stock that predates the product opting in.
+ */
+function assertReceiptTraceability(product: LedgerProduct, params: StockChangeParams): void {
+  if (params.delta <= 0) return;
+  const label = product.sku ?? product.id;
+  if (product.trackLots && !params.lotNumber) {
+    throw new StockLedgerError(
+      `Product ${label} is lot-tracked — lotNumber is required when receiving stock`,
+      'LOT_REQUIRED',
+    );
+  }
+  if (product.trackExpiry && !params.expiryDate) {
+    throw new StockLedgerError(
+      `Product ${label} is expiry-tracked — expiryDate is required when receiving stock`,
+      'EXPIRY_REQUIRED',
+    );
+  }
+}
+
+async function loadLedgerProduct(db: Database, productId: string): Promise<LedgerProduct> {
+  const [product] = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      sku: products.sku,
+      trackLots: products.trackLots,
+      trackExpiry: products.trackExpiry,
+      allowBackorder: products.allowBackorder,
+    })
+    .from(products)
+    .where(and(eq(products.id, productId), isNull(products.deletedAt)))
+    .limit(1);
+
+  if (!product) {
+    throw new StockLedgerError(`Product ${productId} not found`, 'PRODUCT_NOT_FOUND');
+  }
+  return product;
+}
+
+/**
+ * Insert a fresh bucket for a first receipt.
+ *
+ * Creating the bucket is the one check-then-act left in this path: two
+ * simultaneous first receipts both find no row and both insert. Deferring
+ * to `inventory_bucket_unique` makes the insert idempotent — the loser gets
+ * no row back and simply applies its delta to the winner's bucket instead,
+ * which is what it would have done had it arrived a moment later.
+ */
+function insertBucket(db: Database, params: StockChangeParams, now: Date): PromiseLike<IncrementResult> {
+  const unitCost = params.unitCost ?? null;
+  return db
+    .insert(inventory)
+    .values({
+      id: generateId('inv'),
+      productId: params.productId,
+      variantId: params.variantId ?? null,
+      warehouseId: params.warehouseId,
+      locationId: params.locationId ?? null,
+      lotNumber: params.lotNumber ?? null,
+      batchNumber: params.batchNumber ?? null,
+      expiryDate: params.expiryDate ?? null,
+      quantityOnHand: params.delta,
+      quantityAllocated: 0,
+      quantityAvailable: params.delta,
+      quantityIncoming: 0,
+      quantityOutgoing: 0,
+      unitCost: unitCost === null ? null : String(unitCost),
+      totalValue: unitCost === null ? null : (unitCost * params.delta).toFixed(2),
+      status: 'available',
+      receivedDate: params.delta > 0 ? now : null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({
+      target: [
+        inventory.productId,
+        inventory.warehouseId,
+        inventory.variantId,
+        inventory.locationId,
+        inventory.lotNumber,
+      ],
+      // On `onConflictDoNothing` this renders as the ON CONFLICT (…) WHERE …
+      // predicate, which is what names the partial index as the arbiter —
+      // without it Postgres cannot infer which index is meant.
+      where: sql`${inventory.deletedAt} IS NULL`,
+    })
+    .returning({ id: inventory.id, quantityOnHand: inventory.quantityOnHand });
+}
+
+/**
+ * The increment matched no row. Either the bucket doesn't exist yet, or it does
+ * and the oversell guard rejected the issue. Distinguish the two, because
+ * creating a bucket at a negative quantity to satisfy an issue would invent
+ * stock; otherwise create the bucket (or, if a concurrent creator won, re-run
+ * the increment against theirs).
+ */
+async function resolveMissingBucket(
+  db: Database,
+  params: StockChangeParams,
+  product: LedgerProduct,
+  increment: () => PromiseLike<IncrementResult>,
+  now: Date,
+): Promise<ResolvedBucket> {
+  const [existing] = await db
+    .select({ id: inventory.id, quantityOnHand: inventory.quantityOnHand })
+    .from(inventory)
+    .where(matchStockKey(params))
+    .limit(1);
+
+  if (existing) throw insufficientStock(existing.quantityOnHand ?? 0, params.delta);
+  if (params.delta < 0 && !product.allowBackorder) throw insufficientStock(0, params.delta);
+
+  const created = await insertBucket(db, params, now);
+  if (created.length > 0) {
+    return { inventoryId: created[0].id, newQuantity: created[0].quantityOnHand ?? params.delta };
+  }
+
+  const retried = await increment();
+  if (retried.length === 0) {
+    // The concurrent creator's bucket exists but can't absorb this issue.
+    const [raced] = await db
+      .select({ quantityOnHand: inventory.quantityOnHand })
+      .from(inventory)
+      .where(matchStockKey(params))
+      .limit(1);
+    throw insufficientStock(raced?.quantityOnHand ?? 0, params.delta);
+  }
+  return { inventoryId: retried[0].id, newQuantity: retried[0].quantityOnHand ?? 0 };
+}
+
 /**
  * Apply a signed stock change to one bucket, writing the audit trail and
  * refreshing the product roll-ups.
@@ -232,39 +388,8 @@ export async function applyStockChange(
 
   const now = new Date();
 
-  const [product] = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      sku: products.sku,
-      trackLots: products.trackLots,
-      trackExpiry: products.trackExpiry,
-      allowBackorder: products.allowBackorder,
-    })
-    .from(products)
-    .where(and(eq(products.id, params.productId), isNull(products.deletedAt)))
-    .limit(1);
-
-  if (!product) {
-    throw new StockLedgerError(`Product ${params.productId} not found`, 'PRODUCT_NOT_FOUND');
-  }
-
-  // Traceability is enforced only on receipt. Demanding a lot on the way out
-  // would block correcting stock that predates the product opting in.
-  if (params.delta > 0) {
-    if (product.trackLots && !params.lotNumber) {
-      throw new StockLedgerError(
-        `Product ${product.sku ?? product.id} is lot-tracked — lotNumber is required when receiving stock`,
-        'LOT_REQUIRED',
-      );
-    }
-    if (product.trackExpiry && !params.expiryDate) {
-      throw new StockLedgerError(
-        `Product ${product.sku ?? product.id} is expiry-tracked — expiryDate is required when receiving stock`,
-        'EXPIRY_REQUIRED',
-      );
-    }
-  }
+  const product = await loadLedgerProduct(db, params.productId);
+  assertReceiptTraceability(product, params);
 
   const costExpr = movingAverageCost(params.delta, params.unitCost);
 
@@ -294,103 +419,10 @@ export async function applyStockChange(
 
   const updated = await increment();
 
-  let inventoryId: string;
-  let newQuantity: number;
-
-  if (updated.length > 0) {
-    inventoryId = updated[0].id;
-    newQuantity = updated[0].quantityOnHand ?? 0;
-  } else {
-    // No row matched. Either the bucket doesn't exist yet, or it does and the
-    // oversell guard rejected the issue. Distinguish the two, because creating
-    // a bucket at a negative quantity to satisfy an issue would invent stock.
-    const [existing] = await db
-      .select({ id: inventory.id, quantityOnHand: inventory.quantityOnHand })
-      .from(inventory)
-      .where(matchStockKey(params))
-      .limit(1);
-
-    if (existing) {
-      throw new StockLedgerError(
-        `Insufficient stock: ${existing.quantityOnHand ?? 0} on hand, ${-params.delta} requested`,
-        'INSUFFICIENT_STOCK',
-      );
-    }
-    if (params.delta < 0 && !product.allowBackorder) {
-      throw new StockLedgerError(
-        `Insufficient stock: 0 on hand, ${-params.delta} requested`,
-        'INSUFFICIENT_STOCK',
-      );
-    }
-
-    // Creating the bucket is the one check-then-act left in this path: two
-    // simultaneous first receipts both find no row and both insert. Deferring
-    // to `inventory_bucket_unique` makes the insert idempotent — the loser gets
-    // no row back and simply applies its delta to the winner's bucket instead,
-    // which is what it would have done had it arrived a moment later.
-    const candidateId = generateId('inv');
-    const created = await db
-      .insert(inventory)
-      .values({
-        id: candidateId,
-        productId: params.productId,
-        variantId: params.variantId ?? null,
-        warehouseId: params.warehouseId,
-        locationId: params.locationId ?? null,
-        lotNumber: params.lotNumber ?? null,
-        batchNumber: params.batchNumber ?? null,
-        expiryDate: params.expiryDate ?? null,
-        quantityOnHand: params.delta,
-        quantityAllocated: 0,
-        quantityAvailable: params.delta,
-        quantityIncoming: 0,
-        quantityOutgoing: 0,
-        unitCost: params.unitCost !== null && params.unitCost !== undefined ? String(params.unitCost) : null,
-        totalValue:
-          params.unitCost !== null && params.unitCost !== undefined
-            ? String((params.unitCost * params.delta).toFixed(2))
-            : null,
-        status: 'available',
-        receivedDate: params.delta > 0 ? now : null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({
-        target: [
-          inventory.productId,
-          inventory.warehouseId,
-          inventory.variantId,
-          inventory.locationId,
-          inventory.lotNumber,
-        ],
-        // On `onConflictDoNothing` this renders as the ON CONFLICT (…) WHERE …
-        // predicate, which is what names the partial index as the arbiter —
-        // without it Postgres cannot infer which index is meant.
-        where: sql`${inventory.deletedAt} IS NULL`,
-      })
-      .returning({ id: inventory.id, quantityOnHand: inventory.quantityOnHand });
-
-    if (created.length > 0) {
-      inventoryId = created[0].id;
-      newQuantity = created[0].quantityOnHand ?? params.delta;
-    } else {
-      const retried = await increment();
-      if (retried.length === 0) {
-        // The concurrent creator's bucket exists but can't absorb this issue.
-        const [raced] = await db
-          .select({ quantityOnHand: inventory.quantityOnHand })
-          .from(inventory)
-          .where(matchStockKey(params))
-          .limit(1);
-        throw new StockLedgerError(
-          `Insufficient stock: ${raced?.quantityOnHand ?? 0} on hand, ${-params.delta} requested`,
-          'INSUFFICIENT_STOCK',
-        );
-      }
-      inventoryId = retried[0].id;
-      newQuantity = retried[0].quantityOnHand ?? 0;
-    }
-  }
+  const { inventoryId, newQuantity }: ResolvedBucket =
+    updated.length > 0
+      ? { inventoryId: updated[0].id, newQuantity: updated[0].quantityOnHand ?? 0 }
+      : await resolveMissingBucket(db, params, product, increment, now);
 
   const previousQuantity = newQuantity - params.delta;
   const adjustmentId = generateId('adj');
