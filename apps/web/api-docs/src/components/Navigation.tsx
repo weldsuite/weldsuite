@@ -191,7 +191,7 @@ function NavigationGroup({
             <ActivePageMarker group={group} pathname={pathname} />
           )}
         </AnimatePresence>
-        <ul role="list" className="border-l border-transparent">
+        <ul className="border-l border-transparent">
           {group.links.map((link) => (
             <motion.li key={link.href} layout="position" className="relative">
               <NavLink href={link.href} active={link.href === pathname}>
@@ -314,7 +314,7 @@ export const navigation: Array<NavGroup> = [
 export function Navigation(props: Readonly<React.ComponentPropsWithoutRef<'nav'>>) {
   return (
     <nav {...props}>
-      <ul role="list">
+      <ul>
         <TopLevelNavItem href="/">API</TopLevelNavItem>
         <TopLevelNavItem href="#">Documentation</TopLevelNavItem>
         <TopLevelNavItem href="#">Support</TopLevelNavItem>

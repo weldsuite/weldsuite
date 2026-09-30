@@ -175,6 +175,11 @@ function SearchResult({
   const hierarchy = [sectionTitle, result.pageTitle].filter(
     (x): x is string => typeof x === 'string',
   )
+  const hierarchyEntries = hierarchy.map((text, position) => ({
+    text,
+    path: hierarchy.slice(0, position + 1).join(' / '),
+    isLast: position === hierarchy.length - 1,
+  }))
 
   return (
     <li
@@ -201,12 +206,12 @@ function SearchResult({
           aria-hidden="true"
           className="mt-1 truncate text-2xs whitespace-nowrap text-zinc-500"
         >
-          {hierarchy.map((item, itemIndex, items) => (
-            <Fragment key={itemIndex}>
-              <HighlightQuery text={item} query={query} />
+          {hierarchyEntries.map((entry) => (
+            <Fragment key={entry.path}>
+              <HighlightQuery text={entry.text} query={query} />
               <span
                 className={
-                  itemIndex === items.length - 1
+                  entry.isLast
                     ? 'sr-only'
                     : 'mx-2 text-zinc-300 dark:text-zinc-700'
                 }
@@ -238,8 +243,7 @@ function SearchResults({
           Nothing found for{' '}
           <strong className="font-semibold break-words text-zinc-900 dark:text-white">
             &lsquo;{query}&rsquo;
-          </strong>
-          . Please try again.
+          </strong>. Please try again.
         </p>
       </div>
     )
