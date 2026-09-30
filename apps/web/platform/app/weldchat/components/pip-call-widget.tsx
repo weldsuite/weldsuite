@@ -309,13 +309,18 @@ function PiPCallWidgetInner() {
       !hasAnimatedRef.current && shouldShow && "animate-in slide-in-from-bottom-4 fade-in duration-300",
     )}>
       {/* Video / Avatar area */}
-      <div
-        className="relative mx-2 mt-2 aspect-video rounded-xl overflow-hidden bg-muted flex items-center justify-center cursor-pointer"
-        onClick={() => {
-          expandFromPiP();
-          toggleFullscreen();
-        }}
-      >
+      <div className="relative mx-2 mt-2 aspect-video rounded-xl overflow-hidden bg-muted flex items-center justify-center">
+        {/* Whole-area click target: a native button overlay (a wrapper can't be a
+            button because it also hosts the expand button below). */}
+        <button
+          type="button"
+          className="absolute inset-0 z-10 cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={t.weldchat.pipCallWidget.expand}
+          onClick={() => {
+            expandFromPiP();
+            toggleFullscreen();
+          }}
+        />
         {videoTrack ? (
           <video
             ref={videoRef}
@@ -334,9 +339,8 @@ function PiPCallWidgetInner() {
         {/* Expand button */}
         <Button
           variant="ghost"
-          className="absolute top-2 right-2 p-1.5 rounded-lg bg-background/70 hover:bg-muted/70 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
+          className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-background/70 hover:bg-muted/70 transition-colors"
+          onClick={() => {
             expandFromPiP();
             toggleFullscreen();
           }}
@@ -346,7 +350,7 @@ function PiPCallWidgetInner() {
         </Button>
 
         {/* Name tag */}
-        <span className="absolute top-2 left-2 text-foreground/80 text-xs font-medium bg-background/60 rounded-md px-1.5 py-0.5">
+        <span className="absolute top-2 left-2 pointer-events-none text-foreground/80 text-xs font-medium bg-background/60 rounded-md px-1.5 py-0.5">
           {callLabel}
         </span>
       </div>

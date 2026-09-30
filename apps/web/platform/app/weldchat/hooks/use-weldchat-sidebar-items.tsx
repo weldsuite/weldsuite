@@ -2,6 +2,11 @@ import * as React from 'react';
 import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, Settings, AtSign, BookUser } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
+/** Hook point for decorating a sidebar group label; currently the identity. */
+function decorateLabel(label: string): string {
+  return label;
+}
+
 function createDmAvatarIcon(name: string, picture?: string) {
   return function DmAvatar() {
     return (
@@ -16,7 +21,7 @@ function createDmAvatarIcon(name: string, picture?: string) {
 }
 
 function createGroupDmAvatarIcon(
-  members: Array<{ name?: string | null; email?: string | null; picture?: string | null }>,
+  members: Array<{ id: string; name?: string | null; email?: string | null; picture?: string | null }>,
 ) {
   const visible = members.slice(0, 2);
   return function GroupDmAvatar() {
@@ -26,7 +31,7 @@ function createGroupDmAvatarIcon(
           const label = m.name || m.email || '?';
           return (
             <Avatar
-              key={i}
+              key={m.id}
               className={
                 'h-[13px] w-[13px] absolute !rounded-[4px] border border-background ' +
                 (i === 0 ? 'top-0 left-0 z-10' : 'bottom-0 right-0')
@@ -648,10 +653,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     }
     const subset = items.filter((i) => i.id && peekIds.has(i.id));
     return applyTopN(subset, settings.peekMaxItems ?? null);
-  }
-
-  function decorateLabel(label: string): string {
-    return label;
   }
 
   function shouldShowGroup(items: MenuItemProps[], key: string): boolean {
