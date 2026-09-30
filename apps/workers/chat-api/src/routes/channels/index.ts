@@ -31,7 +31,7 @@ import {
   markChannelRead,
   markChannelUnreadFrom,
 } from '../../services/chat/channel-reads';
-import { forwardMessage } from '../../services/chat/forward-message';
+import { forwardMessage, type ForwardedMessage } from '../../services/chat/forward-message';
 import {
   mergeAgentRoomPolicy,
 } from '@weldsuite/chat-domain/agent-room-policy';
@@ -387,6 +387,17 @@ const messageCursorSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
 });
 
+/** Trim the `limit + 1` probe row and derive the paging fields. */
+function toMessagePage<T extends { id: string }>(rows: T[], limit: number) {
+  const hasMore = rows.length > limit;
+  const data = hasMore ? rows.slice(0, limit) : rows;
+  return {
+    messages: data,
+    hasMore,
+    nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+  };
+}
+
 /**
  * GET /:channelId/messages — cursor-paginated top-level messages.
  * `before` paginates older (desc); `after` catches up newer (asc).
@@ -430,13 +441,7 @@ app.get(
           .where(and(...conditions))
           .orderBy(asc(m.createdAt))
           .limit(limit + 1);
-        const hasMore = rows.length > limit;
-        const data = hasMore ? rows.slice(0, limit) : rows;
-        return success(c, {
-          messages: data,
-          hasMore,
-          nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
-        });
+        return success(c, toMessagePage(rows, limit));
       }
 
       if (before) {
@@ -454,13 +459,7 @@ app.get(
         .where(and(...conditions))
         .orderBy(desc(m.createdAt))
         .limit(limit + 1);
-      const hasMore = rows.length > limit;
-      const data = hasMore ? rows.slice(0, limit) : rows;
-      return success(c, {
-        messages: data,
-        hasMore,
-        nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
-      });
+      return success(c, toMessagePage(rows, limit));
     } catch (err) {
       console.error('[app-api/channels] list messages failed:', err);
       return error.internal(c, 'Failed to fetch messages');
@@ -826,6 +825,41 @@ app.get('/:channelId/read-receipts', requirePermission('channels:read'), async (
   }
 });
 
+/** Push a forwarded message to the target channel's live subscribers (best effort). */
+async function publishForwardedMessage(
+  rt: RealtimePublisher,
+  fwd: ForwardedMessage,
+  sender: { senderId: string; senderName: string; senderAvatar: string | undefined },
+): Promise<void> {
+  try {
+    await rt.chatMessage(fwd.channelId, {
+      id: fwd.messageId,
+      content: fwd.content,
+      senderId: sender.senderId,
+      senderName: sender.senderName,
+      senderAvatar: sender.senderAvatar,
+      authorType: 'user',
+    });
+  } catch (e) {
+    console.error('[app-api/channels] forward realtime publish failed:', e);
+  }
+}
+
+/** Bump the unread badge for every recipient of a forwarded message (non-critical). */
+async function publishForwardedUnread(
+  env: Env,
+  orgId: string,
+  fwd: ForwardedMessage,
+): Promise<void> {
+  for (const recipientId of fwd.recipientUserIds) {
+    try {
+      await publishChatUnreadUpdate(env, orgId, recipientId, fwd.channelId, 1);
+    } catch {
+      /* non-critical */
+    }
+  }
+}
+
 /**
  * POST /:channelId/messages/:messageId/forward — copy a message into one or
  * more target channels, carrying a `forwardedFrom` snapshot.
@@ -871,26 +905,13 @@ app.post(
       const rt = c.env.REALTIME ? new RealtimePublisher(c.env.REALTIME) : null;
       for (const fwd of result.forwarded) {
         if (rt) {
-          try {
-            await rt.chatMessage(fwd.channelId, {
-              id: fwd.messageId,
-              content: fwd.content,
-              senderId: userId,
-              senderName: result.authorName,
-              senderAvatar: result.authorAvatar ?? undefined,
-              authorType: 'user',
-            });
-          } catch (e) {
-            console.error('[app-api/channels] forward realtime publish failed:', e);
-          }
+          await publishForwardedMessage(rt, fwd, {
+            senderId: userId,
+            senderName: result.authorName,
+            senderAvatar: result.authorAvatar ?? undefined,
+          });
         }
-        for (const recipientId of fwd.recipientUserIds) {
-          try {
-            await publishChatUnreadUpdate(c.env, orgId, recipientId, fwd.channelId, 1);
-          } catch {
-            /* non-critical */
-          }
-        }
+        await publishForwardedUnread(c.env, orgId, fwd);
         safePublish(() =>
           publishEntityEvent({
             c,

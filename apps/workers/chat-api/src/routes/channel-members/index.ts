@@ -22,7 +22,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   canAccessChannel,
   getChannelRole,
@@ -123,6 +123,74 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
   }
 });
 
+type RequestedRole = 'owner' | 'admin' | 'member';
+
+/**
+ * Denial message when the caller may not add `targetUserId` to the channel,
+ * else null. Self-join is allowed only for channels the caller can already
+ * access (public ones); adding someone else requires a channel admin/owner.
+ */
+async function checkAddMemberAccess(
+  db: Database,
+  { channelId, callerId, isSelfAdd }: { channelId: string; callerId: string; isSelfAdd: boolean },
+): Promise<string | null> {
+  if (!isSelfAdd) {
+    // Adding another user requires the caller to be a channel admin/owner.
+    if (await isChannelModerator(db, channelId, callerId)) return null;
+    return 'Only a channel admin can add members';
+  }
+  // Self-join is allowed only for public channels — joining a private channel
+  // requires being invited by an admin/owner.
+  if (await canAccessChannel(db, channelId, callerId)) return null;
+  const [channel] = await db
+    .select({ type: schema.chatChannels.type })
+    .from(schema.chatChannels)
+    .where(eq(schema.chatChannels.id, channelId))
+    .limit(1);
+  return channel?.type === 'public' ? null : 'You cannot join this channel';
+}
+
+/** A self-join is always a plain member; only an owner may grant the owner role. */
+async function capGrantedRole(
+  db: Database,
+  {
+    channelId,
+    callerId,
+    isSelfAdd,
+    requestedRole,
+  }: { channelId: string; callerId: string; isSelfAdd: boolean; requestedRole: RequestedRole },
+): Promise<RequestedRole> {
+  if (isSelfAdd) return 'member';
+  if (requestedRole !== 'owner') return requestedRole;
+  const callerRole = await getChannelRole(db, channelId, callerId);
+  return callerRole === 'owner' ? 'owner' : 'admin';
+}
+
+/** Best-effort realtime fan-out for a new member; failures are logged, never thrown. */
+async function publishMemberJoined(
+  env: Env,
+  db: Database,
+  {
+    orgId,
+    channelId,
+    targetUserId,
+    memberType,
+  }: { orgId: string; channelId: string; targetUserId: string; memberType: string },
+): Promise<void> {
+  try {
+    await publishChatMemberJoined(env, channelId, { channelId, userId: targetUserId });
+    if (memberType !== 'user') return;
+    const [channel] = await db
+      .select({ name: schema.chatChannels.name })
+      .from(schema.chatChannels)
+      .where(eq(schema.chatChannels.id, channelId))
+      .limit(1);
+    await publishChatUserChannelNew(env, orgId, targetUserId, channelId, channel?.name ?? '');
+  } catch (e) {
+    console.error('[app-api/channel-members] realtime publish failed:', e);
+  }
+}
+
 app.post('/', requirePermission('channels:create'), zValidator('json', createChannelMemberSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -148,35 +216,12 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
   //   (a) self-join a PUBLIC channel, or
   //   (b) a channel admin/owner adding someone.
   const isSelfAdd = targetUserId === callerId;
-  if (isSelfAdd) {
-    // Self-join is allowed only for public channels — joining a private channel
-    // requires being invited by an admin/owner.
-    if (!(await canAccessChannel(db, channelId, callerId))) {
-      const [channel] = await db
-        .select({ type: schema.chatChannels.type })
-        .from(schema.chatChannels)
-        .where(eq(schema.chatChannels.id, channelId))
-        .limit(1);
-      if (!channel || channel.type !== 'public') {
-        return error.forbidden(c, 'You cannot join this channel');
-      }
-    }
-  } else {
-    // Adding another user requires the caller to be a channel admin/owner.
-    if (!(await isChannelModerator(db, channelId, callerId))) {
-      return error.forbidden(c, 'Only a channel admin can add members');
-    }
-  }
+  const denial = await checkAddMemberAccess(db, { channelId, callerId, isSelfAdd });
+  if (denial) return error.forbidden(c, denial);
 
   // Role cap: a self-join is always a plain member; only an owner may grant the
   // owner role.
-  let role = requestedRole;
-  if (isSelfAdd) {
-    role = 'member';
-  } else if (role === 'owner') {
-    const callerRole = await getChannelRole(db, channelId, callerId);
-    if (callerRole !== 'owner') role = 'admin';
-  }
+  const role = await capGrantedRole(db, { channelId, callerId, isSelfAdd, requestedRole });
 
   // Idempotency: a membership row may already exist (unique on channelId+userId).
   const [existing] = await db
@@ -211,25 +256,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
       })
       .where(eq(schema.chatChannels.id, channelId));
 
-    try {
-      await publishChatMemberJoined(c.env, channelId, { channelId, userId: targetUserId });
-      if (memberType === 'user') {
-        const [channel] = await db
-          .select({ name: schema.chatChannels.name })
-          .from(schema.chatChannels)
-          .where(eq(schema.chatChannels.id, channelId))
-          .limit(1);
-        await publishChatUserChannelNew(
-          c.env,
-          orgId,
-          targetUserId,
-          channelId,
-          channel?.name ?? '',
-        );
-      }
-    } catch (e) {
-      console.error('[app-api/channel-members] realtime publish failed:', e);
-    }
+    await publishMemberJoined(c.env, db, { orgId, channelId, targetUserId, memberType });
 
     return success(c, { id }, 201);
   } catch (err) {
@@ -237,6 +264,51 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     return error.internal(c, 'Failed to create channel member');
   }
 });
+
+/** Prefs any member may change on their own membership. */
+const SELF_FIELDS = new Set(['isMuted', 'notificationPreference', 'lastReadAt', 'lastReadMessageId']);
+/** Identity columns are never reassigned through PATCH. */
+const IDENTITY_FIELDS = new Set(['channelId', 'userId', 'id']);
+
+/** A moderator may set a valid role; only an owner may grant the owner role. */
+async function canSetRole(
+  db: Database,
+  channelId: string,
+  callerId: string,
+  role: unknown,
+): Promise<boolean> {
+  if (typeof role !== 'string' || !VALID_MEMBER_ROLES.has(role)) return false;
+  if (role !== 'owner') return true;
+  return (await getChannelRole(db, channelId, callerId)) === 'owner';
+}
+
+/**
+ * Column values for a PATCH. A member may only change their own self-service
+ * prefs; role changes need a channel moderator. Any other field (and role
+ * changes by a non-moderator) is ignored.
+ *
+ * No `updatedAt` seed: chat_channel_members has no such column, and Drizzle
+ * dereferences the column meta when building the SET clause — an unknown
+ * key threw a TypeError, i.e. every PATCH here 500'd.
+ */
+async function buildMemberUpdate(
+  db: Database,
+  existing: typeof t.$inferSelect,
+  callerId: string,
+  isMod: boolean,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const update: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined || IDENTITY_FIELDS.has(k)) continue;
+    if (SELF_FIELDS.has(k)) {
+      update[k] = v;
+    } else if (k === 'role' && isMod && (await canSetRole(db, existing.channelId, callerId, v))) {
+      update[k] = v;
+    }
+  }
+  return update;
+}
 
 /**
  * PATCH /:id — self-service prefs (mute, notifications, read cursor) or, for a
@@ -261,26 +333,7 @@ app.patch('/:id', requirePermission('channels:read'), zValidator('json', updateC
       return error.forbidden(c, 'You cannot modify this membership');
     }
 
-    // A member may only change their own self-service prefs. Role (and the
-    // identity columns) may only be set by a channel moderator, and only an
-    // owner may grant the owner role.
-    const SELF_FIELDS = new Set(['isMuted', 'notificationPreference', 'lastReadAt', 'lastReadMessageId']);
-    // No `updatedAt` seed: chat_channel_members has no such column, and Drizzle
-    // dereferences the column meta when building the SET clause — an unknown
-    // key threw a TypeError, i.e. every PATCH here 500'd.
-    const update: Record<string, any> = {};
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      if (k === 'channelId' || k === 'userId' || k === 'id') continue; // never reassign identity
-      if (SELF_FIELDS.has(k)) {
-        update[k] = v;
-      } else if (k === 'role' && isMod) {
-        if (!VALID_MEMBER_ROLES.has(v)) continue;
-        if (v === 'owner' && (await getChannelRole(db, existing.channelId, callerId)) !== 'owner') continue;
-        update[k] = v;
-      }
-      // any other field (and role changes by a non-moderator) is ignored
-    }
+    const update = await buildMemberUpdate(db, existing, callerId, isMod, data);
     if (Object.keys(update).length === 0) return success(c, { id });
     await db.update(t).set(update).where(eq(t.id, id));
     return success(c, { id });
