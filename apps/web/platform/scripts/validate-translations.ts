@@ -394,19 +394,137 @@ function saveReport(report: ValidationReport, outputFile: string) {
   console.log(`\n📊 Validation report saved to ${outputFile}`);
 }
 
+interface CliOptions {
+  fix: boolean;
+  strict: boolean;
+  verbose: boolean;
+  reportFile: string | undefined;
+  source: string;
+  stableOnly: boolean;
+}
+
+function parseCliOptions(args: string[]): CliOptions {
+  return {
+    fix: args.includes('--fix'),
+    strict: args.includes('--strict'),
+    verbose: !args.includes('--quiet'),
+    reportFile: args.includes('--report') ? args[args.indexOf('--report') + 1] : undefined,
+    source: args.includes('--source') ? args[args.indexOf('--source') + 1]! : SOURCE_DEFAULT,
+    stableOnly: args.includes('--stable-only'),
+  };
+}
+
+// In --stable-only mode, skip locales flagged experimental in localeConfig.
+// We always include the source locale and ones not listed in the config.
+function selectLocaleCodes(
+  allCodes: string[],
+  source: string,
+  stableOnly: boolean,
+  localeConfig: Record<string, LocaleConfigEntry>
+): string[] {
+  if (!stableOnly) return allCodes;
+  const codes = allCodes.filter(c => c === source || !localeConfig[c]?.experimental);
+  if (codes.length < allCodes.length) {
+    const skipped = allCodes.filter(c => !codes.includes(c));
+    console.log(`ℹ️  --stable-only: skipping experimental ${skipped.join(', ')}\n`);
+  }
+  return codes;
+}
+
+function buildReport(
+  locales: Record<string, TranslationNode>,
+  codes: string[],
+  source: string,
+  strict: boolean
+): ValidationReport {
+  // Validate every non-source locale against the source.
+  const targets = codes.filter(c => c !== source);
+  const allIssues: ValidationIssue[] = [];
+  for (const target of targets) {
+    allIssues.push(...validateLocale(locales[source], locales[target], source, target));
+  }
+
+  const totalKeys: Record<string, number> = {};
+  for (const code of codes) totalKeys[code] = countKeys(locales[code]);
+
+  const errors = allIssues.filter(i => i.type === 'error').length;
+  const warnings = allIssues.filter(i => i.type === 'warning').length;
+  const info = allIssues.filter(i => i.type === 'info').length;
+
+  return {
+    timestamp: new Date().toISOString(),
+    source,
+    status: errors === 0 && (!strict || warnings === 0) ? 'pass' : 'fail',
+    summary: { totalKeys, errors, warnings, info },
+    issues: allIssues,
+  };
+}
+
+// Split the report's drift issues into the keys missing from `target` (with
+// their source-locale values) and the orphan keys `target` has but source lacks.
+function collectDrift(
+  issues: ValidationIssue[],
+  locales: Record<string, TranslationNode>,
+  source: string,
+  target: string
+): { missingByPath: Record<string, string>; orphans: string[] } {
+  const missingByPath: Record<string, string> = {};
+  const orphans: string[] = [];
+
+  for (const issue of issues) {
+    if (issue.category !== 'missing_key') continue;
+    if (issue.path.startsWith(`${target}.`)) {
+      const keyPath = issue.path.slice(target.length + 1);
+      const srcValue = getValueAtPath(locales[source], keyPath);
+      if (typeof srcValue === 'string') {
+        missingByPath[keyPath] = srcValue;
+      }
+    } else if (issue.path.startsWith(`${source}.`)) {
+      // The orphan is reported once globally (source side). Bucket it
+      // under the locale that introduced it: any non-source locale
+      // that has the key.
+      const keyPath = issue.path.slice(source.length + 1);
+      const hasInTarget = getValueAtPath(locales[target], keyPath) !== undefined;
+      if (hasInTarget) orphans.push(keyPath);
+    }
+  }
+
+  return { missingByPath, orphans };
+}
+
+// Emit one patch + one orphan file per target locale.
+// We never overwrite a locale's source — see writePatchFile() for why.
+function emitPatchFiles(
+  report: ValidationReport,
+  locales: Record<string, TranslationNode>,
+  source: string,
+  targets: string[]
+) {
+  console.log('🔧 Generating patch files...\n');
+
+  for (const target of targets) {
+    const { missingByPath, orphans } = collectDrift(report.issues, locales, source, target);
+
+    const patchPath = writePatchFile(target, missingByPath);
+    if (patchPath) {
+      console.log(`  ✓ ${target}: ${Object.keys(missingByPath).length} missing → ${patchPath}`);
+    }
+    const orphanPath = writeOrphanReport(target, orphans);
+    if (orphanPath) {
+      console.log(`  ✓ ${target}: ${orphans.length} orphans → ${orphanPath}`);
+    }
+    if (!patchPath && !orphanPath) {
+      console.log(`  ✓ ${target}: no drift`);
+    }
+  }
+  console.log();
+}
+
 // Main execution
 async function main() {
-  const args = process.argv.slice(2);
-  const fix = args.includes('--fix');
-  const strict = args.includes('--strict');
-  const verbose = !args.includes('--quiet');
-  const reportFile = args.includes('--report')
-    ? args[args.indexOf('--report') + 1]
-    : undefined;
-  const source = args.includes('--source')
-    ? args[args.indexOf('--source') + 1]!
-    : SOURCE_DEFAULT;
-  const stableOnly = args.includes('--stable-only');
+  const { fix, strict, verbose, reportFile, source, stableOnly } = parseCliOptions(
+    process.argv.slice(2)
+  );
 
   console.log('🔍 Validating translation files...\n');
 
@@ -417,90 +535,15 @@ async function main() {
       throw new Error(`Source locale "${source}" not found under ${localesDir}`);
     }
     const localeConfig = await loadLocaleConfig(localesDir);
-
-    // In --stable-only mode, skip locales flagged experimental in localeConfig.
-    // We always include the source locale and ones not listed in the config.
-    const codes = stableOnly
-      ? allCodes.filter(c => c === source || !localeConfig[c]?.experimental)
-      : allCodes;
-
-    if (stableOnly && codes.length < allCodes.length) {
-      const skipped = allCodes.filter(c => !codes.includes(c));
-      console.log(`ℹ️  --stable-only: skipping experimental ${skipped.join(', ')}\n`);
-    }
+    const codes = selectLocaleCodes(allCodes, source, stableOnly, localeConfig);
 
     const locales = await loadLocales(localesDir, codes);
-
-    // Validate every non-source locale against the source.
     const targets = codes.filter(c => c !== source);
-    const allIssues: ValidationIssue[] = [];
-    for (const target of targets) {
-      allIssues.push(...validateLocale(locales[source], locales[target], source, target));
-    }
-
-    const totalKeys: Record<string, number> = {};
-    for (const code of codes) totalKeys[code] = countKeys(locales[code]);
-
-    const report: ValidationReport = {
-      timestamp: new Date().toISOString(),
-      source,
-      status:
-        allIssues.filter(i => i.type === 'error').length === 0 &&
-        (!strict || allIssues.filter(i => i.type === 'warning').length === 0)
-          ? 'pass'
-          : 'fail',
-      summary: {
-        totalKeys,
-        errors: allIssues.filter(i => i.type === 'error').length,
-        warnings: allIssues.filter(i => i.type === 'warning').length,
-        info: allIssues.filter(i => i.type === 'info').length,
-      },
-      issues: allIssues,
-    };
+    const report = buildReport(locales, codes, source, strict);
 
     displayResults(report, verbose);
 
-    // Emit one patch + one orphan file per target locale when --fix is set.
-    // We never overwrite a locale's source — see writePatchFile() for why.
-    if (fix) {
-      console.log('🔧 Generating patch files...\n');
-
-      for (const target of targets) {
-        const missingByPath: Record<string, string> = {};
-        const orphans: string[] = [];
-
-        for (const issue of allIssues) {
-          if (issue.category !== 'missing_key') continue;
-          if (issue.path.startsWith(`${target}.`)) {
-            const keyPath = issue.path.slice(target.length + 1);
-            const srcValue = getValueAtPath(locales[source], keyPath);
-            if (typeof srcValue === 'string') {
-              missingByPath[keyPath] = srcValue;
-            }
-          } else if (issue.path.startsWith(`${source}.`)) {
-            // The orphan is reported once globally (source side). Bucket it
-            // under the locale that introduced it: any non-source locale
-            // that has the key.
-            const keyPath = issue.path.slice(source.length + 1);
-            const hasInTarget = getValueAtPath(locales[target], keyPath) !== undefined;
-            if (hasInTarget) orphans.push(keyPath);
-          }
-        }
-
-        const patchPath = writePatchFile(target, missingByPath);
-        if (patchPath) {
-          console.log(`  ✓ ${target}: ${Object.keys(missingByPath).length} missing → ${patchPath}`);
-        }
-        const orphanPath = writeOrphanReport(target, orphans);
-        if (orphanPath) {
-          console.log(`  ✓ ${target}: ${orphans.length} orphans → ${orphanPath}`);
-        }
-        if (!patchPath && !orphanPath) {
-          console.log(`  ✓ ${target}: no drift`);
-        }
-      }
-      console.log();
-    }
+    if (fix) emitPatchFiles(report, locales, source, targets);
 
     if (reportFile) {
       saveReport(report, reportFile);

@@ -293,6 +293,48 @@ function deriveModule(entityType: string): string {
 // Transformer — writes ALL events, enriches known entity types
 // ---------------------------------------------------------------------------
 
+// Fields auto-extracted from every event's data, even for unknown entities.
+const COMMON_STRING_FIELDS: StringField[] = [
+  { source: 'status', target: 'status' },
+  { source: 'priority', target: 'priority' },
+  { source: 'assigneeId', target: 'assignee_id' },
+  { source: 'projectId', target: 'project_id' },
+  { source: 'channel', target: 'channel' },
+  { source: 'category', target: 'category' },
+  { source: 'source', target: 'source' },
+  { source: 'stage', target: 'stage' },
+];
+
+function applyStringFields(
+  out: Record<string, unknown>,
+  data: Record<string, unknown>,
+  fields: StringField[],
+): void {
+  for (const field of fields) {
+    const value = data[field.source];
+    if (value != null) out[field.target] = String(value);
+  }
+}
+
+function applyNumericField(
+  out: Record<string, unknown>,
+  data: Record<string, unknown>,
+  field: NumericField,
+): void {
+  const value = data[field.field ?? field.target];
+
+  if (field.boolean) {
+    out[field.target] = value ? 1 : 0;
+  } else if (field.statusCheck) {
+    const status = String(data['status'] ?? '').toLowerCase();
+    out[field.target] = field.statusCheck.includes(status) ? 1 : 0;
+  } else if (field.exists) {
+    out[field.target] = value != null ? 1 : 0;
+  } else if (typeof value === 'number') {
+    out[field.target] = value;
+  }
+}
+
 export function transformEvent(event: EntityEventMessage): AnalyticsRecord {
   const config = ENTITY_CONFIG[event.entityType];
   const data = event.data as Record<string, unknown>;
@@ -310,41 +352,17 @@ export function transformEvent(event: EntityEventMessage): AnalyticsRecord {
     event_id: event.id,
   };
 
-  // Auto-extract common fields from data even without config
-  if (data['status'] != null) record.status = String(data['status']);
-  if (data['priority'] != null) record.priority = String(data['priority']);
-  if (data['assigneeId'] != null) record.assignee_id = String(data['assigneeId']);
-  if (data['projectId'] != null) record.project_id = String(data['projectId']);
-  if (data['channel'] != null) record.channel = String(data['channel']);
-  if (data['category'] != null) record.category = String(data['category']);
-  if (data['source'] != null) record.source = String(data['source']);
-  if (data['stage'] != null) record.stage = String(data['stage']);
+  const out = record as unknown as Record<string, unknown>;
 
-  // Apply config-specific string overrides (in case field names differ)
+  // Auto-extract common fields from data even without config
+  applyStringFields(out, data, COMMON_STRING_FIELDS);
+
   if (config) {
-    for (const field of config.strings) {
-      const value = data[field.source];
-      if (value != null) {
-        (record as any)[field.target] = String(value);
-      }
-    }
+    // Apply config-specific string overrides (in case field names differ)
+    applyStringFields(out, data, config.strings);
 
     // Apply numeric measures
-    for (const field of config.numerics) {
-      const sourceField = field.field ?? field.target;
-      const value = data[sourceField];
-
-      if (field.boolean) {
-        (record as any)[field.target] = value ? 1 : 0;
-      } else if (field.statusCheck) {
-        const status = String(data['status'] ?? '').toLowerCase();
-        (record as any)[field.target] = field.statusCheck.includes(status) ? 1 : 0;
-      } else if (field.exists) {
-        (record as any)[field.target] = value != null ? 1 : 0;
-      } else if (typeof value === 'number') {
-        (record as any)[field.target] = value;
-      }
-    }
+    for (const field of config.numerics) applyNumericField(out, data, field);
   }
 
   return record;

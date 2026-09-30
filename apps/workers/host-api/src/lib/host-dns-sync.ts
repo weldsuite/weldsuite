@@ -75,6 +75,151 @@ function mapCloudflareRecord(r: CloudflareDnsRecord): MappedRecord | null {
   };
 }
 
+type LocalRecord = typeof schema.hostDnsRecords.$inferSelect;
+
+/**
+ * Cloudflare list failed: record the error on the zone and hand back the
+ * (unchanged) local record set.
+ */
+async function failListSync(
+  db: Database,
+  zone: { id: string },
+  err: unknown,
+): Promise<SyncResult> {
+  const { hostDnsRecords, hostDnsZones } = schema;
+  const message =
+    err instanceof CloudflareZoneError ? err.message :
+    err instanceof Error ? err.message :
+    'Cloudflare list records failed';
+  console.error('[host-dns-sync] listDnsRecordsInZone failed:', err);
+  await db
+    .update(hostDnsZones)
+    .set({ syncError: message.slice(0, 1000), syncedAt: new Date(), updatedAt: new Date() })
+    .where(eq(hostDnsZones.id, zone.id));
+
+  const records = await db
+    .select()
+    .from(hostDnsRecords)
+    .where(eq(hostDnsRecords.zoneId, zone.id));
+  return { ok: false, records, added: 0, updated: 0, removed: 0, error: message };
+}
+
+function hasRecordDrift(local: LocalRecord, m: MappedRecord): boolean {
+  return (
+    local.type !== m.type ||
+    local.name !== m.name ||
+    local.value !== m.value ||
+    local.ttl !== m.ttl ||
+    (local.priority ?? null) !== (m.priority ?? null) ||
+    (local.weight ?? null) !== (m.weight ?? null) ||
+    (local.port ?? null) !== (m.port ?? null) ||
+    (local.caaFlag ?? null) !== (m.caaFlag ?? null) ||
+    (local.caaTag ?? null) !== (m.caaTag ?? null) ||
+    (local.comment ?? null) !== (m.comment ?? null) ||
+    local.status !== 'active' ||
+    local.syncError !== null
+  );
+}
+
+/** Insert, update or touch one local row so it mirrors the Cloudflare record. */
+async function reconcileRecord(
+  db: Database,
+  zoneId: string,
+  m: MappedRecord,
+  local: LocalRecord | undefined,
+  now: Date,
+): Promise<'added' | 'updated' | 'unchanged'> {
+  const { hostDnsRecords } = schema;
+  if (!local) {
+    await db.insert(hostDnsRecords).values({
+      id: generateId('dnsrec'),
+      zoneId,
+      externalRecordId: m.externalRecordId,
+      type: m.type,
+      name: m.name,
+      value: m.value,
+      ttl: m.ttl,
+      priority: m.priority,
+      weight: m.weight,
+      port: m.port,
+      caaFlag: m.caaFlag,
+      caaTag: m.caaTag,
+      comment: m.comment,
+      status: 'active',
+      syncedAt: now,
+      syncError: null,
+    });
+    return 'added';
+  }
+  if (hasRecordDrift(local, m)) {
+    // Preserve metadata (including locks) — local state with no CF counterpart.
+    await db
+      .update(hostDnsRecords)
+      .set({
+        type: m.type,
+        name: m.name,
+        value: m.value,
+        ttl: m.ttl,
+        priority: m.priority,
+        weight: m.weight,
+        port: m.port,
+        caaFlag: m.caaFlag,
+        caaTag: m.caaTag,
+        comment: m.comment,
+        status: 'active',
+        syncedAt: now,
+        syncError: null,
+        updatedAt: now,
+      })
+      .where(eq(hostDnsRecords.id, local.id));
+    return 'updated';
+  }
+  await db
+    .update(hostDnsRecords)
+    .set({ syncedAt: now })
+    .where(eq(hostDnsRecords.id, local.id));
+  return 'unchanged';
+}
+
+/** Delete local rows Cloudflare no longer has (or that never had an external id). */
+async function pruneStaleRecords(
+  db: Database,
+  existing: LocalRecord[],
+  existingWithoutExtId: LocalRecord[],
+  seenExtIds: Set<string>,
+): Promise<number> {
+  const { hostDnsRecords } = schema;
+  let removed = 0;
+  for (const row of existing) {
+    if (row.externalRecordId && !seenExtIds.has(row.externalRecordId)) {
+      await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
+      removed++;
+    }
+  }
+  for (const row of existingWithoutExtId) {
+    await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
+    removed++;
+  }
+  return removed;
+}
+
+/** Reconcile system locks (WeldMail deps etc.); failures are logged, not thrown. */
+async function reconcileSystemLocks(db: Database, zoneId: string): Promise<void> {
+  const { hostDnsZones } = schema;
+  try {
+    const zoneName = (await db
+      .select({ name: hostDnsZones.name })
+      .from(hostDnsZones)
+      .where(eq(hostDnsZones.id, zoneId))
+      .limit(1))[0]?.name;
+    if (zoneName) {
+      await detectSystemLocksForZone(db, { id: zoneId, name: zoneName });
+    }
+  } catch (err) {
+    console.error('[host-dns-sync] detectSystemLocksForZone failed:', err);
+  }
+}
+
 export async function syncZoneRecordsFromCloudflare(
   db: Database,
   apiToken: string,
@@ -90,21 +235,7 @@ export async function syncZoneRecordsFromCloudflare(
   try {
     cfRecords = await listDnsRecordsInZone(apiToken, zone.externalZoneId);
   } catch (err) {
-    const message =
-      err instanceof CloudflareZoneError ? err.message :
-      err instanceof Error ? err.message :
-      'Cloudflare list records failed';
-    console.error('[host-dns-sync] listDnsRecordsInZone failed:', err);
-    await db
-      .update(hostDnsZones)
-      .set({ syncError: message.slice(0, 1000), syncedAt: new Date(), updatedAt: new Date() })
-      .where(eq(hostDnsZones.id, zone.id));
-
-    const records = await db
-      .select()
-      .from(hostDnsRecords)
-      .where(eq(hostDnsRecords.zoneId, zone.id));
-    return { ok: false, records, added: 0, updated: 0, removed: 0, error: message };
+    return failListSync(db, zone, err);
   }
 
   const existing = await db
@@ -130,83 +261,12 @@ export async function syncZoneRecordsFromCloudflare(
 
   for (const m of cfMapped) {
     seenExtIds.add(m.externalRecordId);
-    const local = existingByExtId.get(m.externalRecordId);
-    if (!local) {
-      await db.insert(hostDnsRecords).values({
-        id: generateId('dnsrec'),
-        zoneId: zone.id,
-        externalRecordId: m.externalRecordId,
-        type: m.type,
-        name: m.name,
-        value: m.value,
-        ttl: m.ttl,
-        priority: m.priority,
-        weight: m.weight,
-        port: m.port,
-        caaFlag: m.caaFlag,
-        caaTag: m.caaTag,
-        comment: m.comment,
-        status: 'active',
-        syncedAt: now,
-        syncError: null,
-      });
-      added++;
-      continue;
-    }
-    const drift =
-      local.type !== m.type ||
-      local.name !== m.name ||
-      local.value !== m.value ||
-      local.ttl !== m.ttl ||
-      (local.priority ?? null) !== (m.priority ?? null) ||
-      (local.weight ?? null) !== (m.weight ?? null) ||
-      (local.port ?? null) !== (m.port ?? null) ||
-      (local.caaFlag ?? null) !== (m.caaFlag ?? null) ||
-      (local.caaTag ?? null) !== (m.caaTag ?? null) ||
-      (local.comment ?? null) !== (m.comment ?? null) ||
-      local.status !== 'active' ||
-      local.syncError !== null;
-    if (drift) {
-      // Preserve metadata (including locks) — local state with no CF counterpart.
-      await db
-        .update(hostDnsRecords)
-        .set({
-          type: m.type,
-          name: m.name,
-          value: m.value,
-          ttl: m.ttl,
-          priority: m.priority,
-          weight: m.weight,
-          port: m.port,
-          caaFlag: m.caaFlag,
-          caaTag: m.caaTag,
-          comment: m.comment,
-          status: 'active',
-          syncedAt: now,
-          syncError: null,
-          updatedAt: now,
-        })
-        .where(eq(hostDnsRecords.id, local.id));
-      updated++;
-    } else {
-      await db
-        .update(hostDnsRecords)
-        .set({ syncedAt: now })
-        .where(eq(hostDnsRecords.id, local.id));
-    }
+    const outcome = await reconcileRecord(db, zone.id, m, existingByExtId.get(m.externalRecordId), now);
+    if (outcome === 'added') added++;
+    else if (outcome === 'updated') updated++;
   }
 
-  let removed = 0;
-  for (const row of existing) {
-    if (row.externalRecordId && !seenExtIds.has(row.externalRecordId)) {
-      await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
-      removed++;
-    }
-  }
-  for (const row of existingWithoutExtId) {
-    await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
-    removed++;
-  }
+  const removed = await pruneStaleRecords(db, existing, existingWithoutExtId, seenExtIds);
 
   await db
     .update(hostDnsZones)
@@ -218,19 +278,7 @@ export async function syncZoneRecordsFromCloudflare(
     })
     .where(eq(hostDnsZones.id, zone.id));
 
-  // Reconcile system locks (WeldMail deps etc.).
-  try {
-    const zoneName = (await db
-      .select({ name: hostDnsZones.name })
-      .from(hostDnsZones)
-      .where(eq(hostDnsZones.id, zone.id))
-      .limit(1))[0]?.name;
-    if (zoneName) {
-      await detectSystemLocksForZone(db, { id: zone.id, name: zoneName });
-    }
-  } catch (err) {
-    console.error('[host-dns-sync] detectSystemLocksForZone failed:', err);
-  }
+  await reconcileSystemLocks(db, zone.id);
 
   const fresh = await db
     .select()
@@ -299,6 +347,79 @@ export function removeUserLock(
   return setLocksOnMetadata(metadata, existing.filter((l) => l.source !== 'user'));
 }
 
+function normalizeRecordName(n: string): string {
+  return n.toLowerCase().replace(/\.$/, '');
+}
+
+function lockKey(type: unknown, name: string): string {
+  return `${String(type).toUpperCase()}|${normalizeRecordName(name)}`;
+}
+
+function weldmailLockReason(purpose: string, domainName: string): string {
+  switch (purpose) {
+    case 'mx':
+      return `Required by WeldMail for inbound email on ${domainName}. Removing it will break email delivery.`;
+    case 'spf':
+      return `Required by WeldMail (SPF) on ${domainName}. Removing it will cause outbound mail to be marked as spam.`;
+    case 'dkim':
+      return `Required by WeldMail (DKIM) on ${domainName}. Removing it will cause outbound mail to fail authentication.`;
+    case 'dmarc':
+      return `Required by WeldMail (DMARC) on ${domainName}. Removing it weakens email authentication.`;
+    case 'verification':
+      return `Required by WeldMail to verify ownership of ${domainName}.`;
+    default:
+      return `Required by WeldMail (${purpose}) on ${domainName}.`;
+  }
+}
+
+interface MailDomainRow {
+  id: string;
+  domainName: string;
+  dnsRecords: Array<{ type: string; name: string; purpose?: string; value: string }> | null;
+}
+
+/** Locks WeldMail expects on the zone, keyed by `TYPE|normalized-name`. */
+function buildExpectedMailLocks(mailDomainsForZone: MailDomainRow[]): Map<string, DnsRecordLock[]> {
+  const expectedByKey = new Map<string, DnsRecordLock[]>();
+  for (const md of mailDomainsForZone) {
+    const dnsRecords = Array.isArray(md.dnsRecords) ? md.dnsRecords : [];
+    for (const r of dnsRecords) {
+      if (!r.purpose) continue;
+      const key = lockKey(r.type, r.name);
+      const lock: DnsRecordLock = {
+        source: 'weldmail',
+        sourceId: md.id,
+        purpose: r.purpose,
+        reason: weldmailLockReason(r.purpose, md.domainName),
+        lockedAt: new Date().toISOString(),
+      };
+      const list = expectedByKey.get(key) ?? [];
+      list.push(lock);
+      expectedByKey.set(key, list);
+    }
+  }
+  return expectedByKey;
+}
+
+function isSameLock(a: DnsRecordLock, b: DnsRecordLock): boolean {
+  return a.source === b.source && a.sourceId === b.sourceId && a.purpose === b.purpose;
+}
+
+function isSameLockSet(current: DnsRecordLock[], expected: DnsRecordLock[]): boolean {
+  return (
+    current.length === expected.length &&
+    expected.every((e) => current.some((c) => isSameLock(c, e)))
+  );
+}
+
+/** Expected locks, keeping the original `lockedAt` of locks already present. */
+function mergeSystemLocks(expected: DnsRecordLock[], current: DnsRecordLock[]): DnsRecordLock[] {
+  return expected.map((e) => {
+    const existing = current.find((c) => isSameLock(c, e));
+    return existing ? { ...e, lockedAt: existing.lockedAt } : e;
+  });
+}
+
 export async function detectSystemLocksForZone(
   db: Database,
   zone: { id: string; name: string },
@@ -315,64 +436,20 @@ export async function detectSystemLocksForZone(
     .from(mailDomains)
     .where(eq(mailDomains.domainName, zone.name));
 
-  const normalizeName = (n: string) => n.toLowerCase().replace(/\.$/, '');
-  const expectedByKey = new Map<string, DnsRecordLock[]>();
-
-  for (const md of mailDomainsForZone as Array<{
-    id: string;
-    domainName: string;
-    dnsRecords: Array<{ type: string; name: string; purpose?: string; value: string }> | null;
-  }>) {
-    const dnsRecords = Array.isArray(md.dnsRecords) ? md.dnsRecords : [];
-    for (const r of dnsRecords) {
-      if (!r.purpose) continue;
-      const key = `${String(r.type).toUpperCase()}|${normalizeName(r.name)}`;
-      const reason =
-        r.purpose === 'mx' ? `Required by WeldMail for inbound email on ${md.domainName}. Removing it will break email delivery.` :
-        r.purpose === 'spf' ? `Required by WeldMail (SPF) on ${md.domainName}. Removing it will cause outbound mail to be marked as spam.` :
-        r.purpose === 'dkim' ? `Required by WeldMail (DKIM) on ${md.domainName}. Removing it will cause outbound mail to fail authentication.` :
-        r.purpose === 'dmarc' ? `Required by WeldMail (DMARC) on ${md.domainName}. Removing it weakens email authentication.` :
-        r.purpose === 'verification' ? `Required by WeldMail to verify ownership of ${md.domainName}.` :
-        `Required by WeldMail (${r.purpose}) on ${md.domainName}.`;
-      const lock: DnsRecordLock = {
-        source: 'weldmail',
-        sourceId: md.id,
-        purpose: r.purpose,
-        reason,
-        lockedAt: new Date().toISOString(),
-      };
-      const list = expectedByKey.get(key) ?? [];
-      list.push(lock);
-      expectedByKey.set(key, list);
-    }
-  }
+  const expectedByKey = buildExpectedMailLocks(mailDomainsForZone as MailDomainRow[]);
 
   let locked = 0;
   let unlocked = 0;
 
   for (const rec of records) {
-    const key = `${String(rec.type).toUpperCase()}|${normalizeName(rec.name)}`;
-    const expectedSystemLocks = expectedByKey.get(key) ?? [];
+    const expectedSystemLocks = expectedByKey.get(lockKey(rec.type, rec.name)) ?? [];
     const currentLocks = getRecordLocks(rec);
     const userLocks = currentLocks.filter((l) => l.source === 'user');
     const currentSystemLocks = currentLocks.filter((l) => l.source !== 'user');
 
-    const sameSet = (
-      currentSystemLocks.length === expectedSystemLocks.length &&
-      expectedSystemLocks.every((e) =>
-        currentSystemLocks.some(
-          (c) => c.source === e.source && c.sourceId === e.sourceId && c.purpose === e.purpose,
-        ),
-      )
-    );
-    if (sameSet) continue;
+    if (isSameLockSet(currentSystemLocks, expectedSystemLocks)) continue;
 
-    const mergedSystemLocks = expectedSystemLocks.map((e) => {
-      const existing = currentSystemLocks.find(
-        (c) => c.source === e.source && c.sourceId === e.sourceId && c.purpose === e.purpose,
-      );
-      return existing ? { ...e, lockedAt: existing.lockedAt } : e;
-    });
+    const mergedSystemLocks = mergeSystemLocks(expectedSystemLocks, currentSystemLocks);
 
     const nextLocks = [...userLocks, ...mergedSystemLocks];
     const nextMetadata = setLocksOnMetadata(rec.metadata as Record<string, unknown> | null, nextLocks);
