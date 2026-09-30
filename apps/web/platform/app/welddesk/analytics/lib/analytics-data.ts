@@ -10,7 +10,7 @@ import {
   mvHelpdeskSatisfactionDaily,
   mvHelpdeskAgentStats,
 } from '@/lib/db/schema/helpdesk-analytics-views';
-import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc, type SQL } from 'drizzle-orm';
+import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc, type SQL, type SQLWrapper } from 'drizzle-orm';
 
 // Flag to use materialized views (set to false to fallback to base tables)
 const USE_MATERIALIZED_VIEWS = true;
@@ -61,11 +61,6 @@ export function getDateRangeFromTimeRange(timeRange: string): { start: Date; end
       start.setDate(start.getDate() - 7);
       start.setHours(0, 0, 0, 0);
       break;
-    case 'last_30_days':
-      start = new Date(now);
-      start.setDate(start.getDate() - 30);
-      start.setHours(0, 0, 0, 0);
-      break;
     case 'last_90_days':
       start = new Date(now);
       start.setDate(start.getDate() - 90);
@@ -82,6 +77,7 @@ export function getDateRangeFromTimeRange(timeRange: string): { start: Date; end
     case 'all_time':
       start = new Date(2020, 0, 1); // Reasonable start date
       break;
+    case 'last_30_days':
     default:
       start = new Date(now);
       start.setDate(start.getDate() - 30);
@@ -114,6 +110,15 @@ export function getDateTruncUnit(groupBy: string): TruncUnit {
     default:
       return 'day';
   }
+}
+
+/**
+ * `date_trunc('<unit>', column)`. The unit is embedded as a literal (not a parameter) so PostgreSQL can
+ * match the SELECT and GROUP BY expressions; it is safe because TruncUnit is a whitelisted union.
+ */
+function dateTrunc<T = unknown>(unit: TruncUnit, column: SQLWrapper): SQL<T> {
+  const quotedUnit = `'${unit}'`;
+  return sql<T>`date_trunc(${sql.raw(quotedUnit)}, ${column})`;
 }
 
 // Format Date object based on groupBy type
@@ -283,10 +288,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
     case 'tickets_by_day': {
       // Query MV and re-aggregate by the requested groupBy period
       // Use sql.raw for truncUnit to embed as literal (not parameter) so PostgreSQL can match SELECT/GROUP BY
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskTicketsDaily.ticketCount})`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -304,10 +309,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
 
     case 'open_tickets': {
       const openStatuses = ['new', 'open', 'pending', 'in_progress'];
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskTicketsDaily.ticketCount})`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -328,10 +333,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
 
     case 'closed_tickets': {
       const closedStatuses = ['resolved', 'closed'];
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskTicketsDaily.ticketCount})`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -391,10 +396,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
     }
 
     case 'escalated_tickets': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskTicketsDaily.escalatedCount})`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -432,10 +437,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
 
     case 'resolution_rate': {
       // Resolution rate = closed tickets / total tickets as percentage
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           closed: sql<number>`SUM(CASE WHEN ${mvHelpdeskTicketsDaily.status} IN ('resolved', 'closed') THEN ${mvHelpdeskTicketsDaily.ticketCount} ELSE 0 END)`,
           total: sql<number>`SUM(${mvHelpdeskTicketsDaily.ticketCount})`,
         })
@@ -457,10 +462,10 @@ async function getTicketMetricsFromViews(q: MetricQuery): Promise<ChartDataPoint
 
     case 'avg_handling_time': {
       // Average handling time (response + resolution time)
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           avgHandling: sql<number>`
             (SUM(COALESCE(${mvHelpdeskTicketsDaily.avgResponseTime}::numeric, 0) * ${mvHelpdeskTicketsDaily.ticketCount}) +
              SUM(COALESCE(${mvHelpdeskTicketsDaily.avgResolutionTime}::numeric, 0) * ${mvHelpdeskTicketsDaily.ticketCount}))
@@ -495,10 +500,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
   switch (metric) {
     case 'total_tickets':
     case 'tickets_by_day': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskTickets)
@@ -516,10 +521,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
 
     case 'open_tickets': {
       const openStatuses = ['new', 'open', 'pending', 'in_progress'];
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskTickets)
@@ -540,10 +545,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
 
     case 'closed_tickets': {
       const closedStatuses = ['resolved', 'closed'];
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskTickets)
@@ -603,10 +608,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
     }
 
     case 'escalated_tickets': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskTickets)
@@ -646,10 +651,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
     }
 
     case 'resolution_rate': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           closed: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskTickets.status} IN ('resolved', 'closed'))`,
           total: count(),
         })
@@ -670,10 +675,10 @@ async function getTicketMetricsFromTables(q: MetricQuery): Promise<ChartDataPoin
     }
 
     case 'avg_handling_time': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           avgHandling: sql<number>`AVG(COALESCE(${helpdeskTickets.responseTime}, 0) + COALESCE(${helpdeskTickets.resolutionTime}, 0))`,
         })
         .from(helpdeskTickets)
@@ -726,10 +731,10 @@ async function getConversationMetricsFromViews(q: MetricQuery): Promise<ChartDat
   switch (metric) {
     case 'total_conversations':
     case 'conversations_by_day': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskConversationsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskConversationsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskConversationsDaily.conversationCount})`,
         })
         .from(mvHelpdeskConversationsDaily)
@@ -746,10 +751,10 @@ async function getConversationMetricsFromViews(q: MetricQuery): Promise<ChartDat
     }
 
     case 'active_conversations': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskConversationsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskConversationsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskConversationsDaily.conversationCount})`,
         })
         .from(mvHelpdeskConversationsDaily)
@@ -790,10 +795,10 @@ async function getConversationMetricsFromViews(q: MetricQuery): Promise<ChartDat
 
     case 'avg_messages': {
       // Weighted average across periods
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskConversationsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskConversationsDaily.period).as('period'),
           avg: sql<number>`SUM(${mvHelpdeskConversationsDaily.avgMessages}::numeric * ${mvHelpdeskConversationsDaily.conversationCount}) / NULLIF(SUM(${mvHelpdeskConversationsDaily.conversationCount}), 0)`,
         })
         .from(mvHelpdeskConversationsDaily)
@@ -830,10 +835,10 @@ async function getConversationMetricsFromViews(q: MetricQuery): Promise<ChartDat
     }
 
     case 'closed_conversations': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskConversationsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskConversationsDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskConversationsDaily.conversationCount})`,
         })
         .from(mvHelpdeskConversationsDaily)
@@ -854,10 +859,10 @@ async function getConversationMetricsFromViews(q: MetricQuery): Promise<ChartDat
 
     case 'conversation_resolution_rate': {
       // Resolution rate = closed conversations / total conversations as percentage
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskConversationsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskConversationsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskConversationsDaily.period).as('period'),
           closed: sql<number>`SUM(CASE WHEN ${mvHelpdeskConversationsDaily.status} = 'closed' THEN ${mvHelpdeskConversationsDaily.conversationCount} ELSE 0 END)`,
           total: sql<number>`SUM(${mvHelpdeskConversationsDaily.conversationCount})`,
         })
@@ -892,10 +897,10 @@ async function getConversationMetricsFromTables(q: MetricQuery): Promise<ChartDa
   switch (metric) {
     case 'total_conversations':
     case 'conversations_by_day': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskConversations.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskConversations.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskConversations)
@@ -912,10 +917,10 @@ async function getConversationMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'active_conversations': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskConversations.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskConversations.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskConversations)
@@ -955,10 +960,10 @@ async function getConversationMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'avg_messages': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskConversations.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskConversations.createdAt).as('period'),
           avg: avg(helpdeskConversations.messageCount),
         })
         .from(helpdeskConversations)
@@ -995,10 +1000,10 @@ async function getConversationMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'closed_conversations': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskConversations.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskConversations.createdAt).as('period'),
           count: count(),
         })
         .from(helpdeskConversations)
@@ -1018,10 +1023,10 @@ async function getConversationMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'conversation_resolution_rate': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskConversations.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskConversations.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskConversations.createdAt).as('period'),
           closed: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskConversations.status} = 'closed')`,
           total: count(),
         })
@@ -1241,10 +1246,10 @@ async function getResponseTimeMetricsFromViews(q: MetricQuery): Promise<ChartDat
     case 'avg_first_response':
     case 'response_time_trend': {
       // Weighted average across daily aggregations
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           avg: sql<number>`SUM(${mvHelpdeskTicketsDaily.avgResponseTime}::numeric * ${mvHelpdeskTicketsDaily.ticketCount}) / NULLIF(SUM(${mvHelpdeskTicketsDaily.ticketCount}), 0)`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -1265,10 +1270,10 @@ async function getResponseTimeMetricsFromViews(q: MetricQuery): Promise<ChartDat
 
     case 'avg_resolution_time': {
       // Weighted average across daily aggregations
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskTicketsDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskTicketsDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskTicketsDaily.period).as('period'),
           avg: sql<number>`SUM(${mvHelpdeskTicketsDaily.avgResolutionTime}::numeric * ${mvHelpdeskTicketsDaily.ticketCount}) / NULLIF(SUM(${mvHelpdeskTicketsDaily.ticketCount}), 0)`,
         })
         .from(mvHelpdeskTicketsDaily)
@@ -1328,10 +1333,10 @@ async function getResponseTimeMetricsFromTables(q: MetricQuery): Promise<ChartDa
   switch (metric) {
     case 'avg_first_response':
     case 'response_time_trend': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           avg: avg(helpdeskTickets.responseTime),
         })
         .from(helpdeskTickets)
@@ -1351,10 +1356,10 @@ async function getResponseTimeMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'avg_resolution_time': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           avg: avg(helpdeskTickets.resolutionTime),
         })
         .from(helpdeskTickets)
@@ -1374,10 +1379,10 @@ async function getResponseTimeMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'sla_compliance': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           achieved: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskTickets.slaStatus} = 'achieved')`,
           total: count(),
         })
@@ -1458,10 +1463,10 @@ async function getSatisfactionMetricsFromViews(q: MetricQuery): Promise<ChartDat
     case 'csat_score':
     case 'satisfaction_trend': {
       // Weighted average across daily aggregations
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskSatisfactionDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskSatisfactionDaily.period).as('period'),
           avg: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.avgRating}::numeric * ${mvHelpdeskSatisfactionDaily.completedCount}) / NULLIF(SUM(${mvHelpdeskSatisfactionDaily.completedCount}), 0)`,
         })
         .from(mvHelpdeskSatisfactionDaily)
@@ -1482,10 +1487,10 @@ async function getSatisfactionMetricsFromViews(q: MetricQuery): Promise<ChartDat
 
     case 'nps_score': {
       // NPS = % Promoters - % Detractors (already pre-computed in MV)
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskSatisfactionDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskSatisfactionDaily.period).as('period'),
           promoters: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.promoters})`,
           detractors: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.detractors})`,
           total: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.completedCount})`,
@@ -1508,10 +1513,10 @@ async function getSatisfactionMetricsFromViews(q: MetricQuery): Promise<ChartDat
 
     case 'survey_response_rate': {
       // Response rate = completed surveys / total surveys sent as percentage
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskSatisfactionDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskSatisfactionDaily.period).as('period'),
           completed: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.completedCount})`,
           total: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.surveyCount})`,
         })
@@ -1532,10 +1537,10 @@ async function getSatisfactionMetricsFromViews(q: MetricQuery): Promise<ChartDat
     }
 
     case 'total_surveys': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskSatisfactionDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskSatisfactionDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.surveyCount})`,
         })
         .from(mvHelpdeskSatisfactionDaily)
@@ -1552,10 +1557,10 @@ async function getSatisfactionMetricsFromViews(q: MetricQuery): Promise<ChartDat
     }
 
     case 'completed_surveys': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`;
+      const periodExpr = dateTrunc(truncUnit, mvHelpdeskSatisfactionDaily.period);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvHelpdeskSatisfactionDaily.period})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, mvHelpdeskSatisfactionDaily.period).as('period'),
           count: sql<number>`SUM(${mvHelpdeskSatisfactionDaily.completedCount})`,
         })
         .from(mvHelpdeskSatisfactionDaily)
@@ -1589,10 +1594,10 @@ async function getSatisfactionMetricsFromTables(q: MetricQuery): Promise<ChartDa
   switch (metric) {
     case 'csat_score':
     case 'satisfaction_trend': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskSatisfactionSurveys.sentAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskSatisfactionSurveys.sentAt).as('period'),
           avg: avg(helpdeskSatisfactionSurveys.rating),
         })
         .from(helpdeskSatisfactionSurveys)
@@ -1614,10 +1619,10 @@ async function getSatisfactionMetricsFromTables(q: MetricQuery): Promise<ChartDa
 
     case 'nps_score': {
       // NPS = % Promoters (9-10) - % Detractors (0-6)
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskSatisfactionSurveys.sentAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskSatisfactionSurveys.sentAt).as('period'),
           promoters: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskSatisfactionSurveys.rating} >= 9)`,
           detractors: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskSatisfactionSurveys.rating} <= 6)`,
           total: count(),
@@ -1694,10 +1699,10 @@ async function getSatisfactionMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'survey_response_rate': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskSatisfactionSurveys.sentAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskSatisfactionSurveys.sentAt).as('period'),
           completed: sql<number>`COUNT(*) FILTER (WHERE ${helpdeskSatisfactionSurveys.status} = 'completed')`,
           total: count(),
         })
@@ -1718,10 +1723,10 @@ async function getSatisfactionMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'total_surveys': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskSatisfactionSurveys.sentAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskSatisfactionSurveys.sentAt).as('period'),
           count: count(),
         })
         .from(helpdeskSatisfactionSurveys)
@@ -1738,10 +1743,10 @@ async function getSatisfactionMetricsFromTables(q: MetricQuery): Promise<ChartDa
     }
 
     case 'completed_surveys': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskSatisfactionSurveys.sentAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskSatisfactionSurveys.sentAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskSatisfactionSurveys.sentAt).as('period'),
           count: count(),
         })
         .from(helpdeskSatisfactionSurveys)
@@ -1776,10 +1781,10 @@ export async function getCustomerMetrics(config: ChartQueryConfig): Promise<Char
   switch (metric) {
     case 'total_customers':
     case 'new_customers': {
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${contacts.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, contacts.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${contacts.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, contacts.createdAt).as('period'),
           count: count(),
         })
         .from(contacts)
@@ -1801,10 +1806,10 @@ export async function getCustomerMetrics(config: ChartQueryConfig): Promise<Char
 
     case 'returning_customers': {
       // Customers with more than 1 ticket
-      const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`;
+      const periodExpr = dateTrunc(truncUnit, helpdeskTickets.createdAt);
       const results = await db
         .select({
-          period: sql<Date>`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${helpdeskTickets.createdAt})`.as('period'),
+          period: dateTrunc<Date>(truncUnit, helpdeskTickets.createdAt).as('period'),
           count: sql<number>`COUNT(DISTINCT ${helpdeskTickets.customerEmail})`,
         })
         .from(helpdeskTickets)
