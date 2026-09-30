@@ -291,146 +291,174 @@ function getContainingSubtree(nodeId: string, allNodes: Node[]): Node[] {
   return [node];
 }
 
+// Push two overlapping subtrees apart, each by half of `pushAmount`, away from each other.
+function pushApart(
+  nodes: Node[],
+  aSubtree: Node[],
+  bSubtree: Node[],
+  aCenterX: number,
+  bCenterX: number,
+  pushAmount: number,
+): void {
+  const half = Math.ceil(pushAmount / 2);
+  if (aCenterX <= bCenterX) {
+    shiftSubtree(nodes, aSubtree, -half);
+    shiftSubtree(nodes, bSubtree, half);
+  } else {
+    shiftSubtree(nodes, aSubtree, half);
+    shiftSubtree(nodes, bSubtree, -half);
+  }
+}
+
+// Condition nodes, deepest first so inner collisions are resolved before outer ones
+function getConditionNodesDeepestFirst(nodes: Node[]): Node[] {
+  const conditionNodes = nodes.filter((n) => {
+    const data = n.data as FlowNodeData;
+    const stepType = data?.actionType || data?.step?.type || '';
+    return stepType === 'condition' || n.type === 'condition';
+  });
+  conditionNodes.sort((a, b) => getConditionDepth(b.id, nodes) - getConditionDepth(a.id, nodes));
+  return conditionNodes;
+}
+
+// Pass 1: Sibling branch check (If true vs If false of same condition)
+function resolveSiblingBranchCollisions(nodes: Node[], conditionNodes: Node[]): boolean {
+  let hadCollision = false;
+
+  for (const condNode of conditionNodes) {
+    const condData = condNode.data as FlowNodeData;
+    const branchIds = getConditionBranchIds({ id: condNode.id, config: condData?.step?.config });
+    const branchSubtrees = branchIds.map((bid) => getSubtreeNodes(bid, nodes)).filter((s) => s.length > 0);
+
+    // Check each adjacent pair of sibling branches for overlap
+    for (let bi = 0; bi < branchSubtrees.length - 1; bi++) {
+      const leftSub = branchSubtrees[bi];
+      const rightSub = branchSubtrees[bi + 1];
+      if (!leftSub || !rightSub) continue;
+
+      const leftBox = getBoundingBox(leftSub);
+      const rightBox = getBoundingBox(rightSub);
+
+      const overlap = (leftBox.maxX + BRANCH_GAP) - rightBox.minX;
+
+      if (overlap > 0) {
+        hadCollision = true;
+        const shiftAmount = Math.ceil(overlap / 2);
+        shiftSubtree(nodes, leftSub, -shiftAmount);
+        shiftSubtree(nodes, rightSub, shiftAmount);
+      }
+    }
+  }
+
+  return hadCollision;
+}
+
+// Pass 2: Pairwise condition subtree check
+function resolveConditionSubtreeCollisions(nodes: Node[], conditionNodes: Node[]): boolean {
+  let hadCollision = false;
+
+  const condFullSubtrees = conditionNodes.map((condNode) => {
+    const condData = condNode.data as FlowNodeData;
+    const branchIds = getConditionBranchIds({ id: condNode.id, config: condData?.step?.config });
+    const allBranchNodes = branchIds.flatMap((bid) => getSubtreeNodes(bid, nodes));
+    const all = [condNode, ...allBranchNodes];
+    const ids = new Set(all.map((n) => n.id));
+    return { condNode, nodes: all, ids };
+  });
+
+  for (let i = 0; i < condFullSubtrees.length; i++) {
+    for (let j = i + 1; j < condFullSubtrees.length; j++) {
+      const a = condFullSubtrees[i];
+      const b = condFullSubtrees[j];
+      if (!a || !b) continue;
+
+      // Skip if one is inside the other's subtree
+      if (a.ids.has(b.condNode.id) || b.ids.has(a.condNode.id)) continue;
+
+      const boxA = getBoundingBox(a.nodes);
+      const boxB = getBoundingBox(b.nodes);
+
+      const xOverlap = Math.min(boxA.maxX, boxB.maxX) - Math.max(boxA.minX, boxB.minX);
+      const yOverlap = Math.min(boxA.maxY, boxB.maxY) - Math.max(boxA.minY, boxB.minY);
+
+      if (xOverlap > 0 && yOverlap > 0) {
+        hadCollision = true;
+        const centerA = (boxA.minX + boxA.maxX) / 2;
+        const centerB = (boxB.minX + boxB.maxX) / 2;
+        pushApart(nodes, a.nodes, b.nodes, centerA, centerB, xOverlap + BRANCH_GAP);
+      }
+    }
+  }
+
+  return hadCollision;
+}
+
+// Node rectangle (with collision padding on each side) used by the brute-force pass
+function getPaddedNodeRect(node: Node): { minX: number; maxX: number; minY: number; maxY: number } {
+  return {
+    minX: node.position.x - COLLISION_PADDING,
+    maxX: node.position.x + getNodeWidth(node) + COLLISION_PADDING,
+    minY: node.position.y,
+    maxY: node.position.y + getNodeEffectiveHeight(node),
+  };
+}
+
+// Resolve a single overlapping node pair; returns true when it moved anything
+function resolveNodePairCollision(nodes: Node[], a: Node, b: Node): boolean {
+  if (a.id === 'trigger' || b.id === 'trigger') return false;
+  // Skip sub_agent nodes — they live in their own visual lane
+  if (a.type === 'sub_agent' || b.type === 'sub_agent') return false;
+
+  const aRect = getPaddedNodeRect(a);
+  const bRect = getPaddedNodeRect(b);
+
+  const xOver = Math.min(aRect.maxX, bRect.maxX) - Math.max(aRect.minX, bRect.minX);
+  const yOver = Math.min(aRect.maxY, bRect.maxY) - Math.max(aRect.minY, bRect.minY);
+  if (!(xOver > 0 && yOver > 0)) return false;
+
+  // Get containing subtrees so we shift coherently
+  const aSub = getContainingSubtree(a.id, nodes);
+  const bSub = getContainingSubtree(b.id, nodes);
+
+  // Skip if they're in the same subtree (internal layout is fine)
+  const aSubIds = new Set(aSub.map((n) => n.id));
+  if (aSubIds.has(b.id)) return false;
+
+  const aCenterX = (aRect.minX + aRect.maxX) / 2;
+  const bCenterX = (bRect.minX + bRect.maxX) / 2;
+  pushApart(nodes, aSub, bSub, aCenterX, bCenterX, xOver + BRANCH_GAP);
+  return true;
+}
+
+// Pass 3: Brute-force ALL node pairs.
+// This catches ANY remaining overlap regardless of subtree relationships.
+function resolveAllPairCollisions(nodes: Node[]): boolean {
+  let hadCollision = false;
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+      if (!a || !b) continue;
+      if (resolveNodePairCollision(nodes, a, b)) hadCollision = true;
+    }
+  }
+
+  return hadCollision;
+}
+
 // Post-placement collision resolution: detect and fix overlapping nodes
 function resolveCollisions(nodes: Node[]): void {
   const MAX_ITERATIONS = 10;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    let hadCollision = false;
+    const conditionNodes = getConditionNodesDeepestFirst(nodes);
 
-    // --- Pass 1: Sibling branch check (If true vs If false of same condition) ---
-    const conditionNodes = nodes.filter((n) => {
-      const data = n.data as FlowNodeData;
-      const stepType = data?.actionType || data?.step?.type || '';
-      return stepType === 'condition' || n.type === 'condition';
-    });
+    const siblingCollision = resolveSiblingBranchCollisions(nodes, conditionNodes);
+    const subtreeCollision = resolveConditionSubtreeCollisions(nodes, conditionNodes);
+    const pairCollision = resolveAllPairCollisions(nodes);
 
-    // Sort by depth (deepest first) so inner collisions are resolved before outer ones
-    conditionNodes.sort((a, b) => {
-      return getConditionDepth(b.id, nodes) - getConditionDepth(a.id, nodes);
-    });
-
-    for (const condNode of conditionNodes) {
-      const condData = condNode.data as FlowNodeData;
-      const branchIds = getConditionBranchIds({ id: condNode.id, config: condData?.step?.config });
-      const branchSubtrees = branchIds.map((bid) => getSubtreeNodes(bid, nodes)).filter((s) => s.length > 0);
-
-      // Check each adjacent pair of sibling branches for overlap
-      for (let bi = 0; bi < branchSubtrees.length - 1; bi++) {
-        const leftSub = branchSubtrees[bi];
-        const rightSub = branchSubtrees[bi + 1];
-        if (!leftSub || !rightSub) continue;
-
-        const leftBox = getBoundingBox(leftSub);
-        const rightBox = getBoundingBox(rightSub);
-
-        const overlap = (leftBox.maxX + BRANCH_GAP) - rightBox.minX;
-
-        if (overlap > 0) {
-          hadCollision = true;
-          const shiftAmount = Math.ceil(overlap / 2);
-          shiftSubtree(nodes, leftSub, -shiftAmount);
-          shiftSubtree(nodes, rightSub, shiftAmount);
-        }
-      }
-    }
-
-    // --- Pass 2: Pairwise condition subtree check ---
-    const condFullSubtrees = conditionNodes.map((condNode) => {
-      const condData = condNode.data as FlowNodeData;
-      const branchIds = getConditionBranchIds({ id: condNode.id, config: condData?.step?.config });
-      const allBranchNodes = branchIds.flatMap((bid) => getSubtreeNodes(bid, nodes));
-      const all = [condNode, ...allBranchNodes];
-      const ids = new Set(all.map((n) => n.id));
-      return { condNode, nodes: all, ids };
-    });
-
-    for (let i = 0; i < condFullSubtrees.length; i++) {
-      for (let j = i + 1; j < condFullSubtrees.length; j++) {
-        const a = condFullSubtrees[i];
-        const b = condFullSubtrees[j];
-        if (!a || !b) continue;
-
-        // Skip if one is inside the other's subtree
-        if (a.ids.has(b.condNode.id) || b.ids.has(a.condNode.id)) continue;
-
-        const boxA = getBoundingBox(a.nodes);
-        const boxB = getBoundingBox(b.nodes);
-
-        const xOverlap = Math.min(boxA.maxX, boxB.maxX) - Math.max(boxA.minX, boxB.minX);
-        const yOverlap = Math.min(boxA.maxY, boxB.maxY) - Math.max(boxA.minY, boxB.minY);
-
-        if (xOverlap > 0 && yOverlap > 0) {
-          hadCollision = true;
-          const pushAmount = xOverlap + BRANCH_GAP;
-          const centerA = (boxA.minX + boxA.maxX) / 2;
-          const centerB = (boxB.minX + boxB.maxX) / 2;
-
-          if (centerA <= centerB) {
-            shiftSubtree(nodes, a.nodes, -Math.ceil(pushAmount / 2));
-            shiftSubtree(nodes, b.nodes, Math.ceil(pushAmount / 2));
-          } else {
-            shiftSubtree(nodes, a.nodes, Math.ceil(pushAmount / 2));
-            shiftSubtree(nodes, b.nodes, -Math.ceil(pushAmount / 2));
-          }
-        }
-      }
-    }
-
-    // --- Pass 3: Brute-force ALL node pairs ---
-    // This catches ANY remaining overlap regardless of subtree relationships.
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        if (!a || !b) continue;
-        if (a.id === 'trigger' || b.id === 'trigger') continue;
-        // Skip sub_agent nodes — they live in their own visual lane
-        if (a.type === 'sub_agent' || b.type === 'sub_agent') continue;
-
-        const aW = getNodeWidth(a);
-        const aH = getNodeEffectiveHeight(a);
-        const aMinX = a.position.x - COLLISION_PADDING;
-        const aMaxX = a.position.x + aW + COLLISION_PADDING;
-        const aMinY = a.position.y;
-        const aMaxY = a.position.y + aH;
-
-        const bW = getNodeWidth(b);
-        const bH = getNodeEffectiveHeight(b);
-        const bMinX = b.position.x - COLLISION_PADDING;
-        const bMaxX = b.position.x + bW + COLLISION_PADDING;
-        const bMinY = b.position.y;
-        const bMaxY = b.position.y + bH;
-
-        const xOver = Math.min(aMaxX, bMaxX) - Math.max(aMinX, bMinX);
-        const yOver = Math.min(aMaxY, bMaxY) - Math.max(aMinY, bMinY);
-
-        if (xOver > 0 && yOver > 0) {
-          // Get containing subtrees so we shift coherently
-          const aSub = getContainingSubtree(a.id, nodes);
-          const bSub = getContainingSubtree(b.id, nodes);
-
-          // Skip if they're in the same subtree (internal layout is fine)
-          const aSubIds = new Set(aSub.map((n) => n.id));
-          if (aSubIds.has(b.id)) continue;
-
-          hadCollision = true;
-          const pushAmount = xOver + BRANCH_GAP;
-          const aCenterX = (aMinX + aMaxX) / 2;
-          const bCenterX = (bMinX + bMaxX) / 2;
-
-          if (aCenterX <= bCenterX) {
-            shiftSubtree(nodes, aSub, -Math.ceil(pushAmount / 2));
-            shiftSubtree(nodes, bSub, Math.ceil(pushAmount / 2));
-          } else {
-            shiftSubtree(nodes, aSub, Math.ceil(pushAmount / 2));
-            shiftSubtree(nodes, bSub, -Math.ceil(pushAmount / 2));
-          }
-        }
-      }
-    }
-
-    if (!hadCollision) break;
+    if (!(siblingCollision || subtreeCollision || pairCollision)) break;
   }
 }
 
@@ -453,6 +481,22 @@ function getBranchChildrenHeight(branchChildrenMap: Map<string, BranchChild[]>, 
   return NODE_GAP_Y + total; // gap between branch node and first child + children stack
 }
 
+// Height of the tallest branch-children stack under a condition step
+function getTallestBranchChildrenHeight(branchChildrenMap: Map<string, BranchChild[]>, stepId: string): number {
+  const branchIds = [`${stepId}_if`, `${stepId}_if_not`];
+  // Also check multi-branch IDs
+  for (const [key] of branchChildrenMap) {
+    if (key.startsWith(`${stepId}_branch_`)) {
+      branchIds.push(key);
+    }
+  }
+  let tallest = 0;
+  for (const bid of branchIds) {
+    tallest = Math.max(tallest, getBranchChildrenHeight(branchChildrenMap, bid));
+  }
+  return tallest;
+}
+
 // Get total visual height of a step including child nodes (e.g. condition branches, sub-agent satellites)
 // Use this for spacing calculations between main flow steps
 // subAgentCount: optional number of sub-agents for ai_agent steps
@@ -460,20 +504,9 @@ function getBranchChildrenHeight(branchChildrenMap: Map<string, BranchChild[]>, 
 export function getTotalNodeHeight(stepType: string, subAgentCount?: number, branchChildrenMap?: Map<string, BranchChild[]>, stepId?: string): number {
   if (stepType === 'condition') {
     // Condition card + gap + branch nodes + tallest branch children stack
-    let branchChildrenExtra = 0;
-    if (branchChildrenMap && stepId) {
-      // Find the tallest branch
-      const branchIds = [`${stepId}_if`, `${stepId}_if_not`];
-      // Also check multi-branch IDs
-      for (const [key] of branchChildrenMap) {
-        if (key.startsWith(`${stepId}_branch_`)) {
-          branchIds.push(key);
-        }
-      }
-      for (const bid of branchIds) {
-        branchChildrenExtra = Math.max(branchChildrenExtra, getBranchChildrenHeight(branchChildrenMap, bid));
-      }
-    }
+    const branchChildrenExtra = branchChildrenMap && stepId
+      ? getTallestBranchChildrenHeight(branchChildrenMap, stepId)
+      : 0;
     return CONDITION_NODE_HEIGHT + NODE_GAP_Y + NODE_HEIGHT + branchChildrenExtra;
   }
   const baseHeight = getNodeHeight(stepType);
@@ -539,51 +572,63 @@ function getActionLabel(actionType: string): string {
   return labels[actionType] || actionType;
 }
 
-// Convert workflow data to React Flow nodes and edges
-export function workflowToFlow(
+type WorkflowFlowCallbacks = {
+  onSelectTrigger?: () => void;
+  onSelectStep?: (index: number) => void;
+  onSelectBranch?: (branchNodeId: string, branchType: string, parentConditionId: string, parentConditionStepIndex: number) => void;
+  onDeleteStep?: (index: number) => void;
+  onAddStep?: (sourceNodeId?: string) => void;
+  onUpdateConfig?: (stepId: string, config: Record<string, unknown>) => void;
+};
+
+type WorkflowFlowOptions = {
+  triggerLocked?: boolean;
+  variableItems?: Array<{ path: string; label: string; group: string; type?: string }>;
+  onAddSubAgent?: (stepId: string) => void;
+  onEditSubAgent?: (subAgentId: string) => void;
+  labels?: {
+    selectTrigger?: string;
+    triggerLabels?: Record<string, string>;
+    actionLabels?: Record<string, string>;
+    setupRequired?: string;
+  };
+};
+
+type FlowPosition = { x: number; y: number };
+
+const smoothstepEdge = (id: string, source: string, target: string): Edge => ({
+  id,
+  source,
+  target,
+  type: 'smoothstep',
+});
+
+// "entityType:eventType" for entity_event triggers that have both parts configured
+function getTriggerEntityEvent(trigger: TriggerConfig | null): string | undefined {
+  if (trigger?.type !== 'entity_event') return undefined;
+  const t = trigger as TriggerConfig & { entityType?: string; eventType?: string };
+  const cfg = t.config as { entityType?: string; eventType?: string } | undefined;
+  const entityType = t.entityType || cfg?.entityType;
+  const eventType = t.eventType || cfg?.eventType;
+  if (entityType && eventType) return `${entityType}:${eventType}`;
+  return undefined;
+}
+
+// Always create trigger node (even if no trigger configured yet)
+function buildTriggerNode(
   trigger: TriggerConfig | null,
   steps: WorkflowStep[],
-  callbacks?: {
-    onSelectTrigger?: () => void;
-    onSelectStep?: (index: number) => void;
-    onSelectBranch?: (branchNodeId: string, branchType: string, parentConditionId: string, parentConditionStepIndex: number) => void;
-    onDeleteStep?: (index: number) => void;
-    onAddStep?: (sourceNodeId?: string) => void;
-    onUpdateConfig?: (stepId: string, config: Record<string, unknown>) => void;
-  },
-  options?: {
-    triggerLocked?: boolean;
-    variableItems?: Array<{ path: string; label: string; group: string; type?: string }>;
-    onAddSubAgent?: (stepId: string) => void;
-    onEditSubAgent?: (subAgentId: string) => void;
-    labels?: {
-      selectTrigger?: string;
-      triggerLabels?: Record<string, string>;
-      actionLabels?: Record<string, string>;
-      setupRequired?: string;
-    };
-  }
-): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-
-  // Always create trigger node (even if no trigger configured yet)
-  const triggerNode: Node<TriggerNodeData> = {
+  callbacks?: WorkflowFlowCallbacks,
+  options?: WorkflowFlowOptions,
+): Node<TriggerNodeData> {
+  return {
     id: 'trigger',
     type: 'trigger',
     position: { x: START_X, y: START_Y },
     data: {
       trigger: trigger || { type: 'manual', name: 'Trigger', config: {} } as TriggerConfig,
       label: trigger ? getTriggerLabel(trigger, options?.labels?.triggerLabels) : (options?.labels?.selectTrigger ?? 'Select Trigger'),
-      entityEvent: (() => {
-        if (trigger?.type !== 'entity_event') return undefined;
-        const t = trigger as TriggerConfig & { entityType?: string; eventType?: string };
-        const cfg = t.config as { entityType?: string; eventType?: string } | undefined;
-        const entityType = t.entityType || cfg?.entityType;
-        const eventType = t.eventType || cfg?.eventType;
-        if (entityType && eventType) return `${entityType}:${eventType}`;
-        return undefined;
-      })(),
+      entityEvent: getTriggerEntityEvent(trigger),
       isLastNode: steps.length === 0,
       locked: options?.triggerLocked,
       nodeId: 'trigger',
@@ -591,384 +636,456 @@ export function workflowToFlow(
       onAddStep: callbacks?.onAddStep,
     },
   };
-  nodes.push(triggerNode);
+}
 
-  // Find steps that have parent branch IDs (steps added under condition branches)
-  const stepsWithBranchParent = steps.filter((s) => s.parentBranchId);
-  const branchChildrenMap = new Map<string, typeof steps>();
-  stepsWithBranchParent.forEach((step) => {
-    // Non-null: stepsWithBranchParent was filtered on this field.
-    const parentBranchId = step.parentBranchId!;
-    const children = branchChildrenMap.get(parentBranchId) || [];
+// Steps added under condition branches, grouped by the branch they belong to
+function groupBranchChildren(steps: WorkflowStep[]): Map<string, WorkflowStep[]> {
+  const branchChildrenMap = new Map<string, WorkflowStep[]>();
+  for (const step of steps) {
+    if (!step.parentBranchId) continue;
+    const children = branchChildrenMap.get(step.parentBranchId) || [];
     children.push(step);
-    branchChildrenMap.set(parentBranchId, children);
-  });
+    branchChildrenMap.set(step.parentBranchId, children);
+  }
+  return branchChildrenMap;
+}
 
-  // Pre-calculate cumulative Y positions for main flow steps based on total visual heights
+// Pre-calculate cumulative Y positions for main flow steps based on total visual heights
+function computeMainStepLayout(
+  steps: WorkflowStep[],
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+): { mainStepPositions: Map<string, number>; cumulativeY: number } {
   let cumulativeY = START_Y + NODE_HEIGHT + NODE_GAP_Y; // Start after trigger node
   const mainStepPositions = new Map<string, number>();
-  steps.forEach((step) => {
-    const stepAny = step;
-    if (!stepAny.parentBranchId) {
-      mainStepPositions.set(step.id, cumulativeY);
-      const subAgentCount = step.type === 'ai_agent' ? ((step.config as AiAgentStepConfig)?.subAgentIds?.length || 0) : 0;
-      cumulativeY += getTotalNodeHeight(step.type, subAgentCount, branchChildrenMap, step.id) + NODE_GAP_Y;
-    }
+  for (const step of steps) {
+    if (step.parentBranchId) continue;
+    mainStepPositions.set(step.id, cumulativeY);
+    const subAgentCount = step.type === 'ai_agent' ? ((step.config as AiAgentStepConfig)?.subAgentIds?.length || 0) : 0;
+    cumulativeY += getTotalNodeHeight(step.type, subAgentCount, branchChildrenMap, step.id) + NODE_GAP_Y;
+  }
+  return { mainStepPositions, cumulativeY };
+}
+
+// Position a branch child below the branch node, or below the last sibling already placed in the same branch
+function positionBranchChild(
+  step: WorkflowStep,
+  parentBranchId: string,
+  branchNode: Node,
+  nodes: Node[],
+): FlowPosition {
+  // Find sibling nodes already placed under this same branch
+  const siblings = nodes.filter((n) => {
+    const data = n.data as FlowNodeData;
+    return data?.step?.parentBranchId === parentBranchId;
   });
 
-  // Create action nodes
-  steps.forEach((step, index) => {
-    const stepAny = step;
+  // Use the branch node center as anchor for horizontal centering
+  const branchCenterX = branchNode.position.x + NODE_WIDTH / 2;
+  const thisWidth = getStepWidth(step.type);
+  const lastSibling = siblings[siblings.length - 1];
 
-    // Calculate position - if step has a parent branch, position below that branch
-    let position = step.position;
-    if (!position) {
-      if (stepAny.parentBranchId) {
-        // Default fallback for branch children
-        position = { x: START_X, y: START_Y + (index + 1) * NODE_GAP_Y + NODE_HEIGHT };
-      } else {
-        position = { x: START_X, y: mainStepPositions.get(step.id) || cumulativeY };
-      }
-    }
-
-    // If this step has a parent branch, reposition it below the parent branch node
-    // or below the last sibling already placed in the same branch
-    if (stepAny.parentBranchId && !step.position) {
-      const parentBranchId = stepAny.parentBranchId as string;
-      const branchNode = nodes.find((n) => n.id === parentBranchId);
-
-      if (branchNode) {
-        // Find sibling nodes already placed under this same branch
-        const siblings = nodes.filter((n) => {
-          const data = n.data as FlowNodeData;
-          return data?.step?.parentBranchId === parentBranchId;
-        });
-
-        if (siblings.length > 0) {
-          // Stack below the last sibling, centering based on the branch anchor X
-          const lastSibling = siblings[siblings.length - 1]!;
-          const lastSiblingData = lastSibling.data as FlowNodeData;
-          const lastSiblingType = lastSiblingData?.actionType || lastSiblingData?.step?.type || '';
-          const lastSiblingHeight = getTotalNodeHeight(lastSiblingType);
-          // Use the branch node center as anchor for horizontal centering
-          const branchCenterX = branchNode.position.x + NODE_WIDTH / 2;
-          const thisWidth = getStepWidth(step.type);
-          position = {
-            x: branchCenterX - thisWidth / 2,
-            y: lastSibling.position.y + lastSiblingHeight + NODE_GAP_Y,
-          };
-        } else {
-          // First child — position below the branch node, centered
-          const branchNodeHeight = 80;
-          const branchCenterX = branchNode.position.x + NODE_WIDTH / 2;
-          const thisWidth = getStepWidth(step.type);
-          position = {
-            x: branchCenterX - thisWidth / 2,
-            y: branchNode.position.y + branchNodeHeight + NODE_GAP_Y,
-          };
-        }
-      }
-    }
-
-    // Check if this is the last step without a branch parent, or the last child of its branch
-    const stepsWithoutBranchParent = steps.filter((s) => !s.parentBranchId);
-    const isLastNonBranchStep = stepsWithoutBranchParent.length > 0 &&
-      stepsWithoutBranchParent[stepsWithoutBranchParent.length - 1]!.id === step.id;
-    const isLastNode = !stepAny.parentBranchId && isLastNonBranchStep;
-
-    if (step.type === 'condition') {
-      // Main condition node
-      const conditionNode: Node<ConditionNodeData> = {
-        id: step.id,
-        type: 'condition',
-        position,
-        data: {
-          step,
-          stepIndex: index,
-          label: step.name || 'Condition',
-          condition: (step.config as ConditionStepConfig).expression,
-          thenStepId: (step.config as ConditionStepConfig).thenAction,
-          elseStepId: (step.config as ConditionStepConfig).elseAction,
-          isConfigured: isStepConfigured(step),
-          setupRequiredLabel: options?.labels?.setupRequired,
-          isLastNode: false, // Condition node is never the "last" node visually
-          nodeId: step.id,
-          onSelect: () => callbacks?.onSelectStep?.(index),
-          onDelete: () => callbacks?.onDeleteStep?.(index),
-          onAddStep: callbacks?.onAddStep,
-          onUpdateConfig: callbacks?.onUpdateConfig,
-        },
-      };
-      nodes.push(conditionNode);
-
-      // Generate branch nodes — multi-branch or legacy binary
-      const configBranches = (step.config as ConditionStepConfig)?.branches;
-      if (configBranches && Array.isArray(configBranches)) {
-        // Multi-branch: compute needed width per branch based on children content
-        const branchCount = configBranches.length;
-        const branchWidths = configBranches.map((branch) => {
-          const branchNodeId = `${step.id}_branch_${branch.value}`;
-          const children = branchChildrenMap.get(branchNodeId) || [];
-          const maxChildWidth = children.reduce((max: number, child) => Math.max(max, getStepWidth(child.type)), NODE_WIDTH);
-          return Math.max(NODE_WIDTH, maxChildWidth);
-        });
-        // Total width = sum of all branch widths + gaps between them
-        const totalWidth = branchWidths.reduce((sum: number, w: number) => sum + w, 0) + (branchCount - 1) * BRANCH_GAP;
-        // Center the whole structure around the condition's center X
-        const condCenterX = position.x + NODE_WIDTH / 2;
-        let currentX = condCenterX - totalWidth / 2;
-
-        configBranches.forEach((branch, branchIdx: number) => {
-          const branchNodeId = `${step.id}_branch_${branch.value}`;
-          const branchHasChildren = branchChildrenMap.has(branchNodeId);
-          // Place the branch node centered within its allocated width
-          const branchWidth = branchWidths[branchIdx]!;
-          const branchX = currentX + (branchWidth - NODE_WIDTH) / 2;
-          currentX += branchWidth + BRANCH_GAP;
-          const branchNode: Node<ConditionBranchNodeData> = {
-            id: branchNodeId,
-            type: 'condition_branch',
-            position: {
-              x: branchX,
-              y: position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT,
-            },
-            data: {
-              branchType: branch.value,
-              label: branch.label ?? branch.value,
-              conditionLabel: (step.config as ConditionStepConfig).field || '',
-              parentConditionId: step.id,
-              parentConditionStepIndex: index,
-              isLastNode: !branchHasChildren,
-              nodeId: branchNodeId,
-              onSelect: () => callbacks?.onSelectStep?.(index),
-              onSelectBranch: callbacks?.onSelectBranch,
-              onAddStep: callbacks?.onAddStep,
-            },
-          };
-          nodes.push(branchNode);
-        });
-      } else {
-        // Legacy binary branches: "If true" / "If false"
-        const ifBranchNodeId = `${step.id}_if`;
-        const ifNotBranchNodeId = `${step.id}_if_not`;
-        const ifChildren = branchChildrenMap.get(ifBranchNodeId) || [];
-        const ifNotChildren = branchChildrenMap.get(ifNotBranchNodeId) || [];
-        const ifMaxWidth = ifChildren.reduce((max: number, child) => Math.max(max, getStepWidth(child.type)), NODE_WIDTH);
-        const ifNotMaxWidth = ifNotChildren.reduce((max: number, child) => Math.max(max, getStepWidth(child.type)), NODE_WIDTH);
-        const binaryTotalWidth = ifMaxWidth + ifNotMaxWidth + BRANCH_GAP;
-        const condCenterX = position.x + NODE_WIDTH / 2;
-        const ifBranchX = condCenterX - binaryTotalWidth / 2 + (ifMaxWidth - NODE_WIDTH) / 2;
-        const ifNotBranchX = condCenterX + binaryTotalWidth / 2 - ifNotMaxWidth + (ifNotMaxWidth - NODE_WIDTH) / 2;
-
-        const ifBranchHasChildren = branchChildrenMap.has(ifBranchNodeId);
-        const ifBranchNode: Node<ConditionBranchNodeData> = {
-          id: ifBranchNodeId,
-          type: 'condition_branch',
-          position: {
-            x: ifBranchX,
-            y: position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT,
-          },
-          data: {
-            branchType: 'if',
-            label: 'If true',
-            conditionLabel: (step.config as ConditionStepConfig).expression || 'Condition met',
-            parentConditionId: step.id,
-            parentConditionStepIndex: index,
-            isLastNode: !ifBranchHasChildren,
-            nodeId: ifBranchNodeId,
-            onSelect: () => callbacks?.onSelectStep?.(index),
-            onSelectBranch: callbacks?.onSelectBranch,
-            onAddStep: callbacks?.onAddStep,
-          },
-        };
-        nodes.push(ifBranchNode);
-
-        const ifNotBranchHasChildren = branchChildrenMap.has(ifNotBranchNodeId);
-        const ifNotBranchNode: Node<ConditionBranchNodeData> = {
-          id: ifNotBranchNodeId,
-          type: 'condition_branch',
-          position: {
-            x: ifNotBranchX,
-            y: position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT,
-          },
-          data: {
-            branchType: 'if_not',
-            label: 'If false',
-            conditionLabel: 'Condition not met',
-            parentConditionId: step.id,
-            parentConditionStepIndex: index,
-            isLastNode: !ifNotBranchHasChildren,
-            nodeId: ifNotBranchNodeId,
-            onSelect: () => callbacks?.onSelectStep?.(index),
-            onSelectBranch: callbacks?.onSelectBranch,
-            onAddStep: callbacks?.onAddStep,
-          },
-        };
-        nodes.push(ifNotBranchNode);
-      }
-    } else {
-      // Regular action node — center wider nodes (e.g. send_email) relative to standard width
-      const centerOffset = getCenteringOffset(step.type);
-      const adjustedPosition = centerOffset !== 0
-        ? { x: position.x + centerOffset, y: position.y }
-        : position;
-
-      // Check if this is the last child of its branch
-      const branchChildren = stepAny.parentBranchId ? branchChildrenMap.get(stepAny.parentBranchId) || [] : [];
-      const isLastBranchChild = branchChildren.length > 0 && branchChildren[branchChildren.length - 1]!.id === step.id;
-      const finalIsLastNode = stepAny.parentBranchId ? isLastBranchChild : isLastNode;
-
-      const actionNode: Node<ActionNodeData> = {
-        id: step.id,
-        type: 'action',
-        position: adjustedPosition,
-        data: {
-          step,
-          stepIndex: index,
-          label: step.name || (options?.labels?.actionLabels?.[step.type] ?? getActionLabel(step.type)),
-          actionType: step.type,
-          isConfigured: isStepConfigured(step),
-          setupRequiredLabel: options?.labels?.setupRequired,
-          isLastNode: finalIsLastNode,
-          nodeId: step.id,
-          onSelect: () => callbacks?.onSelectStep?.(index),
-          onDelete: () => callbacks?.onDeleteStep?.(index),
-          onAddStep: callbacks?.onAddStep,
-          onUpdateConfig: callbacks?.onUpdateConfig,
-          onAddSubAgent: options?.onAddSubAgent,
-          variableItems: options?.variableItems,
-        },
-      };
-      nodes.push(actionNode);
-
-      // Generate sub-agent satellite nodes for ai_agent steps
-      if (step.type === 'ai_agent') {
-        const subAgentIds: string[] = (step.config as AiAgentStepConfig)?.subAgentIds || [];
-        const subAgentNames: Record<string, string> = (step.config as AiAgentStepConfig)?.subAgentNames || {};
-
-        subAgentIds.forEach((subAgentId, i) => {
-          const subNodeId = `${step.id}_sub_${subAgentId}`;
-          const subNode: Node<SubAgentNodeData> = {
-            id: subNodeId,
-            type: 'sub_agent',
-            position: {
-              x: adjustedPosition.x + SUB_AGENT_OFFSET_X,
-              y: adjustedPosition.y + i * (SUB_AGENT_NODE_HEIGHT + SUB_AGENT_GAP_Y),
-            },
-            data: {
-              subAgentId,
-              subAgentName: subAgentNames[subAgentId] || 'Sub-Agent',
-              parentAgentStepId: step.id,
-              parentAgentStepIndex: index,
-              nodeId: subNodeId,
-              onSelect: () => options?.onEditSubAgent?.(subAgentId),
-              onRemove: () => {
-                const updatedIds = subAgentIds.filter((id) => id !== subAgentId);
-                const { [subAgentId]: _, ...restNames } = subAgentNames;
-                callbacks?.onUpdateConfig?.(step.id, {
-                  subAgentIds: updatedIds,
-                  subAgentNames: restNames,
-                });
-              },
-              onEditSubAgent: options?.onEditSubAgent,
-            },
-          };
-          nodes.push(subNode);
-
-          // Dashed edge from head agent to sub-agent
-          edges.push({
-            id: `${step.id}-sub-${subAgentId}`,
-            source: step.id,
-            sourceHandle: 'subagents',
-            target: subNodeId,
-            type: 'smoothstep',
-            animated: true,
-            style: {
-              strokeDasharray: '6 4',
-              stroke: 'var(--color-border)',
-              strokeWidth: 1.5,
-            },
-          });
-        });
-      }
-    }
-  });
-
-  // Create edges
-  const firstMainStep = steps.find((s) => !s.parentBranchId);
-  if (firstMainStep) {
-    edges.push({
-      id: `trigger-${firstMainStep.id}`,
-      source: 'trigger',
-      target: firstMainStep.id,
-      type: 'smoothstep',
-    });
+  if (lastSibling) {
+    // Stack below the last sibling, centering based on the branch anchor X
+    const lastSiblingData = lastSibling.data as FlowNodeData;
+    const lastSiblingType = lastSiblingData?.actionType || lastSiblingData?.step?.type || '';
+    const lastSiblingHeight = getTotalNodeHeight(lastSiblingType);
+    return {
+      x: branchCenterX - thisWidth / 2,
+      y: lastSibling.position.y + lastSiblingHeight + NODE_GAP_Y,
+    };
   }
 
-  // Connect condition nodes to their branch nodes
-  steps.forEach((step) => {
-    if (step.type === 'condition') {
-      const branchIds = getConditionBranchIds(step);
-      branchIds.forEach((branchId) => {
-        edges.push({
-          id: `${step.id}-${branchId}-branch`,
-          source: step.id,
-          target: branchId,
-          type: 'smoothstep',
-        });
-      });
-    }
-  });
+  // First child — position below the branch node, centered
+  const branchNodeHeight = 80;
+  return {
+    x: branchCenterX - thisWidth / 2,
+    y: branchNode.position.y + branchNodeHeight + NODE_GAP_Y,
+  };
+}
 
-  // Connect branch nodes to their child steps (sequentially within each branch)
-  branchChildrenMap.forEach((children, branchId) => {
-    children.forEach((child, i) => {
-      if (i === 0) {
-        edges.push({
-          id: `${branchId}-${child.id}`,
-          source: branchId,
-          target: child.id,
-          type: 'smoothstep',
-        });
-      } else {
-        const prevChild = children[i - 1]!;
-        edges.push({
-          id: `${prevChild.id}-${child.id}`,
-          source: prevChild.id,
-          target: child.id,
-          type: 'smoothstep',
-        });
-      }
+// Where a step goes: its saved position, else below its branch node, else in the main flow column
+function resolveStepPosition(
+  step: WorkflowStep,
+  index: number,
+  nodes: Node[],
+  mainStepPositions: Map<string, number>,
+  cumulativeY: number,
+): FlowPosition {
+  if (step.position) return step.position;
+
+  const parentBranchId = step.parentBranchId;
+  if (!parentBranchId) {
+    return { x: START_X, y: mainStepPositions.get(step.id) || cumulativeY };
+  }
+
+  const branchNode = nodes.find((n) => n.id === parentBranchId);
+  if (!branchNode) {
+    // Default fallback for branch children
+    return { x: START_X, y: START_Y + (index + 1) * NODE_GAP_Y + NODE_HEIGHT };
+  }
+  return positionBranchChild(step, parentBranchId, branchNode, nodes);
+}
+
+// Widest card among a branch's children (never narrower than the standard width)
+function getMaxChildWidth(children: WorkflowStep[]): number {
+  return children.reduce((max: number, child) => Math.max(max, getStepWidth(child.type)), NODE_WIDTH);
+}
+
+function buildConditionBranchNode(args: {
+  id: string;
+  branchType: string;
+  label: string;
+  conditionLabel: string;
+  step: WorkflowStep;
+  stepIndex: number;
+  x: number;
+  y: number;
+  hasChildren: boolean;
+  callbacks?: WorkflowFlowCallbacks;
+}): Node<ConditionBranchNodeData> {
+  const { id, step, stepIndex, callbacks } = args;
+  return {
+    id,
+    type: 'condition_branch',
+    position: { x: args.x, y: args.y },
+    data: {
+      branchType: args.branchType,
+      label: args.label,
+      conditionLabel: args.conditionLabel,
+      parentConditionId: step.id,
+      parentConditionStepIndex: stepIndex,
+      isLastNode: !args.hasChildren,
+      nodeId: id,
+      onSelect: () => callbacks?.onSelectStep?.(stepIndex),
+      onSelectBranch: callbacks?.onSelectBranch,
+      onAddStep: callbacks?.onAddStep,
+    },
+  };
+}
+
+// Multi-branch: compute needed width per branch based on children content
+function buildMultiBranchNodes(
+  step: WorkflowStep,
+  stepIndex: number,
+  position: FlowPosition,
+  configBranches: ConditionBranch[],
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+  callbacks?: WorkflowFlowCallbacks,
+): Node<ConditionBranchNodeData>[] {
+  const branchCount = configBranches.length;
+  const branchWidths = configBranches.map((branch) => {
+    const branchNodeId = `${step.id}_branch_${branch.value}`;
+    const children = branchChildrenMap.get(branchNodeId) || [];
+    return Math.max(NODE_WIDTH, getMaxChildWidth(children));
+  });
+  // Total width = sum of all branch widths + gaps between them
+  const totalWidth = branchWidths.reduce((sum: number, w: number) => sum + w, 0) + (branchCount - 1) * BRANCH_GAP;
+  // Center the whole structure around the condition's center X
+  const condCenterX = position.x + NODE_WIDTH / 2;
+  let currentX = condCenterX - totalWidth / 2;
+
+  return configBranches.map((branch, branchIdx: number) => {
+    const branchNodeId = `${step.id}_branch_${branch.value}`;
+    // Place the branch node centered within its allocated width
+    const branchWidth = branchWidths[branchIdx]!;
+    const branchX = currentX + (branchWidth - NODE_WIDTH) / 2;
+    currentX += branchWidth + BRANCH_GAP;
+    return buildConditionBranchNode({
+      id: branchNodeId,
+      branchType: branch.value,
+      label: branch.label ?? branch.value,
+      conditionLabel: (step.config as ConditionStepConfig).field || '',
+      step,
+      stepIndex,
+      x: branchX,
+      y: position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT,
+      hasChildren: branchChildrenMap.has(branchNodeId),
+      callbacks,
+    });
+  });
+}
+
+// Legacy binary branches: "If true" / "If false"
+function buildLegacyBranchNodes(
+  step: WorkflowStep,
+  stepIndex: number,
+  position: FlowPosition,
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+  callbacks?: WorkflowFlowCallbacks,
+): Node<ConditionBranchNodeData>[] {
+  const ifBranchNodeId = `${step.id}_if`;
+  const ifNotBranchNodeId = `${step.id}_if_not`;
+  const ifMaxWidth = getMaxChildWidth(branchChildrenMap.get(ifBranchNodeId) || []);
+  const ifNotMaxWidth = getMaxChildWidth(branchChildrenMap.get(ifNotBranchNodeId) || []);
+  const binaryTotalWidth = ifMaxWidth + ifNotMaxWidth + BRANCH_GAP;
+  const condCenterX = position.x + NODE_WIDTH / 2;
+  const ifBranchX = condCenterX - binaryTotalWidth / 2 + (ifMaxWidth - NODE_WIDTH) / 2;
+  const ifNotBranchX = condCenterX + binaryTotalWidth / 2 - ifNotMaxWidth + (ifNotMaxWidth - NODE_WIDTH) / 2;
+  const branchY = position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT;
+
+  return [
+    buildConditionBranchNode({
+      id: ifBranchNodeId,
+      branchType: 'if',
+      label: 'If true',
+      conditionLabel: (step.config as ConditionStepConfig).expression || 'Condition met',
+      step,
+      stepIndex,
+      x: ifBranchX,
+      y: branchY,
+      hasChildren: branchChildrenMap.has(ifBranchNodeId),
+      callbacks,
+    }),
+    buildConditionBranchNode({
+      id: ifNotBranchNodeId,
+      branchType: 'if_not',
+      label: 'If false',
+      conditionLabel: 'Condition not met',
+      step,
+      stepIndex,
+      x: ifNotBranchX,
+      y: branchY,
+      hasChildren: branchChildrenMap.has(ifNotBranchNodeId),
+      callbacks,
+    }),
+  ];
+}
+
+// The condition card plus its branch nodes (multi-branch or legacy binary)
+function buildConditionFlowNodes(
+  step: WorkflowStep,
+  stepIndex: number,
+  position: FlowPosition,
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+  callbacks?: WorkflowFlowCallbacks,
+  options?: WorkflowFlowOptions,
+): Node[] {
+  const conditionNode: Node<ConditionNodeData> = {
+    id: step.id,
+    type: 'condition',
+    position,
+    data: {
+      step,
+      stepIndex,
+      label: step.name || 'Condition',
+      condition: (step.config as ConditionStepConfig).expression,
+      thenStepId: (step.config as ConditionStepConfig).thenAction,
+      elseStepId: (step.config as ConditionStepConfig).elseAction,
+      isConfigured: isStepConfigured(step),
+      setupRequiredLabel: options?.labels?.setupRequired,
+      isLastNode: false, // Condition node is never the "last" node visually
+      nodeId: step.id,
+      onSelect: () => callbacks?.onSelectStep?.(stepIndex),
+      onDelete: () => callbacks?.onDeleteStep?.(stepIndex),
+      onAddStep: callbacks?.onAddStep,
+      onUpdateConfig: callbacks?.onUpdateConfig,
+    },
+  };
+
+  const configBranches = (step.config as ConditionStepConfig)?.branches;
+  const branchNodes = Array.isArray(configBranches)
+    ? buildMultiBranchNodes(step, stepIndex, position, configBranches, branchChildrenMap, callbacks)
+    : buildLegacyBranchNodes(step, stepIndex, position, branchChildrenMap, callbacks);
+
+  return [conditionNode, ...branchNodes];
+}
+
+// Sub-agent satellite nodes (and their dashed edges) for an ai_agent step
+function buildSubAgentFlow(
+  step: WorkflowStep,
+  stepIndex: number,
+  agentPosition: FlowPosition,
+  callbacks?: WorkflowFlowCallbacks,
+  options?: WorkflowFlowOptions,
+): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  const subAgentIds: string[] = (step.config as AiAgentStepConfig)?.subAgentIds || [];
+  const subAgentNames: Record<string, string> = (step.config as AiAgentStepConfig)?.subAgentNames || {};
+
+  subAgentIds.forEach((subAgentId, i) => {
+    const subNodeId = `${step.id}_sub_${subAgentId}`;
+    const subNode: Node<SubAgentNodeData> = {
+      id: subNodeId,
+      type: 'sub_agent',
+      position: {
+        x: agentPosition.x + SUB_AGENT_OFFSET_X,
+        y: agentPosition.y + i * (SUB_AGENT_NODE_HEIGHT + SUB_AGENT_GAP_Y),
+      },
+      data: {
+        subAgentId,
+        subAgentName: subAgentNames[subAgentId] || 'Sub-Agent',
+        parentAgentStepId: step.id,
+        parentAgentStepIndex: stepIndex,
+        nodeId: subNodeId,
+        onSelect: () => options?.onEditSubAgent?.(subAgentId),
+        onRemove: () => {
+          const updatedIds = subAgentIds.filter((id) => id !== subAgentId);
+          const { [subAgentId]: _, ...restNames } = subAgentNames;
+          callbacks?.onUpdateConfig?.(step.id, {
+            subAgentIds: updatedIds,
+            subAgentNames: restNames,
+          });
+        },
+        onEditSubAgent: options?.onEditSubAgent,
+      },
+    };
+    nodes.push(subNode);
+
+    // Dashed edge from head agent to sub-agent
+    edges.push({
+      id: `${step.id}-sub-${subAgentId}`,
+      source: step.id,
+      sourceHandle: 'subagents',
+      target: subNodeId,
+      type: 'smoothstep',
+      animated: true,
+      style: {
+        strokeDasharray: '6 4',
+        stroke: 'var(--color-border)',
+        strokeWidth: 1.5,
+      },
     });
   });
 
-  // Connect steps sequentially (for now, linear flow)
+  return { nodes, edges };
+}
+
+// Regular action node (plus sub-agent satellites for ai_agent steps)
+function buildActionFlowNodes(
+  step: WorkflowStep,
+  stepIndex: number,
+  position: FlowPosition,
+  isLastMainStep: boolean,
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+  callbacks?: WorkflowFlowCallbacks,
+  options?: WorkflowFlowOptions,
+): { nodes: Node[]; edges: Edge[] } {
+  // Center wider nodes (e.g. send_email) relative to standard width
+  const centerOffset = getCenteringOffset(step.type);
+  const adjustedPosition = centerOffset !== 0
+    ? { x: position.x + centerOffset, y: position.y }
+    : position;
+
+  // A branch child is "last" when it ends its branch; a main-flow step when it ends the main flow
+  const branchChildren = step.parentBranchId ? branchChildrenMap.get(step.parentBranchId) || [] : [];
+  const isLastBranchChild = branchChildren.length > 0 && branchChildren[branchChildren.length - 1]!.id === step.id;
+  const finalIsLastNode = step.parentBranchId ? isLastBranchChild : isLastMainStep;
+
+  const actionNode: Node<ActionNodeData> = {
+    id: step.id,
+    type: 'action',
+    position: adjustedPosition,
+    data: {
+      step,
+      stepIndex,
+      label: step.name || (options?.labels?.actionLabels?.[step.type] ?? getActionLabel(step.type)),
+      actionType: step.type,
+      isConfigured: isStepConfigured(step),
+      setupRequiredLabel: options?.labels?.setupRequired,
+      isLastNode: finalIsLastNode,
+      nodeId: step.id,
+      onSelect: () => callbacks?.onSelectStep?.(stepIndex),
+      onDelete: () => callbacks?.onDeleteStep?.(stepIndex),
+      onAddStep: callbacks?.onAddStep,
+      onUpdateConfig: callbacks?.onUpdateConfig,
+      onAddSubAgent: options?.onAddSubAgent,
+      variableItems: options?.variableItems,
+    },
+  };
+
+  if (step.type !== 'ai_agent') return { nodes: [actionNode], edges: [] };
+
+  const subAgents = buildSubAgentFlow(step, stepIndex, adjustedPosition, callbacks, options);
+  return { nodes: [actionNode, ...subAgents.nodes], edges: subAgents.edges };
+}
+
+// Edges chaining the main flow: each step to the next (condition branches feed into the next step)
+function buildMainFlowEdges(steps: WorkflowStep[], branchChildrenMap: Map<string, WorkflowStep[]>): Edge[] {
+  const edges: Edge[] = [];
   const mainFlowSteps = steps.filter((s) => !s.parentBranchId);
   for (let i = 0; i < mainFlowSteps.length - 1; i++) {
     const currentStep = mainFlowSteps[i]!;
     const nextStep = mainFlowSteps[i + 1]!;
 
-    if (currentStep.type === 'condition') {
-      const branchIds = getConditionBranchIds(currentStep);
-      branchIds.forEach((branchId) => {
-        const branchChildren = branchChildrenMap.get(branchId) || [];
-        const lastNodeId = branchChildren.length > 0 ? branchChildren[branchChildren.length - 1]!.id : branchId;
-        edges.push({
-          id: `${lastNodeId}-${nextStep.id}`,
-          source: lastNodeId,
-          target: nextStep.id,
-          type: 'smoothstep',
-        });
-      });
-    } else {
-      edges.push({
-        id: `${currentStep.id}-${nextStep.id}`,
-        source: currentStep.id,
-        target: nextStep.id,
-        type: 'smoothstep',
-      });
+    if (currentStep.type !== 'condition') {
+      edges.push(smoothstepEdge(`${currentStep.id}-${nextStep.id}`, currentStep.id, nextStep.id));
+      continue;
+    }
+
+    for (const branchId of getConditionBranchIds(currentStep)) {
+      const branchChildren = branchChildrenMap.get(branchId) || [];
+      const lastNodeId = branchChildren.length > 0 ? branchChildren[branchChildren.length - 1]!.id : branchId;
+      edges.push(smoothstepEdge(`${lastNodeId}-${nextStep.id}`, lastNodeId, nextStep.id));
     }
   }
+  return edges;
+}
+
+// Every edge except the sub-agent ones: trigger, condition -> branches, branch -> children, main flow
+function buildFlowEdges(steps: WorkflowStep[], branchChildrenMap: Map<string, WorkflowStep[]>): Edge[] {
+  const edges: Edge[] = [];
+
+  const firstMainStep = steps.find((s) => !s.parentBranchId);
+  if (firstMainStep) {
+    edges.push(smoothstepEdge(`trigger-${firstMainStep.id}`, 'trigger', firstMainStep.id));
+  }
+
+  // Connect condition nodes to their branch nodes
+  for (const step of steps) {
+    if (step.type !== 'condition') continue;
+    for (const branchId of getConditionBranchIds(step)) {
+      edges.push(smoothstepEdge(`${step.id}-${branchId}-branch`, step.id, branchId));
+    }
+  }
+
+  // Connect branch nodes to their child steps (sequentially within each branch)
+  branchChildrenMap.forEach((children, branchId) => {
+    children.forEach((child, i) => {
+      const sourceId = i === 0 ? branchId : children[i - 1]!.id;
+      edges.push(smoothstepEdge(`${sourceId}-${child.id}`, sourceId, child.id));
+    });
+  });
+
+  // Connect steps sequentially (for now, linear flow)
+  edges.push(...buildMainFlowEdges(steps, branchChildrenMap));
+
+  return edges;
+}
+
+// Convert workflow data to React Flow nodes and edges
+export function workflowToFlow(
+  trigger: TriggerConfig | null,
+  steps: WorkflowStep[],
+  callbacks?: WorkflowFlowCallbacks,
+  options?: WorkflowFlowOptions
+): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [buildTriggerNode(trigger, steps, callbacks, options)];
+  const edges: Edge[] = [];
+
+  const branchChildrenMap = groupBranchChildren(steps);
+  const { mainStepPositions, cumulativeY } = computeMainStepLayout(steps, branchChildrenMap);
+
+  // The last step that is not under a condition branch
+  const mainFlowSteps = steps.filter((s) => !s.parentBranchId);
+  const lastMainStepId = mainFlowSteps[mainFlowSteps.length - 1]?.id;
+
+  // Create action nodes
+  steps.forEach((step, index) => {
+    const position = resolveStepPosition(step, index, nodes, mainStepPositions, cumulativeY);
+
+    if (step.type === 'condition') {
+      nodes.push(...buildConditionFlowNodes(step, index, position, branchChildrenMap, callbacks, options));
+      return;
+    }
+
+    const isLastMainStep = !step.parentBranchId && lastMainStepId === step.id;
+    const built = buildActionFlowNodes(step, index, position, isLastMainStep, branchChildrenMap, callbacks, options);
+    nodes.push(...built.nodes);
+    edges.push(...built.edges);
+  });
+
+  edges.push(...buildFlowEdges(steps, branchChildrenMap));
 
   // Post-placement collision detection: resolve any overlapping subtrees
   resolveCollisions(nodes);
