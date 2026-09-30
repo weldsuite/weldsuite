@@ -44,6 +44,71 @@ import {
 import { getTranslations } from '@/lib/i18n';
 import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 
+interface UpcomingDateBoundaries {
+  thisWeekEnd: Date;
+  nextWeekEnd: Date;
+  thisMonthEnd: Date;
+}
+
+type UpcomingFilterMatcher = (m: Meeting, value: string, bounds: UpcomingDateBoundaries) => boolean;
+
+function getUpcomingDateBoundaries(): UpcomingDateBoundaries {
+  const now = new Date();
+  const thisWeekEnd = startOfDay(addDays(now, 7 - now.getDay()));
+  return {
+    thisWeekEnd,
+    nextWeekEnd: addDays(thisWeekEnd, 7),
+    thisMonthEnd: startOfMonth(addMonths(now, 1)),
+  };
+}
+
+function matchesParticipantCount(count: number, value: string): boolean {
+  switch (value) {
+    case '1': return count === 1;
+    case '2-5': return count >= 2 && count <= 5;
+    case '6-10': return count >= 6 && count <= 10;
+    case '10+': return count > 10;
+    default: return true;
+  }
+}
+
+function matchesDateBucket(d: Date, value: string, b: UpcomingDateBoundaries): boolean {
+  switch (value) {
+    case 'today': return isToday(d);
+    case 'tomorrow': return isTomorrow(d);
+    case 'this-week': return !isToday(d) && !isTomorrow(d) && isBefore(d, b.thisWeekEnd);
+    case 'next-week': return !isBefore(d, b.thisWeekEnd) && isBefore(d, b.nextWeekEnd);
+    case 'this-month': return !isBefore(d, b.nextWeekEnd) && isBefore(d, b.thisMonthEnd);
+    case 'later': return !isBefore(d, b.thisMonthEnd);
+    default: return true;
+  }
+}
+
+/** One predicate per filter field; the `is` / `is not` operator is applied by the caller. */
+const UPCOMING_FILTER_MATCHERS = new Map<string, UpcomingFilterMatcher>([
+  ['organizer', (m, value) => {
+    const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
+    return org?.userId === value;
+  }],
+  ['meetingType', (m, value) => m.meetingType === value],
+  ['participants', (m, value) => matchesParticipantCount(m.attendees?.length ?? 0, value)],
+  ['date', (m, value, bounds) => matchesDateBucket(new Date(m.scheduledStart ?? m.createdAt), value, bounds)],
+  ['accessType', (m, value) => m.accessType === value],
+]);
+
+function applyUpcomingFilters(items: Meeting[], filters: ActiveFilter[]): Meeting[] {
+  const bounds = getUpcomingDateBoundaries();
+  let result = items;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    const matcher = UPCOMING_FILTER_MATCHERS.get(filter.field);
+    if (!matcher) continue;
+    const isOp = filter.operator === 'is';
+    result = result.filter(m => matcher(m, filter.value, bounds) === isOp);
+  }
+  return result;
+}
+
 export default function UpcomingMeetingsPage() {
   const t = getTranslations('weldmeet');
   const navigate = useNavigate();
@@ -167,62 +232,6 @@ export default function UpcomingMeetingsPage() {
       }},
     ];
   }, [t]);
-
-  const applyFilters = useCallback((items: Meeting[], filters: ActiveFilter[]) => {
-    let result = items;
-    const now = new Date();
-    const thisWeekEnd = startOfDay(addDays(now, 7 - now.getDay()));
-    const nextWeekEnd = addDays(thisWeekEnd, 7);
-    const thisMonthEnd = startOfMonth(addMonths(now, 1));
-
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-      const isOp = filter.operator === 'is';
-
-      if (filter.field === 'organizer') {
-        const match = (m: Meeting) => {
-          const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-          return org?.userId === filter.value;
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'meetingType') {
-        result = isOp
-          ? result.filter(m => m.meetingType === filter.value)
-          : result.filter(m => m.meetingType !== filter.value);
-      } else if (filter.field === 'participants') {
-        const match = (m: Meeting) => {
-          const count = m.attendees?.length ?? 0;
-          switch (filter.value) {
-            case '1': return count === 1;
-            case '2-5': return count >= 2 && count <= 5;
-            case '6-10': return count >= 6 && count <= 10;
-            case '10+': return count > 10;
-            default: return true;
-          }
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'date') {
-        const match = (m: Meeting) => {
-          const d = new Date(m.scheduledStart ?? m.createdAt);
-          switch (filter.value) {
-            case 'today': return isToday(d);
-            case 'tomorrow': return isTomorrow(d);
-            case 'this-week': return !isToday(d) && !isTomorrow(d) && isBefore(d, thisWeekEnd);
-            case 'next-week': return !isBefore(d, thisWeekEnd) && isBefore(d, nextWeekEnd);
-            case 'this-month': return !isBefore(d, nextWeekEnd) && isBefore(d, thisMonthEnd);
-            case 'later': return !isBefore(d, thisMonthEnd);
-            default: return true;
-          }
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'accessType') {
-        result = isOp
-          ? result.filter(m => m.accessType === filter.value)
-          : result.filter(m => m.accessType !== filter.value);
-      }
-    });
-    return result;
-  }, []);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -436,7 +445,7 @@ export default function UpcomingMeetingsPage() {
           filters={filterConfigs}
           groups={groupConfigs}
           maxFilters={5}
-          applyFilters={applyFilters}
+          applyFilters={applyUpcomingFilters}
           renderRow={renderRow}
           searchPlaceholder={t.upcomingPage.searchPlaceholder}
           searchFields={['title']}

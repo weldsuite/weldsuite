@@ -37,8 +37,149 @@ function isLinkOnly(sub: MailSubscription): boolean {
   return !!sub.unsubscribeUrl && !sub.oneClick && !sub.unsubscribeMailto;
 }
 
+type SubscriptionsStrings = ReturnType<typeof useI18n>['t']['mail']['subscriptions'];
+
+function openInNewTab(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function confirmDescriptionFor(ts: SubscriptionsStrings, sub: MailSubscription): string {
+  let template = ts.confirmLink;
+  if (sub.oneClick && sub.unsubscribeUrl) template = ts.confirmOneClick;
+  else if (sub.unsubscribeMailto) template = ts.confirmMailto;
+  return interpolate(template, { sender: senderLabel(sub) });
+}
+
+function notifyUnsubscribed(
+  ts: SubscriptionsStrings,
+  sub: MailSubscription,
+  result: { method: string; url?: string | null },
+): void {
+  const sender = senderLabel(sub);
+  const { method, url } = result;
+  if (method === 'one_click') {
+    toast.success(interpolate(ts.successOneClick, { sender }));
+  } else if (method === 'mailto') {
+    toast.success(interpolate(ts.successMailto, { sender }));
+  } else if (!isLinkOnly(sub) && url) {
+    // One-click failed and there was no mailto: fall back to the page.
+    toast.info(interpolate(ts.successLink, { sender }), {
+      action: { label: ts.openPage, onClick: () => openInNewTab(url) },
+      duration: 15_000,
+    });
+  } else {
+    toast.info(interpolate(ts.successLink, { sender }));
+  }
+}
+
+function EmptyState({
+  query,
+  status,
+  scanning,
+  onScan,
+}: {
+  query: string;
+  status: StatusFilter;
+  scanning: boolean;
+  onScan: () => void;
+}) {
+  const { t } = useI18n();
+  const ts = t.mail.subscriptions;
+  let message = ts.emptyUnsubscribed;
+  if (query) message = ts.noResults;
+  else if (status === 'active') message = ts.empty;
+  return (
+    <div className="flex flex-col items-center rounded-lg border border-dashed px-6 py-16 text-center">
+      <MailX className="text-muted-foreground mb-3 size-8" />
+      <p className="font-medium">{message}</p>
+      {!query && status === 'active' && (
+        <>
+          <p className="text-muted-foreground mt-1 max-w-sm text-sm">{ts.emptyDescription}</p>
+          <Button className="mt-4" onClick={onScan} disabled={scanning}>
+            {scanning ? ts.scanning : ts.scan}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SubscriptionAction({
+  sub,
+  stillSending,
+  busy,
+  onUnsubscribe,
+}: {
+  sub: MailSubscription;
+  stillSending: boolean;
+  busy: boolean;
+  onUnsubscribe: (sub: MailSubscription) => void;
+}) {
+  const { t } = useI18n();
+  const ts = t.mail.subscriptions;
+  if (sub.status === 'unsubscribed') {
+    return (
+      <Badge variant={stillSending ? 'destructive' : 'secondary'}>
+        {stillSending ? ts.stillSending : ts.unsubscribed}
+      </Badge>
+    );
+  }
+  if (sub.unsubscribeUrl || sub.unsubscribeMailto) {
+    return (
+      <Button variant="outline" size="sm" onClick={() => onUnsubscribe(sub)} disabled={busy}>
+        {ts.unsubscribe}
+      </Button>
+    );
+  }
+  return <span className="text-muted-foreground text-xs">{ts.noUnsubscribeOption}</span>;
+}
+
+function SubscriptionRow({
+  sub,
+  dateLocale,
+  busy,
+  onUnsubscribe,
+}: {
+  sub: MailSubscription;
+  dateLocale: typeof nl | undefined;
+  busy: boolean;
+  onUnsubscribe: (sub: MailSubscription) => void;
+}) {
+  const { t, plural } = useI18n();
+  const ts = t.mail.subscriptions;
+  const sender = senderLabel(sub);
+  const stillSending =
+    sub.status === 'unsubscribed' &&
+    !!sub.unsubscribedAt &&
+    new Date(sub.lastReceivedAt) > new Date(sub.unsubscribedAt);
+  return (
+    <li className="flex items-center gap-3 px-4 py-3">
+      <div className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase">
+        {sender.charAt(0)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="truncate font-medium">{sender}</span>
+          {sub.senderName && (
+            <span className="text-muted-foreground hidden truncate text-sm sm:inline">{sub.senderEmail}</span>
+          )}
+        </div>
+        {sub.lastSubject && <p className="text-muted-foreground truncate text-sm">{sub.lastSubject}</p>}
+        <p className="text-muted-foreground text-xs">
+          {plural(sub.messageCount, { one: ts.emailCountOne, other: ts.emailCount })}
+          {' · '}
+          {interpolate(ts.lastReceived, {
+            time: formatDistanceToNow(new Date(sub.lastReceivedAt), { addSuffix: true, locale: dateLocale }),
+          })}
+        </p>
+      </div>
+      <SubscriptionAction sub={sub} stillSending={stillSending} busy={busy} onUnsubscribe={onUnsubscribe} />
+    </li>
+  );
+}
+
 export default function SubscriptionsPage() {
-  const { t, language, plural } = useI18n();
+  const { t, language } = useI18n();
   const ts = t.mail.subscriptions;
 
   useBreadcrumbs([
@@ -97,25 +238,13 @@ export default function SubscriptionsPage() {
   };
 
   const handleUnsubscribe = async (sub: MailSubscription) => {
-    const sender = senderLabel(sub);
     // Open synchronously inside the click so the popup blocker allows it.
-    if (isLinkOnly(sub)) window.open(sub.unsubscribeUrl!, '_blank', 'noopener,noreferrer');
+    if (isLinkOnly(sub)) openInNewTab(sub.unsubscribeUrl!);
     try {
       const res = await unsubscribe.mutateAsync(sub.id);
-      const { method, url } = res.data;
-      if (method === 'one_click') toast.success(interpolate(ts.successOneClick, { sender }));
-      else if (method === 'mailto') toast.success(interpolate(ts.successMailto, { sender }));
-      else if (!isLinkOnly(sub) && url) {
-        // One-click failed and there was no mailto: fall back to the page.
-        toast.info(interpolate(ts.successLink, { sender }), {
-          action: { label: ts.openPage, onClick: () => window.open(url, '_blank', 'noopener,noreferrer') },
-          duration: 15_000,
-        });
-      } else {
-        toast.info(interpolate(ts.successLink, { sender }));
-      }
+      notifyUnsubscribed(ts, sub, res.data);
     } catch {
-      toast.error(interpolate(ts.failed, { sender }));
+      toast.error(interpolate(ts.failed, { sender: senderLabel(sub) }));
     } finally {
       setPending(null);
     }
@@ -132,16 +261,7 @@ export default function SubscriptionsPage() {
     );
   }
 
-  const confirmDescription = pending
-    ? interpolate(
-        pending.oneClick && pending.unsubscribeUrl
-          ? ts.confirmOneClick
-          : pending.unsubscribeMailto
-            ? ts.confirmMailto
-            : ts.confirmLink,
-        { sender: senderLabel(pending) },
-      )
-    : '';
+  const confirmDescription = pending ? confirmDescriptionFor(ts, pending) : '';
 
   return (
     <div className="container max-w-4xl py-8">
@@ -203,69 +323,18 @@ export default function SubscriptionsPage() {
       {isLoading ? (
         <PageLoader fullScreen={false} />
       ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center rounded-lg border border-dashed px-6 py-16 text-center">
-          <MailX className="text-muted-foreground mb-3 size-8" />
-          <p className="font-medium">
-            {query ? ts.noResults : status === 'active' ? ts.empty : ts.emptyUnsubscribed}
-          </p>
-          {!query && status === 'active' && (
-            <>
-              <p className="text-muted-foreground mt-1 max-w-sm text-sm">{ts.emptyDescription}</p>
-              <Button className="mt-4" onClick={handleScan} disabled={scan.isPending}>
-                {scan.isPending ? ts.scanning : ts.scan}
-              </Button>
-            </>
-          )}
-        </div>
+        <EmptyState query={query} status={status} scanning={scan.isPending} onScan={handleScan} />
       ) : (
         <ul className="divide-y rounded-lg border">
-          {visible.map((sub) => {
-            const sender = senderLabel(sub);
-            const canUnsubscribe = !!sub.unsubscribeUrl || !!sub.unsubscribeMailto;
-            const stillSending =
-              sub.status === 'unsubscribed' &&
-              !!sub.unsubscribedAt &&
-              new Date(sub.lastReceivedAt) > new Date(sub.unsubscribedAt);
-            return (
-              <li key={sub.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase">
-                  {sender.charAt(0)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="truncate font-medium">{sender}</span>
-                    {sub.senderName && (
-                      <span className="text-muted-foreground hidden truncate text-sm sm:inline">{sub.senderEmail}</span>
-                    )}
-                  </div>
-                  {sub.lastSubject && <p className="text-muted-foreground truncate text-sm">{sub.lastSubject}</p>}
-                  <p className="text-muted-foreground text-xs">
-                    {plural(sub.messageCount, { one: ts.emailCountOne, other: ts.emailCount })}
-                    {' · '}
-                    {interpolate(ts.lastReceived, {
-                      time: formatDistanceToNow(new Date(sub.lastReceivedAt), { addSuffix: true, locale: dateLocale }),
-                    })}
-                  </p>
-                </div>
-                {sub.status === 'unsubscribed' ? (
-                  <Badge variant={stillSending ? 'destructive' : 'secondary'}>
-                    {stillSending ? ts.stillSending : ts.unsubscribed}
-                  </Badge>
-                ) : canUnsubscribe ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPending(sub)}
-                    disabled={unsubscribe.isPending && unsubscribe.variables === sub.id}
-                  >
-                    {ts.unsubscribe}
-                  </Button>
-                ) : (
-                  <span className="text-muted-foreground text-xs">{ts.noUnsubscribeOption}</span>
-                )}
-              </li>
-            );
-          })}
+          {visible.map((sub) => (
+            <SubscriptionRow
+              key={sub.id}
+              sub={sub}
+              dateLocale={dateLocale}
+              busy={unsubscribe.isPending && unsubscribe.variables === sub.id}
+              onUnsubscribe={setPending}
+            />
+          ))}
         </ul>
       )}
 
