@@ -27,6 +27,23 @@ const BUFFER_ROWS = 4;
 const BUFFER_COLS = 2;
 const MIN_COL_WIDTH = 40;
 
+/**
+ * Pair each rich-text run with a stable key derived from its character offset
+ * in the cell text (runs have no id of their own). Empty runs share an offset
+ * with their neighbour, so a per-offset counter keeps the keys unique.
+ */
+function keyRuns(runs: RichTextRun[]): Array<{ run: RichTextRun; key: string }> {
+  const seen = new Map<number, number>();
+  let offset = 0;
+  return runs.map((run) => {
+    const dupes = seen.get(offset) ?? 0;
+    seen.set(offset, dupes + 1);
+    const key = dupes === 0 ? `off-${offset}` : `off-${offset}-${dupes}`;
+    offset += run.text.length;
+    return { run, key };
+  });
+}
+
 // --- Cell component (memoized) ---
 const Cell = memo(function Cell({
   displayValue,
@@ -141,9 +158,9 @@ const Cell = memo(function Cell({
   const renderContent = () => {
     let inner: React.ReactNode;
     if (richTextRuns && richTextRuns.length > 0 && !isPlainRuns(richTextRuns)) {
-      inner = richTextRuns.map((run, i) => (
+      inner = keyRuns(richTextRuns).map(({ run, key }) => (
         <span
-          key={i}
+          key={key}
           style={{
             fontWeight: run.bold ? 'bold' : undefined,
             fontStyle: run.italic ? 'italic' : undefined,
@@ -1407,6 +1424,7 @@ export function SpreadsheetGrid({
     <div
       ref={containerRef}
       className="h-full w-full overflow-auto bg-background outline-none select-none"
+      role="grid"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onScroll={handleScroll}
@@ -1433,6 +1451,7 @@ export function SpreadsheetGrid({
               return (
                 <div
                   key={ci}
+                  role="presentation"
                   data-col-header={ci}
                   className={`border-r border-b border-border flex items-center justify-center text-[11px] font-medium select-none ${
                     isSelected ? 'bg-[#d3e3fd] dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-[#f8f9fa] dark:bg-muted/50 text-muted-foreground'
@@ -1481,6 +1500,7 @@ export function SpreadsheetGrid({
                     )}
                   {/* Resize handle */}
                   <div
+                    role="presentation"
                     className="absolute top-0 right-0 w-[4px] h-full cursor-col-resize hover:bg-blue-400/50"
                     onMouseDown={(e) => handleResizeMouseDown(e, ci)}
                   />
@@ -1492,6 +1512,7 @@ export function SpreadsheetGrid({
 
         {/* Grid body */}
         <div
+          role="presentation"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onDoubleClick={handleCellDoubleClick}
@@ -1521,6 +1542,7 @@ export function SpreadsheetGrid({
                   {ri + 1}
                   {/* Row resize handle */}
                   <div
+                    role="presentation"
                     className="absolute left-0 right-0 bottom-0 h-[3px] cursor-row-resize hover:bg-blue-400/50 z-20"
                     onMouseDown={(e) => {
                       e.preventDefault();
@@ -1633,6 +1655,7 @@ export function SpreadsheetGrid({
                 }}
               >
                 <div
+                  role="presentation"
                   className="absolute bg-[#1a73e8]"
                   style={{ width: 6, height: 6, right: -4, bottom: -4, cursor: 'crosshair', pointerEvents: 'auto' }}
                   onMouseDown={handleFillHandleMouseDown}
@@ -1691,8 +1714,9 @@ export function SpreadsheetGrid({
       {/* Dropdown (data-validation list) picker */}
       {openDropdown && (
         <>
-          <div className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
+          <div role="presentation" className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
           <div
+            role="presentation"
             className="fixed z-50 max-h-60 w-44 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
             style={{ left: Math.min(openDropdown.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 190), top: openDropdown.y }}
             onMouseDown={(e) => e.stopPropagation()}
