@@ -1,8 +1,8 @@
 const createClientApi = jest.fn(() => ({ __stub: 'client' }));
 
 class NetworkError extends Error {
-  constructor(message = 'Network request failed', cause) {
-    super(message);
+  constructor(message, cause) {
+    super(message ?? 'Network request failed');
     this.name = 'NetworkError';
     this.isNetworkError = true;
     this.cause = cause;
