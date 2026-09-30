@@ -13,6 +13,7 @@ import { createTicketSchema, ticketPriority, updateTicketSchema } from '@weldsui
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
@@ -175,7 +176,7 @@ app.post('/', requirePermission('tickets:create'), zValidator('json', createTick
   const ticketNumber =
     typeof data.ticketNumber === 'string' && data.ticketNumber.length > 0
       ? data.ticketNumber
-      : `TKT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      : `TKT-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
   // NOT NULL column, but the form may submit ''. api-worker's fallback.
   const customerName =
     typeof data.customerName === 'string' && data.customerName.trim() !== ''

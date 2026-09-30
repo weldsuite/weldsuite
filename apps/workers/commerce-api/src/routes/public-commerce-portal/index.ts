@@ -21,6 +21,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
 import { commercePortalSlugMiddleware } from '@weldsuite/commerce-domain/portal-slug';
 import { commercePortalAuthMiddleware } from '../../middleware/commerce-portal-auth';
@@ -769,7 +770,7 @@ authed.post('/returns', zValidator('json', commercePortalCreateReturnSchema), as
     const [person] = await db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1);
     const id = generateId('ret');
     const now = new Date();
-    const returnNumber = `RMA-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const returnNumber = `RMA-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
 
     await db.insert(schema.returns).values({
       id,

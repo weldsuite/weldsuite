@@ -34,6 +34,22 @@ export function isTelnyxConfigured(env: TelnyxEnv): boolean {
   return Boolean(env.TELNYX_API_KEY);
 }
 
+/**
+ * Resolve `endpoint` against the Telnyx API base and make sure the result
+ * still points inside it. `new URL` collapses `..` segments (raw or
+ * percent-encoded), so a caller-supplied id like `../../other` cannot climb
+ * out of `/v2/` or redirect the request (and its bearer token) to another host.
+ */
+function resolveTelnyxUrl(endpoint: string): string {
+  const raw = endpoint.startsWith('http') ? endpoint : `${TELNYX_API_BASE}${endpoint}`;
+  const base = new URL(TELNYX_API_BASE);
+  const url = new URL(raw);
+  if (url.origin !== base.origin || !url.pathname.startsWith(`${base.pathname}/`)) {
+    throw new Error('Telnyx API endpoint is outside the API base');
+  }
+  return url.toString();
+}
+
 export async function telnyxRequest<T>(
   env: TelnyxEnv,
   endpoint: string,
@@ -44,7 +60,7 @@ export async function telnyxRequest<T>(
     throw new Error('Telnyx API key is not configured');
   }
 
-  const url = endpoint.startsWith('http') ? endpoint : `${TELNYX_API_BASE}${endpoint}`;
+  const url = resolveTelnyxUrl(endpoint);
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
   const response = await fetch(url, {
@@ -88,7 +104,7 @@ async function callControlAction(
   action: string,
   body: Record<string, unknown> = {},
 ): Promise<unknown> {
-  return telnyxRequest(env, `/calls/${callControlId}/actions/${action}`, {
+  return telnyxRequest(env, `/calls/${encodeURIComponent(callControlId)}/actions/${encodeURIComponent(action)}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -240,7 +256,7 @@ export async function telnyxUpdateAssistant(
 ): Promise<{ id: string }> {
   const resp = await telnyxRequest<{ data: { id: string } }>(
     env,
-    `/ai/assistants/${assistantId}`,
+    `/ai/assistants/${encodeURIComponent(assistantId)}`,
     {
       method: 'POST',
       body: JSON.stringify(assistantPayload(input)),
@@ -253,7 +269,7 @@ export async function telnyxDeleteAssistant(
   env: TelnyxEnv,
   assistantId: string,
 ): Promise<void> {
-  await telnyxRequest(env, `/ai/assistants/${assistantId}`, { method: 'DELETE' });
+  await telnyxRequest(env, `/ai/assistants/${encodeURIComponent(assistantId)}`, { method: 'DELETE' });
 }
 
 // ============================================================================

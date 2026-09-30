@@ -17,6 +17,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
 import { canAccessProject } from '../../lib/project-access';
 
@@ -41,7 +42,7 @@ function slugifyStage(name: string): string {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 40);
-  const suffix = Math.random().toString(36).slice(2, 6);
+  const suffix = randomString(4);
   return `${base}_${suffix}`;
 }
 

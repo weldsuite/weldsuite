@@ -9,6 +9,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 
 export class PortalOrderError extends Error {
   constructor(
@@ -191,7 +192,7 @@ export async function placePortalOrder(
 
   const now = new Date();
   const orderId = generateId('ord');
-  const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
   const subtotal = money(subtotalNum);
   const shipping = toOrderAddress(input.shippingAddress) ?? toOrderAddress(party.shippingAddress) ?? toOrderAddress(party.billingAddress);
   const billing = toOrderAddress(party.billingAddress) ?? shipping;

@@ -21,6 +21,7 @@
     "./middleware/request-id": "./src/middleware/request-id.ts",
     "./middleware/workspace-db": "./src/middleware/workspace-db.ts",
     "./pg-errors": "./src/pg-errors.ts",
+    "./random": "./src/random.ts",
     "./response": "./src/response.ts",
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
