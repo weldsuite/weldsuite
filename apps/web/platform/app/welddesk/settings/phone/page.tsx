@@ -132,6 +132,117 @@ export function PhoneSettingsClient() {
     onError: (err: Error) => toast.error(err.message || 'Sync failed'),
   });
 
+  const renderNumbers = () => {
+    if (loadingNumbers || loadingRoutes) {
+      return (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (numbers.length === 0) {
+      return (
+        <Card className="border-dashed">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Phone className="h-6 w-6" />
+            </div>
+            <CardTitle>No phone numbers</CardTitle>
+            <CardDescription>
+              Provision numbers in{' '}
+              <Link href="/settings/apps/phone-numbers" className="underline underline-offset-2">
+                Phone Numbers
+              </Link>
+              , then sync them here for inbound routing.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        {numbers.map((num) => {
+          const draft = getDraft(num.id);
+          return (
+            <Card key={num.id}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-base">
+                    {num.displayName || num.phoneNumber}
+                  </CardTitle>
+                </div>
+                <CardDescription>{num.phoneNumber}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Inbound action</Label>
+                  <Select
+                    value={draft.action}
+                    onValueChange={(v) =>
+                      setDraft(num.id, { action: v as DeskPhoneRoute['action'] })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ai_agent">AI voice agent</SelectItem>
+                      <SelectItem value="forward">Forward to number</SelectItem>
+                      <SelectItem value="hangup">Hang up</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {draft.action === 'ai_agent' && (
+                  <div className="space-y-2">
+                    <Label>Voice agent</Label>
+                    <Select
+                      value={draft.voiceAgentId || undefined}
+                      onValueChange={(v) => setDraft(num.id, { voiceAgentId: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {agents.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {draft.action === 'forward' && (
+                  <div className="space-y-2">
+                    <Label>Forward to (E.164)</Label>
+                    <Input
+                      value={draft.forwardToE164}
+                      onChange={(e) => setDraft(num.id, { forwardToE164: e.target.value })}
+                      placeholder="+15551234567"
+                    />
+                  </div>
+                )}
+
+                <Button
+                  size="sm"
+                  onClick={() => saveMutation.mutate(num.id)}
+                  disabled={saveMutation.isPending}
+                >
+                  {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save route
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+  const numbersContent = renderNumbers();
+
   return (
     <div className="h-full overflow-auto bg-background p-6">
       <div className="mx-auto max-w-3xl space-y-6">
@@ -153,107 +264,7 @@ export function PhoneSettingsClient() {
           </div>
         </div>
 
-        {loadingNumbers || loadingRoutes ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : numbers.length === 0 ? (
-          <Card className="border-dashed">
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <Phone className="h-6 w-6" />
-              </div>
-              <CardTitle>No phone numbers</CardTitle>
-              <CardDescription>
-                Provision numbers in{' '}
-                <Link href="/settings/apps/phone-numbers" className="underline underline-offset-2">
-                  Phone Numbers
-                </Link>
-                , then sync them here for inbound routing.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {numbers.map((num) => {
-              const draft = getDraft(num.id);
-              return (
-                <Card key={num.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">
-                        {num.displayName || num.phoneNumber}
-                      </CardTitle>
-                    </div>
-                    <CardDescription>{num.phoneNumber}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Inbound action</Label>
-                      <Select
-                        value={draft.action}
-                        onValueChange={(v) =>
-                          setDraft(num.id, { action: v as DeskPhoneRoute['action'] })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ai_agent">AI voice agent</SelectItem>
-                          <SelectItem value="forward">Forward to number</SelectItem>
-                          <SelectItem value="hangup">Hang up</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {draft.action === 'ai_agent' && (
-                      <div className="space-y-2">
-                        <Label>Voice agent</Label>
-                        <Select
-                          value={draft.voiceAgentId || undefined}
-                          onValueChange={(v) => setDraft(num.id, { voiceAgentId: v })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select agent" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {agents.map((a) => (
-                              <SelectItem key={a.id} value={a.id}>
-                                {a.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {draft.action === 'forward' && (
-                      <div className="space-y-2">
-                        <Label>Forward to (E.164)</Label>
-                        <Input
-                          value={draft.forwardToE164}
-                          onChange={(e) => setDraft(num.id, { forwardToE164: e.target.value })}
-                          placeholder="+15551234567"
-                        />
-                      </div>
-                    )}
-
-                    <Button
-                      size="sm"
-                      onClick={() => saveMutation.mutate(num.id)}
-                      disabled={saveMutation.isPending}
-                    >
-                      {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save route
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        {numbersContent}
       </div>
     </div>
   );
