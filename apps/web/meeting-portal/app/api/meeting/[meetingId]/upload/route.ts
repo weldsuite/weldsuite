@@ -12,7 +12,7 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 function generateId(prefix: string): string {
   const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 10);
+  const rand = crypto.randomUUID().replace(/-/g, '').substring(0, 8);
   return `${prefix}_${ts}${rand}`;
 }
 

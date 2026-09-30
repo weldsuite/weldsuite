@@ -26,6 +26,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+const EXCHANGE_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// Demo exchange reference suffix, drawn from a CSPRNG (9 chars, A-Z/0-9).
+function randomExchangeSuffix(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return Array.from(bytes, (b) => EXCHANGE_ID_ALPHABET[b % EXCHANGE_ID_ALPHABET.length]).join("");
+}
+
 // Sample order data
 const SAMPLE_ORDERS = [
   {
@@ -417,7 +425,7 @@ export default function ExchangePage() {
 
                 <div className="text-center">
                   <p className="text-sm text-gray-600 mb-2">Exchange ID</p>
-                  <p className="font-mono text-lg font-bold mb-6">EXC-2024-0115-{Math.random().toString(36).substr(2, 9).toUpperCase()}</p>
+                  <p className="font-mono text-lg font-bold mb-6">EXC-2024-0115-{randomExchangeSuffix()}</p>
                 </div>
 
                 <div className="flex gap-3 justify-center">
