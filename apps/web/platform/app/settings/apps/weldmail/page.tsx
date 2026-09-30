@@ -30,7 +30,8 @@ export default function WeldMailSettingsPage() {
       params.set('tab', value);
     }
     const qs = params.toString();
-    router.push(`/settings/apps/weldmail${qs ? `?${qs}` : ''}`);
+    const query = qs ? `?${qs}` : '';
+    router.push(`/settings/apps/weldmail${query}`);
   };
 
   return (
