@@ -2,6 +2,24 @@ import { Tabs } from 'expo-router';
 import { Calendar, Clock, FileVideo, Settings } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
+type TabIconProps = { color: string; size: number };
+
+function CalendarTabIcon({ color, size }: TabIconProps) {
+  return <Calendar size={size} color={color} />;
+}
+
+function ClockTabIcon({ color, size }: TabIconProps) {
+  return <Clock size={size} color={color} />;
+}
+
+function FileVideoTabIcon({ color, size }: TabIconProps) {
+  return <FileVideo size={size} color={color} />;
+}
+
+function SettingsTabIcon({ color, size }: TabIconProps) {
+  return <Settings size={size} color={color} />;
+}
+
 export default function TabLayout() {
   const { colors } = useTheme();
 
@@ -14,34 +32,10 @@ export default function TabLayout() {
         tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.divider },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Upcoming',
-          tabBarIcon: ({ color, size }) => <Calendar size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarIcon: ({ color, size }) => <Clock size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="recordings"
-        options={{
-          title: 'Recordings',
-          tabBarIcon: ({ color, size }) => <FileVideo size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: 'Upcoming', tabBarIcon: CalendarTabIcon }} />
+      <Tabs.Screen name="history" options={{ title: 'History', tabBarIcon: ClockTabIcon }} />
+      <Tabs.Screen name="recordings" options={{ title: 'Recordings', tabBarIcon: FileVideoTabIcon }} />
+      <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: SettingsTabIcon }} />
     </Tabs>
   );
 }
