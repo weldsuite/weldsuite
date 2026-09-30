@@ -186,6 +186,9 @@ function TriggerOptionButton({
   onSelect,
 }: Readonly<TriggerOptionButtonProps>) {
   const Icon = option.icon;
+  let stateClass = 'hover:bg-muted';
+  if (isSelected) stateClass = 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800';
+  if (taken) stateClass = 'opacity-40 cursor-not-allowed';
   return (
     <Button
       type="button"
@@ -194,11 +197,7 @@ function TriggerOptionButton({
       onClick={() => onSelect(isSelected ? null : option)}
       className={cn(
         'flex items-start gap-2.5 w-full py-2 px-2.5 rounded-lg transition-all text-left',
-        taken
-          ? 'opacity-40 cursor-not-allowed'
-          : isSelected
-            ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
-            : 'hover:bg-muted',
+        stateClass,
       )}
     >
       <div className={cn(

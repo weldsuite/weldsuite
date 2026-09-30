@@ -263,21 +263,21 @@ function DataPreviewList({
   data: Record<string, unknown>[];
 }>) {
   if (!focusedColumn || data.length === 0) return null;
-  const preview = data.slice(0, 5);
+  const preview = data.slice(0, 5).map((item, index) => ({
+    rowId: `sample-row-${index}`,
+    value: safeString(item[focusedColumn]),
+  }));
   return (
     <div className="space-y-2 border bg-background p-4 pb-1 rounded-md">
       <p className="text-sm font-semibold">
         {t('crm.importExport.sampleValuesFor', { field: focusedColumn })}
       </p>
       <ul>
-        {preview.map((item, i) => {
-          const value = safeString(item[focusedColumn]);
-          return (
-            <li key={i} className="border-b py-3 text-sm first:border-t last:border-b-0 truncate">
-              {value || <span className="text-muted-foreground italic">{t('crm.importExport.emptyValue')}</span>}
-            </li>
-          );
-        })}
+        {preview.map(({ rowId, value }) => (
+          <li key={rowId} className="border-b py-3 text-sm first:border-t last:border-b-0 truncate">
+            {value || <span className="text-muted-foreground italic">{t('crm.importExport.emptyValue')}</span>}
+          </li>
+        ))}
       </ul>
       {data.length > 5 && (
         <p className="text-xs text-muted-foreground">
@@ -347,7 +347,7 @@ export function ImportEntitiesDialog({
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
   }, []);
 
@@ -812,8 +812,8 @@ export function ImportEntitiesDialog({
                   <h4 className="font-medium mb-2">{t('crm.importExport.errorDetailsHeading')}</h4>
                   <ScrollArea className="h-[180px] border rounded-md p-3">
                     <ul className="space-y-1.5 text-sm">
-                      {result.errors.slice(0, 100).map((e, i) => (
-                        <li key={i} className="flex items-start gap-2">
+                      {result.errors.slice(0, 100).map((e, index) => ({ e, errorId: `import-error-${index}` })).map(({ e, errorId }) => (
+                        <li key={errorId} className="flex items-start gap-2">
                           <span className="text-muted-foreground whitespace-nowrap">
                             {t('crm.importExport.rowPrefix', { n: e.row })}
                           </span>
@@ -834,8 +834,8 @@ export function ImportEntitiesDialog({
                   { value: result.updated, label: t('crm.importExport.updatedLabel') },
                   { value: result.failed, label: t('crm.importExport.failedLabel') },
                   { value: result.total, label: t('crm.importExport.totalLabel') },
-                ].map((cell, i) => (
-                  <div key={i} className="rounded-lg border bg-card p-4 text-center">
+                ].map((cell) => (
+                  <div key={cell.label} className="rounded-lg border bg-card p-4 text-center">
                     <p className="font-mono text-xl font-bold text-foreground">{cell.value}</p>
                     <p className="text-sm text-muted-foreground">{cell.label}</p>
                   </div>
