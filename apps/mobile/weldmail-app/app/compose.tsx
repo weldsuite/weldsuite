@@ -20,6 +20,7 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import { getRandomBytes } from 'expo-crypto';
 import { uploadMailAttachments } from '@/utils/upload-attachment';
 import { buildQuotedSuffix, mapContactSuggestions, buildSendPayload, buildScheduledPayload, sendThenQueueOnOffline, withPendingInput, draftBodyFields, resolveOptionalRecipients, type ComposePayloadInput, type ContactSuggestion } from '@/utils/compose-helpers';
 import { MAX_SCHEDULE_DAYS, combineDateAndTime, formatClock, isWithinScheduleWindow, stepTime } from '@/utils/schedule-time';
@@ -360,7 +361,7 @@ async function sendMessageNow(
   // One idempotency key for this composed message: it's used by the direct
   // send AND by the offline-queue fallback, so the backend dedups if the
   // direct send actually reached the server before the connection dropped.
-  const idempotencyKey = `snd_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const idempotencyKey = `snd_${Date.now()}_${Array.from(getRandomBytes(8), (b) => (b % 36).toString(36)).join('')}`;
   const payload = buildSendPayload(payloadInput, uploadedAttachments, idempotencyKey);
   // Send now, or queue for the reconnect flush if offline. Either outcome
   // closes the composer (a queued send replays dedup-safe via the key);

@@ -5,6 +5,8 @@
  * or surrounding whitespace. We strip those so SKU / barcode lookups match.
  */
 
+import { getRandomBytes } from 'expo-crypto';
+
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 export function normalizeBarcode(raw: string | null | undefined): string {
@@ -41,7 +43,7 @@ export function buildProductSearchSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
-  const suffix = Math.random().toString(36).slice(2, 8);
+  const suffix = Array.from(getRandomBytes(6), (b) => (b % 36).toString(36)).join('');
   return `${base || 'product'}-${suffix}`;
 }
 

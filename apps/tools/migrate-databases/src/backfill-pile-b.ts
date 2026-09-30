@@ -45,6 +45,7 @@
  */
 
 import 'dotenv/config';
+import { randomBytes } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
@@ -125,7 +126,7 @@ function addCounts(into: Counts, from: Counts) {
 /** Generate an id. Mirrors app-api's `generateId(prefix)` format. */
 function generateId(prefix: string): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = Array.from(randomBytes(8), (b) => (b % 36).toString(36)).join('');
   return `${prefix}_${timestamp}${random}`;
 }
 

@@ -25,6 +25,7 @@
  */
 
 import 'dotenv/config';
+import { randomBytes } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
@@ -116,7 +117,8 @@ function addCounts(into: Counts, from: Counts) {
 }
 
 function generateId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 10)}`;
+  const random = Array.from(randomBytes(8), (b) => (b % 36).toString(36)).join('');
+  return `${prefix}_${Date.now().toString(36)}${random}`;
 }
 
 async function columnExists(sql: postgres.Sql, table: string, column: string): Promise<boolean> {
