@@ -1082,6 +1082,9 @@ export default function ComposePage(props: ComposePageProps = {}) {
               ref={textareaRef}
               contentEditable
               suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label={t.mail.composePage.writePlaceholder}
               data-testid="compose-body"
               data-placeholder={t.mail.composePage.writePlaceholder}
               className="w-full min-h-[200px] text-sm outline-none bg-transparent [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-gray-400 dark:[&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1"
@@ -1596,6 +1599,21 @@ function AttachmentThumbnail({
   );
 }
 
+// Stable per-File React keys: File objects keep their identity in state, so the
+// same file always maps to the same key (and two identical files get distinct keys).
+const attachmentKeys = new WeakMap<File, string>();
+let attachmentKeyCounter = 0;
+
+function getAttachmentKey(file: File): string {
+  let key = attachmentKeys.get(file);
+  if (!key) {
+    attachmentKeyCounter += 1;
+    key = `attachment-${attachmentKeyCounter}`;
+    attachmentKeys.set(file, key);
+  }
+  return key;
+}
+
 function AttachedFilesPanel({
   files,
   onFilesChange,
@@ -1620,7 +1638,7 @@ function AttachedFilesPanel({
       <div className="flex items-start gap-3 flex-wrap">
         {files.map((file, index) => (
           <AttachmentThumbnail
-            key={index}
+            key={getAttachmentKey(file)}
             file={file}
             onRemove={() => onFilesChange((prev) => prev.filter((_, i) => i !== index))}
           />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -263,6 +263,27 @@ export default function SubscriptionsPage() {
 
   const confirmDescription = pending ? confirmDescriptionFor(ts, pending) : '';
 
+  let listContent: ReactNode;
+  if (isLoading) {
+    listContent = <PageLoader fullScreen={false} />;
+  } else if (visible.length === 0) {
+    listContent = <EmptyState query={query} status={status} scanning={scan.isPending} onScan={handleScan} />;
+  } else {
+    listContent = (
+      <ul className="divide-y rounded-lg border">
+        {visible.map((sub) => (
+          <SubscriptionRow
+            key={sub.id}
+            sub={sub}
+            dateLocale={dateLocale}
+            busy={unsubscribe.isPending && unsubscribe.variables === sub.id}
+            onUnsubscribe={setPending}
+          />
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <div className="container max-w-4xl py-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -320,23 +341,7 @@ export default function SubscriptionsPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : visible.length === 0 ? (
-        <EmptyState query={query} status={status} scanning={scan.isPending} onScan={handleScan} />
-      ) : (
-        <ul className="divide-y rounded-lg border">
-          {visible.map((sub) => (
-            <SubscriptionRow
-              key={sub.id}
-              sub={sub}
-              dateLocale={dateLocale}
-              busy={unsubscribe.isPending && unsubscribe.variables === sub.id}
-              onUnsubscribe={setPending}
-            />
-          ))}
-        </ul>
-      )}
+      {listContent}
 
       <ConfirmDialog
         open={!!pending}
