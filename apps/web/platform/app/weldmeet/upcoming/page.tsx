@@ -298,6 +298,15 @@ export default function UpcomingMeetingsPage() {
 
     const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
 
+    let dateLabel: string;
+    if (isToday(new Date(dateStr))) {
+      dateLabel = t.upcomingPage.dateToday.replace('{time}', format(new Date(dateStr), 'h:mm a'));
+    } else if (isTomorrow(new Date(dateStr))) {
+      dateLabel = t.upcomingPage.dateTomorrow.replace('{time}', format(new Date(dateStr), 'h:mm a'));
+    } else {
+      dateLabel = format(new Date(dateStr), 'MMM d, h:mm a');
+    }
+
     return (
       <div
         key={meeting.id}
@@ -332,11 +341,7 @@ export default function UpcomingMeetingsPage() {
         {/* Date */}
         <div className="w-[180px]">
           <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground">
-            {isToday(new Date(dateStr))
-              ? t.upcomingPage.dateToday.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-              : isTomorrow(new Date(dateStr))
-                ? t.upcomingPage.dateTomorrow.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-                : format(new Date(dateStr), 'MMM d, h:mm a')}
+            {dateLabel}
           </span>
         </div>
 
@@ -395,7 +400,7 @@ export default function UpcomingMeetingsPage() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
