@@ -57,6 +57,74 @@ export function isInteractiveStep(stepType: string): boolean {
 // Template Resolution
 // ============================================================================
 
+type ResolveScope = {
+  previousResults: Record<string, unknown>;
+  triggerData: unknown;
+  variables: Record<string, unknown>;
+  contactData: Record<string, unknown>;
+};
+
+const REFERENCE_PREFIXES = ['steps.', 'trigger.', 'variables.', 'contact.'];
+
+function isReference(path: string): boolean {
+  return REFERENCE_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function getPath(root: unknown, keys: string[]): unknown {
+  return keys.reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), root);
+}
+
+/** Looks up a `steps.` / `trigger.` / `variables.` / `contact.` reference; undefined when unknown. */
+function resolveReference(path: string, scope: ResolveScope): unknown {
+  if (path.startsWith('steps.')) {
+    const [, stepId, ...rest] = path.split('.');
+    return getPath(scope.previousResults[stepId] as Record<string, unknown>, rest);
+  }
+  if (path.startsWith('trigger.')) return getPath(scope.triggerData, path.slice(8).split('.'));
+  if (path.startsWith('variables.')) return scope.variables[path.slice(10)];
+  if (path.startsWith('contact.')) return scope.contactData[path.slice(8)];
+  return undefined;
+}
+
+function resolveStringInput(value: string, scope: ResolveScope): unknown {
+  if (!(value.includes('{{') && value.includes('}}'))) return value;
+
+  const interpolated = value.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
+    const r = resolveReference((path as string).trim(), scope);
+    return r !== undefined ? String(r) : '';
+  });
+
+  // A value that is exactly one template keeps the referenced value's original type
+  if (/^\{\{[^}]+\}\}$/.test(value)) {
+    const result = resolveReference(value.slice(2, -2).trim(), scope);
+    if (result !== undefined) return result;
+  }
+  return interpolated;
+}
+
+function resolveInputValue(value: unknown, scope: ResolveScope): unknown {
+  if (typeof value === 'string') return resolveStringInput(value, scope);
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      typeof item === 'object' && item !== null
+        ? resolveInputsInScope(item as Record<string, unknown>, scope)
+        : item,
+    );
+  }
+  if (typeof value === 'object' && value !== null) {
+    return resolveInputsInScope(value as Record<string, unknown>, scope);
+  }
+  return value;
+}
+
+function resolveInputsInScope(inputs: Record<string, unknown>, scope: ResolveScope): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(inputs)) {
+    resolved[key] = resolveInputValue(value, scope);
+  }
+  return resolved;
+}
+
 export function resolveInputs(
   inputs: Record<string, unknown>,
   previousResults: Record<string, unknown>,
@@ -64,64 +132,7 @@ export function resolveInputs(
   variables: Record<string, unknown>,
   contactData: Record<string, unknown>,
 ): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(inputs)) {
-    if (typeof value === 'string') {
-      if (value.includes('{{') && value.includes('}}')) {
-        resolved[key] = value.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
-          const p = (path as string).trim();
-          if (p.startsWith('steps.')) {
-            const [, stepId, ...rest] = p.split('.');
-            const out = previousResults[stepId] as Record<string, unknown>;
-            const r = rest.reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), out);
-            return r !== undefined ? String(r) : '';
-          } else if (p.startsWith('trigger.')) {
-            const r = p.slice(8).split('.').reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), triggerData);
-            return r !== undefined ? String(r) : '';
-          } else if (p.startsWith('variables.')) {
-            const r = variables[p.slice(10)];
-            return r !== undefined ? String(r) : '';
-          } else if (p.startsWith('contact.')) {
-            const r = contactData[p.slice(8)];
-            return r !== undefined ? String(r) : '';
-          }
-          return '';
-        });
-
-        if (value.match(/^\{\{[^}]+\}\}$/)) {
-          const p = value.slice(2, -2).trim();
-          let result: unknown;
-          if (p.startsWith('steps.')) {
-            const [, stepId, ...rest] = p.split('.');
-            const out = previousResults[stepId] as Record<string, unknown>;
-            result = rest.reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), out);
-          } else if (p.startsWith('trigger.')) {
-            result = p.slice(8).split('.').reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), triggerData);
-          } else if (p.startsWith('variables.')) {
-            result = variables[p.slice(10)];
-          } else if (p.startsWith('contact.')) {
-            result = contactData[p.slice(8)];
-          }
-          if (result !== undefined) resolved[key] = result;
-        }
-      } else {
-        resolved[key] = value;
-      }
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      resolved[key] = resolveInputs(value as Record<string, unknown>, previousResults, triggerData, variables, contactData);
-    } else if (Array.isArray(value)) {
-      resolved[key] = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? resolveInputs(item as Record<string, unknown>, previousResults, triggerData, variables, contactData)
-          : item,
-      );
-    } else {
-      resolved[key] = value;
-    }
-  }
-
-  return resolved;
+  return resolveInputsInScope(inputs, { previousResults, triggerData, variables, contactData });
 }
 
 // ============================================================================
@@ -137,22 +148,10 @@ export function evaluateCondition(
 ): boolean {
   if (!condition.field || !condition.operator) return false;
 
-  let fieldValue: unknown;
   const field = String(condition.field);
-
-  if (field.startsWith('steps.')) {
-    const [, stepId, ...rest] = field.split('.');
-    const out = previousResults[stepId] as Record<string, unknown>;
-    fieldValue = rest.reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), out);
-  } else if (field.startsWith('trigger.')) {
-    fieldValue = field.slice(8).split('.').reduce((o: unknown, k: string) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), triggerData);
-  } else if (field.startsWith('variables.')) {
-    fieldValue = variables[field.slice(10)];
-  } else if (field.startsWith('contact.')) {
-    fieldValue = contactData[field.slice(8)];
-  } else {
-    fieldValue = condition.field;
-  }
+  const fieldValue: unknown = isReference(field)
+    ? resolveReference(field, { previousResults, triggerData, variables, contactData })
+    : condition.field;
 
   switch (condition.operator) {
     case 'eq': case 'equals': return fieldValue === condition.value;

@@ -8,12 +8,19 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { logger } from 'hono/logger';
 import { eq, and, isNull } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { getMasterDb, getTenantDbForWorkspaceById, getTenantDbForWorkspace, tenantSchema, masterSchema, type TenantDatabase } from './db';
 import { fetchConnectInternal, hasConnectInternal } from './lib/connect-internal';
 import { getProvider } from './lib/integrations/registry';
+import type {
+  ExternalRecord,
+  GenericExternalEntity,
+  IntegrationProvider,
+  ParsedWebhookEvent,
+} from './lib/integrations/types';
 import { upsertCompany, upsertPerson, softDeleteByMapping, resolveCompanyByExternalId, resolveEntityByExternalId, upsertNote, softDeleteNote, upsertTask, softDeleteTask, upsertListAndEntry, softDeleteListEntry } from './lib/sync';
 import { getValidAccessToken } from './lib/token';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
@@ -530,7 +537,149 @@ app.post('/integration-webhook/github/:connectionId', async (c) => {
   return c.json({ ok: true });
 });
 
+// ============ Shared webhook helpers ============
+
+/** Thrown by webhook helpers to short-circuit the handler with a specific HTTP status. */
+class WebhookHttpError extends Error {
+  readonly status: ContentfulStatusCode;
+
+  constructor(status: ContentfulStatusCode, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function lowercaseHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  req.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
+  return headers;
+}
+
+async function loadIntegrationConnection(tenantDb: TenantDatabase, connectionId: string) {
+  const [connection] = await tenantDb
+    .select()
+    .from(tenantSchema.integrationConnections)
+    .where(
+      and(
+        eq(tenantSchema.integrationConnections.id, connectionId),
+        isNull(tenantSchema.integrationConnections.deletedAt),
+      )
+    )
+    .limit(1);
+  return connection;
+}
+
+/** Verifies the provider signature when the connection has a webhook secret; throws 401 when invalid. */
+async function assertValidWebhookSignature(
+  provider: IntegrationProvider,
+  rawBody: string,
+  req: Request,
+  webhookSecret: string | null,
+  invalidMessage: string,
+): Promise<void> {
+  if (!webhookSecret) return;
+  const valid = await provider.verifyWebhookSignature(rawBody, lowercaseHeaders(req), webhookSecret);
+  if (!valid) {
+    console.warn(invalidMessage);
+    throw new WebhookHttpError(401, 'Invalid signature');
+  }
+}
+
 // ============ HubSpot webhook handler (single URL for all portals) ============
+
+interface HubspotConnectionTarget {
+  workspaceId: string;
+  connectionId: string;
+}
+
+/** Scans every workspace for the connection that owns this HubSpot portal and caches the hit in KV. */
+async function scanWorkspacesForHubspotPortal(
+  env: Env,
+  portalId: number,
+  cacheKey: string,
+): Promise<HubspotConnectionTarget | null> {
+  // (master `workspaces` has no soft-delete column — no deletedAt filter.)
+  const masterDb = getMasterDb(env);
+  const workspaces = await masterDb
+    .select({ id: masterSchema.workspaces.id })
+    .from(masterSchema.workspaces);
+
+  let found: HubspotConnectionTarget | null = null;
+  for (const ws of workspaces) {
+    try {
+      const db = await getTenantDbForWorkspaceById(env, ws.id);
+      const [conn] = await db
+        .select({ id: tenantSchema.integrationConnections.id })
+        .from(tenantSchema.integrationConnections)
+        .where(
+          and(
+            eq(tenantSchema.integrationConnections.provider, 'hubspot'),
+            eq(tenantSchema.integrationConnections.externalAccountId, String(portalId)),
+            isNull(tenantSchema.integrationConnections.deletedAt),
+          )
+        )
+        .limit(1);
+
+      if (conn) {
+        found = { workspaceId: ws.id, connectionId: conn.id };
+        // Cache for next time
+        await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(found), { expirationTtl: 86400 * 30 });
+        break;
+      }
+    } catch { /* skip workspace */ }
+  }
+  return found;
+}
+
+/** Finds the connection for a HubSpot portal: KV cache first, then a scan of all workspaces. */
+async function findHubspotConnectionByPortal(
+  env: Env,
+  portalId: number,
+  cacheKey: string,
+): Promise<HubspotConnectionTarget | null> {
+  const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as HubspotConnectionTarget | null;
+  if (cached) return { workspaceId: cached.workspaceId, connectionId: cached.connectionId };
+  return scanWorkspacesForHubspotPortal(env, portalId, cacheKey);
+}
+
+/** HubSpot nests the record fields under `properties`; fall back to the flat entity data. */
+function hubspotRecordData(entity: GenericExternalEntity): Record<string, unknown> {
+  const properties = entity.data.properties as Record<string, unknown> | undefined;
+  return properties || entity.data;
+}
+
+/** Processes one HubSpot event; returns true when it was applied. */
+async function processHubspotEvent(
+  env: Env,
+  provider: IntegrationProvider,
+  tenantDb: TenantDatabase,
+  target: HubspotConnectionTarget,
+  accessToken: string,
+  event: ParsedWebhookEvent,
+): Promise<boolean> {
+  const { workspaceId, connectionId } = target;
+  const entityType = provider.resolveEntityType?.(event);
+  if (!entityType) return false;
+
+  if (event.eventType === 'record.deleted') {
+    await softDeleteByMapping(tenantDb, connectionId, event.objectType, event.recordId);
+    return true;
+  }
+
+  if (!provider.fetchEntityGeneric) return false;
+  const entity = await provider.fetchEntityGeneric(accessToken, entityType, event.recordId);
+
+  if (entityType === 'company') {
+    const mapped = provider.mapCompany({ id: entity.id, type: 'company', data: hubspotRecordData(entity), raw: entity.raw });
+    const result = await upsertCompany(tenantDb, connectionId, 'company', entity.id, mapped, entity.raw);
+    await emitCrmEvent(env, tenantDb, workspaceId, 'company', result.action, result.companyId, mapped.data as Record<string, unknown>);
+  } else if (entityType === 'person') {
+    const mapped = provider.mapPerson({ id: entity.id, type: 'person', data: hubspotRecordData(entity), raw: entity.raw });
+    const result = await upsertPerson(tenantDb, connectionId, entity.id, mapped, undefined, entity.raw);
+    await emitCrmEvent(env, tenantDb, workspaceId, 'person', result.action, result.personId, mapped.data as Record<string, unknown>);
+  }
+  return true;
+}
 
 app.post('/webhook/hubspot', async (c) => {
   const rawBody = await c.req.text();
@@ -547,68 +696,19 @@ app.post('/webhook/hubspot', async (c) => {
     // 2. Find the connection by portalId across all workspaces
     //    First check KV cache, then fall back to DB scan
     const cacheKey = `hubspot_portal:${portalId}`;
-    let workspaceId: string | undefined;
-    let connectionId: string | undefined;
-
-    const cached = await c.env.WORKSPACE_CACHE.get(cacheKey, 'json') as { workspaceId: string; connectionId: string } | null;
-    if (cached) {
-      workspaceId = cached.workspaceId;
-      connectionId = cached.connectionId;
-    } else {
-      // Scan all workspaces to find the connection with this externalAccountId.
-      // (master `workspaces` has no soft-delete column — no deletedAt filter.)
-      const masterDb = getMasterDb(c.env);
-      const workspaces = await masterDb
-        .select({ id: masterSchema.workspaces.id })
-        .from(masterSchema.workspaces);
-
-      for (const ws of workspaces) {
-        try {
-          const db = await getTenantDbForWorkspaceById(c.env, ws.id);
-          const [conn] = await db
-            .select({ id: tenantSchema.integrationConnections.id })
-            .from(tenantSchema.integrationConnections)
-            .where(
-              and(
-                eq(tenantSchema.integrationConnections.provider, 'hubspot'),
-                eq(tenantSchema.integrationConnections.externalAccountId, String(portalId)),
-                isNull(tenantSchema.integrationConnections.deletedAt),
-              )
-            )
-            .limit(1);
-
-          if (conn) {
-            workspaceId = ws.id;
-            connectionId = conn.id;
-            // Cache for next time
-            await c.env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify({ workspaceId, connectionId }), { expirationTtl: 86400 * 30 });
-            break;
-          }
-        } catch { /* skip workspace */ }
-      }
-    }
-
-    if (!workspaceId || !connectionId) {
+    const target = await findHubspotConnectionByPortal(c.env, portalId, cacheKey);
+    if (!target) {
       console.warn(`[Webhook/HubSpot] No connection for portalId: ${portalId}`);
       return c.json({ error: 'Portal not connected' }, 404);
     }
+    const { workspaceId, connectionId } = target;
 
     // 3. Load connection from tenant DB
     const provider = getProvider('hubspot');
     if (!provider) return c.json({ error: 'HubSpot provider not registered' }, 500);
 
     const tenantDb = await getTenantDbForWorkspaceById(c.env, workspaceId);
-
-    const [connection] = await tenantDb
-      .select()
-      .from(tenantSchema.integrationConnections)
-      .where(
-        and(
-          eq(tenantSchema.integrationConnections.id, connectionId),
-          isNull(tenantSchema.integrationConnections.deletedAt),
-        )
-      )
-      .limit(1);
+    const connection = await loadIntegrationConnection(tenantDb, connectionId);
 
     if (!connection) {
       // Invalidate stale cache
@@ -617,16 +717,13 @@ app.post('/webhook/hubspot', async (c) => {
     }
 
     // 4. Verify signature
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-
-    if (connection.webhookSecret) {
-      const valid = await provider.verifyWebhookSignature(rawBody, headers, connection.webhookSecret);
-      if (!valid) {
-        console.warn(`[Webhook/HubSpot] Invalid signature for portal ${portalId}`);
-        return c.json({ error: 'Invalid signature' }, 401);
-      }
-    }
+    await assertValidWebhookSignature(
+      provider,
+      rawBody,
+      c.req.raw,
+      connection.webhookSecret,
+      `[Webhook/HubSpot] Invalid signature for portal ${portalId}`,
+    );
 
     // 5. Parse and process events — refresh the token first if expired
     let accessToken: string;
@@ -647,30 +744,7 @@ app.post('/webhook/hubspot', async (c) => {
 
     for (const event of payload.events) {
       try {
-        const entityType = provider.resolveEntityType?.(event);
-        if (!entityType) continue;
-
-        if (event.eventType === 'record.deleted') {
-          await softDeleteByMapping(tenantDb, connectionId, event.objectType, event.recordId);
-          processed++;
-          continue;
-        }
-
-        if (provider.fetchEntityGeneric) {
-          const entity = await provider.fetchEntityGeneric(accessToken, entityType, event.recordId);
-
-          if (entityType === 'company') {
-            const mapped = provider.mapCompany({ id: entity.id, type: 'company', data: (entity.data as any).properties || entity.data, raw: entity.raw });
-            const result = await upsertCompany(tenantDb, connectionId, 'company', entity.id, mapped, entity.raw);
-            await emitCrmEvent(c.env, tenantDb, workspaceId, 'company', result.action, result.companyId, mapped.data as Record<string, unknown>);
-          } else if (entityType === 'person') {
-            const mapped = provider.mapPerson({ id: entity.id, type: 'person', data: (entity.data as any).properties || entity.data, raw: entity.raw });
-            const result = await upsertPerson(tenantDb, connectionId, entity.id, mapped, undefined, entity.raw);
-            await emitCrmEvent(c.env, tenantDb, workspaceId, 'person', result.action, result.personId, mapped.data as Record<string, unknown>);
-          }
-
-          processed++;
-        }
+        if (await processHubspotEvent(c.env, provider, tenantDb, target, accessToken, event)) processed++;
       } catch (err) {
         console.error(`[Webhook/HubSpot] Failed to process event ${event.recordId}:`, err);
       }
@@ -679,6 +753,7 @@ app.post('/webhook/hubspot', async (c) => {
     console.info(`[Webhook/HubSpot] Processed ${processed}/${payload.events.length} events`);
     return c.json({ received: true, processed });
   } catch (err) {
+    if (err instanceof WebhookHttpError) return c.json({ error: err.message }, err.status);
     console.error('[Webhook/HubSpot] Handler error:', err);
     return c.json({ error: 'Internal error' }, 500);
   }
@@ -686,13 +761,62 @@ app.post('/webhook/hubspot', async (c) => {
 
 // ============ Google Calendar push notification handler ============
 
+/** Checks the `X-Goog-Channel-Token` against the stored watch token; an unparsable secret is tolerated. */
+function isValidGcalChannelToken(
+  webhookSecret: string | null,
+  channelToken: string | undefined,
+  connectionId: string,
+): boolean {
+  if (!webhookSecret || !channelToken) return true;
+  try {
+    const parsed = JSON.parse(webhookSecret) as { token: string };
+    if (parsed.token !== channelToken) {
+      console.warn(`[Webhook/GoogleCalendar] Invalid channel token for ${connectionId}`);
+      return false;
+    }
+  } catch {
+    console.warn(`[Webhook/GoogleCalendar] Failed to parse webhookSecret for ${connectionId}`);
+  }
+  return true;
+}
+
+/** Triggers an incremental sync through connect-api's internal integration routes. */
+async function triggerGcalIncrementalSync(env: Env, connectionId: string, workspaceId: string): Promise<void> {
+  console.info(`[Webhook/GoogleCalendar] Change notification for ${connectionId}, triggering incremental sync`);
+
+  if (!hasConnectInternal(env)) {
+    console.warn('[Webhook/GoogleCalendar] CONNECT_INTERNAL / APP_API service binding not available');
+    return;
+  }
+
+  // Trigger sync on connect-api's internal integration routes via the
+  // ConnectInternal entrypoint (no secret). The fallback path through
+  // app-api's forwarder sends X-Internal-Secret, which that router
+  // requires (401 otherwise; the !ok branch only logs and still 200s to
+  // Google).
+  const syncResponse = await fetchConnectInternal(
+    env,
+    '/api/integrations/connections/' + connectionId + '/sync',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Workspace-Id': workspaceId,
+      },
+      body: JSON.stringify({ syncType: 'incremental' }),
+    },
+  );
+  if (!syncResponse.ok) {
+    console.error(`[Webhook/GoogleCalendar] Sync trigger failed: ${syncResponse.status}`);
+  }
+}
+
 app.post('/webhook/gcal/:connectionId', async (c) => {
   const { connectionId } = c.req.param();
 
   try {
     // Extract Google-specific headers
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
+    const headers = lowercaseHeaders(c.req.raw);
 
     const resourceState = headers['x-goog-resource-state'];
     const channelToken = headers['x-goog-channel-token'];
@@ -716,61 +840,19 @@ app.post('/webhook/gcal/:connectionId', async (c) => {
 
     // Verify token
     const tenantDb = await getTenantDbForWorkspaceById(c.env, kvEntry.workspaceId);
-    const [connection] = await tenantDb
-      .select()
-      .from(tenantSchema.integrationConnections)
-      .where(
-        and(
-          eq(tenantSchema.integrationConnections.id, connectionId),
-          isNull(tenantSchema.integrationConnections.deletedAt),
-        )
-      )
-      .limit(1);
+    const connection = await loadIntegrationConnection(tenantDb, connectionId);
 
     if (!connection) {
       return c.json({ error: 'Connection not found' }, 404);
     }
 
-    if (connection.webhookSecret && channelToken) {
-      try {
-        const parsed = JSON.parse(connection.webhookSecret) as { token: string };
-        if (parsed.token !== channelToken) {
-          console.warn(`[Webhook/GoogleCalendar] Invalid channel token for ${connectionId}`);
-          return c.json({ error: 'Invalid token' }, 401);
-        }
-      } catch {
-        console.warn(`[Webhook/GoogleCalendar] Failed to parse webhookSecret for ${connectionId}`);
-      }
+    if (!isValidGcalChannelToken(connection.webhookSecret, channelToken, connectionId)) {
+      return c.json({ error: 'Invalid token' }, 401);
     }
 
     // Trigger incremental sync via CRM_SYNC workflow
     if (resourceState === 'exists') {
-      console.info(`[Webhook/GoogleCalendar] Change notification for ${connectionId}, triggering incremental sync`);
-
-      if (hasConnectInternal(c.env)) {
-        // Trigger sync on connect-api's internal integration routes via the
-        // ConnectInternal entrypoint (no secret). The fallback path through
-        // app-api's forwarder sends X-Internal-Secret, which that router
-        // requires (401 otherwise; the !ok branch only logs and still 200s to
-        // Google).
-        const syncResponse = await fetchConnectInternal(
-          c.env,
-          '/api/integrations/connections/' + connectionId + '/sync',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Internal-Workspace-Id': kvEntry.workspaceId,
-            },
-            body: JSON.stringify({ syncType: 'incremental' }),
-          },
-        );
-        if (!syncResponse.ok) {
-          console.error(`[Webhook/GoogleCalendar] Sync trigger failed: ${syncResponse.status}`);
-        }
-      } else {
-        console.warn('[Webhook/GoogleCalendar] CONNECT_INTERNAL / APP_API service binding not available');
-      }
+      await triggerGcalIncrementalSync(c.env, connectionId, kvEntry.workspaceId);
     }
 
     return c.json({ status: 'ok', type: 'sync_triggered' });
@@ -781,6 +863,255 @@ app.post('/webhook/gcal/:connectionId', async (c) => {
 });
 
 // ============ Per-connection webhook handler (Attio, etc.) ============
+
+interface AttioEventContext {
+  env: Env;
+  tenantDb: TenantDatabase;
+  provider: IntegrationProvider;
+  accessToken: string;
+  connectionId: string;
+  workspaceId: string;
+}
+
+interface AttioSyncCounters {
+  companies: number;
+  people: number;
+  tasks: number;
+  listEntries: number;
+}
+
+// ---- Note events ----
+async function handleAttioNoteEvent(ctx: AttioEventContext, event: ParsedWebhookEvent): Promise<void> {
+  const { tenantDb, provider, accessToken, connectionId } = ctx;
+  console.info(`[Webhook] Processing note event: ${event.eventType} noteId=${event.noteId}`);
+
+  if (event.eventType === 'note.deleted') {
+    if (event.noteId) {
+      const deleted = await softDeleteNote(tenantDb, connectionId, event.noteId);
+      console.info(`[Webhook] Note soft-deleted: ${event.noteId} (found=${deleted})`);
+    }
+    return;
+  }
+
+  // note.created / note.updated — fetch full note and upsert
+  if (!event.noteId) {
+    console.warn(`[Webhook] Note event missing noteId, skipping`);
+    return;
+  }
+
+  const note = await provider.fetchNote(accessToken, event.noteId);
+
+  // Resolve the parent record (company/person) to a WeldSuite entity
+  let parentEntityId: string | undefined;
+  let parentEntityType: string | undefined;
+  if (note.parentRecordId) {
+    const resolved = await resolveEntityByExternalId(tenantDb, connectionId, note.parentRecordId);
+    if (resolved) {
+      parentEntityId = resolved.internalEntityId;
+      parentEntityType = resolved.internalEntityType;
+    }
+  }
+
+  const result = await upsertNote(
+    tenantDb, connectionId, note.id, note, parentEntityId, parentEntityType
+  );
+  console.info(`[Webhook] Note ${result.action}: ${result.activityId} (parent=${parentEntityType}:${parentEntityId})`);
+}
+
+// ---- Task events ---- (returns true when a task was upserted)
+async function handleAttioTaskEvent(ctx: AttioEventContext, event: ParsedWebhookEvent): Promise<boolean> {
+  const { tenantDb, provider, accessToken, connectionId } = ctx;
+  console.info(`[Webhook] Processing task event: ${event.eventType} taskId=${event.taskId}`);
+
+  if (event.eventType === 'task.deleted') {
+    if (event.taskId) {
+      const deleted = await softDeleteTask(tenantDb, connectionId, event.taskId);
+      console.info(`[Webhook] Task soft-deleted: ${event.taskId} (found=${deleted})`);
+    }
+    return false;
+  }
+
+  // task.created / task.updated — fetch full task and upsert
+  if (!event.taskId) {
+    console.warn(`[Webhook] Task event missing taskId, skipping`);
+    return false;
+  }
+
+  const task = await provider.fetchTask(accessToken, event.taskId);
+
+  // Resolve the first linked record to a WeldSuite entity
+  let linkedEntityId: string | undefined;
+  let linkedEntityType: string | undefined;
+  if (task.linkedRecords.length > 0) {
+    const resolved = await resolveEntityByExternalId(
+      tenantDb, connectionId, task.linkedRecords[0].targetRecordId
+    );
+    if (resolved) {
+      linkedEntityId = resolved.internalEntityId;
+      linkedEntityType = resolved.internalEntityType;
+    }
+  }
+
+  const taskResult = await upsertTask(
+    tenantDb, connectionId, task.id, task, linkedEntityId, linkedEntityType
+  );
+  console.info(`[Webhook] Task ${taskResult.action}: ${taskResult.activityId} (linked=${linkedEntityType}:${linkedEntityId})`);
+  return true;
+}
+
+// ---- List-entry events ---- (returns true when a list entry was upserted)
+async function handleAttioListEntryEvent(ctx: AttioEventContext, event: ParsedWebhookEvent): Promise<boolean> {
+  const { tenantDb, provider, accessToken, connectionId } = ctx;
+  console.info(`[Webhook] Processing list-entry event: ${event.eventType} entryId=${event.listEntryId} listId=${event.listId}`);
+
+  if (event.eventType === 'list-entry.deleted') {
+    if (event.listEntryId) {
+      const deleted = await softDeleteListEntry(tenantDb, connectionId, event.listEntryId);
+      console.info(`[Webhook] List entry deleted: ${event.listEntryId} (found=${deleted})`);
+    }
+    return false;
+  }
+
+  // list-entry.created / list-entry.updated
+  if (!event.listEntryId || !event.listId) {
+    console.warn(`[Webhook] List-entry event missing entryId or listId, skipping`);
+    return false;
+  }
+
+  const listEntry = await provider.fetchListEntry(accessToken, event.listId, event.listEntryId);
+
+  // Resolve parent record to a WeldSuite customer
+  const resolvedParent = await resolveEntityByExternalId(
+    tenantDb, connectionId, listEntry.parentRecordId
+  );
+  if (!resolvedParent || resolvedParent.internalEntityType !== 'company') {
+    console.warn(`[Webhook] List entry parent record not found or not a company: ${listEntry.parentRecordId}`);
+    return false;
+  }
+
+  // Fetch lists to get the list name
+  const lists = await provider.fetchLists(accessToken);
+  const listInfo = lists.find(l => l.listId === listEntry.listId);
+  const listName = listInfo?.name || 'Unknown List';
+
+  const entryResult = await upsertListAndEntry(
+    tenantDb, connectionId, listEntry.listId, listName,
+    listEntry.entryId, resolvedParent.internalEntityId, listEntry.raw
+  );
+  console.info(`[Webhook] List entry ${entryResult.action}: list=${entryResult.listId} member=${entryResult.memberId}`);
+  return true;
+}
+
+async function upsertAttioCompany(ctx: AttioEventContext, record: ExternalRecord): Promise<void> {
+  const { env, tenantDb, provider, connectionId, workspaceId } = ctx;
+  const mapped = provider.mapCompany(record);
+  const result = await upsertCompany(
+    tenantDb, connectionId, 'company', record.id, mapped, record.raw
+  );
+  console.info(`[Webhook] Company ${result.action}: ${result.companyId}`);
+  await emitCrmEvent(env, tenantDb, workspaceId, 'company', result.action, result.companyId, mapped.data as Record<string, unknown>);
+}
+
+async function upsertAttioPerson(ctx: AttioEventContext, record: ExternalRecord): Promise<void> {
+  const { env, tenantDb, provider, connectionId, workspaceId } = ctx;
+  const mapped = provider.mapPerson(record);
+  const parentCompanyId = mapped.parentCompanyExternalId
+    ? await resolveCompanyByExternalId(tenantDb, connectionId, mapped.parentCompanyExternalId)
+    : undefined;
+  const result = await upsertPerson(
+    tenantDb, connectionId, record.id, mapped, parentCompanyId, record.raw
+  );
+  console.info(`[Webhook] Person ${result.action}: ${result.personId} (parentCompany=${parentCompanyId ?? 'none'})`);
+  await emitCrmEvent(env, tenantDb, workspaceId, 'person', result.action, result.personId, mapped.data as Record<string, unknown>);
+}
+
+// ---- Record events ---- (returns which kind of record was upserted, if any)
+async function handleAttioRecordEvent(
+  ctx: AttioEventContext,
+  event: ParsedWebhookEvent,
+): Promise<'company' | 'person' | null> {
+  const { tenantDb, provider, accessToken, connectionId } = ctx;
+
+  // Resolve object UUID to slug (e.g., "people", "companies")
+  const objectType = await provider.resolveObjectSlug(accessToken, event.objectId);
+  console.info(`[Webhook] Processing: ${event.eventType} ${objectType} (${event.objectId}) record=${event.recordId}`);
+
+  const externalType = objectType === 'companies' ? 'company' : 'person';
+
+  if (event.eventType === 'record.deleted') {
+    // Soft-delete
+    await softDeleteByMapping(tenantDb, connectionId, externalType, event.recordId);
+    console.info(`[Webhook] Soft-deleted ${externalType} ${event.recordId}`);
+    return null;
+  }
+
+  // Create/update/merge — fetch full record and upsert
+  const record = await provider.fetchRecord(accessToken, objectType, event.recordId);
+
+  if (objectType === 'companies') {
+    await upsertAttioCompany(ctx, record);
+  } else if (objectType === 'people') {
+    await upsertAttioPerson(ctx, record);
+  } else {
+    console.warn(`[Webhook] Skipping unknown object type: ${objectType}`);
+    return null;
+  }
+
+  // For merge events, also soft-delete the merged-from record
+  if (event.eventType === 'record.merged' && event.mergedFromId) {
+    await softDeleteByMapping(tenantDb, connectionId, externalType, event.mergedFromId);
+    console.info(`[Webhook] Soft-deleted merged-from ${externalType} ${event.mergedFromId}`);
+  }
+  return externalType;
+}
+
+async function processAttioEvent(
+  ctx: AttioEventContext,
+  event: ParsedWebhookEvent,
+  counters: AttioSyncCounters,
+): Promise<void> {
+  if (event.eventType.startsWith('note.')) {
+    await handleAttioNoteEvent(ctx, event);
+    return;
+  }
+  if (event.eventType.startsWith('task.')) {
+    if (await handleAttioTaskEvent(ctx, event)) counters.tasks++;
+    return;
+  }
+  if (event.eventType.startsWith('list-entry.')) {
+    if (await handleAttioListEntryEvent(ctx, event)) counters.listEntries++;
+    return;
+  }
+
+  const recordKind = await handleAttioRecordEvent(ctx, event);
+  if (recordKind === 'company') counters.companies++;
+  else if (recordKind === 'person') counters.people++;
+}
+
+/** Adds the processed counts to the connection's running sync totals. */
+async function updateAttioConnectionStats(
+  tenantDb: TenantDatabase,
+  connectionId: string,
+  counters: AttioSyncCounters,
+): Promise<void> {
+  const connections = tenantSchema.integrationConnections;
+  const increments = [
+    { key: 'companiesSynced', count: counters.companies, column: connections.companiesSynced },
+    { key: 'peopleSynced', count: counters.people, column: connections.peopleSynced },
+    { key: 'tasksSynced', count: counters.tasks, column: connections.tasksSynced },
+    { key: 'listsSynced', count: counters.listEntries, column: connections.listsSynced },
+  ].filter((inc) => inc.count > 0);
+  if (increments.length === 0) return;
+
+  const statsUpdate: Record<string, unknown> = { updatedAt: new Date() };
+  for (const { key, count, column } of increments) {
+    statsUpdate[key] = sql`${column} + ${count}`;
+  }
+  await tenantDb
+    .update(connections)
+    .set(statsUpdate)
+    .where(eq(connections.id, connectionId));
+}
 
 app.post('/webhook/:connectionId', async (c) => {
   const { connectionId } = c.req.param();
@@ -809,17 +1140,7 @@ app.post('/webhook/:connectionId', async (c) => {
 
     // 3. Get tenant DB and load connection record
     const tenantDb = await getTenantDbForWorkspaceById(c.env, workspaceId);
-
-    const [connection] = await tenantDb
-      .select()
-      .from(tenantSchema.integrationConnections)
-      .where(
-        and(
-          eq(tenantSchema.integrationConnections.id, connectionId),
-          isNull(tenantSchema.integrationConnections.deletedAt),
-        )
-      )
-      .limit(1);
+    const connection = await loadIntegrationConnection(tenantDb, connectionId);
 
     if (!connection) {
       console.warn(`[Webhook] Connection not found in DB: ${connectionId}`);
@@ -827,18 +1148,13 @@ app.post('/webhook/:connectionId', async (c) => {
     }
 
     // 4. Verify webhook signature
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((value, key) => {
-      headers[key.toLowerCase()] = value;
-    });
-
-    if (connection.webhookSecret) {
-      const valid = await provider.verifyWebhookSignature(rawBody, headers, connection.webhookSecret);
-      if (!valid) {
-        console.warn(`[Webhook] Invalid signature for connection: ${connectionId}`);
-        return c.json({ error: 'Invalid signature' }, 401);
-      }
-    }
+    await assertValidWebhookSignature(
+      provider,
+      rawBody,
+      c.req.raw,
+      connection.webhookSecret,
+      `[Webhook] Invalid signature for connection: ${connectionId}`,
+    );
 
     // 5. Parse webhook payload (may contain multiple events)
     console.info(`[Webhook] Raw payload: ${rawBody}`);
@@ -859,204 +1175,19 @@ app.post('/webhook/:connectionId', async (c) => {
     }
 
     // 7. Process each event
-    let companiesProcessed = 0;
-    let peopleProcessed = 0;
-    let tasksProcessed = 0;
-    let listEntriesProcessed = 0;
+    const ctx: AttioEventContext = { env: c.env, tenantDb, provider, accessToken, connectionId, workspaceId };
+    const counters: AttioSyncCounters = { companies: 0, people: 0, tasks: 0, listEntries: 0 };
 
     for (const event of payload.events) {
-      // ---- Note events ----
-      if (event.eventType.startsWith('note.')) {
-        console.info(`[Webhook] Processing note event: ${event.eventType} noteId=${event.noteId}`);
-
-        if (event.eventType === 'note.deleted') {
-          if (event.noteId) {
-            const deleted = await softDeleteNote(tenantDb, connectionId, event.noteId);
-            console.info(`[Webhook] Note soft-deleted: ${event.noteId} (found=${deleted})`);
-          }
-          continue;
-        }
-
-        // note.created / note.updated — fetch full note and upsert
-        if (!event.noteId) {
-          console.warn(`[Webhook] Note event missing noteId, skipping`);
-          continue;
-        }
-
-        const note = await provider.fetchNote(accessToken, event.noteId);
-
-        // Resolve the parent record (company/person) to a WeldSuite entity
-        let parentEntityId: string | undefined;
-        let parentEntityType: string | undefined;
-        if (note.parentRecordId) {
-          const resolved = await resolveEntityByExternalId(tenantDb, connectionId, note.parentRecordId);
-          if (resolved) {
-            parentEntityId = resolved.internalEntityId;
-            parentEntityType = resolved.internalEntityType;
-          }
-        }
-
-        const result = await upsertNote(
-          tenantDb, connectionId, note.id, note, parentEntityId, parentEntityType
-        );
-        console.info(`[Webhook] Note ${result.action}: ${result.activityId} (parent=${parentEntityType}:${parentEntityId})`);
-        continue;
-      }
-
-      // ---- Task events ----
-      if (event.eventType.startsWith('task.')) {
-        console.info(`[Webhook] Processing task event: ${event.eventType} taskId=${event.taskId}`);
-
-        if (event.eventType === 'task.deleted') {
-          if (event.taskId) {
-            const deleted = await softDeleteTask(tenantDb, connectionId, event.taskId);
-            console.info(`[Webhook] Task soft-deleted: ${event.taskId} (found=${deleted})`);
-          }
-          continue;
-        }
-
-        // task.created / task.updated — fetch full task and upsert
-        if (!event.taskId) {
-          console.warn(`[Webhook] Task event missing taskId, skipping`);
-          continue;
-        }
-
-        const task = await provider.fetchTask(accessToken, event.taskId);
-
-        // Resolve the first linked record to a WeldSuite entity
-        let linkedEntityId: string | undefined;
-        let linkedEntityType: string | undefined;
-        if (task.linkedRecords.length > 0) {
-          const resolved = await resolveEntityByExternalId(
-            tenantDb, connectionId, task.linkedRecords[0].targetRecordId
-          );
-          if (resolved) {
-            linkedEntityId = resolved.internalEntityId;
-            linkedEntityType = resolved.internalEntityType;
-          }
-        }
-
-        const taskResult = await upsertTask(
-          tenantDb, connectionId, task.id, task, linkedEntityId, linkedEntityType
-        );
-        console.info(`[Webhook] Task ${taskResult.action}: ${taskResult.activityId} (linked=${linkedEntityType}:${linkedEntityId})`);
-        tasksProcessed++;
-        continue;
-      }
-
-      // ---- List-entry events ----
-      if (event.eventType.startsWith('list-entry.')) {
-        console.info(`[Webhook] Processing list-entry event: ${event.eventType} entryId=${event.listEntryId} listId=${event.listId}`);
-
-        if (event.eventType === 'list-entry.deleted') {
-          if (event.listEntryId) {
-            const deleted = await softDeleteListEntry(tenantDb, connectionId, event.listEntryId);
-            console.info(`[Webhook] List entry deleted: ${event.listEntryId} (found=${deleted})`);
-          }
-          continue;
-        }
-
-        // list-entry.created / list-entry.updated
-        if (!event.listEntryId || !event.listId) {
-          console.warn(`[Webhook] List-entry event missing entryId or listId, skipping`);
-          continue;
-        }
-
-        const listEntry = await provider.fetchListEntry(accessToken, event.listId, event.listEntryId);
-
-        // Resolve parent record to a WeldSuite customer
-        const resolvedParent = await resolveEntityByExternalId(
-          tenantDb, connectionId, listEntry.parentRecordId
-        );
-        if (!resolvedParent || resolvedParent.internalEntityType !== 'company') {
-          console.warn(`[Webhook] List entry parent record not found or not a company: ${listEntry.parentRecordId}`);
-          continue;
-        }
-
-        // Fetch lists to get the list name
-        const lists = await provider.fetchLists(accessToken);
-        const listInfo = lists.find(l => l.listId === listEntry.listId);
-        const listName = listInfo?.name || 'Unknown List';
-
-        const entryResult = await upsertListAndEntry(
-          tenantDb, connectionId, listEntry.listId, listName,
-          listEntry.entryId, resolvedParent.internalEntityId, listEntry.raw
-        );
-        console.info(`[Webhook] List entry ${entryResult.action}: list=${entryResult.listId} member=${entryResult.memberId}`);
-        listEntriesProcessed++;
-        continue;
-      }
-
-      // ---- Record events ----
-      // Resolve object UUID to slug (e.g., "people", "companies")
-      const objectType = await provider.resolveObjectSlug(accessToken, event.objectId);
-      console.info(`[Webhook] Processing: ${event.eventType} ${objectType} (${event.objectId}) record=${event.recordId}`);
-
-      if (event.eventType === 'record.deleted') {
-        // Soft-delete
-        const externalType = objectType === 'companies' ? 'company' : 'person';
-        await softDeleteByMapping(tenantDb, connectionId, externalType, event.recordId);
-        console.info(`[Webhook] Soft-deleted ${externalType} ${event.recordId}`);
-      } else {
-        // Create/update/merge — fetch full record and upsert
-        const record = await provider.fetchRecord(accessToken, objectType, event.recordId);
-
-        if (objectType === 'companies') {
-          const mapped = provider.mapCompany(record);
-          const result = await upsertCompany(
-            tenantDb, connectionId, 'company', record.id, mapped, record.raw
-          );
-          console.info(`[Webhook] Company ${result.action}: ${result.companyId}`);
-          companiesProcessed++;
-          await emitCrmEvent(c.env, tenantDb, workspaceId, 'company', result.action, result.companyId, mapped.data as Record<string, unknown>);
-        } else if (objectType === 'people') {
-          const mapped = provider.mapPerson(record);
-          const parentCompanyId = mapped.parentCompanyExternalId
-            ? await resolveCompanyByExternalId(tenantDb, connectionId, mapped.parentCompanyExternalId)
-            : undefined;
-          const result = await upsertPerson(
-            tenantDb, connectionId, record.id, mapped, parentCompanyId, record.raw
-          );
-          console.info(`[Webhook] Person ${result.action}: ${result.personId} (parentCompany=${parentCompanyId ?? 'none'})`);
-          peopleProcessed++;
-          await emitCrmEvent(c.env, tenantDb, workspaceId, 'person', result.action, result.personId, mapped.data as Record<string, unknown>);
-        } else {
-          console.warn(`[Webhook] Skipping unknown object type: ${objectType}`);
-          continue;
-        }
-
-        // For merge events, also soft-delete the merged-from record
-        if (event.eventType === 'record.merged' && event.mergedFromId) {
-          const externalType = objectType === 'companies' ? 'company' : 'person';
-          await softDeleteByMapping(tenantDb, connectionId, externalType, event.mergedFromId);
-          console.info(`[Webhook] Soft-deleted merged-from ${externalType} ${event.mergedFromId}`);
-        }
-      }
+      await processAttioEvent(ctx, event, counters);
     }
 
     // 8. Update connection stats
-    const statsUpdate: Record<string, unknown> = { updatedAt: new Date() };
-    if (companiesProcessed > 0) {
-      statsUpdate.companiesSynced = sql`${tenantSchema.integrationConnections.companiesSynced} + ${companiesProcessed}`;
-    }
-    if (peopleProcessed > 0) {
-      statsUpdate.peopleSynced = sql`${tenantSchema.integrationConnections.peopleSynced} + ${peopleProcessed}`;
-    }
-    if (tasksProcessed > 0) {
-      statsUpdate.tasksSynced = sql`${tenantSchema.integrationConnections.tasksSynced} + ${tasksProcessed}`;
-    }
-    if (listEntriesProcessed > 0) {
-      statsUpdate.listsSynced = sql`${tenantSchema.integrationConnections.listsSynced} + ${listEntriesProcessed}`;
-    }
-    if (companiesProcessed > 0 || peopleProcessed > 0 || tasksProcessed > 0 || listEntriesProcessed > 0) {
-      await tenantDb
-        .update(tenantSchema.integrationConnections)
-        .set(statsUpdate)
-        .where(eq(tenantSchema.integrationConnections.id, connectionId));
-    }
+    await updateAttioConnectionStats(tenantDb, connectionId, counters);
 
     return c.json({ status: 'ok', processed: payload.events.length });
   } catch (err) {
+    if (err instanceof WebhookHttpError) return c.json({ error: err.message }, err.status);
     console.error('[Webhook] Processing error:', err);
     return c.json(
       { error: err instanceof Error ? err.message : 'Internal error' },
@@ -1089,6 +1220,117 @@ interface CronSyncSettings {
   syncIntervalHours?: number;
 }
 
+type IntegrationConnectionRow = typeof tenantSchema.integrationConnections.$inferSelect;
+
+interface CronSyncCounters {
+  triggered: number;
+  skipped: number;
+}
+
+/** True when the connection's last sync is older than its (clamped) sync interval. */
+function isConnectionSyncDue(connection: IntegrationConnectionRow, now: number): boolean {
+  const syncSettings = connection.syncSettings as CronSyncSettings | null;
+  const intervalHours = Math.max(
+    syncSettings?.syncIntervalHours || DEFAULT_SYNC_INTERVAL_HOURS,
+    MIN_SYNC_INTERVAL_HOURS,
+  );
+  const lastSync = connection.lastSyncAt ? new Date(connection.lastSyncAt).getTime() : 0;
+  return !(now < lastSync + intervalHours * 60 * 60 * 1000);
+}
+
+/** Google Calendar watch-channel renewal via connect-api's internal router. */
+async function renewGoogleWatchIfExpiring(
+  env: Env,
+  connection: IntegrationConnectionRow,
+  clerkOrgId: string,
+  now: number,
+): Promise<void> {
+  if (connection.provider !== 'google_calendar' || !connection.webhookSecret || !hasConnectInternal(env)) return;
+  try {
+    const watchInfo = JSON.parse(connection.webhookSecret) as { expiration?: string };
+    if (!watchInfo.expiration) return;
+    const expiresAt = Number(watchInfo.expiration);
+    if (now > expiresAt - 24 * 60 * 60 * 1000) {
+      await fetchConnectInternal(
+        env,
+        `/api/integrations/connections/${connection.id}/renew-watch`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Workspace-Id': clerkOrgId,
+          },
+        },
+      );
+    }
+  } catch (err) {
+    console.error(`[IntegrationScheduler] Watch renewal check failed for ${connection.id}:`, err);
+  }
+}
+
+/** Starts the incremental sync Workflow for one connection; returns true when it was triggered. */
+async function triggerConnectionSync(
+  env: Env,
+  db: TenantDatabase,
+  connection: IntegrationConnectionRow,
+  clerkOrgId: string,
+): Promise<boolean> {
+  try {
+    // Trigger the sync Workflow directly — the engine lives in this worker.
+    await env.CRM_SYNC.create({
+      params: {
+        workspaceId: clerkOrgId,
+        connectionId: connection.id,
+        provider: connection.provider,
+        syncType: 'incremental',
+      },
+    });
+    // Mark as syncing so the UI reflects it and concurrent triggers dedupe.
+    await db
+      .update(tenantSchema.integrationConnections)
+      .set({ status: 'syncing', updatedAt: new Date() })
+      .where(eq(tenantSchema.integrationConnections.id, connection.id));
+    return true;
+  } catch (err) {
+    console.error(`[IntegrationScheduler] Failed to trigger sync for ${connection.id}:`, err);
+    return false;
+  }
+}
+
+async function syncWorkspaceConnections(
+  env: Env,
+  workspace: { id: string; clerkOrgId: string },
+  now: number,
+  counters: CronSyncCounters,
+): Promise<void> {
+  const db = await getTenantDbForWorkspaceById(env, workspace.id);
+  const connections = await db
+    .select()
+    .from(tenantSchema.integrationConnections)
+    .where(
+      and(
+        eq(tenantSchema.integrationConnections.status, 'active'),
+        isNull(tenantSchema.integrationConnections.deletedAt),
+      )
+    );
+
+  for (const connection of connections) {
+    if (!SYNCABLE_PROVIDERS.has(connection.provider)) continue;
+
+    const tokens = connection.oauthTokens as { accessToken: string } | null;
+    if (!tokens?.accessToken) continue;
+
+    if (!isConnectionSyncDue(connection, now)) {
+      counters.skipped++;
+      continue;
+    }
+
+    await renewGoogleWatchIfExpiring(env, connection, workspace.clerkOrgId, now);
+
+    if (await triggerConnectionSync(env, db, connection, workspace.clerkOrgId)) counters.triggered++;
+  }
+}
+
 async function runScheduledSync(env: Env): Promise<void> {
   console.log(`[IntegrationScheduler] Starting sync check (${env.ENVIRONMENT})`);
   const masterDb = getMasterDb(env);
@@ -1101,92 +1343,19 @@ async function runScheduledSync(env: Env): Promise<void> {
     })
     .from(masterSchema.workspaces);
 
-  let triggered = 0;
-  let skipped = 0;
+  const counters: CronSyncCounters = { triggered: 0, skipped: 0 };
   const now = Date.now();
 
   for (const workspace of workspaces) {
     if (!workspace.clerkOrgId) continue;
     try {
-      const db = await getTenantDbForWorkspaceById(env, workspace.id);
-      const connections = await db
-        .select()
-        .from(tenantSchema.integrationConnections)
-        .where(
-          and(
-            eq(tenantSchema.integrationConnections.status, 'active'),
-            isNull(tenantSchema.integrationConnections.deletedAt),
-          )
-        );
-
-      for (const connection of connections) {
-        if (!SYNCABLE_PROVIDERS.has(connection.provider)) continue;
-
-        const tokens = connection.oauthTokens as { accessToken: string } | null;
-        if (!tokens?.accessToken) continue;
-
-        const syncSettings = connection.syncSettings as CronSyncSettings | null;
-        const intervalHours = Math.max(
-          syncSettings?.syncIntervalHours || DEFAULT_SYNC_INTERVAL_HOURS,
-          MIN_SYNC_INTERVAL_HOURS,
-        );
-        const lastSync = connection.lastSyncAt ? new Date(connection.lastSyncAt).getTime() : 0;
-        if (now < lastSync + intervalHours * 60 * 60 * 1000) {
-          skipped++;
-          continue;
-        }
-
-        // Google Calendar watch-channel renewal via connect-api's internal router.
-        if (connection.provider === 'google_calendar' && connection.webhookSecret && hasConnectInternal(env)) {
-          try {
-            const watchInfo = JSON.parse(connection.webhookSecret) as { expiration?: string };
-            if (watchInfo.expiration) {
-              const expiresAt = Number(watchInfo.expiration);
-              if (now > expiresAt - 24 * 60 * 60 * 1000) {
-                await fetchConnectInternal(
-                  env,
-                  `/api/integrations/connections/${connection.id}/renew-watch`,
-                  {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'X-Workspace-Id': workspace.clerkOrgId,
-                    },
-                  },
-                );
-              }
-            }
-          } catch (err) {
-            console.error(`[IntegrationScheduler] Watch renewal check failed for ${connection.id}:`, err);
-          }
-        }
-
-        try {
-          // Trigger the sync Workflow directly — the engine lives in this worker.
-          await env.CRM_SYNC.create({
-            params: {
-              workspaceId: workspace.clerkOrgId,
-              connectionId: connection.id,
-              provider: connection.provider,
-              syncType: 'incremental',
-            },
-          });
-          // Mark as syncing so the UI reflects it and concurrent triggers dedupe.
-          await db
-            .update(tenantSchema.integrationConnections)
-            .set({ status: 'syncing', updatedAt: new Date() })
-            .where(eq(tenantSchema.integrationConnections.id, connection.id));
-          triggered++;
-        } catch (err) {
-          console.error(`[IntegrationScheduler] Failed to trigger sync for ${connection.id}:`, err);
-        }
-      }
+      await syncWorkspaceConnections(env, { id: workspace.id, clerkOrgId: workspace.clerkOrgId }, now, counters);
     } catch (err) {
       console.error(`[IntegrationScheduler] Failed to process workspace ${workspace.id}:`, err);
     }
   }
 
-  console.log(`[IntegrationScheduler] Done. Triggered: ${triggered}, Skipped (not due): ${skipped}`);
+  console.log(`[IntegrationScheduler] Done. Triggered: ${counters.triggered}, Skipped (not due): ${counters.skipped}`);
 }
 
 // ============ Integration poll triggers (Sheets / Gmail / Calendar / Airtable) ============
@@ -1386,6 +1555,79 @@ async function runIntegrationPolls(env: Env): Promise<void> {
   );
 }
 
+type PollBuckets = {
+  google_sheets: unknown[];
+  gmail: unknown[];
+  google_calendar: unknown[];
+  airtable: unknown[];
+};
+
+type PollDispatch = (
+  integrationId: string,
+  provider: string,
+  event: string,
+  data: Record<string, unknown>,
+) => Promise<unknown>;
+
+/** Everything a single poll trigger needs: DB, integration lookup, dispatch and settings persistence. */
+interface PollDeps {
+  env: Env;
+  db: TenantDatabase;
+  pick: (type: string, integrationId?: string) => IntegrationRow | undefined;
+  dispatch: PollDispatch;
+  saveSettings: (integration: IntegrationRow, settings: Record<string, unknown>) => Promise<unknown>;
+}
+
+function groupPollTriggers(triggers: unknown[]): PollBuckets {
+  return {
+    google_sheets: triggers.filter((t) => isPollTrigger(t, 'google_sheets', 'google_sheets.new_row')),
+    gmail: triggers.filter((t) => isPollTrigger(t, 'gmail', 'gmail.new_email')),
+    google_calendar: triggers.filter((t) => isPollTrigger(t, 'google_calendar', 'google_calendar.new_event')),
+    airtable: triggers.filter((t) => isPollTrigger(t, 'airtable', 'airtable.new_record')),
+  };
+}
+
+/** Google Sheets: diff row count per watched sheet. Returns the number of dispatched events. */
+async function pollSheetsTrigger(deps: PollDeps, t: unknown): Promise<number> {
+  const { env, db } = deps;
+  const spreadsheetId = triggerField(t, 'spreadsheetId');
+  if (!spreadsheetId) return 0;
+  const sheetName = triggerField(t, 'sheetName') ?? 'Sheet1';
+  const integration = deps.pick('google_sheets', triggerIntegrationId(t));
+  if (!integration) return 0;
+  const token = await resolveGoogleToken(env, db, integration);
+  if (!token) return 0;
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return 0;
+  const rows = ((await res.json()) as { values?: unknown[][] }).values ?? [];
+  const settings = (integration.settings as Record<string, any>) || {};
+  const cursors: Record<string, number> = settings.sheetsCursors || {};
+  const cursorKey = `${spreadsheetId}!${sheetName}`;
+  const prev = cursors[cursorKey];
+  let dispatched = 0;
+  if (prev === undefined) {
+    cursors[cursorKey] = rows.length;
+  } else if (rows.length > prev) {
+    for (let i = prev; i < rows.length; i++) {
+      await deps.dispatch(integration.id, 'google_sheets', 'google_sheets.new_row', {
+        rowNumber: i + 1,
+        values: rows[i] ?? [],
+      });
+      dispatched++;
+    }
+    cursors[cursorKey] = rows.length;
+  }
+  if (cursors[cursorKey] !== prev) {
+    integration.settings = { ...settings, sheetsCursors: cursors };
+    await deps.saveSettings(integration, integration.settings);
+  }
+  return dispatched;
+}
+
 async function pollWorkspaceIntegrations(
   env: Env,
   workspaceId: string,
@@ -1400,12 +1642,7 @@ async function pollWorkspaceIntegrations(
   const triggers = activeWorkflows.flatMap((wf) => (wf.triggers as any[]) || []);
   if (triggers.length === 0) return { dispatched: 0, hasPollTriggers: false };
 
-  const polls = {
-    google_sheets: triggers.filter((t) => isPollTrigger(t, 'google_sheets', 'google_sheets.new_row')),
-    gmail: triggers.filter((t) => isPollTrigger(t, 'gmail', 'gmail.new_email')),
-    google_calendar: triggers.filter((t) => isPollTrigger(t, 'google_calendar', 'google_calendar.new_event')),
-    airtable: triggers.filter((t) => isPollTrigger(t, 'airtable', 'airtable.new_record')),
-  };
+  const polls = groupPollTriggers(triggers);
   const hasPollTriggers =
     triggersIncludeWorkflowPoll(triggers) ||
     Object.values(polls).some((arr) => arr.length > 0);
@@ -1421,237 +1658,204 @@ async function pollWorkspaceIntegrations(
       ),
     )) as unknown as IntegrationRow[];
 
-  const pick = (type: string, integrationId?: string) =>
-    integrationId
-      ? connected.find((i) => i.id === integrationId && i.type === type)
-      : connected.find((i) => i.type === type);
-
-  const dispatch = (integrationId: string, provider: string, event: string, data: Record<string, unknown>) =>
-    matchAndDispatchIntegrationTriggers({
-      env,
-      db,
-      workspaceId: clerkOrgId,
-      userId: 'system',
-      provider,
-      event,
-      integrationId,
-      data,
-    });
-
-  const saveSettings = (integration: IntegrationRow, settings: Record<string, unknown>) =>
-    db
-      .update(tenantSchema.workflowIntegrations)
-      .set({ settings, updatedAt: new Date() })
-      .where(eq(tenantSchema.workflowIntegrations.id, integration.id));
+  const deps: PollDeps = {
+    env,
+    db,
+    pick: (type, integrationId) =>
+      integrationId
+        ? connected.find((i) => i.id === integrationId && i.type === type)
+        : connected.find((i) => i.type === type),
+    dispatch: (integrationId, provider, event, data) =>
+      matchAndDispatchIntegrationTriggers({
+        env,
+        db,
+        workspaceId: clerkOrgId,
+        userId: 'system',
+        provider,
+        event,
+        integrationId,
+        data,
+      }),
+    saveSettings: (integration, settings) =>
+      db
+        .update(tenantSchema.workflowIntegrations)
+        .set({ settings, updatedAt: new Date() })
+        .where(eq(tenantSchema.workflowIntegrations.id, integration.id)),
+  };
 
   let dispatched = 0;
 
   // --- Google Sheets: diff row count per watched sheet ---
   for (const t of polls.google_sheets) {
-    const spreadsheetId = triggerField(t, 'spreadsheetId');
-    if (!spreadsheetId) continue;
-    const sheetName = triggerField(t, 'sheetName') ?? 'Sheet1';
-    const integration = pick('google_sheets', triggerIntegrationId(t));
-    if (!integration) continue;
-    const token = await resolveGoogleToken(env, db, integration);
-    if (!token) continue;
-
-    const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) continue;
-    const rows = ((await res.json()) as { values?: unknown[][] }).values ?? [];
-    const settings = (integration.settings as Record<string, any>) || {};
-    const cursors: Record<string, number> = settings.sheetsCursors || {};
-    const cursorKey = `${spreadsheetId}!${sheetName}`;
-    const prev = cursors[cursorKey];
-    if (prev === undefined) {
-      cursors[cursorKey] = rows.length;
-    } else if (rows.length > prev) {
-      for (let i = prev; i < rows.length; i++) {
-        await dispatch(integration.id, 'google_sheets', 'google_sheets.new_row', {
-          rowNumber: i + 1,
-          values: rows[i] ?? [],
-        });
-        dispatched++;
-      }
-      cursors[cursorKey] = rows.length;
-    }
-    if (cursors[cursorKey] !== prev) {
-      integration.settings = { ...settings, sheetsCursors: cursors };
-      await saveSettings(integration, integration.settings);
-    }
+    dispatched += await pollSheetsTrigger(deps, t);
   }
 
   // Continue with remaining poll providers.
-  dispatched += await pollGmailCalendarAirtable(env, db, polls, pick, dispatch, saveSettings);
+  dispatched += await pollGmailCalendarAirtable(deps, polls);
+  return { dispatched, hasPollTriggers: true };
+}
+
+/** Gmail: dispatch inbox messages newer than the last seen timestamp. */
+async function pollGmailTrigger(deps: PollDeps, t: unknown): Promise<number> {
+  const integration = deps.pick('gmail', triggerIntegrationId(t));
+  if (!integration) return 0;
+  const token = await resolveGoogleToken(deps.env, deps.db, integration);
+  if (!token) return 0;
+  const query = triggerField(t, 'query') ?? 'newer_than:1d';
+  const settings = (integration.settings as Record<string, any>) || {};
+  const lastTs = Number(settings.gmailLastTs ?? 0);
+  let maxTs = lastTs;
+  let dispatched = 0;
+
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX&q=${encodeURIComponent(query)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!listRes.ok) return 0;
+  const list = (await listRes.json()) as { messages?: Array<{ id: string }> };
+  for (const m of list.messages ?? []) {
+    const msg = await fetchGmailMessageMetadata(token, m.id);
+    if (!msg) continue;
+    const ts = Number(msg.internalDate ?? 0);
+    if (ts > maxTs) maxTs = ts;
+    if (lastTs !== 0 && ts > lastTs) {
+      const header = (n: string) => msg.payload?.headers?.find((h) => h.name === n)?.value;
+      await deps.dispatch(integration.id, 'gmail', 'gmail.new_email', {
+        id: msg.id,
+        threadId: msg.threadId,
+        from: header('From'),
+        subject: header('Subject'),
+        snippet: msg.snippet,
+      });
+      dispatched++;
+    }
+  }
+  if (maxTs !== lastTs) {
+    integration.settings = { ...settings, gmailLastTs: maxTs };
+    await deps.saveSettings(integration, integration.settings);
+  }
   return dispatched;
 }
 
-type PollBuckets = {
-  google_sheets: unknown[];
-  gmail: unknown[];
-  google_calendar: unknown[];
-  airtable: unknown[];
-};
+interface GmailMessageMetadata {
+  id: string;
+  threadId: string;
+  internalDate?: string;
+  snippet?: string;
+  payload?: { headers?: Array<{ name: string; value: string }> };
+}
 
-async function pollGmailCalendarAirtable(
-  env: Env,
-  db: TenantDatabase,
-  polls: PollBuckets,
-  pick: (type: string, integrationId?: string) => IntegrationRow | undefined,
-  dispatch: (
-    integrationId: string,
-    provider: string,
-    event: string,
-    data: Record<string, unknown>,
-  ) => Promise<unknown>,
-  saveSettings: (integration: IntegrationRow, settings: Record<string, unknown>) => Promise<unknown>,
-): Promise<number> {
+/** Fetches a Gmail message's From/Subject metadata; null when the request fails. */
+async function fetchGmailMessageMetadata(token: string, messageId: string): Promise<GmailMessageMetadata | null> {
+  const msgRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!msgRes.ok) return null;
+  return (await msgRes.json()) as GmailMessageMetadata;
+}
+
+/** Google Calendar: dispatch upcoming events created since last seen. */
+async function pollCalendarTrigger(deps: PollDeps, t: unknown): Promise<number> {
+  const integration = deps.pick('google_calendar', triggerIntegrationId(t));
+  if (!integration) return 0;
+  const token = await resolveGoogleToken(deps.env, deps.db, integration);
+  if (!token) return 0;
+  const calendarId = triggerField(t, 'calendarId') ?? 'primary';
+  const settings = (integration.settings as Record<string, any>) || {};
+  const lastCreated = settings.calendarLastCreated ? Date.parse(settings.calendarLastCreated) : 0;
+  let maxCreated = lastCreated;
   let dispatched = 0;
 
-  // --- Gmail: dispatch inbox messages newer than the last seen timestamp ---
-  for (const t of polls.gmail) {
-    const integration = pick('gmail', triggerIntegrationId(t));
-    if (!integration) continue;
-    const token = await resolveGoogleToken(env, db, integration);
-    if (!token) continue;
-    const query = triggerField(t, 'query') ?? 'newer_than:1d';
-    const settings = (integration.settings as Record<string, any>) || {};
-    let lastTs = Number(settings.gmailLastTs ?? 0);
-    let maxTs = lastTs;
-
-    const listRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX&q=${encodeURIComponent(query)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!listRes.ok) continue;
-    const list = (await listRes.json()) as { messages?: Array<{ id: string }> };
-    for (const m of list.messages ?? []) {
-      const msgRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!msgRes.ok) continue;
-      const msg = (await msgRes.json()) as {
-        id: string;
-        threadId: string;
-        internalDate?: string;
-        snippet?: string;
-        payload?: { headers?: Array<{ name: string; value: string }> };
-      };
-      const ts = Number(msg.internalDate ?? 0);
-      if (ts > maxTs) maxTs = ts;
-      if (lastTs !== 0 && ts > lastTs) {
-        const header = (n: string) => msg.payload?.headers?.find((h) => h.name === n)?.value;
-        await dispatch(integration.id, 'gmail', 'gmail.new_email', {
-          id: msg.id,
-          threadId: msg.threadId,
-          from: header('From'),
-          subject: header('Subject'),
-          snippet: msg.snippet,
-        });
-        dispatched++;
-      }
-    }
-    if (maxTs !== lastTs) {
-      integration.settings = { ...settings, gmailLastTs: maxTs };
-      await saveSettings(integration, integration.settings);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${encodeURIComponent(new Date().toISOString())}&singleEvents=true&orderBy=startTime&maxResults=10`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return 0;
+  const data = (await res.json()) as {
+    items?: Array<{
+      id: string;
+      summary?: string;
+      start?: unknown;
+      end?: unknown;
+      htmlLink?: string;
+      created?: string;
+    }>;
+  };
+  for (const ev of data.items ?? []) {
+    const created = ev.created ? Date.parse(ev.created) : 0;
+    if (created > maxCreated) maxCreated = created;
+    if (lastCreated !== 0 && created > lastCreated) {
+      await deps.dispatch(integration.id, 'google_calendar', 'google_calendar.new_event', {
+        id: ev.id,
+        summary: ev.summary,
+        start: ev.start,
+        end: ev.end,
+        htmlLink: ev.htmlLink,
+      });
+      dispatched++;
     }
   }
+  if (maxCreated !== lastCreated) {
+    integration.settings = { ...settings, calendarLastCreated: new Date(maxCreated).toISOString() };
+    await deps.saveSettings(integration, integration.settings);
+  }
+  return dispatched;
+}
 
-  // --- Google Calendar: dispatch upcoming events created since last seen ---
-  for (const t of polls.google_calendar) {
-    const integration = pick('google_calendar', triggerIntegrationId(t));
-    if (!integration) continue;
-    const token = await resolveGoogleToken(env, db, integration);
-    if (!token) continue;
-    const calendarId = triggerField(t, 'calendarId') ?? 'primary';
-    const settings = (integration.settings as Record<string, any>) || {};
-    const lastCreated = settings.calendarLastCreated ? Date.parse(settings.calendarLastCreated) : 0;
-    let maxCreated = lastCreated;
+/** Airtable: dispatch records created since last seen createdTime. */
+async function pollAirtableTrigger(deps: PollDeps, t: unknown): Promise<number> {
+  const baseId = triggerField(t, 'baseId');
+  const tableId = triggerField(t, 'tableId');
+  if (!baseId || !tableId) return 0;
+  const integration = deps.pick('airtable', triggerIntegrationId(t));
+  if (!integration) return 0;
+  const token = await decryptConnectionCred(deps.env, integration, 'token');
+  if (!token) return 0;
+  const settings = (integration.settings as Record<string, any>) || {};
+  const cursors: Record<string, string> = settings.airtableCursors || {};
+  const key = `${baseId}:${tableId}`;
+  const prev = cursors[key] ? Date.parse(cursors[key]) : 0;
+  let maxCreated = prev;
+  let dispatched = 0;
 
-    const res = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${encodeURIComponent(new Date().toISOString())}&singleEvents=true&orderBy=startTime&maxResults=10`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) continue;
-    const data = (await res.json()) as {
-      items?: Array<{
-        id: string;
-        summary?: string;
-        start?: unknown;
-        end?: unknown;
-        htmlLink?: string;
-        created?: string;
-      }>;
-    };
-    for (const ev of data.items ?? []) {
-      const created = ev.created ? Date.parse(ev.created) : 0;
-      if (created > maxCreated) maxCreated = created;
-      if (lastCreated !== 0 && created > lastCreated) {
-        await dispatch(integration.id, 'google_calendar', 'google_calendar.new_event', {
-          id: ev.id,
-          summary: ev.summary,
-          start: ev.start,
-          end: ev.end,
-          htmlLink: ev.htmlLink,
-        });
-        dispatched++;
-      }
-    }
-    if (maxCreated !== lastCreated) {
-      integration.settings = { ...settings, calendarLastCreated: new Date(maxCreated).toISOString() };
-      await saveSettings(integration, integration.settings);
+  const res = await fetch(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?pageSize=50`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return 0;
+  const data = (await res.json()) as {
+    records?: Array<{ id: string; fields: unknown; createdTime: string }>;
+  };
+  const sorted = [...(data.records ?? [])].sort(
+    (a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime),
+  );
+  for (const r of sorted) {
+    const created = Date.parse(r.createdTime);
+    if (created > maxCreated) maxCreated = created;
+    if (prev !== 0 && created > prev) {
+      await deps.dispatch(integration.id, 'airtable', 'airtable.new_record', {
+        id: r.id,
+        fields: r.fields,
+        createdTime: r.createdTime,
+      });
+      dispatched++;
     }
   }
-
-  // --- Airtable: dispatch records created since last seen createdTime ---
-  for (const t of polls.airtable) {
-    const baseId = triggerField(t, 'baseId');
-    const tableId = triggerField(t, 'tableId');
-    if (!baseId || !tableId) continue;
-    const integration = pick('airtable', triggerIntegrationId(t));
-    if (!integration) continue;
-    const token = await decryptConnectionCred(env, integration, 'token');
-    if (!token) continue;
-    const settings = (integration.settings as Record<string, any>) || {};
-    const cursors: Record<string, string> = settings.airtableCursors || {};
-    const key = `${baseId}:${tableId}`;
-    const prev = cursors[key] ? Date.parse(cursors[key]) : 0;
-    let maxCreated = prev;
-
-    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?pageSize=50`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) continue;
-    const data = (await res.json()) as {
-      records?: Array<{ id: string; fields: unknown; createdTime: string }>;
-    };
-    const sorted = [...(data.records ?? [])].sort(
-      (a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime),
-    );
-    for (const r of sorted) {
-      const created = Date.parse(r.createdTime);
-      if (created > maxCreated) maxCreated = created;
-      if (prev !== 0 && created > prev) {
-        await dispatch(integration.id, 'airtable', 'airtable.new_record', {
-          id: r.id,
-          fields: r.fields,
-          createdTime: r.createdTime,
-        });
-        dispatched++;
-      }
-    }
-    if (maxCreated !== prev) {
-      cursors[key] = new Date(maxCreated).toISOString();
-      integration.settings = { ...settings, airtableCursors: cursors };
-      await saveSettings(integration, integration.settings);
-    }
+  if (maxCreated !== prev) {
+    cursors[key] = new Date(maxCreated).toISOString();
+    integration.settings = { ...settings, airtableCursors: cursors };
+    await deps.saveSettings(integration, integration.settings);
   }
+  return dispatched;
+}
 
-  return { dispatched, hasPollTriggers: true };
+/** Runs the Gmail, Google Calendar and Airtable polls; returns the total dispatched events. */
+async function pollGmailCalendarAirtable(deps: PollDeps, polls: PollBuckets): Promise<number> {
+  let dispatched = 0;
+  for (const t of polls.gmail) dispatched += await pollGmailTrigger(deps, t);
+  for (const t of polls.google_calendar) dispatched += await pollCalendarTrigger(deps, t);
+  for (const t of polls.airtable) dispatched += await pollAirtableTrigger(deps, t);
+  return dispatched;
 }
 
 // ============ Outbound webhook delivery retry sweep (cron) ============
