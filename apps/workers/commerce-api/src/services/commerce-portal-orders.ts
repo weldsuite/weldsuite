@@ -73,6 +73,87 @@ function toOrderAddress(
   };
 }
 
+interface PricedOrderLine {
+  productId: string;
+  variantId?: string;
+  sku: string | null;
+  name: string;
+  imageUrl: string | null;
+  quantity: number;
+  unitPrice: string;
+  total: string;
+  requiresShipping: number;
+}
+
+/** Validate one requested line and price it from the catalog (client prices are ignored). */
+async function priceOrderLine(
+  db: Database,
+  line: PlacePortalOrderItemInput,
+): Promise<{ line: PricedOrderLine; totalNum: number; productCurrency: string | null }> {
+  if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+    throw new PortalOrderError(400, 'Each line quantity must be a positive integer');
+  }
+
+  const [product] = await db
+    .select()
+    .from(schema.products)
+    .where(and(eq(schema.products.id, line.productId), isNull(schema.products.deletedAt)))
+    .limit(1);
+
+  if (!product || product.status !== 'active' || (product.visibility && product.visibility !== 'visible')) {
+    throw new PortalOrderError(400, 'One or more products are unavailable');
+  }
+
+  let unitPrice = Number(product.price ?? 0);
+  let sku = product.sku ?? null;
+  let name = product.name;
+  let imageUrl = product.featuredImageUrl ?? product.images?.[0]?.url ?? null;
+  let requiresShipping = product.requiresShipping === false ? 0 : 1;
+
+  if (line.variantId) {
+    const [variant] = await db
+      .select()
+      .from(schema.productVariants)
+      .where(
+        and(
+          eq(schema.productVariants.id, line.variantId),
+          eq(schema.productVariants.productId, product.id),
+          isNull(schema.productVariants.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!variant || variant.status !== 'active') {
+      throw new PortalOrderError(400, 'One or more products are unavailable');
+    }
+    if (variant.price != null) unitPrice = Number(variant.price);
+    sku = variant.sku ?? sku;
+    name = variant.name || name;
+    imageUrl = variant.imageUrl ?? imageUrl;
+    if (variant.requiresShipping === false) requiresShipping = 0;
+  }
+
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new PortalOrderError(400, 'One or more products have no price');
+  }
+
+  const totalNum = unitPrice * line.quantity;
+  return {
+    line: {
+      productId: product.id,
+      variantId: line.variantId,
+      sku,
+      name,
+      imageUrl,
+      quantity: line.quantity,
+      unitPrice: money(unitPrice),
+      total: money(totalNum),
+      requiresShipping,
+    },
+    totalNum,
+    productCurrency: product.currency ?? null,
+  };
+}
+
 export async function placePortalOrder(
   db: Database,
   params: {
@@ -96,83 +177,16 @@ export async function placePortalOrder(
     .limit(1);
   if (!party) throw new PortalOrderError(400, 'Company has no commercial party record');
 
-  const lines: Array<{
-    productId: string;
-    variantId?: string;
-    sku: string | null;
-    name: string;
-    imageUrl: string | null;
-    quantity: number;
-    unitPrice: string;
-    total: string;
-    requiresShipping: number;
-  }> = [];
+  const lines: PricedOrderLine[] = [];
 
   let subtotalNum = 0;
   let currency = party.currency || 'EUR';
 
   for (const line of input.items) {
-    if (!Number.isInteger(line.quantity) || line.quantity < 1) {
-      throw new PortalOrderError(400, 'Each line quantity must be a positive integer');
-    }
-
-    const [product] = await db
-      .select()
-      .from(schema.products)
-      .where(and(eq(schema.products.id, line.productId), isNull(schema.products.deletedAt)))
-      .limit(1);
-
-    if (!product || product.status !== 'active' || (product.visibility && product.visibility !== 'visible')) {
-      throw new PortalOrderError(400, 'One or more products are unavailable');
-    }
-
-    let unitPrice = Number(product.price ?? 0);
-    let sku = product.sku ?? null;
-    let name = product.name;
-    let imageUrl = product.featuredImageUrl ?? product.images?.[0]?.url ?? null;
-    let requiresShipping = product.requiresShipping === false ? 0 : 1;
-
-    if (line.variantId) {
-      const [variant] = await db
-        .select()
-        .from(schema.productVariants)
-        .where(
-          and(
-            eq(schema.productVariants.id, line.variantId),
-            eq(schema.productVariants.productId, product.id),
-            isNull(schema.productVariants.deletedAt),
-          ),
-        )
-        .limit(1);
-      if (!variant || variant.status !== 'active') {
-        throw new PortalOrderError(400, 'One or more products are unavailable');
-      }
-      if (variant.price != null) unitPrice = Number(variant.price);
-      sku = variant.sku ?? sku;
-      name = variant.name || name;
-      imageUrl = variant.imageUrl ?? imageUrl;
-      if (variant.requiresShipping === false) requiresShipping = 0;
-    }
-
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      throw new PortalOrderError(400, 'One or more products have no price');
-    }
-
-    if (!party.currency && product.currency) currency = product.currency;
-
-    const lineTotalNum = unitPrice * line.quantity;
-    subtotalNum += lineTotalNum;
-    lines.push({
-      productId: product.id,
-      variantId: line.variantId,
-      sku,
-      name,
-      imageUrl,
-      quantity: line.quantity,
-      unitPrice: money(unitPrice),
-      total: money(lineTotalNum),
-      requiresShipping,
-    });
+    const priced = await priceOrderLine(db, line);
+    if (!party.currency && priced.productCurrency) currency = priced.productCurrency;
+    subtotalNum += priced.totalNum;
+    lines.push(priced.line);
   }
 
   const now = new Date();

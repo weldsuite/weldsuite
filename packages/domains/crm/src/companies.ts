@@ -121,7 +121,30 @@ async function buildCompanyConditions(
   params: CompanyFilter,
   ownerScope?: string,
 ): Promise<SQL[] | null> {
-  const { companies, lists, listMembers } = schema;
+  const conditions = buildScalarCompanyConditions(params, ownerScope);
+
+  // List-membership filter — only kind='company' lists target companies.
+  // Mismatched kind returns empty as defence in depth.
+  if (params.listId) {
+    const listCondition = await companyListCondition(db, params.listId);
+    if (!listCondition) return null;
+    conditions.push(listCondition);
+  }
+
+  // Custom-field filter (`customFilter=<slug>:<value>`). Applied here rather
+  // than in listCompanies so /export honours the same filter as the grid.
+  if (params.customFilter) {
+    const fragment = await companyCustomFieldCondition(db, params.customFilter);
+    if (!fragment) return null;
+    conditions.push(fragment);
+  }
+
+  return conditions;
+}
+
+/** The filters that need no extra lookups: owner scope, search and column equality. */
+function buildScalarCompanyConditions(params: CompanyFilter, ownerScope?: string): SQL[] {
+  const { companies } = schema;
   const conditions: SQL[] = [isNull(companies.deletedAt)];
 
   if (ownerScope) conditions.push(eq(companies.ownerId, ownerScope));
@@ -143,54 +166,51 @@ async function buildCompanyConditions(
   if (params.industry) conditions.push(eq(companies.industry, params.industry));
   if (params.isSupplier !== undefined) conditions.push(eq(companies.isSupplier, params.isSupplier));
   if (params.isLead !== undefined) conditions.push(eq(companies.isLead, params.isLead));
+  return conditions;
+}
 
-  // List-membership filter — only kind='company' lists target companies.
-  // Mismatched kind returns empty as defence in depth.
-  if (params.listId) {
-    const [listRow] = await db
-      .select({ kind: lists.kind })
-      .from(lists)
-      .where(and(eq(lists.id, params.listId), isNull(lists.deletedAt)))
-      .limit(1);
-    if (!listRow || listRow.kind !== 'company') return null;
-    const memberRows = await db
-      .select({ entityId: listMembers.entityId })
-      .from(listMembers)
-      .where(eq(listMembers.listId, params.listId));
-    if (memberRows.length === 0) return null;
-    conditions.push(
-      inArray(
-        companies.id,
-        memberRows.map((m) => m.entityId),
-      ),
-    );
-  }
+/** `id IN (list members)`, or null when the list is missing, not a company list, or empty. */
+async function companyListCondition(db: Database, listId: string): Promise<SQL | null> {
+  const { companies, lists, listMembers } = schema;
+  const [listRow] = await db
+    .select({ kind: lists.kind })
+    .from(lists)
+    .where(and(eq(lists.id, listId), isNull(lists.deletedAt)))
+    .limit(1);
+  if (!listRow || listRow.kind !== 'company') return null;
+  const memberRows = await db
+    .select({ entityId: listMembers.entityId })
+    .from(listMembers)
+    .where(eq(listMembers.listId, listId));
+  if (memberRows.length === 0) return null;
+  return inArray(
+    companies.id,
+    memberRows.map((m) => m.entityId),
+  );
+}
 
-  // Custom-field filter (`customFilter=<slug>:<value>`). Applied here rather
-  // than in listCompanies so /export honours the same filter as the grid.
-  if (params.customFilter) {
-    const sep = params.customFilter.indexOf(':');
-    if (sep <= 0) return null;
-    const slug = params.customFilter.slice(0, sep);
-    const value = params.customFilter.slice(sep + 1);
+/** Condition for `customFilter=<slug>:<value>`, or null when it can only match nothing. */
+async function companyCustomFieldCondition(db: Database, customFilter: string): Promise<SQL | null> {
+  const { companies } = schema;
+  const sep = customFilter.indexOf(':');
+  if (sep <= 0) return null;
+  const slug = customFilter.slice(0, sep);
+  const value = customFilter.slice(sep + 1);
 
-    const defs = await getDefinitionsForEntityType(db, 'company');
-    const def = defs.find((d) => d.slug === slug);
-    // Unknown field, or a value that can't be coerced to the field's type:
-    // match nothing. Dropping the filter instead would WIDEN the result set,
-    // which is the opposite of what the caller asked for.
-    if (!def) return null;
-    const fragment = customFieldFilter(
+  const defs = await getDefinitionsForEntityType(db, 'company');
+  const def = defs.find((d) => d.slug === slug);
+  // Unknown field, or a value that can't be coerced to the field's type:
+  // match nothing. Dropping the filter instead would WIDEN the result set,
+  // which is the opposite of what the caller asked for.
+  if (!def) return null;
+  return (
+    customFieldFilter(
       'company',
       companies.id,
       def as unknown as Parameters<typeof customFieldFilter>[2],
       value,
-    );
-    if (!fragment) return null;
-    conditions.push(fragment);
-  }
-
-  return conditions;
+    ) ?? null
+  );
 }
 
 /**
@@ -500,39 +520,35 @@ export interface ImportCompaniesResult {
   changedRows: ImportChangedRow[];
 }
 
-/**
- * Upsert a batch of companies. Each record is matched to an existing company
- * by `partyCode` first, then by case-insensitive `email`; matches are patched,
- * the rest are created (`name` required). Per-row failures are collected and
- * never abort the batch. The caller submits batches of ≤500.
- */
-export async function importCompanies(
+const normImport = (s?: string | null) => s?.trim() ?? '';
+
+/** Existing companies an import batch can match against, by party code and by email. */
+interface ImportLookups {
+  byPartyCode: Map<string, CompanyRow>;
+  byEmail: Map<string, CompanyRow>;
+}
+
+function indexImportedCompany(lookups: ImportLookups, row: CompanyRow): void {
+  if (row.partyCode) lookups.byPartyCode.set(row.partyCode, row);
+  if (row.email) lookups.byEmail.set(row.email.toLowerCase(), row);
+}
+
+async function loadImportLookups(
   db: Database,
   records: ImportCompanyRecord[],
-): Promise<ImportCompaniesResult> {
+): Promise<ImportLookups> {
   const { companies } = schema;
-  const result: ImportCompaniesResult = {
-    imported: 0,
-    updated: 0,
-    failed: 0,
-    total: records.length,
-    errors: [],
-    changedRows: [],
-  };
+  const partyCodes = [...new Set(records.map((r) => normImport(r.partyCode)).filter(Boolean))];
+  const emails = [...new Set(records.map((r) => normImport(r.email).toLowerCase()).filter(Boolean))];
 
-  const norm = (s?: string | null) => s?.trim() ?? '';
-  const partyCodes = [...new Set(records.map((r) => norm(r.partyCode)).filter(Boolean))];
-  const emails = [...new Set(records.map((r) => norm(r.email).toLowerCase()).filter(Boolean))];
-
-  const byPartyCode = new Map<string, CompanyRow>();
-  const byEmail = new Map<string, CompanyRow>();
+  const lookups: ImportLookups = { byPartyCode: new Map(), byEmail: new Map() };
 
   if (partyCodes.length) {
     const rows = await db
       .select()
       .from(companies)
       .where(and(isNull(companies.deletedAt), inArray(companies.partyCode, partyCodes)));
-    for (const r of rows) if (r.partyCode) byPartyCode.set(r.partyCode, r);
+    for (const r of rows) if (r.partyCode) lookups.byPartyCode.set(r.partyCode, r);
   }
   if (emails.length) {
     const rows = await db
@@ -544,61 +560,99 @@ export async function importCompanies(
           or(...emails.map((e) => sql`lower(${companies.email}) = ${e}`))!,
         ),
       );
-    for (const r of rows) if (r.email) byEmail.set(r.email.toLowerCase(), r);
+    for (const r of rows) if (r.email) lookups.byEmail.set(r.email.toLowerCase(), r);
   }
+  return lookups;
+}
+
+/** Patch a matched company; returns a failure message, or null on success. */
+async function importIntoExisting(
+  db: Database,
+  rec: ImportCompanyRecord,
+  match: CompanyRow,
+  lookups: ImportLookups,
+  result: ImportCompaniesResult,
+): Promise<string | null> {
+  // Merge imported custom fields into the existing blob so a partial
+  // import doesn't wipe custom fields the row already had (updateCompany
+  // overwrites `customFields` wholesale — correct for the edit form, not
+  // for an import that maps only some columns).
+  const recForUpdate = rec.customFields
+    ? {
+        ...rec,
+        customFields: {
+          ...((match.customFields as Record<string, unknown> | null) ?? {}),
+          ...rec.customFields,
+        },
+      }
+    : rec;
+  const updated = await updateCompany(
+    db,
+    match.id,
+    recForUpdate as unknown as UpdateCompanyInput,
+  );
+  if (!updated) return 'Matched company no longer exists';
+  result.updated++;
+  result.changedRows.push({ id: updated.row.id, action: 'updated', row: updated.row });
+  indexImportedCompany(lookups, updated.row);
+  return null;
+}
+
+/** Create a company from an unmatched record; returns a failure message, or null on success. */
+async function importAsNew(
+  db: Database,
+  rec: ImportCompanyRecord,
+  lookups: ImportLookups,
+  result: ImportCompaniesResult,
+): Promise<string | null> {
+  if (!normImport(rec.name)) return 'Missing required field: name';
+  const created = await insertCompanyRow(
+    db,
+    rec as unknown as CreateCompanyInput & { partyCode?: string | null },
+  );
+  // Phase 1 dual-write: mirror the customFields blob into the typed values table.
+  await syncValuesForEntity(db, 'company', created.id, created.customFields);
+  result.imported++;
+  result.changedRows.push({ id: created.id, action: 'created', row: created });
+  indexImportedCompany(lookups, created);
+  return null;
+}
+
+/**
+ * Upsert a batch of companies. Each record is matched to an existing company
+ * by `partyCode` first, then by case-insensitive `email`; matches are patched,
+ * the rest are created (`name` required). Per-row failures are collected and
+ * never abort the batch. The caller submits batches of ≤500.
+ */
+export async function importCompanies(
+  db: Database,
+  records: ImportCompanyRecord[],
+): Promise<ImportCompaniesResult> {
+  const result: ImportCompaniesResult = {
+    imported: 0,
+    updated: 0,
+    failed: 0,
+    total: records.length,
+    errors: [],
+    changedRows: [],
+  };
+
+  const lookups = await loadImportLookups(db, records);
 
   for (let i = 0; i < records.length; i++) {
     const rec = records[i]!;
-    const ref = norm(rec.partyCode) || norm(rec.email) || norm(rec.name) || `#${i + 1}`;
+    const ref = normImport(rec.partyCode) || normImport(rec.email) || normImport(rec.name) || `#${i + 1}`;
     try {
-      const pc = norm(rec.partyCode);
-      const em = norm(rec.email).toLowerCase();
-      const match = (pc && byPartyCode.get(pc)) || (em && byEmail.get(em)) || null;
+      const pc = normImport(rec.partyCode);
+      const em = normImport(rec.email).toLowerCase();
+      const match = (pc && lookups.byPartyCode.get(pc)) || (em && lookups.byEmail.get(em)) || null;
 
-      if (match) {
-        // Merge imported custom fields into the existing blob so a partial
-        // import doesn't wipe custom fields the row already had (updateCompany
-        // overwrites `customFields` wholesale — correct for the edit form, not
-        // for an import that maps only some columns).
-        const recForUpdate = rec.customFields
-          ? {
-              ...rec,
-              customFields: {
-                ...((match.customFields as Record<string, unknown> | null) ?? {}),
-                ...rec.customFields,
-              },
-            }
-          : rec;
-        const updated = await updateCompany(
-          db,
-          match.id,
-          recForUpdate as unknown as UpdateCompanyInput,
-        );
-        if (!updated) {
-          result.failed++;
-          result.errors.push({ row: i + 1, ref, error: 'Matched company no longer exists' });
-          continue;
-        }
-        result.updated++;
-        result.changedRows.push({ id: updated.row.id, action: 'updated', row: updated.row });
-        if (updated.row.partyCode) byPartyCode.set(updated.row.partyCode, updated.row);
-        if (updated.row.email) byEmail.set(updated.row.email.toLowerCase(), updated.row);
-      } else {
-        if (!norm(rec.name)) {
-          result.failed++;
-          result.errors.push({ row: i + 1, ref, error: 'Missing required field: name' });
-          continue;
-        }
-        const created = await insertCompanyRow(
-          db,
-          rec as unknown as CreateCompanyInput & { partyCode?: string | null },
-        );
-        // Phase 1 dual-write: mirror the customFields blob into the typed values table.
-        await syncValuesForEntity(db, 'company', created.id, created.customFields);
-        result.imported++;
-        result.changedRows.push({ id: created.id, action: 'created', row: created });
-        if (created.partyCode) byPartyCode.set(created.partyCode, created);
-        if (created.email) byEmail.set(created.email.toLowerCase(), created);
+      const failure = match
+        ? await importIntoExisting(db, rec, match, lookups, result)
+        : await importAsNew(db, rec, lookups, result);
+      if (failure) {
+        result.failed++;
+        result.errors.push({ row: i + 1, ref, error: failure });
       }
     } catch (err) {
       result.failed++;

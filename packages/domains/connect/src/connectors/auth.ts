@@ -408,6 +408,46 @@ async function finishMoneybirdConnection(args: {
   );
 }
 
+/** Trade the OAuth code for tokens and fetch the administrations the account can reach. */
+async function exchangeCodeAndListAdministrations(
+  app: { clientId: string; clientSecret: string },
+  code: string,
+  publicAppUrl: string,
+): Promise<
+  | { tokens: Awaited<ReturnType<typeof exchangeMoneybirdCode>>; administrations: MoneybirdAdministration[] }
+  | { error: string; status: number }
+> {
+  let tokens: Awaited<ReturnType<typeof exchangeMoneybirdCode>>;
+  try {
+    tokens = await exchangeMoneybirdCode({
+      clientId: app.clientId,
+      clientSecret: app.clientSecret,
+      code,
+      redirectUri: moneybirdRedirectUri(publicAppUrl),
+    });
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Moneybird token exchange failed',
+      status: 400,
+    };
+  }
+
+  const client = new MoneybirdClient({ accessToken: tokens.accessToken });
+  let administrations: MoneybirdAdministration[];
+  try {
+    administrations = await client.listAdministrations();
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Could not list Moneybird administrations',
+      status: 400,
+    };
+  }
+  if (administrations.length === 0) {
+    return { error: 'This Moneybird account has no administrations', status: 400 };
+  }
+  return { tokens, administrations };
+}
+
 export async function completeMoneybirdOAuth(args: {
   env: ConnectorAuthEnv;
   code: string;
@@ -437,34 +477,9 @@ export async function completeMoneybirdOAuth(args: {
   if ('error' in app) return { error: app.error, status: 400 };
 
   const publicAppUrl = args.env.PUBLIC_APP_URL || 'https://app.weldsuite.org';
-  let tokens;
-  try {
-    tokens = await exchangeMoneybirdCode({
-      clientId: app.clientId,
-      clientSecret: app.clientSecret,
-      code: args.code,
-      redirectUri: moneybirdRedirectUri(publicAppUrl),
-    });
-  } catch (err) {
-    return {
-      error: err instanceof Error ? err.message : 'Moneybird token exchange failed',
-      status: 400,
-    };
-  }
-
-  const client = new MoneybirdClient({ accessToken: tokens.accessToken });
-  let administrations: MoneybirdAdministration[];
-  try {
-    administrations = await client.listAdministrations();
-  } catch (err) {
-    return {
-      error: err instanceof Error ? err.message : 'Could not list Moneybird administrations',
-      status: 400,
-    };
-  }
-  if (administrations.length === 0) {
-    return { error: 'This Moneybird account has no administrations', status: 400 };
-  }
+  const exchanged = await exchangeCodeAndListAdministrations(app, args.code, publicAppUrl);
+  if ('error' in exchanged) return exchanged;
+  const { tokens, administrations } = exchanged;
 
   const db = await getTenantDbForWorkspace(args.env, oauthState.clerkOrgId);
   const keyring = keyringFromEnv(args.env);
