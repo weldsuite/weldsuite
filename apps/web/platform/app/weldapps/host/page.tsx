@@ -15,7 +15,8 @@ import { attachFrameSlot, detachFrameSlot, useWeldAppFrameStatus } from './frame
 import { useWeldAppSource } from './use-weld-app-source';
 
 function sectionLabel(appPath: string): string | null {
-  const segment = appPath.replace(/^\/+|\/+$/g, '').split('/')[0];
+  // First non-empty path segment (ignores leading/trailing slashes).
+  const segment = appPath.split('/').find(Boolean);
   if (!segment) return null;
   return segment
     .split(/[-_]/)

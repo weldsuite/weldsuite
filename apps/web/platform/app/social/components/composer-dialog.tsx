@@ -204,9 +204,10 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       : null;
 
   const toggleAccount = (id: string, checked: boolean) => {
-    setSelectedAccountIds((prev) =>
-      checked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((v) => v !== id),
-    );
+    setSelectedAccountIds((prev) => {
+      if (!checked) return prev.filter((v) => v !== id);
+      return prev.includes(id) ? prev : [...prev, id];
+    });
   };
 
   const toggleMedia = (id: string) => {

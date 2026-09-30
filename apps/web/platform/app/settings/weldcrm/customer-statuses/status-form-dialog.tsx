@@ -34,11 +34,16 @@ interface StatusFormDialogProps {
   isPending: boolean;
 }
 
+function trimUnderscores(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '_') start++;
+  while (end > start && value[end - 1] === '_') end--;
+  return value.slice(start, end);
+}
+
 function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, '_')
-    .replace(/^_+|_+$/g, '');
+  return trimUnderscores(name.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
 }
 
 export function StatusFormDialog({
