@@ -3916,11 +3916,22 @@ function EventDetailPanel({
           />
           <div
             ref={titleRef}
+            role="textbox"
+            aria-label={t.eventDialog.titlePlaceholder}
+            tabIndex={0}
             contentEditable={isEditingTitle}
             suppressContentEditableWarning
             onClick={() => { if (!isEditingTitle) setIsEditingTitle(true); }}
-            onBlur={handleTitleSave}
+            onBlur={isEditingTitle ? handleTitleSave : undefined}
             onKeyDown={(e) => {
+              // Keyboard users enter edit mode with Enter (mouse users click).
+              if (!isEditingTitle) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setIsEditingTitle(true);
+                }
+                return;
+              }
               if (e.key === 'Enter') {
                 e.preventDefault();
                 (e.target as HTMLDivElement).blur();
@@ -3954,14 +3965,27 @@ function EventDetailPanel({
               ? 'border-gray-400 dark:border-gray-500'
               : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer',
           )}
+          role="presentation"
           onClick={() => { if (!isEditingDescription) setIsEditingDescription(true); }}
         >
           <div
             ref={descriptionRef}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={t.eventPreview.addDescription}
+            tabIndex={0}
             contentEditable={isEditingDescription}
             suppressContentEditableWarning
-            onBlur={handleDescriptionSave}
+            onBlur={isEditingDescription ? handleDescriptionSave : undefined}
             onKeyDown={(e) => {
+              // Keyboard users enter edit mode with Enter (mouse users click).
+              if (!isEditingDescription) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setIsEditingDescription(true);
+                }
+                return;
+              }
               if (e.key === 'Escape') {
                 if (descriptionRef.current) descriptionRef.current.textContent = event.description ?? '';
                 setIsEditingDescription(false);
@@ -4320,7 +4344,8 @@ const ATTENDEE_AVATAR_PALETTE = [
 
 function attendeeFallbackColor(seed: string): string {
   let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  // Math.imul(n, 1) is ToInt32(n): keeps the hash wrapped to 32 bits.
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash * 31 + seed.charCodeAt(i), 1);
   return ATTENDEE_AVATAR_PALETTE[Math.abs(hash) % ATTENDEE_AVATAR_PALETTE.length]!;
 }
 
@@ -5451,6 +5476,7 @@ function TimeSlotPreview({
 
   return (
     <div
+      role="presentation"
       onMouseDown={onMouseDown}
       className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden z-[2] opacity-70 animate-in fade-in-50 cursor-grab active:cursor-grabbing"
       style={{
@@ -5461,6 +5487,7 @@ function TimeSlotPreview({
     >
       {onResize && (
         <div
+          role="presentation"
           onMouseDown={(e) => onResize('top', e)}
           className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />
@@ -5473,6 +5500,7 @@ function TimeSlotPreview({
       </span>
       {onResize && (
         <div
+          role="presentation"
           onMouseDown={(e) => onResize('bottom', e)}
           className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />
