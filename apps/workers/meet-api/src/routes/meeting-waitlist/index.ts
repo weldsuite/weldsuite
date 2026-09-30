@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMeetingWaitlistEntrySchema, updateMeetingWaitlistEntrySchema } from '@weldsuite/core-api-client/schemas/meeting-waitlist';
@@ -134,17 +134,22 @@ app.post('/:id/deny', requirePermission('meetings:read'), async (c) => {
 // CRUD
 // ============================================================================
 
-app.get('/', requirePermission('meetings:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-
-  const conditions: any[] = [];
+function buildListFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [];
   if (q.sessionId !== undefined && q.sessionId !== '') conditions.push(eq(t.sessionId, q.sessionId));
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
   if (q.search) {
     conditions.push(like(t.name, `%${q.search}%`));
   }
+  return conditions;
+}
+
+app.get('/', requirePermission('meetings:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+
+  const conditions = buildListFilters(q);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })

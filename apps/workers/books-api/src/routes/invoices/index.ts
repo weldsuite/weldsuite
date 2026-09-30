@@ -143,6 +143,122 @@ async function promoteAccountingRole(
     .where(eq(parties.id, contactId));
 }
 
+type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
+
+/** Scalar (non-item) columns a PUT/PATCH body may change on a draft invoice. */
+function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unknown> {
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+
+  if (data.contactId) updateData.contactId = data.contactId;
+  if (data.contactName !== undefined) updateData.contactName = data.contactName;
+  if (data.contactEmail !== undefined) updateData.contactEmail = data.contactEmail;
+  if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
+  if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
+  if (data.currency) updateData.currency = data.currency;
+  if (data.paymentTermsDays !== undefined) updateData.paymentTermsDays = data.paymentTermsDays;
+  if (data.reference !== undefined) updateData.reference = data.reference;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+  if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
+  if (data.billingAddress !== undefined) updateData.billingAddress = data.billingAddress;
+  if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
+
+  return updateData;
+}
+
+type InvoiceRow = typeof schema.invoices.$inferSelect;
+type AccountRow = typeof schema.accounts.$inferSelect;
+
+function buildJournalLine(
+  invoice: InvoiceRow,
+  journalEntryId: string,
+  fields: { accountId: string; description: string; debit: string; credit: string; sortOrder: number },
+) {
+  return {
+    id: generateId('jl'),
+    entityId: invoice.entityId,
+    journalEntryId,
+    ...fields,
+    contactId: invoice.contactId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+type JournalLineRow = ReturnType<typeof buildJournalLine>;
+type LinesResult = { lines: JournalLineRow[] } | { error: string };
+
+interface TaxLineContext {
+  invoice: InvoiceRow;
+  journalEntryId: string;
+  taxTotal: number;
+  byRole: (role: string) => AccountRow | undefined;
+  taxPayableAccount: AccountRow | undefined;
+}
+
+/** Per-component GST credit lines (CGST/SGST/IGST), rounding remainder absorbed by the last. */
+function buildComponentTaxLines(
+  ctx: TaxLineContext,
+  componentRows: Array<{ taxRateName?: string; taxAmount?: number; accountRole?: string }>,
+): LinesResult {
+  const { invoice, journalEntryId, taxTotal, byRole, taxPayableAccount } = ctx;
+  let sortOrder = 2;
+  let postedTax = 0;
+  const componentLines: JournalLineRow[] = [];
+  for (const row of componentRows) {
+    const taxAccount = byRole(row.accountRole!) ?? taxPayableAccount;
+    if (!taxAccount) {
+      return { error: `No account found for tax component role '${row.accountRole}'. Please run seed first.` };
+    }
+    const amount = Number(row.taxAmount);
+    postedTax += amount;
+    componentLines.push(
+      buildJournalLine(invoice, journalEntryId, {
+        accountId: taxAccount.id,
+        description: `${row.taxRateName ?? 'GST'} ${invoice.invoiceNumber}`,
+        debit: '0',
+        credit: amount.toFixed(2),
+        sortOrder,
+      }),
+    );
+    sortOrder += 1;
+  }
+
+  // Absorb rounding remainder into the last component so credits match taxTotal
+  const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
+  const last = componentLines[componentLines.length - 1];
+  if (last && Math.abs(remainder) >= 0.01) {
+    last.credit = (Number(last.credit) + remainder).toFixed(2);
+  }
+  return { lines: componentLines };
+}
+
+/** Credit tax: prefer per-component GST accounts (CGST/SGST/IGST), else tax payable. */
+function buildTaxCreditLines(ctx: TaxLineContext): LinesResult {
+  const { invoice, journalEntryId, taxTotal, taxPayableAccount } = ctx;
+  const breakdown = (invoice.taxBreakdown ?? []) as Array<{
+    taxRateName?: string;
+    taxAmount?: number;
+    accountRole?: string;
+    component?: string;
+  }>;
+  const componentRows = breakdown.filter((b) => b.accountRole && (b.taxAmount ?? 0) > 0);
+
+  if (componentRows.length > 0) return buildComponentTaxLines(ctx, componentRows);
+  if (taxTotal <= 0) return { lines: [] };
+  if (!taxPayableAccount) return { error: 'Tax payable account not found. Please run seed first.' };
+  return {
+    lines: [
+      buildJournalLine(invoice, journalEntryId, {
+        accountId: taxPayableAccount.id,
+        description: `Tax ${invoice.invoiceNumber}`,
+        debit: '0',
+        credit: taxTotal.toFixed(2),
+        sortOrder: 2,
+      }),
+    ],
+  };
+}
+
 /** Apply each journal line's net change to its account's running balance. */
 async function applyBalances(
   db: Database,
@@ -508,20 +624,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       );
     }
 
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-
-    if (data.contactId) updateData.contactId = data.contactId;
-    if (data.contactName !== undefined) updateData.contactName = data.contactName;
-    if (data.contactEmail !== undefined) updateData.contactEmail = data.contactEmail;
-    if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
-    if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
-    if (data.currency) updateData.currency = data.currency;
-    if (data.paymentTermsDays !== undefined) updateData.paymentTermsDays = data.paymentTermsDays;
-    if (data.reference !== undefined) updateData.reference = data.reference;
-    if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
-    if (data.billingAddress !== undefined) updateData.billingAddress = data.billingAddress;
-    if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
+    const updateData: Record<string, unknown> = buildInvoiceFieldUpdates(data);
 
     if (data.items) {
       // Replace all line items
@@ -852,98 +955,26 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
 
     // Debit: Debiteuren (total incl. tax)
     const lines = [
-      {
-        id: generateId('jl'),
-        entityId: invoice.entityId,
-        journalEntryId,
+      buildJournalLine(invoice, journalEntryId, {
         accountId: debiteurenAccount.id,
         description: `Invoice ${invoice.invoiceNumber}`,
         debit: total.toFixed(2),
         credit: '0',
-        contactId: invoice.contactId,
         sortOrder: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
+      }),
       // Credit: Revenue (subtotal excl. tax)
-      {
-        id: generateId('jl'),
-        entityId: invoice.entityId,
-        journalEntryId,
+      buildJournalLine(invoice, journalEntryId, {
         accountId: resolvedRevenueAccountId,
         description: `Revenue ${invoice.invoiceNumber}`,
         debit: '0',
         credit: subtotal.toFixed(2),
-        contactId: invoice.contactId,
         sortOrder: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
+      }),
     ];
 
-    // Credit tax: prefer per-component GST accounts (CGST/SGST/IGST), else tax payable
-    const breakdown = (invoice.taxBreakdown ?? []) as Array<{
-      taxRateName?: string;
-      taxAmount?: number;
-      accountRole?: string;
-      component?: string;
-    }>;
-    const componentRows = breakdown.filter((b) => b.accountRole && (b.taxAmount ?? 0) > 0);
-
-    if (componentRows.length > 0) {
-      let sortOrder = 2;
-      let postedTax = 0;
-      const componentLines: typeof lines = [];
-      for (const row of componentRows) {
-        const taxAccount = byRole(row.accountRole!) ?? taxPayableAccount;
-        if (!taxAccount) {
-          return error.badRequest(
-            c,
-            `No account found for tax component role '${row.accountRole}'. Please run seed first.`,
-          );
-        }
-        const amount = Number(row.taxAmount);
-        postedTax += amount;
-        componentLines.push({
-          id: generateId('jl'),
-          entityId: invoice.entityId,
-          journalEntryId,
-          accountId: taxAccount.id,
-          description: `${row.taxRateName ?? 'GST'} ${invoice.invoiceNumber}`,
-          debit: '0',
-          credit: amount.toFixed(2),
-          contactId: invoice.contactId,
-          sortOrder,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-        sortOrder += 1;
-      }
-
-      // Absorb rounding remainder into the last component so credits match taxTotal
-      const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
-      const last = componentLines[componentLines.length - 1];
-      if (last && Math.abs(remainder) >= 0.01) {
-        last.credit = (Number(last.credit) + remainder).toFixed(2);
-      }
-      lines.push(...componentLines);
-    } else if (taxTotal > 0 && taxPayableAccount) {
-      lines.push({
-        id: generateId('jl'),
-        entityId: invoice.entityId,
-        journalEntryId,
-        accountId: taxPayableAccount.id,
-        description: `Tax ${invoice.invoiceNumber}`,
-        debit: '0',
-        credit: taxTotal.toFixed(2),
-        contactId: invoice.contactId,
-        sortOrder: 2,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    } else if (taxTotal > 0 && !taxPayableAccount) {
-      return error.badRequest(c, 'Tax payable account not found. Please run seed first.');
-    }
+    const taxLines = buildTaxCreditLines({ invoice, journalEntryId, taxTotal, byRole, taxPayableAccount });
+    if ('error' in taxLines) return error.badRequest(c, taxLines.error);
+    lines.push(...taxLines.lines);
 
     await db.insert(journalLines).values(lines);
 

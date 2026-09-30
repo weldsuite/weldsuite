@@ -12,10 +12,10 @@
  *   DELETE /:id     — soft-delete (author only)
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, isNotNull, lt, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMeetingMessageSchema, updateMeetingMessageSchema } from '@weldsuite/core-api-client/schemas/meeting-messages';
@@ -35,57 +35,49 @@ const t = schema.meetingMessages;
 // Meeting Chat action endpoints (static paths before /:id)
 // ============================================================================
 
-/**
- * GET / - List meeting chat messages with cursor pagination.
- * ?meetingId= (required), ?before= (cursor), ?limit= (1-100, default 50)
- * Surfaces `htmlContent` from metadata.htmlContent at the top level.
- */
-app.get('/', requirePermission('meetings:read'), async (c) => {
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** Generic message list (no meetingId): optional author filter + createdAt/id cursor. */
+async function listAllMessages(c: AppContext, q: Record<string, string>) {
   const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const meetingId = q.meetingId;
-  const before = q.before;
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
-
-  // If no meetingId, fall back to generic list (existing behaviour)
-  if (!meetingId) {
-    const cursorLimit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-    const conditions: any[] = [isNull(t.deletedAt)];
-    if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
-    if (q.cursor) {
-      const [cur] = await db
-        .select({ createdAt: t.createdAt, id: t.id })
-        .from(t).where(eq(t.id, q.cursor)).limit(1);
-      if (cur?.createdAt) {
-        conditions.push(
-          sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-        );
-      }
-    }
-    const where = conditions.length ? and(...conditions) : undefined;
-    const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-    const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
-
-    try {
-      const [rows, countRes] = await Promise.all([
-        db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(cursorLimit + 1),
-        db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
-      ]);
-      const hasMore = rows.length > cursorLimit;
-      const data = hasMore ? rows.slice(0, cursorLimit) : rows;
-      const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
-      const totalCount = Number(countRes[0]?.count ?? 0);
-      return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
-    } catch (err) {
-      console.error('[app-api/meeting-messages] list failed:', err);
-      return error.internal(c, 'Failed to list meeting messages');
+  const cursorLimit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
+  if (q.cursor) {
+    const [cur] = await db
+      .select({ createdAt: t.createdAt, id: t.id })
+      .from(t).where(eq(t.id, q.cursor)).limit(1);
+    if (cur?.createdAt) {
+      conditions.push(
+        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
+      );
     }
   }
+  const where = conditions.length ? and(...conditions) : undefined;
+  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
+  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
 
-  // meetingId-scoped chat list (cursor pagination, htmlContent surfaced)
   try {
-    const conditions: any[] = [
+    const [rows, countRes] = await Promise.all([
+      db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(cursorLimit + 1),
+      db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
+    ]);
+    const hasMore = rows.length > cursorLimit;
+    const data = hasMore ? rows.slice(0, cursorLimit) : rows;
+    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const totalCount = Number(countRes[0]?.count ?? 0);
+    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+  } catch (err) {
+    console.error('[app-api/meeting-messages] list failed:', err);
+    return error.internal(c, 'Failed to list meeting messages');
+  }
+}
+
+/** meetingId-scoped chat list (cursor pagination, htmlContent surfaced). */
+async function listMeetingChat(c: AppContext, meetingId: string, before: string | undefined, limit: number) {
+  const db = c.get('tenantDb');
+  try {
+    const conditions: SQL[] = [
       eq(t.meetingId, meetingId),
       isNull(t.deletedAt),
     ];
@@ -125,6 +117,24 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
     console.error('[app-api/meeting-messages] chat list failed:', err);
     return error.internal(c, 'Failed to fetch meeting messages');
   }
+}
+
+/**
+ * GET / - List meeting chat messages with cursor pagination.
+ * ?meetingId= (required), ?before= (cursor), ?limit= (1-100, default 50)
+ * Surfaces `htmlContent` from metadata.htmlContent at the top level.
+ */
+app.get('/', requirePermission('meetings:read'), async (c) => {
+  const q = c.req.query();
+
+  const meetingId = q.meetingId;
+  const before = q.before;
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
+
+  // If no meetingId, fall back to generic list (existing behaviour)
+  if (!meetingId) return listAllMessages(c, q);
+
+  return listMeetingChat(c, meetingId, before, limit);
 });
 
 /**
