@@ -155,7 +155,8 @@ function numberTypeLabel(numberType: string): string {
 }
 
 function formatLocation(num: AvailableNumber): string {
-  return `${num.locality}${num.region ? `, ${num.region}` : ''}`;
+  const region = num.region ? `, ${num.region}` : '';
+  return `${num.locality}${region}`;
 }
 
 function buildPreviewSummaryFields(
@@ -210,8 +211,9 @@ function CartItemSummary({
 
   return (
     <div className={`group space-y-2 ${index > 0 ? 'pt-4 mt-4 border-t border-input' : ''}`}>
-      <div
-        className="flex items-center justify-between cursor-pointer"
+      <button
+        type="button"
+        className="flex w-full items-center justify-between text-left cursor-pointer"
         onClick={onToggle}
       >
         <div className="flex items-center gap-1">
@@ -223,7 +225,7 @@ function CartItemSummary({
           )}
         </div>
         <span className="text-sm font-medium">{formatMoney(cartCurrency, firstMonth)}</span>
-      </div>
+      </button>
 
       {isExpanded && (
         <div className="space-y-2 text-xs">
@@ -300,7 +302,16 @@ function AvailableNumberRow({
       className={`flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 cursor-pointer ${
         isPreviewed ? 'bg-gray-50 dark:bg-muted/50' : ''
       }`}
+      role="button"
+      tabIndex={0}
       onClick={onTogglePreview}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTogglePreview();
+        }
+      }}
     >
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <p className="text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">

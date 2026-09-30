@@ -226,7 +226,7 @@ export default function ActivitySettingsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isLoading && (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   {Array.from({ length: 6 }).map((_, j) => (
@@ -234,13 +234,15 @@ export default function ActivitySettingsPage() {
                   ))}
                 </TableRow>
               ))
-            ) : logs.length === 0 ? (
+            )}
+            {!isLoading && logs.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                   {ts.noLogs}
                 </TableCell>
               </TableRow>
-            ) : (
+            )}
+            {!isLoading && logs.length > 0 && (
               logs.flatMap((log) => {
                 const hasChanges = !!log.changes && Object.keys(log.changes).length > 0;
                 const hasData =
