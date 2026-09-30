@@ -103,6 +103,33 @@ function getInitials(name: string): string {
   return name.charAt(0).toUpperCase();
 }
 
+type ProjectOwnerRecord = Omit<Project['owner'], 'initials'> & { projectId: string };
+
+// Merge the resolved project owners into the project rows (projects without a
+// resolved owner are left untouched).
+function applyOwnersToProjects(projects: Project[], owners: (ProjectOwnerRecord | null)[]): Project[] {
+  const ownerByProject = new Map<string, ProjectOwnerRecord>();
+  for (const owner of owners) {
+    if (owner) ownerByProject.set(owner.projectId, owner);
+  }
+  return projects.map((project) => {
+    const ownerData = ownerByProject.get(project.id);
+    if (!ownerData) return project;
+    return {
+      ...project,
+      owner: {
+        name: ownerData.name,
+        initials: getInitials(ownerData.name),
+        userId: ownerData.userId,
+        email: ownerData.email,
+        avatar: ownerData.avatar,
+        role: ownerData.role,
+        joinedAt: ownerData.joinedAt,
+      },
+    };
+  });
+}
+
 // Status and priority configs are now built inside the component using i18n
 // (moved below the component definition start)
 
@@ -224,32 +251,8 @@ export function AllProjectsClient({
           return null;
         })
       ).then((owners) => {
-        const ownerMap = new Map<string, string>();
-        owners.forEach((o) => {
-          if (o) ownerMap.set(o.projectId, o.name);
-        });
-        if (ownerMap.size > 0) {
-          setProjects((prev) =>
-            prev.map((p) => {
-              const ownerName = ownerMap.get(p.id);
-              if (ownerName) {
-                const ownerData = owners.find(o => o?.projectId === p.id);
-                return {
-                  ...p,
-                  owner: {
-                    name: ownerName,
-                    initials: getInitials(ownerName),
-                    userId: ownerData?.userId,
-                    email: ownerData?.email,
-                    avatar: ownerData?.avatar,
-                    role: ownerData?.role,
-                    joinedAt: ownerData?.joinedAt,
-                  },
-                };
-              }
-              return p;
-            })
-          );
+        if (owners.some(Boolean)) {
+          setProjects((prev) => applyOwnersToProjects(prev, owners));
         }
       });
     }
