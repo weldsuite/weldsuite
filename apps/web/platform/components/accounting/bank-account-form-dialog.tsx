@@ -111,6 +111,9 @@ export function BankAccountFormDialog({
     (createMutation.error as Error | null)?.message ??
     (updateMutation.error as Error | null)?.message ??
     null;
+  const submitLabel = isEdit
+    ? t('sweep.weldbooks.saveChanges')
+    : t('sweep.weldbooks.bankAccountForm.createButton');
 
   const handleSubmit = () => {
     const payload = {
@@ -265,10 +268,8 @@ export function BankAccountFormDialog({
           <Button onClick={handleSubmit} disabled={!name || pending}>
             {pending ? (
               <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t('sweep.weldbooks.saving')}</>
-            ) : isEdit ? (
-              t('sweep.weldbooks.saveChanges')
             ) : (
-              t('sweep.weldbooks.bankAccountForm.createButton')
+              submitLabel
             )}
           </Button>
         </DialogFooter>
