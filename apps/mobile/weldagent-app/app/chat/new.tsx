@@ -42,35 +42,37 @@ export default function NewChatScreen() {
     if (res.data?.id) router.replace(`/chat/${res.data.id}`);
   };
 
+  const renderContent = () => {
+    if (error) return <ErrorState message={error} onRetry={() => void load()} />;
+    if (loading) return <ListSkeleton count={4} />;
+    return (
+      <ScrollView contentContainerStyle={styles.content}>
+        <RecordRow
+          title={t.chat.personal}
+          subtitle={t.chat.personalSub}
+          leading={<IconTile icon={Sparkles} color={BRAND} />}
+          onPress={() => void start()}
+        />
+        {agents.length === 0 ? (
+          <EmptyState title={t.agents.emptyTitle} subtitle={t.agents.emptySub} />
+        ) : (
+          agents.map((agent) => (
+            <RecordRow
+              key={agent.id}
+              title={agent.name}
+              subtitle={agent.description ?? t.chat.pickAgent}
+              leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
+              onPress={() => void start(agent.id)}
+            />
+          ))
+        )}
+      </ScrollView>
+    );
+  };
+
   return (
     <Screen header={<ScreenHeader title={t.chat.newTitle} showBack />}>
-      {error ? (
-        <ErrorState message={error} onRetry={() => void load()} />
-      ) : loading ? (
-        <ListSkeleton count={4} />
-      ) : (
-        <ScrollView contentContainerStyle={styles.content}>
-          <RecordRow
-            title={t.chat.personal}
-            subtitle={t.chat.personalSub}
-            leading={<IconTile icon={Sparkles} color={BRAND} />}
-            onPress={() => void start()}
-          />
-          {agents.length === 0 ? (
-            <EmptyState title={t.agents.emptyTitle} subtitle={t.agents.emptySub} />
-          ) : (
-            agents.map((agent) => (
-              <RecordRow
-                key={agent.id}
-                title={agent.name}
-                subtitle={agent.description ?? t.chat.pickAgent}
-                leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
-                onPress={() => void start(agent.id)}
-              />
-            ))
-          )}
-        </ScrollView>
-      )}
+      {renderContent()}
     </Screen>
   );
 }
