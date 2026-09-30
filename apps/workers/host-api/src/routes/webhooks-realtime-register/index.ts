@@ -35,6 +35,75 @@ export function rtrProcessCacheKey(processId: number | string): string {
 
 app.get('/', (c) => c.json({ ok: true, service: 'realtime-register-webhook' }));
 
+type Registrar = NonNullable<ReturnType<typeof getRealtimeRegistrar>>;
+type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+
+function extractProcessId(payload: Record<string, unknown>): number {
+  const data = payload.data as Record<string, unknown> | undefined;
+  const processIdRaw = payload.processId ?? payload.process_id ?? data?.processId ?? data?.id;
+  if (typeof processIdRaw === 'number') return processIdRaw;
+  if (typeof processIdRaw === 'string') return Number.parseInt(processIdRaw, 10);
+  return Number.NaN;
+}
+
+async function pollUnmappedProcess(rtr: Registrar, processId: number): Promise<void> {
+  try {
+    const outcome = await rtr.pollProcess(processId);
+    console.log(`[RTR Webhook] process ${logSafe(processId)} → ${logSafe(outcome)} (no cache mapping)`);
+  } catch (err) {
+    console.error('[RTR Webhook] process poll failed:', err);
+  }
+}
+
+async function pollRenewal(
+  env: Env,
+  tenantDb: TenantDb,
+  rtr: Registrar,
+  mapping: RtrProcessCache & { domainId: string },
+  processId: number,
+): Promise<void> {
+  const polled = await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
+  console.log(`[RTR Webhook] polled renewal ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
+  if (!polled || (polled.registrationStatus !== 'renewed' && polled.registrationStatus !== 'failed')) {
+    return;
+  }
+  await publishEntityEventRaw({
+    env,
+    db: tenantDb,
+    workspaceId: mapping.workspaceId,
+    userId: 'system',
+    entityType: 'domain',
+    action: 'updated',
+    entityId: mapping.domainId,
+    data: { id: mapping.domainId, name: polled.fullDomain, status: polled.status },
+    source: 'system',
+  });
+}
+
+async function syncMappedProcess(
+  env: Env,
+  rtr: Registrar,
+  mapping: RtrProcessCache,
+  processId: number,
+): Promise<void> {
+  const tenantDb = await getTenantDbForWorkspace(env, mapping.workspaceId);
+
+  if (mapping.kind === 'registration' && mapping.domainId) {
+    await domainsService.pollRegistrationProcess(tenantDb, rtr, mapping.domainId);
+    console.log(`[RTR Webhook] polled registration ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
+  } else if (mapping.kind === 'renewal' && mapping.domainId) {
+    await pollRenewal(env, tenantDb, rtr, { ...mapping, domainId: mapping.domainId }, processId);
+  } else if (mapping.kind === 'transfer' && mapping.transferId) {
+    await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
+    console.log(`[RTR Webhook] synced transfer ${logSafe(mapping.transferId)} for process ${logSafe(processId)}`);
+  }
+
+  const outcome = await rtr.pollProcess(processId);
+  if (outcome !== 'pending' && env.WORKSPACE_CACHE) {
+    await env.WORKSPACE_CACHE.delete(rtrProcessCacheKey(processId));
+  }
+}
+
 app.post('/', async (c) => {
   // Fail closed: unlike some optional-token webhooks, this receiver can drive
   // tenant DB writes and registrar API calls from guessable process ids.
@@ -54,17 +123,7 @@ app.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
 
-  const processIdRaw =
-    payload.processId ??
-    payload.process_id ??
-    (payload.data as Record<string, unknown> | undefined)?.processId ??
-    (payload.data as Record<string, unknown> | undefined)?.id;
-  const processId =
-    typeof processIdRaw === 'number'
-      ? processIdRaw
-      : typeof processIdRaw === 'string'
-        ? Number.parseInt(processIdRaw, 10)
-        : Number.NaN;
+  const processId = extractProcessId(payload);
 
   if (!Number.isFinite(processId)) {
     console.log('[RTR Webhook] no processId — ack only', JSON.stringify({ keys: Object.keys(payload) }));
@@ -79,12 +138,7 @@ app.post('/', async (c) => {
 
   const cacheRaw = await c.env.WORKSPACE_CACHE?.get(rtrProcessCacheKey(processId));
   if (!cacheRaw) {
-    try {
-      const outcome = await rtr.pollProcess(processId);
-      console.log(`[RTR Webhook] process ${logSafe(processId)} → ${logSafe(outcome)} (no cache mapping)`);
-    } catch (err) {
-      console.error('[RTR Webhook] process poll failed:', err);
-    }
+    await pollUnmappedProcess(rtr, processId);
     return c.json({ received: true, processId, mapped: false });
   }
 
@@ -96,39 +150,7 @@ app.post('/', async (c) => {
   }
 
   try {
-    const tenantDb = await getTenantDbForWorkspace(c.env, mapping.workspaceId);
-
-    if (mapping.kind === 'registration' && mapping.domainId) {
-      await domainsService.pollRegistrationProcess(tenantDb, rtr, mapping.domainId);
-      console.log(`[RTR Webhook] polled registration ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
-    } else if (mapping.kind === 'renewal' && mapping.domainId) {
-      const polled = await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
-      console.log(`[RTR Webhook] polled renewal ${logSafe(mapping.domainId)} for process ${logSafe(processId)}`);
-      if (
-        polled &&
-        (polled.registrationStatus === 'renewed' || polled.registrationStatus === 'failed')
-      ) {
-        await publishEntityEventRaw({
-          env: c.env,
-          db: tenantDb,
-          workspaceId: mapping.workspaceId,
-          userId: 'system',
-          entityType: 'domain',
-          action: 'updated',
-          entityId: mapping.domainId,
-          data: { id: mapping.domainId, name: polled.fullDomain, status: polled.status },
-          source: 'system',
-        });
-      }
-    } else if (mapping.kind === 'transfer' && mapping.transferId) {
-      await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
-      console.log(`[RTR Webhook] synced transfer ${logSafe(mapping.transferId)} for process ${logSafe(processId)}`);
-    }
-
-    const outcome = await rtr.pollProcess(processId);
-    if (outcome !== 'pending' && c.env.WORKSPACE_CACHE) {
-      await c.env.WORKSPACE_CACHE.delete(rtrProcessCacheKey(processId));
-    }
+    await syncMappedProcess(c.env, rtr, mapping, processId);
   } catch (err) {
     // Return 5xx so Realtime Register retries; ack-on-failure loses the delivery.
     console.error('[RTR Webhook] tenant update failed:', err);
