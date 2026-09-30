@@ -212,7 +212,7 @@ test.describe('Error Handling', () => {
 
       // Simulate connection drop
       await page.context().setOffline(true);
-      await page.waitForTimeout(500);
+      await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
 
       // The conversation stays usable while the connection is down
       await expect(widgetPage.chatView).toBeVisible();
@@ -350,7 +350,7 @@ test.describe('Error Handling', () => {
 
         // Simulate error
         await page.context().setOffline(true);
-        await page.waitForTimeout(200);
+        await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
         await page.context().setOffline(false);
 
         // Input should be preserved

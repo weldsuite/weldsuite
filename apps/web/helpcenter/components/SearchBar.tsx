@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 import { useTranslations } from '@weldsuite/i18n/lazy-provider'
@@ -17,6 +17,12 @@ function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: Readonly<
   const [query, setQuery] = useState(defaultValue?.trim() || '')
   const t = useTranslations('common')
   const hero = size === 'hero'
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Focus imperatively on mount (search results page) instead of the `autoFocus` attribute.
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,10 +45,10 @@ function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: Readonly<
         <path d="m17 17-3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
       <input
+        ref={inputRef}
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        autoFocus={autoFocus}
         placeholder={t.helpcenter.searchPlaceholder}
         aria-label={t.actions.search}
         className={clsx(

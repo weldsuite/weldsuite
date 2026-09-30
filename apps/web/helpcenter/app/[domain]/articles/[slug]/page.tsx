@@ -64,7 +64,7 @@ function extractHeadings(html: string): { id: string; text: string; level: numbe
     const level = Number.parseInt(match[1], 10)
     const attrs = match[2]
     const inner = match[3]
-    const text = inner.replace(/<[^>]*>/g, '').trim()
+    const text = inner.replace(/<[^<>]*>/g, '').trim()
     const idAttr = attrs.match(/\bid="([^"]*)"/i)?.[1]
     const id =
       idAttr ||

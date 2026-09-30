@@ -66,7 +66,7 @@ export function TableOfContents({ headings }: Readonly<{ headings: Heading[] }>)
         >
           On this page
         </h2>
-        <ol role="list" className="mt-4 space-y-2.5 text-sm">
+        <ol className="mt-4 space-y-2.5 text-sm">
           {headings.map((heading) => (
             <li key={heading.id} className={heading.level === 3 ? 'pl-4' : ''}>
               <Link
