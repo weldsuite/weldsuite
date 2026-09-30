@@ -355,6 +355,7 @@ function widgetClassName({
   shouldShow: boolean;
   hasAnimated: boolean;
 }): string {
+  const visibilityClass = shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only';
   return cn(
     'group/pip bg-card p-2',
     isInPipWindow
@@ -362,7 +363,7 @@ function widgetClassName({
       : cn(
           'fixed z-[9999] w-[290px] rounded-2xl shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
           isDragging && 'cursor-grabbing select-none',
-          shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only',
+          visibilityClass,
           !hasAnimated && shouldShow && !isDragging && 'animate-in slide-in-from-bottom-4 fade-in duration-300',
         ),
   );

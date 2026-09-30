@@ -25,6 +25,11 @@ import {
 
 const PAGE_SIZE = 25;
 
+function applyLabelAction(current: string[], labelName: string, action: 'add' | 'remove'): string[] {
+  if (action === 'remove') return current.filter((l) => l !== labelName);
+  return current.includes(labelName) ? current : [...current, labelName];
+}
+
 export default function UnifiedLabelLayout({
   children,
 }: Readonly<{
@@ -161,12 +166,7 @@ export default function UnifiedLabelLayout({
         prev.map((thread) => {
           if (thread.threadId !== threadId) return thread;
           const current = (thread.labels as string[]) || [];
-          const updated =
-            action === 'add'
-              ? current.includes(labelName)
-                ? current
-                : [...current, labelName]
-              : current.filter((l) => l !== labelName);
+          const updated = applyLabelAction(current, labelName, action);
           return { ...thread, labels: updated };
         }),
       );
