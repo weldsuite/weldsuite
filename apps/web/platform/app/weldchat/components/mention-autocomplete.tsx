@@ -13,7 +13,7 @@
  * branches on `kind` to insert the right inline token shape.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AtSign, Bot, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -265,6 +265,16 @@ export function MentionAutocomplete({
           {filteredPeople.map((s, i) => {
             const idx = peopleStart + i;
             const active = idx === activeIndex;
+            let trailing: ReactNode = null;
+            if (s.isAgent) {
+              trailing = (
+                <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+                  {t.weldchat.mentionAutocomplete.agent}
+                </span>
+              );
+            } else if (s.email) {
+              trailing = <span className="text-muted-foreground text-xs truncate">{s.email}</span>;
+            }
             return (
               <Button
                 key={`p-${s.userId}`}
@@ -292,13 +302,7 @@ export function MentionAutocomplete({
                   </Avatar>
                 )}
                 <span className="font-medium truncate">{s.name}</span>
-                {s.isAgent ? (
-                  <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
-                    {t.weldchat.mentionAutocomplete.agent}
-                  </span>
-                ) : s.email ? (
-                  <span className="text-muted-foreground text-xs truncate">{s.email}</span>
-                ) : null}
+                {trailing}
               </Button>
             );
           })}

@@ -150,8 +150,8 @@ function htmlToContent(html: string): string {
   // Replace entity-mention badges with `<@type:id|Label>` tokens FIRST so
   // they are not picked up by the user-mention selector below.
   div.querySelectorAll('.entity-mention-badge').forEach((badge) => {
-    const entity = badge.getAttribute('data-entity'); // "type:id"
-    const label = badge.getAttribute('data-label') || badge.textContent || '';
+    const entity = (badge as HTMLElement).dataset.entity; // "type:id"
+    const label = (badge as HTMLElement).dataset.label || badge.textContent || '';
     if (entity) {
       const colonIdx = entity.indexOf(':');
       if (colonIdx > 0) {
@@ -167,7 +167,7 @@ function htmlToContent(html: string): string {
 
   // Replace user-mention badges with `<@userId>` tokens
   div.querySelectorAll('.mention-badge').forEach((badge) => {
-    const userId = badge.getAttribute('data-userid');
+    const userId = (badge as HTMLElement).dataset.userid;
     if (userId) badge.replaceWith(`<@${userId}>`);
   });
 
@@ -396,7 +396,7 @@ export function MessageInput({
   // so the palette can guide the user.
   const handleCreateTaskCommand = useCallback(
     (text: string): void => {
-      const match = text.match(/^\/createtask\s+([\s\S]+)$/i);
+      const match = text.match(/^\/createtask\s+(\S[\s\S]*)$/i);
       if (!match) return;
       const title = match[1].trim();
       if (!title) return;
@@ -538,11 +538,9 @@ export function MessageInput({
         waveformHistory.current = [...waveformHistory.current.slice(1), Math.max(0.08, Math.min(1, audioLevelRef.current * 2))];
         setWaveformBars([...waveformHistory.current]);
       }, 80);
-    } else {
-      if (waveformInterval.current) {
-        clearInterval(waveformInterval.current);
-        waveformInterval.current = null;
-      }
+    } else if (waveformInterval.current) {
+      clearInterval(waveformInterval.current);
+      waveformInterval.current = null;
     }
     return () => {
       if (waveformInterval.current) {
@@ -966,6 +964,9 @@ export function MessageInput({
   const hasContent = content.trim() || attachments.length > 0;
   const isUploading = uploadingCount > 0;
 
+  let containerTopPadding = 'pt-[10px]';
+  if (replyTo || attachments.length > 0 || isUploading) containerTopPadding = 'pt-[20px]';
+
   return (
     <div className="px-2 pb-2 md:px-4 md:pb-4 flex-shrink-0 relative">
       {/* Badge styles */}
@@ -1033,8 +1034,9 @@ export function MessageInput({
       <div
         className={cn(
           "relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text",
-          replyTo ? "pt-[20px]" : attachments.length > 0 || isUploading ? "pt-[20px]" : "pt-[10px]"
+          containerTopPadding
         )}
+        role="presentation"
         onClick={(e) => {
           // Focus editor when clicking anywhere in the container (but not on buttons/popovers)
           const target = e.target as HTMLElement;
@@ -1118,7 +1120,7 @@ export function MessageInput({
             {(attachments.length > 0 || isUploading) && (
               <div className="flex flex-wrap gap-2 mb-3 px-[10px]">
                 {attachments.map((att, i) => (
-                  <div key={i} className="relative group">
+                  <div key={att.id} className="relative group">
                     {isImageFile(att.fileName) && att.url ? (
                       <div className="relative">
                         <img
@@ -1153,13 +1155,10 @@ export function MessageInput({
                   </div>
                 ))}
                 {isUploading && (
-                  <div
-                    className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground"
-                    role="status"
-                  >
+                  <output className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
                     {t.weldchat.messageInput.uploading}
-                  </div>
+                  </output>
                 )}
               </div>
             )}
