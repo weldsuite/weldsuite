@@ -162,6 +162,45 @@ export interface SyncBillingMirrorParams {
   stripeSecretKey?: string;
 }
 
+async function syncDigestTimezone(
+  masterDb: MasterDatabase,
+  workspaceId: string,
+  timezone: string,
+): Promise<void> {
+  try {
+    await masterDb
+      .update(masterSchema.digestSchedules)
+      .set({ timezone, updatedAt: new Date() })
+      .where(eq(masterSchema.digestSchedules.workspaceId, workspaceId));
+  } catch (err) {
+    console.error('[app-api/workspace-settings] digest timezone sync failed:', err);
+  }
+}
+
+async function syncStripeCustomer(
+  stripeSecretKey: string,
+  stripeCustomerId: string,
+  data: UpdateWorkspaceSettingsInput,
+): Promise<void> {
+  try {
+    const customerName = data.legalName || data.tradingName || undefined;
+    await updateStripeCustomer(stripeSecretKey, stripeCustomerId, {
+      ...(customerName && { name: customerName }),
+      ...(data.email && { email: data.email }),
+      address: {
+        ...(data.addressLine1 && { line1: data.addressLine1 }),
+        ...(data.addressLine2 && { line2: data.addressLine2 }),
+        ...(data.city && { city: data.city }),
+        ...(data.state && { state: data.state }),
+        ...(data.postalCode && { postal_code: data.postalCode }),
+        ...(data.country && { country: data.country }),
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/workspace-settings] Stripe customer sync failed:', err);
+  }
+}
+
 /**
  * Fan the settings save out to the master `digest_schedules` row and the Stripe
  * customer. Best-effort end to end: every failure is logged and swallowed so a
@@ -187,35 +226,12 @@ export async function syncBillingMirror({
 
     // Digest cron reads the timezone from master, so keep it in step.
     if (data.timezone) {
-      try {
-        await masterDb
-          .update(masterSchema.digestSchedules)
-          .set({ timezone: data.timezone, updatedAt: new Date() })
-          .where(eq(masterSchema.digestSchedules.workspaceId, workspace.id));
-      } catch (err) {
-        console.error('[app-api/workspace-settings] digest timezone sync failed:', err);
-      }
+      await syncDigestTimezone(masterDb, workspace.id, data.timezone);
     }
 
     // Stripe invoices render the legal entity + address from the customer.
     if (workspace.stripeCustomerId && stripeSecretKey) {
-      try {
-        const customerName = data.legalName || data.tradingName || undefined;
-        await updateStripeCustomer(stripeSecretKey, workspace.stripeCustomerId, {
-          ...(customerName && { name: customerName }),
-          ...(data.email && { email: data.email }),
-          address: {
-            ...(data.addressLine1 && { line1: data.addressLine1 }),
-            ...(data.addressLine2 && { line2: data.addressLine2 }),
-            ...(data.city && { city: data.city }),
-            ...(data.state && { state: data.state }),
-            ...(data.postalCode && { postal_code: data.postalCode }),
-            ...(data.country && { country: data.country }),
-          },
-        });
-      } catch (err) {
-        console.error('[app-api/workspace-settings] Stripe customer sync failed:', err);
-      }
+      await syncStripeCustomer(stripeSecretKey, workspace.stripeCustomerId, data);
     }
   } catch (err) {
     console.error('[app-api/workspace-settings] billing mirror sync failed:', err);
