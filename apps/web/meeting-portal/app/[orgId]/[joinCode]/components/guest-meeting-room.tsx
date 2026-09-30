@@ -20,6 +20,7 @@ import { playHandRaiseSound, playHandLowerSound, playMuteSound, playUnmuteSound,
 
 import { GuestChatPanel } from '../guest-chat-panel';
 import { useGuestPiP, type PiPFocused } from './guest-pip';
+import { randomToken } from '@/lib/random-id';
 
 /** A transcript frame from RTK's AI channel. */
 interface RtkTranscript {
@@ -205,7 +206,7 @@ export function GuestMeetingRoom({
           return next;
         }
         next.push({
-          id: t.id ?? `cap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: t.id ?? `cap-${Date.now()}-${randomToken(4)}`,
           peerId: t.peerId ?? '',
           speakerName: t.name ?? 'Speaker',
           text: t.transcript ?? '',

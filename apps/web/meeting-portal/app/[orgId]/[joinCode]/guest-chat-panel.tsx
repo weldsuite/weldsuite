@@ -19,6 +19,7 @@ import {
   type ChatMessageAttachment,
   type ChatParticipant,
 } from '@weldsuite/weldmeet-ui';
+import { randomToken } from '@/lib/random-id';
 
 // ============================================================================
 // Types
@@ -292,7 +293,7 @@ export function GuestChatPanel({
       if (!content.trim() && ready.length === 0) return;
 
       // Optimistic append
-      const optimisticId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const optimisticId = `opt_${Date.now()}_${randomToken(6)}`;
       const optimistic: ChatMessage = {
         id: optimisticId,
         authorId: guestUserId,
@@ -320,7 +321,7 @@ export function GuestChatPanel({
             attachments:
               ready.length > 0
                 ? ready.map((a) => ({
-                    id: a.id ?? `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    id: a.id ?? `att_${Date.now()}_${randomToken(6)}`,
                     fileName: a.fileName,
                     fileSize: a.fileSize ?? 0,
                     mimeType: a.mimeType ?? 'application/octet-stream',

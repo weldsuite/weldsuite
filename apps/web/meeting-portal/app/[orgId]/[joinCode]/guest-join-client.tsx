@@ -21,6 +21,7 @@ import {
   type NoiseSuppressor,
 } from '@weldsuite/df3-noise-suppression';
 import { useVirtualBackground, type ViewMode } from '@weldsuite/weldmeet-ui';
+import { randomToken } from '@/lib/random-id';
 
 /**
  * RNNoise gate for the guest portal. meeting-portal has no FeatureFlagProvider
@@ -144,7 +145,7 @@ export default function GuestJoinClient() {
   // tile/avatar color does not flicker as the guest types their name/email.
   const [colorSeed] = useState(() => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `${Date.now()}-${randomToken(11)}`;
   });
   const personTheme = useMemo(() => getPersonTheme(colorSeed), [colorSeed]);
   const [isFullscreen, setIsFullscreen] = useState(false);

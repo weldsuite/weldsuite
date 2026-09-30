@@ -9,6 +9,7 @@ import { sql } from 'drizzle-orm';
 import { messagesListQuerySchema, messagesPostInputSchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
 import { verifyGuestParticipant } from '@/lib/meeting-guest';
+import { randomToken } from '@/lib/random-id';
 
 interface RouteContext {
   params: Promise<{ meetingId: string }>;
@@ -16,7 +17,7 @@ interface RouteContext {
 
 function generateId(prefix: string): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomToken(8);
   return `${prefix}_${timestamp}${random}`;
 }
 

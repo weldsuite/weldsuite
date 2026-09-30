@@ -39,7 +39,10 @@ interface Options {
 }
 
 function newClientId(): string {
-  return `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+  return `c_${Date.now().toString(36)}${suffix}`;
 }
 
 function time(value: string | null | undefined): number {
