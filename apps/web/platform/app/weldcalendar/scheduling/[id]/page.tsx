@@ -31,6 +31,18 @@ import { getTranslations } from '@/lib/i18n';
 
 type BookingFormError = 'errorAddressRequired' | 'errorSlugEmpty';
 
+interface CustomField {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+const createCustomField = (label: string, required: boolean): CustomField => ({
+  id: crypto.randomUUID(),
+  label,
+  required,
+});
+
 const sanitizeSlug = (raw: string) =>
   raw
     .toLowerCase()
@@ -166,7 +178,7 @@ export default function BookingPageDetailPage() {
   const [locationValue, setLocationValue] = useState('');
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [calendarInvite, setCalendarInvite] = useState(true);
-  const [customFields, setCustomFields] = useState<{ label: string; required: boolean }[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [allowGuests, setAllowGuests] = useState(true);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [addItemType, setAddItemType] = useState<'select' | 'phone' | 'custom'>('select');
@@ -177,6 +189,7 @@ export default function BookingPageDetailPage() {
   const [timezone, setTimezone] = useState(browserTz);
   const [tzOpen, setTzOpen] = useState(false);
   const [tzSearch, setTzSearch] = useState('');
+  const tzSearchInputRef = useRef<HTMLInputElement>(null);
 
   const allTimezones = listTimezones(browserTz);
 
@@ -421,15 +434,23 @@ export default function BookingPageDetailPage() {
                       <span>{timezone}</span>
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-64 p-0" align="start" side="bottom">
+                  <PopoverContent
+                    className="w-64 p-0"
+                    align="start"
+                    side="bottom"
+                    onOpenAutoFocus={(e) => {
+                      e.preventDefault();
+                      tzSearchInputRef.current?.focus();
+                    }}
+                  >
                     <div className="border-b border-gray-200 dark:border-border">
                       <input
+                        ref={tzSearchInputRef}
                         type="text"
                         placeholder={tc.bookingDetail.searchTimezonePlaceholder}
                         value={tzSearch}
                         onChange={(e) => setTzSearch(e.target.value)}
                         className="w-full px-3 py-2 text-sm outline-none bg-transparent"
-                        autoFocus
                       />
                     </div>
                     <div className="max-h-60 overflow-y-auto p-1">
@@ -473,8 +494,8 @@ export default function BookingPageDetailPage() {
               </div>
 
               {/* Custom fields */}
-              {customFields.map((field, i) => (
-                <div key={i} className="space-y-2">
+              {customFields.map((field) => (
+                <div key={field.id} className="space-y-2">
                   <Label className="text-sm font-semibold">
                     {field.label} {field.required && <span className="text-destructive">*</span>}
                   </Label>
@@ -672,12 +693,12 @@ export default function BookingPageDetailPage() {
                 <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md bg-muted/30">
                   {tc.bookingDetail.fieldEmail}<span className="text-destructive ml-0.5">*</span>
                 </span>
-                {customFields.map((field, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md bg-muted/30">
+                {customFields.map((field) => (
+                  <span key={field.id} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md bg-muted/30">
                     {field.label}{field.required && <span className="text-destructive">*</span>}
                     <Button
                       variant="ghost"
-                      onClick={() => setCustomFields((prev) => prev.filter((_, idx) => idx !== i))}
+                      onClick={() => setCustomFields((prev) => prev.filter((f) => f.id !== field.id))}
                       className="ml-1 text-muted-foreground hover:text-destructive transition-colors h-auto p-0"
                     >
                       <X className="h-3 w-3" />
@@ -735,7 +756,7 @@ export default function BookingPageDetailPage() {
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && newItemLabel.trim()) {
-                              setCustomFields((prev) => [...prev, { label: newItemLabel.trim(), required: newItemRequired }]);
+                              setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
                               setNewItemLabel('');
                               setNewItemRequired(false);
                               setAddItemOpen(false);
@@ -762,9 +783,9 @@ export default function BookingPageDetailPage() {
                       disabled={addItemType === 'custom' && !newItemLabel.trim()}
                       onClick={() => {
                         if (addItemType === 'custom') {
-                          setCustomFields((prev) => [...prev, { label: newItemLabel.trim(), required: newItemRequired }]);
+                          setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
                         } else {
-                          setCustomFields((prev) => [...prev, { label: 'Phone number', required: true }]);
+                          setCustomFields((prev) => [...prev, createCustomField('Phone number', true)]);
                         }
                         setNewItemLabel('');
                         setNewItemRequired(false);

@@ -47,6 +47,12 @@ interface RawMemberOption {
   email?: string;
 }
 
+function getChannelKind(ch: RawChannelOption): 'private' | 'group' | 'channel' {
+  if (ch.isPrivate || ch.type === 'private') return 'private';
+  if (ch.type === 'group') return 'group';
+  return 'channel';
+}
+
 interface ForwardMessageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -98,11 +104,7 @@ export function ForwardMessageDialog({
         id: `channel:${ch.id}`,
         rawId: ch.id,
         name: ch.name ?? '',
-        kind: (ch.isPrivate || ch.type === 'private'
-          ? 'private'
-          : ch.type === 'group'
-          ? 'group'
-          : 'channel') as 'private' | 'group' | 'channel',
+        kind: getChannelKind(ch),
       }));
 
     const userItems = members
