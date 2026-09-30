@@ -235,16 +235,17 @@ function mapProductOptionValues(
   return Object.keys(values).length ? values : null;
 }
 
+function rawProductVariants(record: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (Array.isArray(record._variations)) return record._variations as Array<Record<string, unknown>>;
+  if (Array.isArray(record.variations) && record.variations.some((v) => v && typeof v === 'object')) {
+    return record.variations as Array<Record<string, unknown>>;
+  }
+  if (Array.isArray(record.variants)) return record.variants as Array<Record<string, unknown>>;
+  return [];
+}
+
 function mapProductVariants(record: Record<string, unknown>): MappedProductVariant[] {
-  const wooRaw = Array.isArray(record._variations)
-    ? (record._variations as Array<Record<string, unknown>>)
-    : Array.isArray(record.variations) && record.variations.some((v) => v && typeof v === 'object')
-      ? (record.variations as Array<Record<string, unknown>>)
-      : null;
-  const shopifyRaw = !wooRaw && Array.isArray(record.variants)
-    ? (record.variants as Array<Record<string, unknown>>)
-    : null;
-  const raw = wooRaw ?? shopifyRaw ?? [];
+  const raw = rawProductVariants(record);
   if (raw.length === 0) return [];
 
   const productOptions = Array.isArray(record.options)

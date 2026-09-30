@@ -70,17 +70,73 @@ async function putBinary(args: {
   return args.key;
 }
 
+type AttachmentSyncArgs = {
+  ctx: MoneybirdAttachmentSyncContext;
+  externalEntityType: string;
+  externalId: string;
+  record: Record<string, unknown>;
+};
+
+function takeAttachmentBudget(budget: MoneybirdAttachmentBudget): boolean {
+  if (budget.remaining <= 0) return false;
+  budget.remaining -= 1;
+  return true;
+}
+
+function errMessage(err: unknown): unknown {
+  return err instanceof Error ? err.message : err;
+}
+
+/** Soft-fail download of the sales invoice PDF; returns its storage key or null. */
+async function downloadSalesInvoicePdfKey(args: AttachmentSyncArgs, base: string): Promise<string | null> {
+  try {
+    const pdf = await args.ctx.client.downloadSalesInvoicePdf(args.externalId);
+    // Stable key so re-sync overwrites the same object.
+    return await putBinary({
+      storage: args.ctx.storage,
+      key: `${base}/invoice.pdf`,
+      download: pdf,
+    });
+  } catch (err) {
+    console.warn(
+      `[connectors/moneybird-attachments] sales invoice PDF ${args.externalId}:`,
+      errMessage(err),
+    );
+    return null;
+  }
+}
+
+/** Soft-fail download of one document attachment; returns its storage key or null. */
+async function downloadAttachmentKey(
+  args: AttachmentSyncArgs,
+  base: string,
+  kind: MoneybirdDocumentAttachmentKind,
+  att: { id: string; filename: string | null },
+): Promise<string | null> {
+  try {
+    const download = await args.ctx.client.downloadDocumentAttachment({
+      kind,
+      documentId: args.externalId,
+      attachmentId: att.id,
+    });
+    const filename = safeFilename(download.filename || att.filename, `attachment-${att.id}`);
+    const key = `${base}/attachments/${att.id}/${filename}`;
+    return await putBinary({ storage: args.ctx.storage, key, download });
+  } catch (err) {
+    console.warn(
+      `[connectors/moneybird-attachments] attachment ${args.externalId}/${att.id}:`,
+      errMessage(err),
+    );
+    return null;
+  }
+}
+
 /**
  * Download Moneybird files for one invoice/bill record into R2.
  * Returns storage keys, or `null` when the download budget is exhausted so the
  * caller can leave `attachmentKeys` empty and retry on a later sync.
  */
-export async function syncMoneybirdDocumentAttachments(args: {
-  ctx: MoneybirdAttachmentSyncContext;
-  externalEntityType: string;
-  externalId: string;
-  record: Record<string, unknown>;
-}): Promise<string[] | null> {
+export async function syncMoneybirdDocumentAttachments(args: AttachmentSyncArgs): Promise<string[] | null> {
   const kind = attachmentKindForExternalType(args.externalEntityType);
   if (!kind) return [];
 
@@ -88,58 +144,25 @@ export async function syncMoneybirdDocumentAttachments(args: {
   const base = `workspaces/${args.ctx.workspaceId}/connectors/moneybird/${adminId}/${args.externalEntityType}/${args.externalId}`;
   const keys: string[] = [];
 
-  const takeBudget = (): boolean => {
-    if (args.ctx.budget.remaining <= 0) return false;
-    args.ctx.budget.remaining -= 1;
-    return true;
-  };
-
   try {
     if (kind === 'sales_invoice') {
-      if (!takeBudget()) return null;
-      try {
-        const pdf = await args.ctx.client.downloadSalesInvoicePdf(args.externalId);
-        // Stable key so re-sync overwrites the same object.
-        keys.push(
-          await putBinary({
-            storage: args.ctx.storage,
-            key: `${base}/invoice.pdf`,
-            download: pdf,
-          }),
-        );
-      } catch (err) {
-        console.warn(
-          `[connectors/moneybird-attachments] sales invoice PDF ${args.externalId}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
+      if (!takeAttachmentBudget(args.ctx.budget)) return null;
+      const pdfKey = await downloadSalesInvoicePdfKey(args, base);
+      if (pdfKey) keys.push(pdfKey);
     }
 
     for (const att of listAttachmentMeta(args.record)) {
-      if (!takeBudget()) {
+      if (!takeAttachmentBudget(args.ctx.budget)) {
         // Partial progress — keep what we have so far; empty only when nothing landed.
         return keys.length > 0 ? keys : null;
       }
-      try {
-        const download = await args.ctx.client.downloadDocumentAttachment({
-          kind,
-          documentId: args.externalId,
-          attachmentId: att.id,
-        });
-        const filename = safeFilename(download.filename || att.filename, `attachment-${att.id}`);
-        const key = `${base}/attachments/${att.id}/${filename}`;
-        keys.push(await putBinary({ storage: args.ctx.storage, key, download }));
-      } catch (err) {
-        console.warn(
-          `[connectors/moneybird-attachments] attachment ${args.externalId}/${att.id}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
+      const key = await downloadAttachmentKey(args, base, kind, att);
+      if (key) keys.push(key);
     }
   } catch (err) {
     console.warn(
       `[connectors/moneybird-attachments] ${args.externalEntityType}/${args.externalId}:`,
-      err instanceof Error ? err.message : err,
+      errMessage(err),
     );
   }
 
