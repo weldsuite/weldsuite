@@ -600,6 +600,7 @@ export const sweep = {
       "articleTitlePlaceholder": "e.g., How to get started"
     },
     "helpEditor": {
+      "resizeImageHandle": "Cambiar el tamaño de la imagen",
       "boldTooltip": "Bold (Ctrl+B)",
       "italicTooltip": "Italic (Ctrl+I)",
       "underlineTooltip": "Underline (Ctrl+U)",

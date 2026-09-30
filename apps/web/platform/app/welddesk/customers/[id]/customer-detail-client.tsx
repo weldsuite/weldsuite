@@ -78,85 +78,34 @@ interface CustomerDetailClientProps {
   };
 }
 
-export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailClientProps>) {
-  const router = useRouter();
-  const { t } = useI18n();
-  const tc = t.helpdesk.customers;
-  const [customer, setCustomer] = useState(customerData);
-  const updateCustomerMutation = useUpdateHelpdeskCustomer();
-  const { data: companiesResult, isLoading: isLoadingCompaniesQuery } = useHelpdeskCompanies();
+type CustomersTranslations = ReturnType<typeof useI18n>['t']['helpdesk']['customers'];
 
-  useBreadcrumbs([
-    { label: t.helpdesk.title, href: '/welddesk' },
-    { label: tc.contacts, href: '/welddesk/contacts' },
-    { label: customerData.name },
-  ]);
-  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
-  const companies: Company[] = companiesResult?.data || [];
-  const isLoadingCompanies = isLoadingCompaniesQuery;
-  const [timezoneDialogOpen, setTimezoneDialogOpen] = useState(false);
-  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+function getStatusBadge(status: string) {
+  switch (status) {
+    case 'open': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800';
+    case 'pending': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800';
+    case 'resolved': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800';
+    case 'closed': return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
+    default: return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
+  }
+}
 
-  const handleFieldSave = async (fieldKey: string, value: string) => {
-    const updateData: Record<string, string> = { [fieldKey]: value };
-    const result = await updateCustomerMutation.mutateAsync({ id: customer.id, data: updateData });
+function getChannelBadge(channel: string) {
+  switch (channel) {
+    case 'email': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800';
+    case 'chat': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800';
+    case 'phone': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800';
+    default: return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
+  }
+}
 
-    if (result.success) {
-      setCustomer(prev => ({ ...prev, [fieldKey]: value }));
-    }
-  };
-
-  const handleCompanySelect = async (company: Company) => {
-    await handleFieldSave('company', company.name);
-  };
-
-  const handleCompanyCreate = async (name: string) => {
-    await handleFieldSave('company', name);
-  };
-
-  const handleTimezoneSelect = async (timezone: { id: string; name: string }) => {
-    // Update local state immediately
-    setCustomer(prev => ({ ...prev, timezone: timezone.name }));
-    // Try to save to API (may not be supported yet)
-    try {
-      await updateCustomerMutation.mutateAsync({ id: customer.id, data: { timezone: timezone.name } });
-    } catch {
-      // Ignore API errors for timezone for now
-    }
-  };
-
-  const handleLanguageSelect = async (language: { code: string; name: string }) => {
-    // Update local state immediately
-    setCustomer(prev => ({ ...prev, language: language.name }));
-    // Try to save to API (may not be supported yet)
-    try {
-      await updateCustomerMutation.mutateAsync({ id: customer.id, data: { language: language.name } });
-    } catch {
-      // Ignore API errors for language for now
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800';
-      case 'resolved': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800';
-      case 'closed': return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
-      default: return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
-    }
-  };
-
-  const getChannelBadge = (channel: string) => {
-    switch (channel) {
-      case 'email': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-      case 'chat': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800';
-      case 'phone': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800';
-      default: return 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border';
-    }
-  };
-
-  // Conversations table component
-  const ConversationsTable = () => (
+// Conversations table component
+function ConversationsTable({ tc, conversations, router }: Readonly<{
+  tc: CustomersTranslations;
+  conversations: ConversationData[];
+  router: ReturnType<typeof useRouter>;
+}>) {
+  return (
     <div className="rounded-lg border border-border/60 bg-card">
       <Table>
         <TableHeader className="[&_tr]:border-border/60">
@@ -170,8 +119,8 @@ export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailCl
           </TableRow>
         </TableHeader>
         <TableBody className="[&_tr]:border-border/60">
-          {customerData.conversations.length > 0 ? (
-            customerData.conversations.map((conversation) => (
+          {conversations.length > 0 ? (
+            conversations.map((conversation) => (
               <TableRow
                 key={conversation.id}
                 className="cursor-pointer border-border/60"
@@ -234,9 +183,11 @@ export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailCl
       </Table>
     </div>
   );
+}
 
-  // Activity component (placeholder)
-  const ActivityLog = () => (
+// Activity component (placeholder)
+function ActivityLog({ tc, lastContact }: Readonly<{ tc: CustomersTranslations; lastContact: Date }>) {
+  return (
     <div className="rounded-lg border border-border/60 bg-card divide-y divide-border/60">
       <div className="flex items-start gap-3 p-4">
         <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
@@ -244,7 +195,7 @@ export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailCl
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm text-foreground">{tc.startedNewConversation}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{format(customerData.lastContact, 'MMM d, yyyy')}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{format(lastContact, 'MMM d, yyyy')}</p>
         </div>
       </div>
       <div className="flex items-start gap-3 p-4">
@@ -258,6 +209,65 @@ export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailCl
       </div>
     </div>
   );
+}
+
+export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailClientProps>) {
+  const router = useRouter();
+  const { t } = useI18n();
+  const tc = t.helpdesk.customers;
+  const [customer, setCustomer] = useState(customerData);
+  const updateCustomerMutation = useUpdateHelpdeskCustomer();
+  const { data: companiesResult, isLoading: isLoadingCompaniesQuery } = useHelpdeskCompanies();
+
+  useBreadcrumbs([
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: tc.contacts, href: '/welddesk/contacts' },
+    { label: customerData.name },
+  ]);
+  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
+  const companies: Company[] = companiesResult?.data || [];
+  const isLoadingCompanies = isLoadingCompaniesQuery;
+  const [timezoneDialogOpen, setTimezoneDialogOpen] = useState(false);
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+
+  const handleFieldSave = async (fieldKey: string, value: string) => {
+    const updateData: Record<string, string> = { [fieldKey]: value };
+    const result = await updateCustomerMutation.mutateAsync({ id: customer.id, data: updateData });
+
+    if (result.success) {
+      setCustomer(prev => ({ ...prev, [fieldKey]: value }));
+    }
+  };
+
+  const handleCompanySelect = async (company: Company) => {
+    await handleFieldSave('company', company.name);
+  };
+
+  const handleCompanyCreate = async (name: string) => {
+    await handleFieldSave('company', name);
+  };
+
+  const handleTimezoneSelect = async (timezone: { id: string; name: string }) => {
+    // Update local state immediately
+    setCustomer(prev => ({ ...prev, timezone: timezone.name }));
+    // Try to save to API (may not be supported yet)
+    try {
+      await updateCustomerMutation.mutateAsync({ id: customer.id, data: { timezone: timezone.name } });
+    } catch {
+      // Ignore API errors for timezone for now
+    }
+  };
+
+  const handleLanguageSelect = async (language: { code: string; name: string }) => {
+    // Update local state immediately
+    setCustomer(prev => ({ ...prev, language: language.name }));
+    // Try to save to API (may not be supported yet)
+    try {
+      await updateCustomerMutation.mutateAsync({ id: customer.id, data: { language: language.name } });
+    } catch {
+      // Ignore API errors for language for now
+    }
+  };
 
   return (
     <>
@@ -336,8 +346,8 @@ export function CustomerDetailClient({ customerData }: Readonly<CustomerDetailCl
           { label: tc.loyalty, value: customerData.loyaltyTier || tc.none },
         ],
         tabs: [
-          { id: 'conversations', label: tc.conversations, content: <ConversationsTable /> },
-          { id: 'activity', label: tc.activity, content: <ActivityLog /> },
+          { id: 'conversations', label: tc.conversations, content: <ConversationsTable tc={tc} conversations={customerData.conversations} router={router} /> },
+          { id: 'activity', label: tc.activity, content: <ActivityLog tc={tc} lastContact={customerData.lastContact} /> },
         ],
         defaultTab: 'conversations',
       }}
