@@ -545,6 +545,20 @@ export type VerifyOwnershipResult =
   | { ok: false; reason: 'cf_unknown' }
   | { ok: false; reason: 'persist_failed' };
 
+/** Known Cloudflare zone-creation failures that map to a specific result; null for anything else. */
+function mapCloudflareZoneError(err: { kind: string; message: string }): VerifyOwnershipResult | null {
+  switch (err.kind) {
+    case 'DOMAIN_IN_ANOTHER_CF_ACCOUNT':
+      return { ok: false, reason: 'cf_domain_taken' };
+    case 'AUTH_FAILED':
+      return { ok: false, reason: 'cf_auth_failed' };
+    case 'INVALID_DOMAIN':
+      return { ok: false, reason: 'cf_invalid_domain', message: err.message };
+    default:
+      return null;
+  }
+}
+
 export async function verifyOwnershipAndCreateZone(
   db: Database,
   params: { domainId: string; apiToken: string | undefined; accountId: string | undefined },
@@ -603,11 +617,8 @@ export async function verifyOwnershipAndCreateZone(
   try {
     zone = await createCloudflareZone(apiToken, accountId, domain.fullDomain);
   } catch (err) {
-    if (err instanceof CloudflareZoneError) {
-      if (err.kind === 'DOMAIN_IN_ANOTHER_CF_ACCOUNT') return { ok: false, reason: 'cf_domain_taken' };
-      if (err.kind === 'AUTH_FAILED') return { ok: false, reason: 'cf_auth_failed' };
-      if (err.kind === 'INVALID_DOMAIN') return { ok: false, reason: 'cf_invalid_domain', message: err.message };
-    }
+    const mapped = err instanceof CloudflareZoneError ? mapCloudflareZoneError(err) : null;
+    if (mapped) return mapped;
     console.error('[domains.service] Cloudflare zone creation failed:', err);
     return { ok: false, reason: 'cf_unknown' };
   }
@@ -751,6 +762,57 @@ export async function refreshZoneStatus(
 // Registrar-bound mutations (dual-path: RTR for new, CF for legacy)
 // ============================================================================
 
+type HostDomainRow = typeof hostDomains.$inferSelect;
+
+const IN_FLIGHT_REGISTRATION_STATUSES = new Set([
+  'pending_payment',
+  'pending_registration',
+  'pending_workflow',
+  'pending_transfer',
+  'pending_renewal',
+]);
+
+function rtrSyncPatch(
+  remote: Awaited<ReturnType<RealtimeRegistrar['getDomain']>>,
+  domain: HostDomainRow,
+  canMarkRegistered: boolean,
+) {
+  return {
+    externalRegistrarId: remote.id,
+    registrarStatus: remote.status.join(','),
+    locked: remote.locked,
+    // Stripe owns auto-renew billing for RTR domains — don't clobber the
+    // customer preference with the registrar flag (which we keep off).
+    privacyProtection: remote.privacyProtect,
+    expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : domain.expiresAt,
+    authCode: remote.authCode ?? domain.authCode,
+    status: remote.status.includes('OK') || remote.status.includes('ok')
+      ? 'active'
+      : domain.status,
+    ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
+    registrarSyncedAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+function cfSyncPatch(
+  cfDomain: Awaited<ReturnType<CloudflareRegistrar['getDomain']>>,
+  domain: HostDomainRow,
+  canMarkRegistered: boolean,
+) {
+  return {
+    externalRegistrarId: cfDomain.id,
+    registrarStatus: cfDomain.status,
+    locked: cfDomain.locked,
+    autoRenew: cfDomain.autoRenew,
+    expiresAt: cfDomain.expiresAt ? new Date(cfDomain.expiresAt) : domain.expiresAt,
+    status: cfDomain.status === 'active' ? 'active' : domain.status,
+    ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
+    registrarSyncedAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
 export async function syncDomainStatus(
   db: Database,
   clients: {
@@ -766,37 +828,15 @@ export async function syncDomainStatus(
     .limit(1);
   if (!domain) return null;
 
-  const inFlightStatuses = new Set([
-    'pending_payment',
-    'pending_registration',
-    'pending_workflow',
-    'pending_transfer',
-    'pending_renewal',
-  ]);
   // Do not force registrationStatus=registered while a payment/register/
   // transfer/renew workflow is still in flight.
-  const canMarkRegistered = !inFlightStatuses.has(domain.registrationStatus ?? '');
+  const canMarkRegistered = !IN_FLIGHT_REGISTRATION_STATUSES.has(domain.registrationStatus ?? '');
 
   if (domain.registrar === 'realtimeregister' && clients.rtr) {
     const remote = await clients.rtr.getDomain(domain.fullDomain);
     const [updated] = await db
       .update(hostDomains)
-      .set({
-        externalRegistrarId: remote.id,
-        registrarStatus: remote.status.join(','),
-        locked: remote.locked,
-        // Stripe owns auto-renew billing for RTR domains — don't clobber the
-        // customer preference with the registrar flag (which we keep off).
-        privacyProtection: remote.privacyProtect,
-        expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : domain.expiresAt,
-        authCode: remote.authCode ?? domain.authCode,
-        status: remote.status.includes('OK') || remote.status.includes('ok')
-          ? 'active'
-          : domain.status,
-        ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
-        registrarSyncedAt: new Date(),
-        updatedAt: new Date(),
-      })
+      .set(rtrSyncPatch(remote, domain, canMarkRegistered))
       .where(eq(hostDomains.id, domainId))
       .returning();
     return updated ?? null;
@@ -806,17 +846,7 @@ export async function syncDomainStatus(
     const cfDomain = await clients.cf.getDomain(domain.fullDomain);
     const [updated] = await db
       .update(hostDomains)
-      .set({
-        externalRegistrarId: cfDomain.id,
-        registrarStatus: cfDomain.status,
-        locked: cfDomain.locked,
-        autoRenew: cfDomain.autoRenew,
-        expiresAt: cfDomain.expiresAt ? new Date(cfDomain.expiresAt) : domain.expiresAt,
-        status: cfDomain.status === 'active' ? 'active' : domain.status,
-        ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
-        registrarSyncedAt: new Date(),
-        updatedAt: new Date(),
-      })
+      .set(cfSyncPatch(cfDomain, domain, canMarkRegistered))
       .where(eq(hostDomains.id, domainId))
       .returning();
     return updated ?? null;
@@ -1143,6 +1173,60 @@ async function insertOrReusePendingCheckoutRows(
   return registrationIds;
 }
 
+type CheckoutFailure = Extract<CheckoutResult, { ok: false }>;
+
+/** Prices every requested domain; fails on the first unavailable/unpriced/mixed-currency one. */
+function buildCheckoutLineItems(
+  names: string[],
+  checkByName: Map<string, { available?: boolean; priceCents?: number | null; currency?: string | null }>,
+  pricingMap: Map<string, typeof masterSchema.hostDomainPricing.$inferSelect>,
+): { ok: true; lineItems: Array<{ name: string; unitAmountCents: number; currency: string }> } | CheckoutFailure {
+  const lineItems: Array<{ name: string; unitAmountCents: number; currency: string }> = [];
+  let sessionCurrency: string | null = null;
+
+  for (const name of names) {
+    const check = checkByName.get(name);
+    if (!check?.available) {
+      return { ok: false, reason: 'unavailable', domain: name };
+    }
+    const tld = tldOf(name);
+    const pricingRow = pricingMap.get(tld);
+    const unitAmountCents = applyMarkup(check.priceCents, pricingRow, check.currency);
+    if (unitAmountCents === null || unitAmountCents <= 0) {
+      return { ok: false, reason: 'no_price', tld };
+    }
+    const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
+    if (sessionCurrency && sessionCurrency !== currency) {
+      return { ok: false, reason: 'currency_mismatch' };
+    }
+    sessionCurrency = currency;
+    lineItems.push({ name, unitAmountCents, currency });
+  }
+  return { ok: true, lineItems };
+}
+
+/** The workspace's Stripe customer, created and persisted on first use. */
+async function ensureStripeCustomerId(
+  masterDb: MasterDatabase,
+  stripeSecretKey: string,
+  workspaceRow: { id: string; name: string; clerkOrgId: string | null; stripeCustomerId: string | null },
+  fallbackClerkOrgId: string,
+): Promise<string> {
+  if (workspaceRow.stripeCustomerId) return workspaceRow.stripeCustomerId;
+  const customer = await createStripeCustomer(stripeSecretKey, {
+    name: workspaceRow.name,
+    metadata: {
+      workspaceId: workspaceRow.id,
+      clerkOrgId: workspaceRow.clerkOrgId ?? fallbackClerkOrgId,
+    },
+  });
+  await masterDb
+    .update(masterSchema.workspaces)
+    .set({ stripeCustomerId: customer.id, updatedAt: new Date() })
+    .where(eq(masterSchema.workspaces.id, workspaceRow.id));
+  return customer.id;
+}
+
 export async function createCheckout(
   db: Database,
   rtr: RealtimeRegistrar,
@@ -1177,27 +1261,9 @@ export async function createCheckout(
   ]);
   const checkByName = new Map(checks.map((c) => [c.name.toLowerCase(), c]));
 
-  const lineItems: Array<{ name: string; unitAmountCents: number; currency: string }> = [];
-  let sessionCurrency: string | null = null;
-
-  for (const name of names) {
-    const check = checkByName.get(name);
-    if (!check?.available) {
-      return { ok: false, reason: 'unavailable', domain: name };
-    }
-    const tld = tldOf(name);
-    const pricingRow = pricingMap.get(tld);
-    const unitAmountCents = applyMarkup(check.priceCents, pricingRow, check.currency);
-    if (unitAmountCents === null || unitAmountCents <= 0) {
-      return { ok: false, reason: 'no_price', tld };
-    }
-    const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
-    if (sessionCurrency && sessionCurrency !== currency) {
-      return { ok: false, reason: 'currency_mismatch' };
-    }
-    sessionCurrency = currency;
-    lineItems.push({ name, unitAmountCents, currency });
-  }
+  const items = buildCheckoutLineItems(names, checkByName, pricingMap);
+  if (!items.ok) return items;
+  const { lineItems } = items;
 
   // `params.workspaceId` is the Clerk org id from app-api middleware
   // (`c.set('workspaceId', orgId)`). Look up by either column so this
@@ -1222,21 +1288,12 @@ export async function createCheckout(
     return { ok: false, reason: 'workspace_not_found' };
   }
 
-  let customerId = workspaceRow.stripeCustomerId;
-  if (!customerId) {
-    const customer = await createStripeCustomer(params.stripeSecretKey, {
-      name: workspaceRow.name,
-      metadata: {
-        workspaceId: workspaceRow.id,
-        clerkOrgId: workspaceRow.clerkOrgId ?? params.workspaceId,
-      },
-    });
-    customerId = customer.id;
-    await masterDb
-      .update(masterSchema.workspaces)
-      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-      .where(eq(masterSchema.workspaces.id, workspaceRow.id));
-  }
+  const customerId = await ensureStripeCustomerId(
+    masterDb,
+    params.stripeSecretKey,
+    workspaceRow,
+    params.workspaceId,
+  );
 
   const registrationIds = await insertOrReusePendingCheckoutRows(db, names, {
     contact: params.input.contact,
@@ -1650,22 +1707,15 @@ export async function getDashboardChart(db: Database, days: number) {
     dateMap.set(dateStr, { date: dateStr, registrations: 0, renewals: 0, expirations: 0 });
   }
 
+  const bump = (at: Date | string, field: 'registrations' | 'renewals' | 'expirations') => {
+    const p = dateMap.get(new Date(at).toISOString().split('T')[0]);
+    if (p) p[field]++;
+  };
+
   for (const domain of domains) {
-    if (domain.registeredAt) {
-      const k = new Date(domain.registeredAt).toISOString().split('T')[0];
-      const p = dateMap.get(k);
-      if (p) p.registrations++;
-    }
-    if (domain.renewedAt) {
-      const k = new Date(domain.renewedAt).toISOString().split('T')[0];
-      const p = dateMap.get(k);
-      if (p) p.renewals++;
-    }
-    if (domain.expiresAt && domain.status === 'expired') {
-      const k = new Date(domain.expiresAt).toISOString().split('T')[0];
-      const p = dateMap.get(k);
-      if (p) p.expirations++;
-    }
+    if (domain.registeredAt) bump(domain.registeredAt, 'registrations');
+    if (domain.renewedAt) bump(domain.renewedAt, 'renewals');
+    if (domain.expiresAt && domain.status === 'expired') bump(domain.expiresAt, 'expirations');
   }
 
   return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));

@@ -100,6 +100,46 @@ export function customFieldOrderBy(
   return direction === 'asc' ? sql`${inner} ASC NULLS LAST` : sql`${inner} DESC NULLS LAST`;
 }
 
+function coerceBool(rawValue: string | number | boolean): boolean | null {
+  if (typeof rawValue === 'boolean') return rawValue;
+  const str = String(rawValue);
+  if (str === 'true') return true;
+  if (str === 'false') return false;
+  return null;
+}
+
+/** Per-type match predicate on `v.<column>`; null when the value cannot be coerced. */
+function valuePredicate(
+  kind: ReturnType<typeof fieldTypeToValueColumn>,
+  column: SQL,
+  rawValue: string | number | boolean,
+): SQL | null {
+  switch (kind) {
+    case 'number': {
+      const n = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+      return Number.isNaN(n) ? null : sql`v.${column} = ${n}`;
+    }
+    case 'date': {
+      const d = new Date(String(rawValue));
+      if (Number.isNaN(d.getTime())) return null;
+      // Match the whole calendar day — callers filter by date, not instant.
+      return sql`v.${column}::date = ${d.toISOString()}::timestamp::date`;
+    }
+    case 'bool': {
+      const b = coerceBool(rawValue);
+      return b === null ? null : sql`v.${column} = ${b}`;
+    }
+    case 'json':
+      // multi_select stores string[]; containment answers "has this option".
+      return sql`v.${column} @> ${JSON.stringify([String(rawValue)])}::jsonb`;
+    case 'ref':
+      return sql`v.${column} = ${String(rawValue)}`;
+    case 'text':
+    default:
+      return sql`v.${column} ILIKE ${`%${String(rawValue)}%`}`;
+  }
+}
+
 /**
  * WHERE fragment restricting parent rows to those whose custom field matches.
  *
@@ -127,49 +167,8 @@ export function customFieldFilter(
   const kind = fieldTypeToValueColumn(def.fieldType);
   const column = sql.raw(valueColumnName(def));
 
-  let predicate: SQL;
-  switch (kind) {
-    case 'number': {
-      const n = typeof rawValue === 'number' ? rawValue : Number(rawValue);
-      if (Number.isNaN(n)) return null;
-      predicate = sql`v.${column} = ${n}`;
-      break;
-    }
-    case 'date': {
-      const d = new Date(String(rawValue));
-      if (Number.isNaN(d.getTime())) return null;
-      // Match the whole calendar day — callers filter by date, not instant.
-      predicate = sql`v.${column}::date = ${d.toISOString()}::timestamp::date`;
-      break;
-    }
-    case 'bool': {
-      const b =
-        typeof rawValue === 'boolean'
-          ? rawValue
-          : String(rawValue) === 'true'
-            ? true
-            : String(rawValue) === 'false'
-              ? false
-              : null;
-      if (b === null) return null;
-      predicate = sql`v.${column} = ${b}`;
-      break;
-    }
-    case 'json': {
-      // multi_select stores string[]; containment answers "has this option".
-      predicate = sql`v.${column} @> ${JSON.stringify([String(rawValue)])}::jsonb`;
-      break;
-    }
-    case 'ref': {
-      predicate = sql`v.${column} = ${String(rawValue)}`;
-      break;
-    }
-    case 'text':
-    default: {
-      predicate = sql`v.${column} ILIKE ${`%${String(rawValue)}%`}`;
-      break;
-    }
-  }
+  const predicate = valuePredicate(kind, column, rawValue);
+  if (!predicate) return null;
 
   return sql`${entityId} IN (
     SELECT v.entity_id

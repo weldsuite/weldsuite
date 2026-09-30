@@ -107,13 +107,13 @@ function cursorWatermarkKey(model: string): string {
   return `${model}__cursor`;
 }
 
-export async function syncConnection(args: SyncConnectionArgs): Promise<{ triggered: string[] }> {
-  const connector = getConnector(args.connection.provider);
-  if (!connector) {
-    throw new ConnectorApiError({ message: `Unknown connector '${args.connection.provider}'`, status: 400, kind: 'permanent' });
-  }
+type SyncConnector = NonNullable<ReturnType<typeof getConnector>>;
+type SyncDefinition = SyncConnector['syncs'][number];
+type SyncClient = ReturnType<typeof createConnectorClient>;
 
-  let requested = args.syncs?.length
+/** Setting keys / sync names to run, plus the bank-account dependency for Moneybird. */
+function requestedSyncKeys(connector: SyncConnector, args: SyncConnectionArgs): string[] {
+  const requested = args.syncs?.length
     ? [...args.syncs]
     : [...(args.connection.enabledSyncs ?? [])];
   // Mutations need account mappings. If transactions are enabled but accounts are not,
@@ -125,9 +125,201 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
     (key) => key === 'bankAccounts' || key === 'moneybird-financial-accounts',
   );
   if (wantsBankTx && !hasBankAccounts && connector.provider === 'moneybird') {
-    requested = ['bankAccounts', ...requested];
+    return ['bankAccounts', ...requested];
   }
-  const syncs = enabledConnectorSyncs(connector, requested).filter((sync) => {
+  return requested;
+}
+
+function syncTypeFor(
+  args: SyncConnectionArgs,
+  continuing: boolean,
+  model: string,
+): 'FULL' | 'INITIAL' | 'INCREMENTAL' {
+  if (args.full) return 'FULL';
+  if (continuing) return 'INITIAL';
+  return args.connection.syncWatermarks?.[model] ? 'INCREMENTAL' : 'INITIAL';
+}
+
+interface SyncPullContext {
+  args: SyncConnectionArgs;
+  client: SyncClient;
+  credentials: Record<string, string>;
+  moneybirdAttachments: MoneybirdAttachmentSyncContext | null;
+  sync: SyncDefinition;
+}
+
+interface SyncPullState {
+  page: number;
+  cursor: string | null;
+  truncated: boolean;
+  done: boolean;
+  pagesFetched: number;
+  lastWatermark: string | null;
+  applied: IngestCounts;
+  errorSamples: Array<{ externalId: string; message: string }>;
+}
+
+/** Fetches + ingests pages until the scan is done or the page ceiling is hit. Mutates `state`. */
+async function pullPages(
+  ctx: SyncPullContext,
+  state: SyncPullState,
+  modifiedAfter: string | undefined,
+): Promise<void> {
+  const { args, client, credentials, moneybirdAttachments, sync } = ctx;
+  while (state.pagesFetched < MAX_PAGES) {
+    const result = await client.listSync(sync, {
+      page: state.page,
+      cursor: state.cursor,
+      limit: PER_PAGE,
+      modifiedAfter,
+    });
+    state.pagesFetched += 1;
+    if (result.items.length === 0) {
+      state.done = true;
+      return;
+    }
+
+    const ingested = await ingestRecords({
+      db: args.db,
+      connectionId: args.connection.id,
+      provider: args.connection.provider,
+      displayName: args.connection.displayName,
+      storeUrl: storeUrlOf(client),
+      sync,
+      records: result.items,
+      ownerId: args.ownerId,
+      workspaceId: args.workspaceId,
+      entityId: credentials.entityId?.trim() || null,
+      env: args.env as unknown as Record<string, unknown>,
+      moneybirdAttachments,
+    });
+    Object.assign(state.applied, addCounts(state.applied, ingested));
+    state.errorSamples.push(...ingested.errorSamples.slice(0, 5 - state.errorSamples.length));
+
+    const pageWatermark = latestModified(result.items);
+    if (pageWatermark) state.lastWatermark = pageWatermark;
+
+    if (result.done) {
+      state.done = true;
+      return;
+    }
+    state.page += 1;
+    state.cursor = result.nextCursor;
+    if (state.pagesFetched === MAX_PAGES) {
+      state.truncated = true;
+      return;
+    }
+  }
+}
+
+function buildWatermarkPatch(
+  model: string,
+  state: SyncPullState,
+  continuing: boolean,
+): Record<string, string | null> {
+  const pageKey = pageWatermarkKey(model);
+  const cursorKey = cursorWatermarkKey(model);
+  const patch: Record<string, string | null> = {};
+  if (state.truncated) {
+    // Persist continuation; do not advance the modified-at watermark yet.
+    patch[pageKey] = String(state.page);
+    patch[cursorKey] = state.cursor;
+  } else if (state.done || !continuing) {
+    patch[pageKey] = null;
+    patch[cursorKey] = null;
+    if (state.applied.failed === 0 && state.lastWatermark) {
+      patch[model] = state.lastWatermark;
+    }
+  }
+  return patch;
+}
+
+function syncRunError(state: SyncPullState): string | null {
+  if (state.applied.failed > 0) return `${state.applied.failed} record(s) failed to import`;
+  if (state.truncated) return 'Page ceiling reached — run again to continue';
+  return null;
+}
+
+/** Records a failed run; re-throws auth failures so the caller stops the whole sync. */
+async function recordSyncFailure(
+  args: SyncConnectionArgs,
+  runId: string,
+  state: SyncPullState,
+  err: unknown,
+): Promise<void> {
+  const auth = err instanceof ConnectorApiError && err.kind === 'auth';
+  const message = err instanceof Error ? err.message : 'Sync failed';
+  if (auth) {
+    await markConnectionError({
+      db: args.db,
+      connectionId: args.connection.id,
+      status: 'auth_error',
+      message,
+    });
+  }
+  await finishSyncRun({
+    db: args.db,
+    runId,
+    connectionId: args.connection.id,
+    status: 'error',
+    applied: state.applied,
+    error: message,
+    errorSamples: state.errorSamples,
+  });
+  if (auth) throw err;
+}
+
+async function runSingleSync(ctx: SyncPullContext): Promise<void> {
+  const { args, sync } = ctx;
+  const watermarks = args.connection.syncWatermarks;
+  const savedPage = args.full ? undefined : watermarks?.[pageWatermarkKey(sync.model)];
+  const continuing = Boolean(savedPage);
+  const runId = await startSyncRun({
+    db: args.db,
+    connectionId: args.connection.id,
+    syncName: sync.syncName,
+    model: sync.model,
+    trigger: args.trigger,
+    syncType: syncTypeFor(args, continuing, sync.model),
+  });
+
+  // While a page cursor is open, ignore modifiedAfter so we finish the full scan.
+  const modifiedAfter = args.full || continuing ? undefined : watermarks?.[sync.model];
+  const state: SyncPullState = {
+    page: continuing ? Math.max(1, Number(savedPage) || 1) : 1,
+    cursor: continuing ? (watermarks?.[cursorWatermarkKey(sync.model)] ?? null) : null,
+    truncated: false,
+    done: false,
+    pagesFetched: 0,
+    lastWatermark: modifiedAfter ?? null,
+    applied: emptyCounts(),
+    errorSamples: [],
+  };
+
+  try {
+    await pullPages(ctx, state, modifiedAfter);
+    await finishSyncRun({
+      db: args.db,
+      runId,
+      connectionId: args.connection.id,
+      status: state.applied.failed > 0 || state.truncated ? 'partial' : 'success',
+      applied: state.applied,
+      error: syncRunError(state),
+      errorSamples: state.errorSamples,
+      syncWatermarksPatch: buildWatermarkPatch(sync.model, state, continuing),
+    });
+  } catch (err) {
+    await recordSyncFailure(args, runId, state, err);
+  }
+}
+
+export async function syncConnection(args: SyncConnectionArgs): Promise<{ triggered: string[] }> {
+  const connector = getConnector(args.connection.provider);
+  if (!connector) {
+    throw new ConnectorApiError({ message: `Unknown connector '${args.connection.provider}'`, status: 400, kind: 'permanent' });
+  }
+
+  const syncs = enabledConnectorSyncs(connector, requestedSyncKeys(connector, args)).filter((sync) => {
     const direction = resolveConnectorObjectDirection({
       direction: args.connection.direction,
       objectSyncDirections: args.connection.objectSyncDirections,
@@ -153,138 +345,7 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
   );
 
   for (const sync of syncs) {
-    const pageKey = pageWatermarkKey(sync.model);
-    const cursorKey = cursorWatermarkKey(sync.model);
-    const savedPage = args.full ? undefined : args.connection.syncWatermarks?.[pageKey];
-    const continuing = Boolean(savedPage);
-    const runId = await startSyncRun({
-      db: args.db,
-      connectionId: args.connection.id,
-      syncName: sync.syncName,
-      model: sync.model,
-      trigger: args.trigger === 'webhook' ? 'webhook' : args.trigger,
-      syncType: args.full
-        ? 'FULL'
-        : continuing
-          ? 'INITIAL'
-          : args.connection.syncWatermarks?.[sync.model]
-            ? 'INCREMENTAL'
-            : 'INITIAL',
-    });
-
-    // While a page cursor is open, ignore modifiedAfter so we finish the full scan.
-    const modifiedAfter =
-      args.full || continuing ? undefined : args.connection.syncWatermarks?.[sync.model];
-    let page = continuing ? Math.max(1, Number(savedPage) || 1) : 1;
-    let cursor: string | null = continuing
-      ? (args.connection.syncWatermarks?.[cursorKey] ?? null)
-      : null;
-    let truncated = false;
-    let done = false;
-    let pagesFetched = 0;
-    let lastWatermark: string | null = modifiedAfter ?? null;
-    const applied = emptyCounts();
-    const errorSamples: Array<{ externalId: string; message: string }> = [];
-
-    try {
-      while (pagesFetched < MAX_PAGES) {
-        const result = await client.listSync(sync, {
-          page,
-          cursor,
-          limit: PER_PAGE,
-          modifiedAfter,
-        });
-        pagesFetched += 1;
-        if (result.items.length === 0) {
-          done = true;
-          break;
-        }
-
-        const ingested = await ingestRecords({
-          db: args.db,
-          connectionId: args.connection.id,
-          provider: args.connection.provider,
-          displayName: args.connection.displayName,
-          storeUrl: storeUrlOf(client),
-          sync,
-          records: result.items,
-          ownerId: args.ownerId,
-          workspaceId: args.workspaceId,
-          entityId: credentials.entityId?.trim() || null,
-          env: args.env as unknown as Record<string, unknown>,
-          moneybirdAttachments,
-        });
-        Object.assign(applied, addCounts(applied, ingested));
-        errorSamples.push(...ingested.errorSamples.slice(0, 5 - errorSamples.length));
-
-        const pageWatermark = latestModified(result.items);
-        if (pageWatermark) lastWatermark = pageWatermark;
-
-        if (result.done) {
-          done = true;
-          break;
-        }
-        if (pagesFetched === MAX_PAGES) {
-          truncated = true;
-          page += 1;
-          cursor = result.nextCursor;
-          break;
-        }
-        page += 1;
-        cursor = result.nextCursor;
-      }
-
-      const failed = applied.failed > 0;
-      const status = failed || truncated ? 'partial' : 'success';
-      const syncWatermarksPatch: Record<string, string | null> = {};
-      if (truncated) {
-        // Persist continuation; do not advance the modified-at watermark yet.
-        syncWatermarksPatch[pageKey] = String(page);
-        syncWatermarksPatch[cursorKey] = cursor;
-      } else if (done || !continuing) {
-        syncWatermarksPatch[pageKey] = null;
-        syncWatermarksPatch[cursorKey] = null;
-        if (!failed && lastWatermark) {
-          syncWatermarksPatch[sync.model] = lastWatermark;
-        }
-      }
-
-      await finishSyncRun({
-        db: args.db,
-        runId,
-        connectionId: args.connection.id,
-        status,
-        applied,
-        error: failed
-          ? `${applied.failed} record(s) failed to import`
-          : truncated
-            ? 'Page ceiling reached — run again to continue'
-            : null,
-        errorSamples,
-        syncWatermarksPatch,
-      });
-    } catch (err) {
-      const auth = err instanceof ConnectorApiError && err.kind === 'auth';
-      const message = err instanceof Error ? err.message : 'Sync failed';
-      if (auth) {
-        await markConnectionError({
-          db: args.db,
-          connectionId: args.connection.id,
-          status: 'auth_error',
-          message,
-        });
-      }
-      await finishSyncRun({
-        db: args.db,
-        runId,
-        connectionId: args.connection.id,
-        status: 'error',
-        applied,
-        error: message,
-        errorSamples,
-      });
-      if (auth) throw err;
-    }
+    await runSingleSync({ args, client, credentials, moneybirdAttachments, sync });
   }
 
   return { triggered: syncs.map((s) => s.syncName) };

@@ -188,6 +188,111 @@ async function persistRenewalInvoiceMeta(
     .where(eq(hostDomains.id, domainId));
 }
 
+type HostDomainRow = typeof hostDomains.$inferSelect;
+type RenewalDeps = { db: Database; rtr: RealtimeRegistrar };
+
+function renewalOutcome(
+  invoiceId: string,
+  registrationStatus: string | null | undefined,
+): DomainRenewalChargeResult {
+  return {
+    ok: true,
+    invoiceId,
+    renewed: registrationStatus === 'renewed',
+    pending: registrationStatus === 'pending_renewal',
+  };
+}
+
+/** Settles a domain already waiting on Realtime Register; null when it still needs a charge. */
+async function settlePendingRenewal(
+  { db, rtr }: RenewalDeps,
+  domain: HostDomainRow,
+): Promise<DomainRenewalChargeResult | null> {
+  const polled = await pollRenewalProcess(db, rtr, domain.id);
+  if (polled?.registrationStatus !== 'renewed' && polled?.registrationStatus !== 'pending_renewal') {
+    return null;
+  }
+  return renewalOutcome(
+    renewalMeta(domain.metadata).stripeRenewalInvoiceId ?? '',
+    polled.registrationStatus,
+  );
+}
+
+function isAlreadyRenewed(
+  domain: HostDomainRow,
+  expiresAt: Date,
+  alreadyPaidInvoiceId: string | undefined,
+): boolean {
+  const meta = renewalMeta(domain.metadata);
+  if (alreadyPaidInvoiceId && meta.stripeRenewalProcessedInvoiceId === alreadyPaidInvoiceId) {
+    return true;
+  }
+  return (
+    meta.stripeRenewalForExpiresAt === expiresAtKey(expiresAt) &&
+    domain.registrationStatus === 'renewed'
+  );
+}
+
+/**
+ * Loads the invoice stored for this expiry (unless the webhook already hands
+ * us a paid one). A void/uncollectible or definitively missing invoice is
+ * dropped so a fresh one is raised.
+ */
+async function loadStoredInvoice(
+  stripeSecretKey: string,
+  invoiceId: string | null,
+  alreadyPaidInvoiceId: string | undefined,
+): Promise<{ invoiceId: string | null; invoice: StripeInvoice | null }> {
+  if (!invoiceId || alreadyPaidInvoiceId) return { invoiceId, invoice: null };
+  let invoice: StripeInvoice;
+  try {
+    invoice = await retrieveInvoice(stripeSecretKey, invoiceId);
+  } catch (err) {
+    if (!isDefiniteStripeFailure(err)) throw err;
+    return { invoiceId: null, invoice: null };
+  }
+  if (invoice.status === 'void' || invoice.status === 'uncollectible') {
+    return { invoiceId: null, invoice: null };
+  }
+  return { invoiceId, invoice };
+}
+
+/** Renews at the registrar after payment and records the processed invoice. */
+async function renewPaidDomain(
+  { db, rtr }: RenewalDeps,
+  domain: HostDomainRow,
+  expiresAt: Date,
+  paidId: string,
+): Promise<DomainRenewalChargeResult> {
+  const updated = await renewDomain(db, { rtr, cf: null }, { domainId: domain.id });
+  if (!updated) return { ok: false, reason: 'not_found' };
+  await persistRenewalInvoiceMeta(db, domain.id, updated.metadata ?? {}, paidId, expiresAt, {
+    processedInvoiceId: paidId,
+  });
+  return renewalOutcome(paidId, updated.registrationStatus);
+}
+
+/** Tries the off-session charge; falls back to re-reading the invoice if Stripe errored. */
+async function payRenewalInvoice(
+  stripeSecretKey: string,
+  invoiceId: string,
+  invoice: StripeInvoice,
+): Promise<StripeInvoice> {
+  if (invoice.status === 'paid') return invoice;
+  try {
+    return await payInvoiceOffSession(stripeSecretKey, invoiceId);
+  } catch (err) {
+    let latest = invoice;
+    try {
+      latest = await retrieveInvoice(stripeSecretKey, invoiceId);
+    } catch {
+      // Keep the last known invoice and fall through to the paid check.
+    }
+    if (latest.status !== 'paid') console.error('[domain-renewal] off-session pay failed:', err);
+    return latest;
+  }
+}
+
 /**
  * Invoice the workspace for one year of renewal and, on a successful
  * off-session charge, renew at Realtime Register.
@@ -204,37 +309,24 @@ export async function chargeAndRenewDomain(
     alreadyPaidInvoiceId?: string;
   },
 ): Promise<DomainRenewalChargeResult> {
+  const deps: RenewalDeps = { db, rtr };
   const [domain] = await db
     .select()
     .from(hostDomains)
     .where(and(eq(hostDomains.id, params.domainId), isNull(hostDomains.deletedAt)))
     .limit(1);
   if (!domain) return { ok: false, reason: 'not_found' };
-  if (domain.registrar !== 'realtimeregister') return { ok: false, reason: 'unsupported' };
-  if (!domain.expiresAt) return { ok: false, reason: 'unsupported' };
-
-  if (domain.registrationStatus === 'pending_renewal') {
-    const polled = await pollRenewalProcess(db, rtr, domain.id);
-    if (polled?.registrationStatus === 'renewed') {
-      return { ok: true, invoiceId: renewalMeta(domain.metadata).stripeRenewalInvoiceId ?? '', renewed: true, pending: false };
-    }
-    if (polled?.registrationStatus === 'pending_renewal') {
-      return {
-        ok: true,
-        invoiceId: renewalMeta(domain.metadata).stripeRenewalInvoiceId ?? '',
-        renewed: false,
-        pending: true,
-      };
-    }
+  const expiresAt = domain.expiresAt;
+  if (domain.registrar !== 'realtimeregister' || !expiresAt) {
+    return { ok: false, reason: 'unsupported' };
   }
 
-  const meta = renewalMeta(domain.metadata);
-  if (
-    (params.alreadyPaidInvoiceId &&
-      meta.stripeRenewalProcessedInvoiceId === params.alreadyPaidInvoiceId) ||
-    (meta.stripeRenewalForExpiresAt === expiresAtKey(domain.expiresAt) &&
-      domain.registrationStatus === 'renewed')
-  ) {
+  if (domain.registrationStatus === 'pending_renewal') {
+    const settled = await settlePendingRenewal(deps, domain);
+    if (settled) return settled;
+  }
+
+  if (isAlreadyRenewed(domain, expiresAt, params.alreadyPaidInvoiceId)) {
     return { ok: false, reason: 'already_renewed' };
   }
 
@@ -245,119 +337,49 @@ export async function chargeAndRenewDomain(
   if (amountCents === null || amountCents <= 0) return { ok: false, reason: 'no_price' };
   const currency = (pricing?.currency ?? 'usd').toLowerCase();
 
-  let invoiceId =
+  const meta = renewalMeta(domain.metadata);
+  const stored = await loadStoredInvoice(
+    params.stripeSecretKey,
     params.alreadyPaidInvoiceId ??
-    (storedInvoiceAppliesToExpiry(meta, domain.expiresAt) ? meta.stripeRenewalInvoiceId : null);
-  let invoice: StripeInvoice | null = null;
-
-  if (invoiceId && !params.alreadyPaidInvoiceId) {
-    try {
-      invoice = await retrieveInvoice(params.stripeSecretKey, invoiceId);
-    } catch (err) {
-      if (!isDefiniteStripeFailure(err)) throw err;
-      invoiceId = null;
-    }
-  }
-
-  if (invoice && (invoice.status === 'void' || invoice.status === 'uncollectible')) {
-    invoiceId = null;
-    invoice = null;
-  }
+      (storedInvoiceAppliesToExpiry(meta, expiresAt) ? meta.stripeRenewalInvoiceId : null),
+    params.alreadyPaidInvoiceId,
+  );
+  let { invoiceId, invoice } = stored;
 
   if (params.alreadyPaidInvoiceId || invoice?.status === 'paid') {
     const paidId = params.alreadyPaidInvoiceId ?? invoice!.id;
-    await persistRenewalInvoiceMeta(
-      db,
-      domain.id,
-      domain.metadata ?? {},
-      paidId,
-      domain.expiresAt,
-    );
-    const updated = await renewDomain(db, { rtr, cf: null }, { domainId: domain.id });
-    if (!updated) return { ok: false, reason: 'not_found' };
-    await persistRenewalInvoiceMeta(
-      db,
-      domain.id,
-      updated.metadata ?? {},
-      paidId,
-      domain.expiresAt,
-      { processedInvoiceId: paidId },
-    );
-    return {
-      ok: true,
-      invoiceId: paidId,
-      renewed: updated.registrationStatus === 'renewed',
-      pending: updated.registrationStatus === 'pending_renewal',
-    };
+    await persistRenewalInvoiceMeta(db, domain.id, domain.metadata ?? {}, paidId, expiresAt);
+    return renewPaidDomain(deps, domain, expiresAt, paidId);
   }
 
   const customer = await lookupWorkspaceStripeCustomer(masterDb, params.workspaceId);
   if (!customer) return { ok: false, reason: 'no_customer' };
 
   if (!invoiceId || !invoice) {
-    const description = `Domain renewal: ${domain.fullDomain} (1 year)`;
     invoice = await createDomainRenewalInvoice(params.stripeSecretKey, {
       customerId: customer.stripeCustomerId,
       amountCents,
       currency,
-      description,
-      idempotencyKey: `weldhost-renew:${domain.id}:${expiresAtKey(domain.expiresAt)}`,
+      description: `Domain renewal: ${domain.fullDomain} (1 year)`,
+      idempotencyKey: `weldhost-renew:${domain.id}:${expiresAtKey(expiresAt)}`,
       metadata: {
         kind: DOMAIN_RENEWAL_INVOICE_KIND,
         domainId: domain.id,
         workspaceId: params.workspaceId,
         fullDomain: domain.fullDomain,
-        renewalForExpiresAt: expiresAtKey(domain.expiresAt),
+        renewalForExpiresAt: expiresAtKey(expiresAt),
       },
     });
     invoiceId = invoice.id;
-    await persistRenewalInvoiceMeta(
-      db,
-      domain.id,
-      domain.metadata ?? {},
-      invoiceId,
-      domain.expiresAt,
-    );
+    await persistRenewalInvoiceMeta(db, domain.id, domain.metadata ?? {}, invoiceId, expiresAt);
   }
 
   if (!invoiceId) return { ok: false, reason: 'payment_failed' };
 
-  if (invoice.status !== 'paid') {
-    try {
-      invoice = await payInvoiceOffSession(params.stripeSecretKey, invoiceId);
-    } catch (err) {
-      try {
-        invoice = await retrieveInvoice(params.stripeSecretKey, invoiceId);
-      } catch {
-        // Keep the last known invoice and fall through to the paid check.
-      }
-      if (invoice.status !== 'paid') {
-        console.error('[domain-renewal] off-session pay failed:', err);
-        return { ok: false, reason: 'payment_failed' };
-      }
-    }
-  }
+  const paid = await payRenewalInvoice(params.stripeSecretKey, invoiceId, invoice);
+  if (paid.status !== 'paid') return { ok: false, reason: 'payment_failed' };
 
-  if (invoice.status !== 'paid') {
-    return { ok: false, reason: 'payment_failed' };
-  }
-
-  const updated = await renewDomain(db, { rtr, cf: null }, { domainId: domain.id });
-  if (!updated) return { ok: false, reason: 'not_found' };
-  await persistRenewalInvoiceMeta(
-    db,
-    domain.id,
-    updated.metadata ?? {},
-    invoiceId,
-    domain.expiresAt,
-    { processedInvoiceId: invoiceId },
-  );
-  return {
-    ok: true,
-    invoiceId,
-    renewed: updated.registrationStatus === 'renewed',
-    pending: updated.registrationStatus === 'pending_renewal',
-  };
+  return renewPaidDomain(deps, domain, expiresAt, invoiceId);
 }
 
 /** Drop a pending renewal invoice when the customer turns auto-renew off. */
