@@ -41,6 +41,12 @@ interface SummaryClientProps {
   initialSummary: EmailSummaryData;
 }
 
+function getTopicBadgeVariant(priority: string): 'destructive' | 'default' | 'secondary' {
+  if (priority === 'high') return 'destructive';
+  if (priority === 'medium') return 'default';
+  return 'secondary';
+}
+
 export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) {
   const { t } = useI18n();
 
@@ -62,6 +68,15 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
       toast.success(t.mail.ai.summaryUpdated);
     }, 2000);
   };
+
+  // Stable keys: content based, plus an occurrence counter in case items repeat.
+  const actionItemCounts = new Map<string, number>();
+  const actionItemKeys = summary.actionItems.map((item) => {
+    const base = `${item.task}|${item.due}|${item.from}`;
+    const occurrence = actionItemCounts.get(base) ?? 0;
+    actionItemCounts.set(base, occurrence + 1);
+    return `${base}#${occurrence}`;
+  });
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -264,9 +279,7 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
                         <p className="text-sm text-muted-foreground">{topic.count} mentions</p>
                       </div>
                     </div>
-                    <Badge
-                      variant={topic.priority === 'high' ? 'destructive' : topic.priority === 'medium' ? 'default' : 'secondary'}
-                    >
+                    <Badge variant={getTopicBadgeVariant(topic.priority)}>
                       {topic.priority}
                     </Badge>
                   </div>
@@ -285,7 +298,7 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
             <CardContent>
               <div className="space-y-3">
                 {summary.actionItems.map((item, index) => (
-                  <div key={index} className="flex items-start gap-3 p-3 rounded-lg border">
+                  <div key={actionItemKeys[index]} className="flex items-start gap-3 p-3 rounded-lg border">
                     <div className={cn("mt-1", getPriorityColor(item.priority))}>
                       {getPriorityIcon(item.priority)}
                     </div>
