@@ -1,5 +1,7 @@
+import type { ComponentProps } from 'react';
+import type { ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
-import { Home, MessagesSquare, AtSign, Phone } from 'lucide-react-native';
+import { Home, MessagesSquare, AtSign, Phone, type LucideIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -11,6 +13,25 @@ import {
 import { useIsTablet } from '@/hooks/useIsTablet';
 import { useActivityUnreadCount } from '@/hooks/useActivityUnreadCount';
 import { IPadLayout } from '@/components/IPadLayout';
+
+type TabBarRenderer = NonNullable<ComponentProps<typeof Tabs>['tabBar']>;
+
+const renderTabBar: TabBarRenderer = (props) => (
+  <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />
+);
+
+type TabIconProps = { color: ColorValue; size: number };
+
+function makeTabIcon(Icon: LucideIcon) {
+  return function TabIcon({ color, size }: TabIconProps) {
+    return <Icon size={size} color={color} strokeWidth={2.2} />;
+  };
+}
+
+const HomeTabIcon = makeTabIcon(Home);
+const DmsTabIcon = makeTabIcon(MessagesSquare);
+const MentionsTabIcon = makeTabIcon(AtSign);
+const CallsTabIcon = makeTabIcon(Phone);
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -24,7 +45,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
+      tabBar={renderTabBar}
       screenOptions={{
         ...floatingTabBarScreenOptions,
         headerShown: false,
@@ -38,27 +59,21 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Home size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="dms"
         options={{
           title: 'DMs',
-          tabBarIcon: ({ color, size }) => (
-            <MessagesSquare size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: DmsTabIcon,
         }}
       />
       <Tabs.Screen
         name="activity"
         options={{
           title: 'Mentions',
-          tabBarIcon: ({ color, size }) => (
-            <AtSign size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: MentionsTabIcon,
           tabBarBadge: activityUnread > 0 ? activityUnread : undefined,
         }}
       />
@@ -66,9 +81,7 @@ export default function TabLayout() {
         name="calls"
         options={{
           title: 'Calls',
-          tabBarIcon: ({ color, size }) => (
-            <Phone size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: CallsTabIcon,
         }}
       />
     </Tabs>

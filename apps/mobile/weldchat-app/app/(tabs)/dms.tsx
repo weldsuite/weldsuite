@@ -17,6 +17,11 @@ import { useChatCache } from '@/hooks/useChatCache';
 import { SearchField } from '@/components/chat/SearchField';
 import { Spinner } from '@/components/ui/Spinner';
 
+function DmListSeparator() {
+  const { colors } = useTheme();
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />;
+}
+
 interface DmMember {
   userId: string;
   name?: string | null;
@@ -304,7 +309,7 @@ export default function DmsTab() {
           ) : undefined
         }
         contentContainerStyle={dms.length === 0 ? styles.emptyContainer : styles.list}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={DmListSeparator}
         renderItem={({ item }) => {
           const hasUnread = !!item.hasUnread;
           const timeStr = formatMessageTime(item.lastMessageAt);
@@ -569,10 +574,6 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       fontWeight: '600',
     },
     list: { paddingBottom: 32 },
-    separator: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: c.border,
-    },
     dmItem: { backgroundColor: c.background },
     dmItemUnread: { backgroundColor: c.secondary },
     dmItemInner: {

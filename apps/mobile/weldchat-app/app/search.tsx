@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -496,6 +496,41 @@ export default function SearchScreen() {
   const showEmpty = searched && !loading && !hasResults && query.trim().length > 0;
   const showRecent = !query.trim() && recentSearches.length > 0;
 
+  let content: ReactNode;
+  if (!searched && !query.trim()) {
+    content = (
+      <IdleState
+        showRecent={showRecent}
+        recentSearches={recentSearches}
+        colors={colors}
+        styles={styles}
+        onClearAll={clearAllRecent}
+        onTap={handleRecentTap}
+        onRemove={removeRecentSearch}
+      />
+    );
+  } else if (showPeople) {
+    content = (
+      <PeopleList
+        members={members}
+        showEmpty={showEmpty}
+        colors={colors}
+        styles={styles}
+        onPressPerson={handlePersonPress}
+      />
+    );
+  } else {
+    content = (
+      <ResultsList
+        results={displayResults}
+        showEmpty={showEmpty}
+        colors={colors}
+        styles={styles}
+        onPressResult={handleResultPress}
+      />
+    );
+  }
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -533,33 +568,7 @@ export default function SearchScreen() {
         </View>
 
         {/* Content */}
-        {!searched && !query.trim() ? (
-          <IdleState
-            showRecent={showRecent}
-            recentSearches={recentSearches}
-            colors={colors}
-            styles={styles}
-            onClearAll={clearAllRecent}
-            onTap={handleRecentTap}
-            onRemove={removeRecentSearch}
-          />
-        ) : showPeople ? (
-          <PeopleList
-            members={members}
-            showEmpty={showEmpty}
-            colors={colors}
-            styles={styles}
-            onPressPerson={handlePersonPress}
-          />
-        ) : (
-          <ResultsList
-            results={displayResults}
-            showEmpty={showEmpty}
-            colors={colors}
-            styles={styles}
-            onPressResult={handleResultPress}
-          />
-        )}
+        {content}
       </View>
     </>
   );

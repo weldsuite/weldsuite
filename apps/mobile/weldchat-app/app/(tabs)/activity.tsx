@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Pressable,
   SectionList,
   Image,
+  type ImageStyle,
+  type TextStyle,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
@@ -89,6 +91,19 @@ function getNotificationIcon(type: string, color: string) {
     default:
       return <Bell size={18} color={color} strokeWidth={2} />;
   }
+}
+
+function renderAvatarContent(
+  item: ActivityNotification,
+  styles: { avatarImage: ImageStyle; avatarText: TextStyle },
+): ReactNode {
+  if (item.actorAvatar) {
+    return <Image source={{ uri: item.actorAvatar }} style={styles.avatarImage} />;
+  }
+  if (item.actorName) {
+    return <Text style={styles.avatarText}>{item.actorName[0].toUpperCase()}</Text>;
+  }
+  return getNotificationIcon(item.notificationType, '#fff');
 }
 
 export default function ActivityTab() {
@@ -201,13 +216,7 @@ export default function ActivityTab() {
           <View style={styles.dmItemInner}>
             <View style={styles.avatarOuter}>
               <View style={styles.avatar}>
-                {item.actorAvatar ? (
-                  <Image source={{ uri: item.actorAvatar }} style={styles.avatarImage} />
-                ) : item.actorName ? (
-                  <Text style={styles.avatarText}>{item.actorName[0].toUpperCase()}</Text>
-                ) : (
-                  getNotificationIcon(item.notificationType, '#fff')
-                )}
+                {renderAvatarContent(item, styles)}
               </View>
             </View>
             <View style={styles.dmInfo}>
