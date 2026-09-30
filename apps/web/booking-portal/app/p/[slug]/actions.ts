@@ -47,6 +47,15 @@ export type BookingResult =
 
 const SLOT_TAKEN_ERROR = 'This time slot is no longer available. Please choose another time.';
 
+function resolveEmailDelivery(
+  failureCount: number,
+  totalCount: number,
+): 'sent' | 'failed' | 'partial' {
+  if (failureCount === 0) return 'sent';
+  if (failureCount === totalCount) return 'failed';
+  return 'partial';
+}
+
 async function hostNameForAccount(personalAccountId: string): Promise<string> {
   const [row] = await masterDb
     .select({ displayName: personalAccounts.displayName })
@@ -326,8 +335,7 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
       console.error('[booking-portal] personal email send failed', bookingId, (r as PromiseRejectedResult).reason);
     }
 
-    const emailDelivery: 'sent' | 'failed' | 'partial' =
-      failures.length === 0 ? 'sent' : failures.length === results.length ? 'failed' : 'partial';
+    const emailDelivery = resolveEmailDelivery(failures.length, results.length);
 
     return { success: true, bookingId, emailDelivery };
   } catch (err) {
@@ -576,8 +584,7 @@ export async function reschedulePersonalBooking(
       );
     }
 
-    const emailDelivery: 'sent' | 'failed' | 'partial' =
-      failures.length === 0 ? 'sent' : failures.length === results.length ? 'failed' : 'partial';
+    const emailDelivery = resolveEmailDelivery(failures.length, results.length);
 
     return { success: true, bookingId: booking.id, emailDelivery };
   } catch (err) {

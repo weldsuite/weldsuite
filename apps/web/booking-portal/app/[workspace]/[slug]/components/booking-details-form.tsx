@@ -26,6 +26,58 @@ interface BookingDetailsFormProps {
   onSubmit: (state: BookingFormState) => void;
 }
 
+type BookingQuestion = BookingPageProps['questions'][number];
+
+interface QuestionInputProps {
+  question: BookingQuestion;
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+function QuestionInput({ question: q, id, value, onChange }: Readonly<QuestionInputProps>) {
+  if (q.type === 'select' && q.options) {
+    return (
+      <select
+        id={id}
+        required={q.required}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm text-gray-900 dark:text-[#F2F2F4] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <option value="">Select...</option>
+        {q.options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (q.type === 'textarea') {
+    return (
+      <Textarea
+        id={id}
+        required={q.required}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={q.label}
+        className="min-h-[80px] shadow-none"
+      />
+    );
+  }
+  return (
+    <Input
+      id={id}
+      required={q.required}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={q.label}
+      className="shadow-none"
+    />
+  );
+}
+
 export function BookingDetailsForm({
   bookingPage,
   submitting,
@@ -104,40 +156,12 @@ export function BookingDetailsForm({
                 <Label htmlFor={id}>
                   {q.label} {q.required && <span className="text-destructive">*</span>}
                 </Label>
-                {q.type === 'select' && q.options ? (
-                  <select
-                    id={id}
-                    required={q.required}
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm text-gray-900 dark:text-[#F2F2F4] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    <option value="">Select...</option>
-                    {q.options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                ) : q.type === 'textarea' ? (
-                  <Textarea
-                    id={id}
-                    required={q.required}
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    placeholder={q.label}
-                    className="min-h-[80px] shadow-none"
-                  />
-                ) : (
-                  <Input
-                    id={id}
-                    required={q.required}
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    placeholder={q.label}
-                    className="shadow-none"
-                  />
-                )}
+                <QuestionInput
+                  question={q}
+                  id={id}
+                  value={value}
+                  onChange={setValue}
+                />
               </div>
             );
           })}
@@ -212,7 +236,7 @@ export function BookingDetailsForm({
               <strong className="text-foreground dark:text-[#E4E4E7] font-semibold">
                 Privacy Policy
               </strong>
-              .
+              {'.'}
             </p>
           </div>
           <div className="flex items-center justify-end gap-2">
