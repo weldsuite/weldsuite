@@ -18,6 +18,7 @@ import type { MessageType } from '../types/messages';
 import { Logger } from '../utils/logger';
 import { MessageBroker } from './MessageBroker';
 import { deepClone } from '../utils/validation';
+import { randomIdSuffix } from '../utils/random-id';
 
 /**
  * StateCoordinator class
@@ -202,7 +203,7 @@ export class StateCoordinator {
     listener: StateListener<T>,
     immediate = false
   ): string {
-    const id = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `sub_${Date.now()}_${randomIdSuffix(9)}`;
 
     this.subscriptions.set(id, {
       id,
