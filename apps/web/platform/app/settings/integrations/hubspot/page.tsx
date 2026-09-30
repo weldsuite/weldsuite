@@ -88,6 +88,11 @@ function ConnectionCard({
   const { data: logsResult } = useIntegrationSyncLogs(connection.id);
   const updateSettings = useUpdateConnectionSettings();
   const syncLogs = logsResult?.data?.slice(0, 5);
+  const syncTriggerLabel = (triggeredBy: string | null | undefined) => {
+    if (triggeredBy === 'manual') return t('sweep.settings.crmSync.manualSync');
+    if (triggeredBy === 'scheduled') return t('sweep.settings.crmSync.scheduledSync');
+    return t('sweep.settings.crmSync.sync');
+  };
   const syncSettings = connection.syncSettings as {
     syncIntervalHours?: number;
     syncCompanies?: boolean;
@@ -256,7 +261,7 @@ function ConnectionCard({
                 {log.status === 'running' && <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />}
                 {log.status === 'pending' && <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
                 <span className="text-muted-foreground flex-1">
-                  {log.triggeredBy === 'manual' ? t('sweep.settings.crmSync.manualSync') : log.triggeredBy === 'scheduled' ? t('sweep.settings.crmSync.scheduledSync') : t('sweep.settings.crmSync.sync')}
+                  {syncTriggerLabel(log.triggeredBy)}
                 </span>
                 {log.status === 'completed' && (
                   <span className="text-muted-foreground">{t('sweep.settings.crmSync.createdUpdatedCount', { created: log.itemsCreated, updated: log.itemsUpdated })}</span>
