@@ -233,11 +233,9 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
           }
         })
         .catch(() => {});
-    } else {
-      if (camStream) {
-        camStream.getTracks().forEach(t => t.stop());
-        setCamStream(null);
-      }
+    } else if (camStream) {
+      camStream.getTracks().forEach(t => t.stop());
+      setCamStream(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.mode, recorder.state]);
@@ -362,8 +360,11 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
   return (
     <>
       {/* Overlay */}
-      <div
-        className="fixed inset-0 z-50 bg-black/50 animate-in fade-in-0 duration-200"
+      <button
+        type="button"
+        aria-hidden="true"
+        tabIndex={-1}
+        className="fixed inset-0 z-50 h-full w-full cursor-default bg-black/50 animate-in fade-in-0 duration-200"
         onClick={handleClose}
       />
 

@@ -89,6 +89,7 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
         <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
           <DialogContent
             showCloseButton={false}
+            onClick={(e) => e.stopPropagation()}
             className="group max-w-none w-screen h-screen sm:max-w-none rounded-none border-0 bg-black/95 p-0 gap-0 grid-rows-[1fr] flex items-center justify-center duration-200 ease-out data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100"
           >
             <DialogTitle className="absolute top-4 left-4 z-10 text-white text-sm font-normal max-w-[60vw] truncate group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=open]:fade-in-0 group-data-[state=closed]:fade-out-0 duration-200 ease-out">
@@ -109,7 +110,6 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
             <img
               src={attachment.url}
               alt={attachment.fileName}
-              onClick={(e) => e.stopPropagation()}
               className="relative max-h-[90vh] max-w-[90vw] object-contain rounded shadow-2xl group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=open]:fade-in-0 group-data-[state=closed]:fade-out-0 group-data-[state=open]:zoom-in-95 group-data-[state=closed]:zoom-out-95 duration-200 ease-out"
             />
 

@@ -119,12 +119,12 @@ export function EntityMentionChip({ type, id, fallbackLabel }: Readonly<EntityMe
     status === 'ok' && title
       ? title
       : fallbackLabel || `${type}:${id}`;
-  const tooltip =
-    status === 'forbidden'
-      ? t('sweep.weldchat.entityMentionChip.noAccess', { name: display })
-      : status === 'notfound'
-        ? t('sweep.weldchat.entityMentionChip.deleted', { name: display })
-        : display;
+  let tooltip = display;
+  if (status === 'forbidden') {
+    tooltip = t('sweep.weldchat.entityMentionChip.noAccess', { name: display });
+  } else if (status === 'notfound') {
+    tooltip = t('sweep.weldchat.entityMentionChip.deleted', { name: display });
+  }
 
   if (isUnavailable) {
     return (
