@@ -2,6 +2,7 @@
 import { QuickCreateCard } from '../../components/calendar-view';
 import { useUserCalendars } from '@/hooks/queries/use-calendar-queries';
 import { cn } from '@/lib/utils';
+import { getTranslations } from '@/lib/i18n';
 
 interface NewEventDialogProps {
   open: boolean;
@@ -23,6 +24,7 @@ interface NewEventDialogProps {
  * the menu IS the menu from the calendar view.
  */
 export function NewEventDialog({ open, onOpenChange, defaults, hideTypeTabs }: Readonly<NewEventDialogProps>) {
+  const tc = getTranslations('common');
   const { data: calendarsData } = useUserCalendars();
   const allCalendars = calendarsData?.data ?? [];
   const defaultCalendar =
@@ -34,8 +36,11 @@ export function NewEventDialog({ open, onOpenChange, defaults, hideTypeTabs }: R
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 animate-in fade-in-0"
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={tc.actions.close}
+        className="absolute inset-0 cursor-default bg-black/40 animate-in fade-in-0"
         onClick={() => onOpenChange(false)}
       />
       {/* Card — same width / styling as the in-calendar QuickCreateCard. */}
