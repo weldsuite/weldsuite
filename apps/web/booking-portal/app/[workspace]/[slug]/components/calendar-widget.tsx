@@ -40,7 +40,8 @@ export function CalendarWidget({
 }: Readonly<CalendarWidgetProps>) {
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const days = generateCalendarDays(currentMonth);
+  const cells = generateCalendarCells(currentMonth);
+  const days = cells.map((cell) => cell.date);
 
   // Keep one cell focusable (roving tabindex). Default to selected day, else
   // today if it's in this month, else the first available day.
@@ -184,11 +185,11 @@ export function CalendarWidget({
           role="row"
           className="grid grid-cols-7 md:grid-cols-[repeat(7,59px)] gap-1 md:gap-1.5 md:justify-center"
         >
-          {days.map((day, i) => {
+          {cells.map(({ key, date: day }) => {
             if (!day) {
               return (
                 <div
-                  key={`empty-${i}`}
+                  key={key}
                   role="gridcell"
                   className="aspect-square md:aspect-auto md:h-[59px]"
                 />
@@ -305,18 +306,25 @@ function DayCell({
   );
 }
 
-function generateCalendarDays(month: Date): (Date | null)[] {
+interface CalendarCellData {
+  key: string;
+  date: Date | null;
+}
+
+function generateCalendarCells(month: Date): CalendarCellData[] {
   const year = month.getFullYear();
   const m = month.getMonth();
   const firstDay = new Date(year, m, 1);
   const lastDay = new Date(year, m + 1, 0);
   const startPad = firstDay.getDay();
-  const days: (Date | null)[] = [];
+  const cells: CalendarCellData[] = [];
 
-  for (let i = 0; i < startPad; i++) days.push(null);
-  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, m, d));
+  for (let i = 0; i < startPad; i++) cells.push({ key: `empty-${i}`, date: null });
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    cells.push({ key: `day-${d}`, date: new Date(year, m, d) });
+  }
 
-  return days;
+  return cells;
 }
 
 function isInMonth(day: Date, month: Date): boolean {

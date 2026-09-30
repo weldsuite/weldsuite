@@ -107,6 +107,11 @@ function SlotsBody({
   );
 }
 
+function SelectDatePlaceholder({ initialLoading }: Readonly<{ initialLoading: boolean }>) {
+  if (initialLoading) return <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" />;
+  return <p className="text-center">Select a date</p>;
+}
+
 export function TimeSlotList({
   selectedDate,
   initialLoading,
@@ -171,11 +176,7 @@ export function TimeSlotList({
         </>
       ) : (
         <div className="flex items-center justify-center flex-1 text-sm text-gray-400 dark:text-[#6E6E76] pr-5">
-          {initialLoading ? (
-            <Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" />
-          ) : (
-            <p className="text-center">Select a date</p>
-          )}
+          <SelectDatePlaceholder initialLoading={initialLoading} />
         </div>
       )}
     </div>
