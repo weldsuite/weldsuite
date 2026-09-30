@@ -37,6 +37,17 @@ function formatDuration(ms: number | null): string {
   return `${Math.round(ms / 60000)}m`;
 }
 
+function syncTriggerLabel(triggeredBy: string, t: (path: string) => string): string {
+  switch (triggeredBy) {
+    case 'manual':
+      return t('sweep.settings.crmSync.manualSync');
+    case 'scheduled':
+      return t('sweep.settings.crmSync.scheduledSync');
+    default:
+      return t('sweep.settings.crmSync.sync');
+  }
+}
+
 export default function CrmSyncSettingsPage() {
   const t = useTranslations();
   const router = useRouter();
@@ -201,7 +212,7 @@ export default function CrmSyncSettingsPage() {
                         {log.status === 'running' && <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />}
                         {log.status === 'pending' && <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
                         <span className="flex-1 text-muted-foreground">
-                          {log.triggeredBy === 'manual' ? t('sweep.settings.crmSync.manualSync') : log.triggeredBy === 'scheduled' ? t('sweep.settings.crmSync.scheduledSync') : t('sweep.settings.crmSync.sync')}
+                          {syncTriggerLabel(log.triggeredBy, t)}
                           {log.status === 'completed' && ` — ${t('sweep.settings.crmSync.createdUpdatedCount', { created: log.itemsCreated, updated: log.itemsUpdated })}`}
                           {log.status === 'failed' && log.errorMessage && ` — ${log.errorMessage}`}
                         </span>

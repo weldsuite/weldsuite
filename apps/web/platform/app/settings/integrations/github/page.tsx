@@ -335,6 +335,54 @@ function RecoverDialog({
     }
   };
 
+  const renderInstallations = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (installations.length === 0) {
+      return (
+        <p className="text-sm text-muted-foreground text-center py-6">
+          {github.recoverDialog.noInstallations}
+        </p>
+      );
+    }
+    return (
+      <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+        {installations.map((item) => {
+          const isPending = recoveringId === item.id;
+          return (
+            <li key={item.id}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
+                onClick={() => handleRecover(item)}
+                disabled={recoveringId !== null}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="text-sm font-medium truncate">@{item.accountLogin}</span>
+                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                    {item.accountType === 'Organization'
+                      ? github.ownerType.org
+                      : github.ownerType.user}
+                  </span>
+                </div>
+                {isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+                ) : null}
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -344,45 +392,7 @@ function RecoverDialog({
         </DialogHeader>
 
         <div className="mt-2">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : installations.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              {github.recoverDialog.noInstallations}
-            </p>
-          ) : (
-            <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-              {installations.map((item) => {
-                const isPending = recoveringId === item.id;
-                return (
-                  <li key={item.id}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
-                      onClick={() => handleRecover(item)}
-                      disabled={recoveringId !== null}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="text-sm font-medium truncate">@{item.accountLogin}</span>
-                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                          {item.accountType === 'Organization'
-                            ? github.ownerType.org
-                            : github.ownerType.user}
-                        </span>
-                      </div>
-                      {isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
-                      ) : null}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          {renderInstallations()}
         </div>
       </DialogContent>
     </Dialog>
