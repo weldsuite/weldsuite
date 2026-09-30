@@ -1030,31 +1030,26 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
     return (
       <div
         key={file.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onKeyDown={(e) => {
-          if (e.currentTarget !== e.target) return;
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          activateRow(file);
-        }}
-        onClick={() => activateRow(file)}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
-        <div className="flex-1 min-w-[250px] flex items-center gap-3">
-          <div className={cn(
+        <button
+          type="button"
+          className="flex-1 min-w-[250px] flex items-center gap-3 text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-primary/50"
+          onClick={() => activateRow(file)}
+        >
+          <span className={cn(
             "flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-lg",
             file.isFolder ? "bg-amber-50 dark:bg-amber-500/10" : "bg-gray-100 dark:bg-secondary",
           )}>
             <Icon className={cn("h-4 w-4", file.isFolder ? "text-amber-600 dark:text-amber-400" : "text-gray-500")} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{file.fileName}</p>
+          </span>
+          <span className="block min-w-0">
+            <span className="block text-sm font-medium text-gray-900 dark:text-foreground truncate">{file.fileName}</span>
             {file.description && (
-              <p className="text-xs text-gray-500 truncate">{file.description}</p>
+              <span className="block text-xs text-gray-500 truncate">{file.description}</span>
             )}
-          </div>
-        </div>
+          </span>
+        </button>
 
         <div className="w-[100px]">
           <span className="text-sm text-gray-500">
@@ -1066,7 +1061,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
           <span className="text-sm text-gray-500">{formatDate(file.createdAt)}</span>
         </div>
 
-        <div className="w-[80px] flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 w-[80px] flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           {!file.isFolder && (
             <Button
               variant="ghost"

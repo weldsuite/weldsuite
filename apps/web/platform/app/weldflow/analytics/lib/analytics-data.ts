@@ -463,7 +463,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
         }));
       }
 
-      case 'completed_tasks': {
+      case 'completed_tasks':
+      case 'throughput': {
         const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
@@ -563,26 +564,6 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
 
         return results.map((row, i) => ({
           label: formatTypeLabel(row.type || 'Unknown'),
-          value: Number(row.count) || 0,
-          fill: CHART_COLORS[i % CHART_COLORS.length],
-        }));
-      }
-
-      case 'throughput': {
-        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
-        const results = await db
-          .select({
-            period: periodExpr,
-            count: sql<number>`SUM(${mvTasksDaily.completedCount})`,
-          })
-          .from(mvTasksDaily)
-          .where(mvBaseConditions)
-          .groupBy(periodExpr)
-          .orderBy(orderBySortOrder(sortOrder, periodExpr))
-          .limit(resolveLimit(limit, 100));
-
-        return results.map((row, i) => ({
-          label: formatDateLabel(row.period as Date, truncUnit),
           value: Number(row.count) || 0,
           fill: CHART_COLORS[i % CHART_COLORS.length],
         }));
@@ -767,25 +748,7 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
     const mvBaseConditions = projectId ? eq(mvMilestoneStats.projectId, projectId) : undefined;
 
     switch (metric) {
-      case 'total_milestones': {
-        const results = await db
-          .select({
-            status: mvMilestoneStats.status,
-            count: sql<number>`COUNT(*)`,
-          })
-          .from(mvMilestoneStats)
-          .where(mvBaseConditions)
-          .groupBy(mvMilestoneStats.status)
-          .orderBy(orderBySortOrder(sortOrder, sql`COUNT(*)`))
-          .limit(resolveLimit(limit, 10));
-
-        return results.map((row, i) => ({
-          label: formatStatusLabel(row.status),
-          value: Number(row.count) || 0,
-          fill: CHART_COLORS[i % CHART_COLORS.length],
-        }));
-      }
-
+      case 'total_milestones':
       case 'milestones_by_status': {
         const results = await db
           .select({
