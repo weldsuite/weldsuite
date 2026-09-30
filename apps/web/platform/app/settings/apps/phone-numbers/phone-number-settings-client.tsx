@@ -176,6 +176,124 @@ const NUMBER_TYPES = [
   { value: 'mobile', label: 'Mobile' },
 ];
 
+type PhoneNumberTranslations = ReturnType<typeof getTranslations<'settings'>>['phoneNumbers'];
+
+interface PhoneNumberColumnHandlers {
+  onSetDefault: (numberId: string) => void;
+  onEdit: (phoneNumber: VoipPhoneNumber) => void;
+  onDelete: (phoneNumber: VoipPhoneNumber) => void;
+}
+
+// Kept outside the component so the cell renderers are not re-declared as
+// nested component definitions on every render.
+function buildPhoneNumberColumns(
+  tp: PhoneNumberTranslations,
+  { onSetDefault, onEdit, onDelete }: PhoneNumberColumnHandlers,
+): ColumnDef<VoipPhoneNumber>[] {
+  return [
+  {
+    accessorKey: 'phoneNumber',
+    header: tp.columns.number,
+    size: 250,
+    cell: ({ row }) => {
+      const phone = row.original;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-medium">
+            {phone.formattedNumber || formatPhoneNumber(phone.phoneNumber)}
+          </span>
+          {phone.isDefault && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tp.defaultTooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {phone.status === 'pending' && (
+            <Badge variant="outline" className="text-xs">
+              {tp.pendingDocuments}
+            </Badge>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    accessorKey: 'displayName',
+    header: tp.columns.name,
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.displayName || '—'}
+      </span>
+    ),
+  },
+  {
+    id: 'type',
+    header: tp.columns.type,
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border capitalize">
+        {row.original.numberType || 'local'}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: 'countryCode',
+    header: tp.columns.country,
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border">
+        {row.original.countryCode}
+      </Badge>
+    ),
+  },
+  {
+    id: 'actions',
+    header: '',
+    cell: ({ row }) => {
+      const phone = row.original;
+
+      return (
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">{tp.openMenu}</span>
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{tp.menu.actions}</DropdownMenuLabel>
+              {!phone.isDefault && (
+                <DropdownMenuItem onClick={() => onSetDefault(phone.id)}>
+                  <Star className="h-4 w-4 mr-0.5" />
+                  {tp.menu.setDefault}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => onEdit(phone)}>
+                <Settings className="h-4 w-4 mr-0.5" />
+                {tp.menu.settings}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDelete(phone)}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
+                {tp.menu.delete}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      );
+    },
+  },
+  ];
+}
+
 export function PhoneNumberSettingsClient({
   phoneNumbers: initialPhoneNumbers,
   isConfigured,
@@ -252,111 +370,14 @@ export function PhoneNumberSettingsClient({
     });
   };
 
-  const columns: ColumnDef<VoipPhoneNumber>[] = [
-    {
-      accessorKey: 'phoneNumber',
-      header: tp.columns.number,
-      size: 250,
-      cell: ({ row }) => {
-        const phone = row.original;
-        return (
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-medium">
-              {phone.formattedNumber || formatPhoneNumber(phone.phoneNumber)}
-            </span>
-            {phone.isDefault && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{tp.defaultTooltip}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {phone.status === 'pending' && (
-              <Badge variant="outline" className="text-xs">
-                {tp.pendingDocuments}
-              </Badge>
-            )}
-          </div>
-        );
-      },
+  const columns = buildPhoneNumberColumns(tp, {
+    onSetDefault: handleSetDefault,
+    onEdit: handleEdit,
+    onDelete: (phoneNumber) => {
+      setSelectedNumber(phoneNumber);
+      setIsDeleteDialogOpen(true);
     },
-    {
-      accessorKey: 'displayName',
-      header: tp.columns.name,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {row.original.displayName || '—'}
-        </span>
-      ),
-    },
-    {
-      id: 'type',
-      header: tp.columns.type,
-      cell: ({ row }) => (
-        <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border capitalize">
-          {row.original.numberType || 'local'}
-        </Badge>
-      ),
-    },
-    {
-      accessorKey: 'countryCode',
-      header: tp.columns.country,
-      cell: ({ row }) => (
-        <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border">
-          {row.original.countryCode}
-        </Badge>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => {
-        const phone = row.original;
-
-        return (
-          <div className="flex justify-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <span className="sr-only">{tp.openMenu}</span>
-                  <EllipsisVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{tp.menu.actions}</DropdownMenuLabel>
-                {!phone.isDefault && (
-                  <DropdownMenuItem onClick={() => handleSetDefault(phone.id)}>
-                    <Star className="h-4 w-4 mr-0.5" />
-                    {tp.menu.setDefault}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => handleEdit(phone)}>
-                  <Settings className="h-4 w-4 mr-0.5" />
-                  {tp.menu.settings}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    setSelectedNumber(phone);
-                    setIsDeleteDialogOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
-                  {tp.menu.delete}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
-  ];
+  });
 
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
