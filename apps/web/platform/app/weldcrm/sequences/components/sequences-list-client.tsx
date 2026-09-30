@@ -269,11 +269,36 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     [t]
   );
 
+  const getStatusLabel = useCallback(
+    (status: string): string => {
+      switch (status) {
+        case 'active':
+          return t('crm.sequences.statusActive');
+        case 'paused':
+          return t('crm.sequences.statusPaused');
+        case 'draft':
+          return t('crm.sequences.statusDraft');
+        default:
+          return status;
+      }
+    },
+    [t]
+  );
+
   const renderRow = useCallback(
     (sequence: SequenceSummary) => (
       <div
         key={sequence.id}
+        role="button"
+        tabIndex={0}
         onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            router.push(`/weldcrm/sequences/${sequence.id}`);
+          }
+        }}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Name */}
@@ -295,7 +320,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
               statusConfig[sequence.status]?.bg
             )}
           >
-            {sequence.status === 'active' ? t('crm.sequences.statusActive') : sequence.status === 'paused' ? t('crm.sequences.statusPaused') : sequence.status === 'draft' ? t('crm.sequences.statusDraft') : sequence.status}
+            {getStatusLabel(sequence.status)}
           </span>
         </div>
 
@@ -363,7 +388,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
         </div>
       </div>
     ),
-    [router, handleActivate, handleDelete, handlePause, t]
+    [router, handleActivate, handleDelete, handlePause, getStatusLabel, t]
   );
 
   return (
