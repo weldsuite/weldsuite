@@ -23,6 +23,42 @@ export default function UpcomingScreen() {
     }
   }, [loading, markInteractive]);
 
+  let body: React.ReactNode;
+  if (loading && !data) {
+    body = (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#7C3AED" />
+      </View>
+    );
+  } else if (error) {
+    body = (
+      <View style={styles.center}>
+        <Text style={[styles.error, { color: colors.muted }]}>{error}</Text>
+      </View>
+    );
+  } else {
+    body = (
+      <FlatList
+        data={data ?? []}
+        keyExtractor={(m) => m.id}
+        renderItem={({ item }) => (
+          <MeetingCard meeting={item} onPress={() => router.push(`/meeting/${item.id}`)} />
+        )}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor="#7C3AED" />}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Video size={48} color={colors.muted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No upcoming meetings</Text>
+            <Text style={[styles.emptyBody, { color: colors.muted }]}>
+              Tap + to schedule a meeting, or join one with a code.
+            </Text>
+          </View>
+        }
+        contentContainerStyle={data?.length ? { paddingVertical: 8 } : styles.emptyContainer}
+      />
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -43,34 +79,7 @@ export default function UpcomingScreen() {
         </View>
       </View>
 
-      {loading && !data ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7C3AED" />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={[styles.error, { color: colors.muted }]}>{error}</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={data ?? []}
-          keyExtractor={(m) => m.id}
-          renderItem={({ item }) => (
-            <MeetingCard meeting={item} onPress={() => router.push(`/meeting/${item.id}`)} />
-          )}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor="#7C3AED" />}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Video size={48} color={colors.muted} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No upcoming meetings</Text>
-              <Text style={[styles.emptyBody, { color: colors.muted }]}>
-                Tap + to schedule a meeting, or join one with a code.
-              </Text>
-            </View>
-          }
-          contentContainerStyle={data?.length ? { paddingVertical: 8 } : styles.emptyContainer}
-        />
-      )}
+      {body}
     </View>
   );
 }
