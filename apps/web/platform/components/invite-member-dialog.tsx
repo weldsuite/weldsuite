@@ -50,10 +50,173 @@ interface MemberLimitsInfo {
   planName: string;
 }
 
+const plural = (n: number) => (n !== 1 ? 's' : '');
+
+const newBlankInvite = (roleId = ''): InviteEntry => ({
+  id: crypto.randomUUID(),
+  email: '',
+  name: '',
+  roleId,
+});
+
+const findRoleByName = (roles: Role[], target: string) =>
+  roles.find((r) => r.name.toUpperCase() === target);
+
+/** Prefer Member, then Viewer, otherwise the first available role. */
+const pickDefaultRole = (roles: Role[]): Role | undefined =>
+  findRoleByName(roles, 'MEMBER') ?? findRoleByName(roles, 'VIEWER') ?? roles[0];
+
+/** Give every invite whose role is no longer available the default role. */
+function applyDefaultRole(invites: InviteEntry[], availableRoles: Role[], defaultRole: Role): InviteEntry[] {
+  const roleIsAvailable = (roleId: string) => availableRoles.some((r) => r.id === roleId);
+  return invites.map((inv) => (roleIsAvailable(inv.roleId) ? inv : { ...inv, roleId: defaultRole.id }));
+}
+
+const getRoleLabel = (roleName: string) => {
+  const upper = roleName.toUpperCase();
+  switch (upper) {
+    case 'OWNER': return 'Owner';
+    case 'ADMIN': return 'Admin';
+    case 'MEMBER': return 'Member';
+    case 'VIEWER': return 'Viewer';
+    default:
+      return roleName
+        .split(/[\s_-]+/)
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+        .join(' ');
+  }
+};
+
+interface MemberLimitNoticesProps {
+  memberLimits: MemberLimitsInfo | null;
+  prepaidSeats: PrepaidSeatsInfo | null;
+  isPaidPlan: boolean;
+}
+
+function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: MemberLimitNoticesProps) {
+  return (
+    <>
+      {/* Show member limit warning when at limit */}
+      {memberLimits?.atLimit && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Member limit reached</AlertTitle>
+          <AlertDescription>
+            Your {memberLimits.planName} plan allows up to {memberLimits.limit} member{memberLimits.limit !== 1 ? 's' : ''}.
+            You currently have {memberLimits.current} member{plural(memberLimits.current)}.
+            Upgrade your plan to add more team members.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Show current member count info when not at limit but has a limit (free plan) */}
+      {memberLimits && !memberLimits.atLimit && memberLimits.limit !== null && (
+        <p className="text-sm text-muted-foreground mb-4">
+          {memberLimits.current} of {memberLimits.limit} members used on your {memberLimits.planName} plan.
+        </p>
+      )}
+
+      {/* Show prepaid seats info for paid plans */}
+      {isPaidPlan && prepaidSeats && (
+        <div className="mb-4">
+          {prepaidSeats.availableSeats > 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="h-4 w-4" />
+              <span>
+                {prepaidSeats.availableSeats} seat{plural(prepaidSeats.availableSeats)} available
+                <span className="text-muted-foreground/70"> ({prepaidSeats.usedSeats}/{prepaidSeats.prepaidSeats} used)</span>
+              </span>
+            </div>
+          ) : (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>No seats available</AlertTitle>
+              <AlertDescription>
+                All {prepaidSeats.prepaidSeats} seat{plural(prepaidSeats.prepaidSeats)} are in use.
+                Purchase more seats to invite members.
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+interface InviteRowProps {
+  invite: InviteEntry;
+  roles: Role[];
+  isLoading: boolean;
+  canRemove: boolean;
+  onUpdate: (id: string, field: 'email' | 'name' | 'roleId', value: string) => void;
+  onRemove: (id: string) => void;
+}
+
+function InviteRow({ invite, roles, isLoading, canRemove, onUpdate, onRemove }: InviteRowProps) {
+  return (
+    <div className="flex gap-2 items-start">
+      <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
+        <Input
+          type="email"
+          placeholder="Email"
+          value={invite.email}
+          onChange={(e) => onUpdate(invite.id, 'email', e.target.value)}
+          disabled={isLoading}
+          className="focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
+        <Input
+          type="text"
+          placeholder="Name"
+          value={invite.name}
+          onChange={(e) => onUpdate(invite.id, 'name', e.target.value)}
+          disabled={isLoading}
+          className="focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
+        <Select
+          value={invite.roleId}
+          onValueChange={(value) => onUpdate(invite.id, 'roleId', value)}
+          disabled={isLoading || roles.length === 0}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Role" />
+          </SelectTrigger>
+          <SelectContent>
+            {roles.map((role) => (
+              <SelectItem key={role.id} value={role.id}>
+                {getRoleLabel(role.name)}
+                {!role.isSystemRole && (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    (Custom)
+                  </span>
+                )}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {canRemove && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => onRemove(invite.id)}
+          disabled={isLoading}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function sendInvitesLabel(invites: InviteEntry[]): string {
+  const filled = invites.filter((i) => i.email && i.name).length;
+  return `Send ${filled || ''} Invite${plural(filled)}`;
+}
+
 export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogProps) {
-  const [invites, setInvites] = useState<InviteEntry[]>([
-    { id: crypto.randomUUID(), email: '', name: '', roleId: '' }
-  ]);
+  const [invites, setInvites] = useState<InviteEntry[]>([newBlankInvite()]);
   const [isLoading, setIsLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [memberLimits, setMemberLimits] = useState<MemberLimitsInfo | null>(null);
@@ -80,17 +243,9 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
             setRoles(availableRoles);
 
             // Pick a sensible default: prefer Member, then Viewer, otherwise first available
-            const findRole = (target: string) =>
-              availableRoles.find((r) => r.name.toUpperCase() === target);
-            const defaultRole = findRole('MEMBER') ?? findRole('VIEWER') ?? availableRoles[0];
+            const defaultRole = pickDefaultRole(availableRoles);
             if (defaultRole) {
-              setInvites((prev) =>
-                prev.map((inv) =>
-                  availableRoles.some((r) => r.id === inv.roleId)
-                    ? inv
-                    : { ...inv, roleId: defaultRole.id },
-                ),
-              );
+              setInvites((prev) => applyDefaultRole(prev, availableRoles, defaultRole));
             }
           }
         } catch {
@@ -123,14 +278,10 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
     }
   }, [open, getClient]);
 
-  const defaultRoleId = (() => {
-    const findRole = (target: string) =>
-      roles.find((r) => r.name.toUpperCase() === target)?.id;
-    return findRole('MEMBER') ?? findRole('VIEWER') ?? roles[0]?.id ?? '';
-  })();
+  const defaultRoleId = pickDefaultRole(roles)?.id ?? '';
 
   const addInvite = () => {
-    setInvites([...invites, { id: crypto.randomUUID(), email: '', name: '', roleId: defaultRoleId }]);
+    setInvites([...invites, newBlankInvite(defaultRoleId)]);
   };
 
   const removeInvite = (id: string) => {
@@ -147,6 +298,29 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
 
   const getValidInvites = () => invites.filter(invite => invite.email.trim() && invite.name.trim() && invite.roleId);
 
+  // Toast one result per invite: a summary for the successes, one error per failure.
+  const reportInviteResults = (results: PromiseSettledResult<unknown>[], validInvites: InviteEntry[]) => {
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failures = results
+      .map((result, i) => ({ result, invite: validInvites[i] }))
+      .filter(({ result }) => result.status === 'rejected');
+
+    if (succeeded > 0) {
+      toast.success(`${succeeded} invitation${succeeded > 1 ? 's' : ''} sent`, {
+        description: failures.length > 0 ? `${failures.length} could not be sent` : undefined,
+      });
+      resetAndClose();
+    }
+
+    // Show a specific toast for each failed invite
+    for (const { result, invite } of failures) {
+      const message = (result as PromiseRejectedResult).reason?.message;
+      toast.error(`Could not invite ${invite.email}`, {
+        description: message || 'Please try again later',
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -158,13 +332,11 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
     }
 
     // Check if we have enough prepaid seats for paid plans
-    if (isPaidPlan && prepaidSeats) {
-      if (validInvites.length > prepaidSeats.availableSeats) {
-        toast.error(`Not enough seats available`, {
-          description: `You have ${prepaidSeats.availableSeats} seat${prepaidSeats.availableSeats !== 1 ? 's' : ''} available but are trying to invite ${validInvites.length} member${validInvites.length !== 1 ? 's' : ''}.`,
-        });
-        return;
-      }
+    if (isPaidPlan && prepaidSeats && validInvites.length > prepaidSeats.availableSeats) {
+      toast.error(`Not enough seats available`, {
+        description: `You have ${prepaidSeats.availableSeats} seat${plural(prepaidSeats.availableSeats)} available but are trying to invite ${validInvites.length} member${plural(validInvites.length)}.`,
+      });
+      return;
     }
 
     setIsLoading(true);
@@ -179,26 +351,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
           })
         )
       );
-
-      const succeeded = results.filter(r => r.status === 'fulfilled').length;
-      const failures = results
-        .map((r, i) => ({ result: r, invite: validInvites[i] }))
-        .filter(({ result }) => result.status === 'rejected');
-
-      if (succeeded > 0) {
-        toast.success(`${succeeded} invitation${succeeded > 1 ? 's' : ''} sent`, {
-          description: failures.length > 0 ? `${failures.length} could not be sent` : undefined,
-        });
-        resetAndClose();
-      }
-
-      // Show a specific toast for each failed invite
-      for (const { result, invite } of failures) {
-        const message = (result as PromiseRejectedResult).reason?.message;
-        toast.error(`Could not invite ${invite.email}`, {
-          description: message || 'Please try again later',
-        });
-      }
+      reportInviteResults(results, validInvites);
     } catch (error) {
       console.error('Error inviting users:', error);
       toast.error('Failed to send invitations', {
@@ -215,7 +368,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
   };
 
   const resetAndClose = () => {
-    setInvites([{ id: crypto.randomUUID(), email: '', name: '', roleId: '' }]);
+    setInvites([newBlankInvite()]);
     setMemberLimits(null);
     setPrepaidSeats(null);
     onOpenChange(false);
@@ -224,7 +377,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       // Reset form and limits when closing
-      setInvites([{ id: crypto.randomUUID(), email: '', name: '', roleId: '' }]);
+      setInvites([newBlankInvite()]);
       setMemberLimits(null);
       setPrepaidSeats(null);
     }
@@ -234,21 +387,6 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
   const handleUpgrade = () => {
     onOpenChange(false);
     router.push('/settings/plans');
-  };
-
-  const getRoleLabel = (roleName: string) => {
-    const upper = roleName.toUpperCase();
-    switch (upper) {
-      case 'OWNER': return 'Owner';
-      case 'ADMIN': return 'Admin';
-      case 'MEMBER': return 'Member';
-      case 'VIEWER': return 'Viewer';
-      default:
-        return roleName
-          .split(/[\s_-]+/)
-          .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
-          .join(' ');
-    }
   };
 
   // Check if user can invite (has available seats for paid plan)
@@ -263,49 +401,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
         </DialogTitle>
       </DialogHeader>
 
-      {/* Show member limit warning when at limit */}
-      {memberLimits?.atLimit && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Member limit reached</AlertTitle>
-          <AlertDescription>
-            Your {memberLimits.planName} plan allows up to {memberLimits.limit} member{memberLimits.limit !== 1 ? 's' : ''}.
-            You currently have {memberLimits.current} member{memberLimits.current !== 1 ? 's' : ''}.
-            Upgrade your plan to add more team members.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Show current member count info when not at limit but has a limit (free plan) */}
-      {memberLimits && !memberLimits.atLimit && memberLimits.limit !== null && (
-        <p className="text-sm text-muted-foreground mb-4">
-          {memberLimits.current} of {memberLimits.limit} members used on your {memberLimits.planName} plan.
-        </p>
-      )}
-
-      {/* Show prepaid seats info for paid plans */}
-      {isPaidPlan && prepaidSeats && (
-        <div className="mb-4">
-          {prepaidSeats.availableSeats > 0 ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Users className="h-4 w-4" />
-              <span>
-                {prepaidSeats.availableSeats} seat{prepaidSeats.availableSeats !== 1 ? 's' : ''} available
-                <span className="text-muted-foreground/70"> ({prepaidSeats.usedSeats}/{prepaidSeats.prepaidSeats} used)</span>
-              </span>
-            </div>
-          ) : (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>No seats available</AlertTitle>
-              <AlertDescription>
-                All {prepaidSeats.prepaidSeats} seat{prepaidSeats.prepaidSeats !== 1 ? 's' : ''} are in use.
-                Purchase more seats to invite members.
-              </AlertDescription>
-            </Alert>
-          )}
-        </div>
-      )}
+      <MemberLimitNotices memberLimits={memberLimits} prepaidSeats={prepaidSeats} isPaidPlan={isPaidPlan} />
 
       {memberLimits?.atLimit ? (
         <DialogFooter>
@@ -338,59 +434,15 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
           <div className="grid gap-4 py-4">
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
               {invites.map((invite) => (
-                <div key={invite.id} className="flex gap-2 items-start">
-                  <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
-                    <Input
-                      type="email"
-                      placeholder="Email"
-                      value={invite.email}
-                      onChange={(e) => updateInvite(invite.id, 'email', e.target.value)}
-                      disabled={isLoading}
-                      className="focus-visible:ring-0 focus-visible:ring-offset-0"
-                    />
-                    <Input
-                      type="text"
-                      placeholder="Name"
-                      value={invite.name}
-                      onChange={(e) => updateInvite(invite.id, 'name', e.target.value)}
-                      disabled={isLoading}
-                      className="focus-visible:ring-0 focus-visible:ring-offset-0"
-                    />
-                    <Select
-                      value={invite.roleId}
-                      onValueChange={(value) => updateInvite(invite.id, 'roleId', value)}
-                      disabled={isLoading || roles.length === 0}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {roles.map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {getRoleLabel(role.name)}
-                            {!role.isSystemRole && (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                (Custom)
-                              </span>
-                            )}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {invites.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 shrink-0"
-                      onClick={() => removeInvite(invite.id)}
-                      disabled={isLoading}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
+                <InviteRow
+                  key={invite.id}
+                  invite={invite}
+                  roles={roles}
+                  isLoading={isLoading}
+                  canRemove={invites.length > 1}
+                  onUpdate={updateInvite}
+                  onRemove={removeInvite}
+                />
               ))}
             </div>
 
@@ -424,7 +476,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
                   Sending...
                 </>
               ) : (
-                `Send ${invites.filter(i => i.email && i.name).length || ''} Invite${invites.filter(i => i.email && i.name).length !== 1 ? 's' : ''}`
+                sendInvitesLabel(invites)
               )}
             </Button>
           </DialogFooter>
