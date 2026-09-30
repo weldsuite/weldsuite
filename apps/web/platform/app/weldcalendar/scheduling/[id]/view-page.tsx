@@ -207,7 +207,7 @@ export default function BookingPageViewPage() {
                   {HOURS.map((hour) => (
                     <div key={hour} className="border-b border-border" style={{ height: hourHeight }} />
                   ))}
-                  {blocks.map((block: TimeRange, bi: number) => {
+                  {blocks.map((block: TimeRange) => {
                     const [startH, startM] = block.start.split(':').map(Number);
                     const [endH, endM] = block.end.split(':').map(Number);
                     const blockStartMin = startH * 60 + startM;
@@ -225,7 +225,7 @@ export default function BookingPageViewPage() {
 
                     return (
                       <div
-                        key={bi}
+                        key={`${block.start}-${block.end}`}
                         className="absolute left-[2px] right-[2px] rounded-md overflow-hidden border border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/20"
                         style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
                       >
