@@ -131,6 +131,47 @@ function extractSubscriptionId(subscription: string | { id: string } | null): st
   return typeof subscription === 'string' ? subscription : subscription.id;
 }
 
+type MasterDb = ReturnType<typeof getMasterDb>;
+type SeatPlan = Parameters<typeof calculateEffectiveSeatLimit>[0];
+
+// Helper: convert a Stripe unix-seconds timestamp to a Date (null when absent)
+function unixToDate(seconds: number | null | undefined): Date | null {
+  return seconds ? new Date(seconds * 1000) : null;
+}
+
+// Helper: recompute the workspace's effective seat limit and push it to Clerk
+async function applyClerkSeatLimit(
+  env: Env,
+  clerkSecretKey: string,
+  masterDb: MasterDb,
+  clerkOrgId: string,
+  workspaceId: string,
+  plan: SeatPlan,
+  seats: number,
+): Promise<void> {
+  const memberCount = await getMemberCount(env, masterDb, clerkOrgId, workspaceId);
+  const effectiveLimit = calculateEffectiveSeatLimit(plan, seats, memberCount);
+  await syncClerkSeatLimit(clerkSecretKey, clerkOrgId, effectiveLimit);
+}
+
+// Helper: best-effort Clerk seat-limit sync for an already-resolved plan
+async function trySyncClerkSeatLimit(
+  env: Env,
+  masterDb: MasterDb,
+  clerkOrgId: string | null,
+  workspaceId: string,
+  plan: SeatPlan | null | undefined,
+  seats: number,
+  context: string,
+): Promise<void> {
+  if (!clerkOrgId || !env.CLERK_SECRET_KEY || !plan) return;
+  try {
+    await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan, seats);
+  } catch (err) {
+    console.error(`[Stripe Webhook] Failed to sync Clerk seat limit after ${context}:`, err);
+  }
+}
+
 export const webhookRoutes = new Hono<{ Bindings: Env }>();
 
 // ============================================================================
@@ -307,48 +348,7 @@ async function handleCheckoutCompleted(
   // Handle phone number checkout separately — register with Telnyx only
   // after Stripe reports the session paid (same as domain_registration).
   if (session.metadata?.type === 'phone_checkout') {
-    const workspaceId = session.metadata.workspaceId;
-    const clerkOrgId = session.metadata.clerkOrgId;
-    const subscriptionId = session.subscription as string;
-    const phoneNumber = session.metadata.phone_number;
-
-    if (!workspaceId || !subscriptionId) {
-      console.error('[Stripe Webhook] Phone checkout missing workspaceId or subscription');
-      return;
-    }
-
-    if (session.payment_status !== 'paid') {
-      console.log(
-        `[Stripe Webhook] Phone checkout ${session.id} not paid (${session.payment_status ?? 'no status'}), skipping Telnyx order`,
-      );
-      return;
-    }
-
-    await masterDb
-      .update(workspaces)
-      .set({
-        stripePhoneSubscriptionId: subscriptionId,
-        updatedAt: new Date(),
-      })
-      .where(eq(workspaces.id, workspaceId));
-
-    console.log(`[Stripe Webhook] Linked phone subscription ${subscriptionId} to workspace ${workspaceId}`);
-
-    if (!phoneNumber || !clerkOrgId) {
-      console.error('[Stripe Webhook] Phone checkout paid but missing phone_number or clerkOrgId');
-      return;
-    }
-
-    const { fulfillPaidPhoneNumberFromBilling } = await import('../lib/phone-fulfill');
-    await fulfillPaidPhoneNumberFromBilling(env, {
-      clerkOrgId,
-      phoneNumber,
-      countryCode: session.metadata.phone_country_code || 'US',
-      numberType: session.metadata.phone_number_type || 'local',
-      addressId: session.metadata.phone_address_id || session.metadata.phone_address_sid,
-      displayName: session.metadata.phone_display_name,
-      friendlyName: session.metadata.phone_friendly_name,
-    });
+    await handlePhoneCheckoutCompleted(env, masterDb, session);
     return;
   }
 
@@ -379,22 +379,11 @@ async function handleCheckoutCompleted(
   const previousSubscriptionId = workspace.stripeSubscriptionId;
 
   // Get seat count and subscription details from Stripe
-  let purchasedSeats = seatsStr ? parseInt(seatsStr, 10) : 0;
-  let cycle: 'monthly' | 'yearly' = 'monthly';
-  let periodStart: Date | null = null;
-  let periodEnd: Date | null = null;
-
-  if (env.STRIPE_SECRET_KEY) {
-    try {
-      const sub = await retrieveSubscription(env.STRIPE_SECRET_KEY, subscriptionId);
-      purchasedSeats = purchasedSeats || sub.items?.data?.[0]?.quantity || 0;
-      cycle = getSubscriptionCycle(sub);
-      periodStart = sub.current_period_start ? new Date(sub.current_period_start * 1000) : null;
-      periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
-    } catch {
-      // Fall back to defaults
-    }
-  }
+  const { purchasedSeats, cycle, periodStart, periodEnd } = await loadCheckoutSubscriptionDetails(
+    env,
+    subscriptionId,
+    seatsStr,
+  );
 
   const [updated] = await masterDb
     .update(workspaces)
@@ -428,39 +417,10 @@ async function handleCheckoutCompleted(
   // with two live subscriptions. The workspace row already points at the
   // new id, so the deleted-subscription webhook will not find it and will
   // not downgrade the workspace.
-  if (
-    subscriptionId &&
-    previousSubscriptionId &&
-    previousSubscriptionId !== subscriptionId &&
-    env.STRIPE_SECRET_KEY
-  ) {
-    try {
-      await cancelSubscriptionImmediately(env.STRIPE_SECRET_KEY, previousSubscriptionId);
-      console.log(
-        `[Stripe Webhook] Canceled previous subscription ${previousSubscriptionId} after checkout to ${subscriptionId}`,
-      );
-    } catch (err) {
-      console.error(
-        `[Stripe Webhook] Failed to cancel previous subscription ${previousSubscriptionId}:`,
-        err,
-      );
-    }
-  }
+  await cancelPreviousSubscription(env, previousSubscriptionId, subscriptionId);
 
   // Reverse-sync customer details from checkout to workspace billing details
-  if (session.customer_details?.address) {
-    try {
-      const addr = session.customer_details.address;
-      const taxIds = session.customer_details.tax_ids;
-      const vatNumber = taxIds?.find(t => t.type === 'eu_vat')?.value || null;
-
-      // Update workspace settings in tenant DB if available
-      // Note: This is a best-effort sync — the authoritative data is on the Stripe customer
-      console.log(`[Stripe Webhook] Checkout customer details: country=${addr.country}, taxExempt=${session.customer_details.tax_exempt}, vatNumber=${vatNumber ? 'present' : 'none'}`);
-    } catch (err) {
-      console.warn('[Stripe Webhook] Failed to reverse-sync checkout details:', err);
-    }
-  }
+  logCheckoutCustomerDetails(session);
 
   // Sync credits
   if (workspace.clerkOrgId) {
@@ -468,25 +428,155 @@ async function handleCheckoutCompleted(
   }
 
   // Sync seat limit to Clerk
-  if (workspace.clerkOrgId && env.CLERK_SECRET_KEY) {
-    try {
-      const [plan] = await masterDb
-        .select({
-          maxUsers: plans.maxUsers,
-          pricePerUser: plans.pricePerUser,
-          includedUsers: plans.includedUsers,
-        })
-        .from(plans)
-        .where(eq(plans.id, planId));
+  await syncClerkSeatLimitAfterCheckout(env, masterDb, workspace.clerkOrgId, workspaceId, planId, purchasedSeats);
+}
 
-      if (plan) {
-        const memberCount = await getMemberCount(env, masterDb, workspace.clerkOrgId, workspaceId);
-        const effectiveLimit = calculateEffectiveSeatLimit(plan, purchasedSeats, memberCount);
-        await syncClerkSeatLimit(env.CLERK_SECRET_KEY, workspace.clerkOrgId, effectiveLimit);
-      }
-    } catch (err) {
-      console.error('[Stripe Webhook] Failed to sync Clerk seat limit after checkout:', err);
+/** Phone number checkout: link the phone subscription, then fulfil the paid number. */
+async function handlePhoneCheckoutCompleted(
+  env: Env,
+  masterDb: MasterDb,
+  session: StripeCheckoutSession,
+): Promise<void> {
+  const workspaceId = session.metadata?.workspaceId;
+  const clerkOrgId = session.metadata?.clerkOrgId;
+  const subscriptionId = session.subscription as string;
+  const phoneNumber = session.metadata?.phone_number;
+
+  if (!workspaceId || !subscriptionId) {
+    console.error('[Stripe Webhook] Phone checkout missing workspaceId or subscription');
+    return;
+  }
+
+  if (session.payment_status !== 'paid') {
+    console.log(
+      `[Stripe Webhook] Phone checkout ${session.id} not paid (${session.payment_status ?? 'no status'}), skipping Telnyx order`,
+    );
+    return;
+  }
+
+  await masterDb
+    .update(workspaces)
+    .set({
+      stripePhoneSubscriptionId: subscriptionId,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspaceId));
+
+  console.log(`[Stripe Webhook] Linked phone subscription ${subscriptionId} to workspace ${workspaceId}`);
+
+  if (!phoneNumber || !clerkOrgId) {
+    console.error('[Stripe Webhook] Phone checkout paid but missing phone_number or clerkOrgId');
+    return;
+  }
+
+  const { fulfillPaidPhoneNumberFromBilling } = await import('../lib/phone-fulfill');
+  await fulfillPaidPhoneNumberFromBilling(env, {
+    clerkOrgId,
+    phoneNumber,
+    countryCode: session.metadata?.phone_country_code || 'US',
+    numberType: session.metadata?.phone_number_type || 'local',
+    addressId: session.metadata?.phone_address_id || session.metadata?.phone_address_sid,
+    displayName: session.metadata?.phone_display_name,
+    friendlyName: session.metadata?.phone_friendly_name,
+  });
+}
+
+/** Seat count + billing cycle + period from the Stripe subscription (defaults when unavailable). */
+async function loadCheckoutSubscriptionDetails(
+  env: Env,
+  subscriptionId: string,
+  seatsStr: string | undefined,
+): Promise<{
+  purchasedSeats: number;
+  cycle: 'monthly' | 'yearly';
+  periodStart: Date | null;
+  periodEnd: Date | null;
+}> {
+  let purchasedSeats = seatsStr ? parseInt(seatsStr, 10) : 0;
+  let cycle: 'monthly' | 'yearly' = 'monthly';
+  let periodStart: Date | null = null;
+  let periodEnd: Date | null = null;
+
+  if (env.STRIPE_SECRET_KEY) {
+    try {
+      const sub = await retrieveSubscription(env.STRIPE_SECRET_KEY, subscriptionId);
+      purchasedSeats = purchasedSeats || sub.items?.data?.[0]?.quantity || 0;
+      cycle = getSubscriptionCycle(sub);
+      periodStart = unixToDate(sub.current_period_start);
+      periodEnd = unixToDate(sub.current_period_end);
+    } catch {
+      // Fall back to defaults
     }
+  }
+
+  return { purchasedSeats, cycle, periodStart, periodEnd };
+}
+
+async function cancelPreviousSubscription(
+  env: Env,
+  previousSubscriptionId: string | null,
+  subscriptionId: string,
+): Promise<void> {
+  if (
+    !subscriptionId ||
+    !previousSubscriptionId ||
+    previousSubscriptionId === subscriptionId ||
+    !env.STRIPE_SECRET_KEY
+  ) {
+    return;
+  }
+  try {
+    await cancelSubscriptionImmediately(env.STRIPE_SECRET_KEY, previousSubscriptionId);
+    console.log(
+      `[Stripe Webhook] Canceled previous subscription ${previousSubscriptionId} after checkout to ${subscriptionId}`,
+    );
+  } catch (err) {
+    console.error(
+      `[Stripe Webhook] Failed to cancel previous subscription ${previousSubscriptionId}:`,
+      err,
+    );
+  }
+}
+
+function logCheckoutCustomerDetails(session: StripeCheckoutSession): void {
+  if (!session.customer_details?.address) return;
+  try {
+    const addr = session.customer_details.address;
+    const taxIds = session.customer_details.tax_ids;
+    const vatNumber = taxIds?.find(t => t.type === 'eu_vat')?.value || null;
+
+    // Update workspace settings in tenant DB if available
+    // Note: This is a best-effort sync — the authoritative data is on the Stripe customer
+    console.log(`[Stripe Webhook] Checkout customer details: country=${addr.country}, taxExempt=${session.customer_details.tax_exempt}, vatNumber=${vatNumber ? 'present' : 'none'}`);
+  } catch (err) {
+    console.warn('[Stripe Webhook] Failed to reverse-sync checkout details:', err);
+  }
+}
+
+async function syncClerkSeatLimitAfterCheckout(
+  env: Env,
+  masterDb: MasterDb,
+  clerkOrgId: string | null,
+  workspaceId: string,
+  planId: string,
+  purchasedSeats: number,
+): Promise<void> {
+  if (!clerkOrgId || !env.CLERK_SECRET_KEY) return;
+  try {
+    const [plan] = await masterDb
+      .select({
+        maxUsers: plans.maxUsers,
+        pricePerUser: plans.pricePerUser,
+        includedUsers: plans.includedUsers,
+      })
+      .from(plans)
+      .where(eq(plans.id, planId));
+
+    if (plan) {
+      await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan, purchasedSeats);
+    }
+  } catch (err) {
+    console.error('[Stripe Webhook] Failed to sync Clerk seat limit after checkout:', err);
   }
 }
 
@@ -507,70 +597,11 @@ async function handleSubscriptionUpdated(
     return;
   }
 
-  // Check if this is a phone subscription (by metadata or by matching stripePhoneSubscriptionId)
-  if (subscription.metadata?.type === 'phone') {
-    console.log('[Stripe Webhook] Phone subscription update, skipping plan/seat changes');
-    return;
-  }
+  // Phone and agents subscriptions have no plan/seat state to sync
+  if (await isNonPlanSubscription(masterDb, subscription)) return;
 
-  // Check if this subscription matches a phone subscription by ID
-  const [phoneWorkspace] = await masterDb
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.stripePhoneSubscriptionId, subscription.id));
-
-  if (phoneWorkspace) {
-    console.log(`[Stripe Webhook] Phone subscription update for workspace ${phoneWorkspace.id}, skipping plan/seat changes`);
-    return;
-  }
-
-  // Same skip for the agents subscription — plan/seat state doesn't apply.
-  if (subscription.metadata?.type === 'agent_purchase') {
-    console.log('[Stripe Webhook] Agents subscription update, skipping plan/seat changes');
-    return;
-  }
-  const [agentsWorkspace] = await masterDb
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.stripeAgentsSubscriptionId, subscription.id));
-  if (agentsWorkspace) {
-    console.log(
-      `[Stripe Webhook] Agents subscription update for workspace ${agentsWorkspace.id}, skipping plan/seat changes`,
-    );
-    return;
-  }
-
-  let [workspace] = await masterDb
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.stripeSubscriptionId, subscription.id));
-
-  if (!workspace) {
-    const customerId = extractCustomerId(subscription.customer);
-
-    const [workspaceByCustomer] = await masterDb
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.stripeCustomerId, customerId));
-
-    if (!workspaceByCustomer) {
-      console.log('[Stripe Webhook] No workspace found for subscription, may be new');
-      return;
-    }
-
-    workspace = workspaceByCustomer;
-
-    // Only auto-assign subscription if it's not a phone subscription
-    if (!workspaceByCustomer.stripeSubscriptionId && subscription.metadata?.type !== 'phone') {
-      await masterDb
-        .update(workspaces)
-        .set({
-          stripeSubscriptionId: subscription.id,
-          updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, workspaceByCustomer.id));
-    }
-  }
+  const workspace = await resolveWorkspaceForSubscription(masterDb, subscription);
+  if (!workspace) return;
 
   // Get the price ID, product ID, and quantity from the subscription
   const priceId = subscription.items.data[0]?.price.id;
@@ -582,51 +613,15 @@ async function handleSubscriptionUpdated(
     return;
   }
 
-  // Find the plan by Stripe price ID
-  const [plan] = await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.stripePriceIdMonthly, priceId),
-      isNull(plans.deletedAt)
-    ));
-
-  const [yearlyPlan] = plan ? [] : await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.stripePriceIdYearly, priceId),
-      isNull(plans.deletedAt)
-    ));
-
-  let matchedPlan = plan || yearlyPlan;
-
-  // Fallback: find plan by Stripe product ID (handles new price IDs created by Stripe)
-  if (!matchedPlan && productId) {
-    const [productPlan] = await masterDb
-      .select()
-      .from(plans)
-      .where(and(
-        eq(plans.stripeProductId, productId),
-        isNull(plans.deletedAt)
-      ));
-
-    if (productPlan) {
-      matchedPlan = productPlan;
-      console.log(`[Stripe Webhook] Matched plan ${productPlan.name} by product ID ${productId} (price ID ${priceId} not found)`);
-    }
-  }
+  // Find the plan by Stripe price ID, falling back to the Stripe product ID
+  const matchedPlan = await findPlanForStripePrice(masterDb, priceId, productId);
 
   const updateSet: Record<string, any> = {
     purchasedSeats: quantity,
     subscriptionStatus: subscription.status,
     subscriptionCycle: getSubscriptionCycle(subscription),
-    subscriptionCurrentPeriodStart: subscription.current_period_start
-      ? new Date(subscription.current_period_start * 1000)
-      : null,
-    subscriptionCurrentPeriodEnd: subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000)
-      : null,
+    subscriptionCurrentPeriodStart: unixToDate(subscription.current_period_start),
+    subscriptionCurrentPeriodEnd: unixToDate(subscription.current_period_end),
     subscriptionCancelAtPeriodEnd: subscription.cancel_at_period_end,
     updatedAt: new Date(),
   };
@@ -658,25 +653,151 @@ async function handleSubscriptionUpdated(
   }
 
   // Sync seat limit to Clerk
-  const effectivePlan = matchedPlan || (workspace.planId ? await (async () => {
-    const [p] = await masterDb.select().from(plans).where(eq(plans.id, workspace.planId!));
-    return p;
-  })() : null);
-
-  if (workspace.clerkOrgId && env.CLERK_SECRET_KEY && effectivePlan) {
-    try {
-      const memberCount = await getMemberCount(env, masterDb, workspace.clerkOrgId, workspace.id);
-      const effectiveLimit = calculateEffectiveSeatLimit(effectivePlan, quantity, memberCount);
-      await syncClerkSeatLimit(env.CLERK_SECRET_KEY, workspace.clerkOrgId, effectiveLimit);
-    } catch (err) {
-      console.error('[Stripe Webhook] Failed to sync Clerk seat limit after subscription update:', err);
-    }
-  }
+  const effectivePlan = matchedPlan ?? (workspace.planId ? await loadPlanById(masterDb, workspace.planId) : null);
+  await trySyncClerkSeatLimit(
+    env,
+    masterDb,
+    workspace.clerkOrgId,
+    workspace.id,
+    effectivePlan,
+    quantity,
+    'subscription update',
+  );
 
   // Handle subscription status changes
   if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
     await handleSubscriptionDeleted(env, masterDb, subscription);
   }
+}
+
+type WorkspaceRow = typeof workspaces.$inferSelect;
+type PlanRow = typeof plans.$inferSelect;
+
+async function loadPlanById(masterDb: MasterDb, planId: string): Promise<PlanRow | undefined> {
+  const [plan] = await masterDb.select().from(plans).where(eq(plans.id, planId));
+  return plan;
+}
+
+/**
+ * Phone and agents subscriptions carry no plan/seat state, so subscription
+ * updates for them are skipped (matched by metadata or by stored subscription id).
+ */
+async function isNonPlanSubscription(
+  masterDb: MasterDb,
+  subscription: StripeSubscription,
+): Promise<boolean> {
+  // Check if this is a phone subscription (by metadata or by matching stripePhoneSubscriptionId)
+  if (subscription.metadata?.type === 'phone') {
+    console.log('[Stripe Webhook] Phone subscription update, skipping plan/seat changes');
+    return true;
+  }
+
+  // Check if this subscription matches a phone subscription by ID
+  const [phoneWorkspace] = await masterDb
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.stripePhoneSubscriptionId, subscription.id));
+
+  if (phoneWorkspace) {
+    console.log(`[Stripe Webhook] Phone subscription update for workspace ${phoneWorkspace.id}, skipping plan/seat changes`);
+    return true;
+  }
+
+  // Same skip for the agents subscription — plan/seat state doesn't apply.
+  if (subscription.metadata?.type === 'agent_purchase') {
+    console.log('[Stripe Webhook] Agents subscription update, skipping plan/seat changes');
+    return true;
+  }
+  const [agentsWorkspace] = await masterDb
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.stripeAgentsSubscriptionId, subscription.id));
+  if (agentsWorkspace) {
+    console.log(
+      `[Stripe Webhook] Agents subscription update for workspace ${agentsWorkspace.id}, skipping plan/seat changes`,
+    );
+    return true;
+  }
+
+  return false;
+}
+
+/** Find the workspace a subscription belongs to (by subscription id, then by Stripe customer). */
+async function resolveWorkspaceForSubscription(
+  masterDb: MasterDb,
+  subscription: StripeSubscription,
+): Promise<WorkspaceRow | null> {
+  const [workspace] = await masterDb
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.stripeSubscriptionId, subscription.id));
+
+  if (workspace) return workspace;
+
+  const customerId = extractCustomerId(subscription.customer);
+
+  const [workspaceByCustomer] = await masterDb
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.stripeCustomerId, customerId));
+
+  if (!workspaceByCustomer) {
+    console.log('[Stripe Webhook] No workspace found for subscription, may be new');
+    return null;
+  }
+
+  // Only auto-assign subscription if it's not a phone subscription
+  if (!workspaceByCustomer.stripeSubscriptionId && subscription.metadata?.type !== 'phone') {
+    await masterDb
+      .update(workspaces)
+      .set({
+        stripeSubscriptionId: subscription.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, workspaceByCustomer.id));
+  }
+
+  return workspaceByCustomer;
+}
+
+/** Match a plan by monthly/yearly Stripe price ID, falling back to the Stripe product ID. */
+async function findPlanForStripePrice(
+  masterDb: MasterDb,
+  priceId: string,
+  productId: string | undefined,
+): Promise<PlanRow | undefined> {
+  const [plan] = await masterDb
+    .select()
+    .from(plans)
+    .where(and(
+      eq(plans.stripePriceIdMonthly, priceId),
+      isNull(plans.deletedAt)
+    ));
+
+  const [yearlyPlan] = plan ? [] : await masterDb
+    .select()
+    .from(plans)
+    .where(and(
+      eq(plans.stripePriceIdYearly, priceId),
+      isNull(plans.deletedAt)
+    ));
+
+  const matchedPlan = plan || yearlyPlan;
+  if (matchedPlan || !productId) return matchedPlan;
+
+  // Fallback: find plan by Stripe product ID (handles new price IDs created by Stripe)
+  const [productPlan] = await masterDb
+    .select()
+    .from(plans)
+    .where(and(
+      eq(plans.stripeProductId, productId),
+      isNull(plans.deletedAt)
+    ));
+
+  if (productPlan) {
+    console.log(`[Stripe Webhook] Matched plan ${productPlan.name} by product ID ${productId} (price ID ${priceId} not found)`);
+  }
+  return productPlan;
 }
 
 // ============================================================================
@@ -1028,12 +1149,8 @@ async function handleInvoicePaid(
   }
 
   const subscription = await retrieveSubscription(env.STRIPE_SECRET_KEY, subscriptionId);
-  const periodStart = subscription.current_period_start
-    ? new Date(subscription.current_period_start * 1000)
-    : new Date();
-  const periodEnd = subscription.current_period_end
-    ? new Date(subscription.current_period_end * 1000)
-    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const periodStart = unixToDate(subscription.current_period_start) ?? new Date();
+  const periodEnd = unixToDate(subscription.current_period_end) ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   // Sync purchasedSeats from the paid subscription quantity
   const paidQuantity = subscription.items?.data?.[0]?.quantity || 0;
@@ -1048,18 +1165,8 @@ async function handleInvoicePaid(
     console.log(`[Stripe Webhook] Updated workspace ${workspace.id} purchasedSeats to ${paidQuantity} after invoice paid`);
   }
 
-  let planCredits = 0;
-  let plan: typeof plans.$inferSelect | undefined;
-  if (workspace.planId) {
-    const [p] = await masterDb
-      .select()
-      .from(plans)
-      .where(eq(plans.id, workspace.planId));
-    plan = p;
-    if (plan) {
-      planCredits = plan.monthlyCredits || 0;
-    }
-  }
+  const plan = workspace.planId ? await loadPlanById(masterDb, workspace.planId) : undefined;
+  const planCredits = plan?.monthlyCredits || 0;
 
   try {
     await updateSubscriptionCredits(masterDb, workspace.id, {
@@ -1076,16 +1183,8 @@ async function handleInvoicePaid(
   }
 
   // Sync seat limit to Clerk after purchasedSeats update
-  if (workspace.clerkOrgId && env.CLERK_SECRET_KEY && plan) {
-    try {
-      const currentSeats = paidQuantity > 0 ? paidQuantity : 0;
-      const memberCount = await getMemberCount(env, masterDb, workspace.clerkOrgId, workspace.id);
-      const effectiveLimit = calculateEffectiveSeatLimit(plan, currentSeats, memberCount);
-      await syncClerkSeatLimit(env.CLERK_SECRET_KEY, workspace.clerkOrgId, effectiveLimit);
-    } catch (err) {
-      console.error('[Stripe Webhook] Failed to sync Clerk seat limit after invoice.paid:', err);
-    }
-  }
+  const currentSeats = paidQuantity > 0 ? paidQuantity : 0;
+  await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, plan, currentSeats, 'invoice.paid');
 }
 
 // ============================================================================
@@ -1759,6 +1858,32 @@ async function handleInvoiceUpcoming(
 // Idempotency key: stripeSessionId on the host_domains row.
 // If the row is already 'active' we skip without re-registering.
 
+type TenantDbModule = typeof import('../lib/tenant-db');
+type TenantSchema = TenantDbModule['schema'];
+type TenantDb = Awaited<ReturnType<TenantDbModule['getTenantDbForWorkspace']>>;
+type DomainRow = TenantSchema['hostDomains']['$inferSelect'];
+type PlatformContacts = ReturnType<typeof resolvePlatformRegistrarContacts>;
+type RegisterResult = Awaited<ReturnType<RealtimeRegistrar['register']>>;
+
+/** Shared handles for the per-domain registrar work (registration and renewal). */
+interface DomainOpsContext {
+  env: Env;
+  workspaceId: string;
+  tenantDb: TenantDb;
+  tenantSchema: TenantSchema;
+  rtr: RealtimeRegistrar;
+}
+
+interface DomainRegistrationContext extends DomainOpsContext {
+  cfToken: string;
+  cfAccountId: string;
+  platform: PlatformContacts;
+  sessionYears: number | null;
+}
+
+type DomainClaimResult = 'claimed' | 'lostToDelete' | 'skipped';
+type DomainRegistrationOutcome = 'registered' | 'failed' | 'lostToDelete' | 'skipped';
+
 async function handleDomainRegistrationCheckout(
   env: Env,
   session: StripeCheckoutSession,
@@ -1790,45 +1915,24 @@ async function handleDomainRegistrationCheckout(
     return;
   }
 
-  let registrationIds: string[];
-  try {
-    registrationIds = JSON.parse(registrationIdsRaw) as string[];
-  } catch {
-    console.error('[Domain Registration] Could not parse registrationIds JSON:', registrationIdsRaw);
-    return;
-  }
+  const registrationIds = parseRegistrationIds(registrationIdsRaw);
+  if (!registrationIds || registrationIds.length === 0) return;
 
-  if (registrationIds.length === 0) return;
-
-  const rtrKey = env.REALTIME_REGISTER_API_KEY;
-  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
-  const cfToken = env.CLOUDFLARE_API_TOKEN;
-  const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
-  if (!rtrKey || !rtrCustomer) {
-    console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
-    return;
-  }
-  if (!cfToken || !cfAccountId) {
-    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured (needed for DNS zone)');
-    return;
-  }
+  const registrarConfig = resolveRegistrarConfig(env);
+  if (!registrarConfig) return;
 
   // Open the tenant DB for this workspace
   const { getTenantDbForWorkspace, schema: tenantSchema } = await import('../lib/tenant-db');
   const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
 
   const rtr = new RealtimeRegistrar({
-    apiKey: rtrKey,
-    customer: rtrCustomer,
+    apiKey: registrarConfig.rtrKey,
+    customer: registrarConfig.rtrCustomer,
     ote: env.REALTIME_REGISTER_OTE === 'true',
   });
 
   const paymentIntentId = paymentIntentIdFromSession(session);
   await saveCheckoutPaymentMethodAsDefault(env, session);
-
-  let registeredCount = 0;
-  let failedCount = 0;
-  let lostToSoftDeleteCount = 0;
 
   // Validate platform contacts before claiming any paid row. A missing
   // REALTIME_REGISTER_CONTACT_ADMIN must fail the webhook (Stripe retries)
@@ -1838,241 +1942,369 @@ async function handleDomainRegistrationCheckout(
     tech: env.REALTIME_REGISTER_CONTACT_TECH,
     billing: env.REALTIME_REGISTER_CONTACT_BILLING,
   });
-  const registrantHandle = platform.registrant;
-  const contacts = platform.contacts;
 
   const yearsFromSession = Number(session.metadata?.registrationYears);
   const sessionYears =
     Number.isInteger(yearsFromSession) && yearsFromSession >= 1 ? yearsFromSession : null;
 
+  const ctx: DomainRegistrationContext = {
+    env,
+    workspaceId,
+    tenantDb,
+    tenantSchema,
+    rtr,
+    cfToken: registrarConfig.cfToken,
+    cfAccountId: registrarConfig.cfAccountId,
+    platform,
+    sessionYears,
+  };
+
+  const counts: Record<DomainRegistrationOutcome, number> = {
+    registered: 0,
+    failed: 0,
+    lostToDelete: 0,
+    skipped: 0,
+  };
+
   for (const domainId of registrationIds) {
-    // Fetch the pending row
-    const [domainRow] = await tenantDb
-      .select()
-      .from(tenantSchema.hostDomains)
-      .where(eq(tenantSchema.hostDomains.id, domainId))
-      .limit(1);
-
-    if (!domainRow) {
-      console.error(`[Domain Registration] Domain row not found: ${domainId}`);
-      continue;
-    }
-
-    // Idempotency: skip if already processed
-    if (domainRow.registrationStatus === 'registered' || domainRow.status === 'active') {
-      console.log(`[Domain Registration] Domain ${domainId} already active, skipping`);
-      continue;
-    }
-
-    // Atomically claim the row. Only the delivery that transitions
-    // pending_payment → pending_registration may call rtr.register.
-    // `deletedAt IS NULL` blocks completion after unpaid abandon: cancel
-    // soft-deletes first, then best-effort expires Stripe; if expire fails
-    // because the session is already paid, this claim must still lose.
-    const [claimedDomain] = await tenantDb
-      .update(tenantSchema.hostDomains)
-      .set({
-        registrationStatus: 'pending_registration',
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(tenantSchema.hostDomains.id, domainId),
-          eq(tenantSchema.hostDomains.registrationStatus, 'pending_payment'),
-          isNull(tenantSchema.hostDomains.deletedAt),
-        ),
-      )
-      .returning({ id: tenantSchema.hostDomains.id });
-
-    if (!claimedDomain) {
-      const [current] = await tenantDb
-        .select({
-          deletedAt: tenantSchema.hostDomains.deletedAt,
-          registrationStatus: tenantSchema.hostDomains.registrationStatus,
-        })
-        .from(tenantSchema.hostDomains)
-        .where(eq(tenantSchema.hostDomains.id, domainId))
-        .limit(1);
-      if (current?.deletedAt && current.registrationStatus === 'pending_payment') {
-        lostToSoftDeleteCount += 1;
-        console.log(
-          `[Domain Registration] Domain ${domainId} was soft-deleted before claim; payment not refunded, manual review required`,
-        );
-      } else {
-        console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
-      }
-      continue;
-    }
-
-    try {
-      const metadataYears =
-        domainRow.metadata &&
-        typeof domainRow.metadata === 'object' &&
-        typeof (domainRow.metadata as { registrationYears?: unknown }).registrationYears === 'number'
-          ? (domainRow.metadata as { registrationYears: number }).registrationYears
-          : null;
-      const years =
-        sessionYears ??
-        (metadataYears !== null && Number.isInteger(metadataYears) && metadataYears >= 1
-          ? metadataYears
-          : 1);
-      const periodMonths = years * 12;
-
-      // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
-      let nameservers: string[] = [];
-      let zoneId: string | null = null;
-      try {
-        const zone = await createCloudflareZone(cfToken, cfAccountId, domainRow.fullDomain);
-        zoneId = zone.zoneId;
-        nameservers = zone.nameservers;
-      } catch (zoneErr) {
-        // Zone may already exist (retry) — try to find it
-        const existingId = await findZoneIdByName(cfToken, domainRow.fullDomain);
-        if (existingId) {
-          zoneId = existingId;
-          const existing = await getCloudflareZone(cfToken, existingId);
-          nameservers = existing?.nameservers ?? [];
-        } else {
-          throw zoneErr;
-        }
-      }
-
-      // Persist zone row if we created/found one
-      if (zoneId) {
-        const existingZone = await tenantDb
-          .select()
-          .from(tenantSchema.hostDnsZones)
-          .where(eq(tenantSchema.hostDnsZones.domainId, domainId))
-          .limit(1);
-        if (!existingZone[0]) {
-          const dnsZoneId = generateId('zone');
-          await tenantDb.insert(tenantSchema.hostDnsZones).values({
-            id: dnsZoneId,
-            domainId,
-            name: domainRow.fullDomain,
-            provider: 'cloudflare',
-            externalZoneId: zoneId,
-            externalNameservers: nameservers,
-            status: 'pending',
-          });
-        }
-        await tenantDb
-          .update(tenantSchema.hostDomains)
-          .set({
-            nameservers,
-            rtrRegistrantHandle: registrantHandle,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantSchema.hostDomains.id, domainId));
-      }
-
-      const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
-
-      // 3) Register at Realtime Register with CF nameservers
-      const result = await rtr.register({
-        name: domainRow.fullDomain,
-        registrant: registrantHandle,
-        contacts,
-        nameservers: nameservers.length ? nameservers : undefined,
-        // Stripe invoices auto-renew; keep RTR auto-renew off so the
-        // registrar does not bill WeldSuite independently of the customer.
-        autoRenew: false,
-        privacyProtect,
-        periodMonths,
-      });
-
-      if (result.status === 'completed') {
-        await tenantDb
-          .update(tenantSchema.hostDomains)
-          .set({
-            status: 'active',
-            registrationStatus: 'registered',
-            registrar: 'realtimeregister',
-            externalRegistrarId: result.domain.id,
-            registrarStatus: result.domain.status.join(','),
-            registeredAt: new Date(),
-            expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : null,
-            locked: result.domain.locked,
-            autoRenew: domainRow.autoRenew ?? true,
-            privacyProtection: result.domain.privacyProtect,
-            rtrRegistrantHandle: registrantHandle,
-            registrarSyncedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantSchema.hostDomains.id, domainId));
-
-        registeredCount += 1;
-        console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
-      } else if (result.status === 'failed') {
-        throw new Error(
-          `Realtime Register registration failed (${result.code}): ${result.message}`,
-        );
-      } else {
-        await tenantDb
-          .update(tenantSchema.hostDomains)
-          .set({
-            registrationStatus: 'pending_workflow',
-            registrar: 'realtimeregister',
-            rtrProcessId: String(result.processId),
-            rtrRegistrantHandle: registrantHandle,
-            privacyProtection: result.privacyProtect ?? privacyProtect,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantSchema.hostDomains.id, domainId));
-
-        // Map process → workspace so the app-api RTR webhook can finish the row.
-        // Status poller can still complete via rtrProcessId on the domain row if
-        // this KV write fails.
-        try {
-          await env.WORKSPACE_CACHE.put(
-            `rtr:process:${result.processId}`,
-            JSON.stringify({
-              workspaceId,
-              domainId,
-              kind: 'registration',
-            }),
-            { expirationTtl: 60 * 60 * 24 * 14 },
-          );
-        } catch (cacheErr) {
-          console.warn('[Domain Registration] Failed to write RTR process cache:', cacheErr);
-        }
-
-        // Async acceptance counts as a successful registrar submission —
-        // do not refund the session for a pending workflow.
-        registeredCount += 1;
-        console.log(
-          `[Domain Registration] ${domainRow.fullDomain} pending RTR process: ${result.processId}`,
-        );
-      }
-    } catch (regErr) {
-      const rtrError = regErr instanceof RealtimeRegistrarError ? regErr : null;
-      const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
-
-      console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
-      failedCount += 1;
-
-      await tenantDb
-        .update(tenantSchema.hostDomains)
-        .set({
-          status: 'cancelled',
-          registrationStatus: 'registration_failed',
-          metadata: { error: errMsg, rtrStatus: rtrError?.status, rtrCode: rtrError?.code },
-          updatedAt: new Date(),
-        })
-        .where(eq(tenantSchema.hostDomains.id, domainId));
-    }
+    counts[await processDomainRegistration(ctx, domainId)] += 1;
   }
 
   // Never auto-refund a domain Checkout. Registration failures (RTR, DNS,
   // contacts) and paid sessions that lost every claim to unpaid abandon
   // need a human look — a live registration can still complete after the
   // webhook errors, and a refund then cannot be clawed back.
-  if (failedCount > 0 || lostToSoftDeleteCount > 0) {
+  if (counts.failed > 0 || counts.lostToDelete > 0) {
     console.error(
-      `[Domain Registration] ${failedCount} failed, ${lostToSoftDeleteCount} lost to delete, ${registeredCount} registered for session ${sessionId}` +
+      `[Domain Registration] ${counts.failed} failed, ${counts.lostToDelete} lost to delete, ${counts.registered} registered for session ${sessionId}` +
         `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
     );
   }
+}
+
+function parseRegistrationIds(raw: string): string[] | null {
+  try {
+    return JSON.parse(raw) as string[];
+  } catch {
+    console.error('[Domain Registration] Could not parse registrationIds JSON:', raw);
+    return null;
+  }
+}
+
+function resolveRegistrarConfig(
+  env: Env,
+): { rtrKey: string; rtrCustomer: string; cfToken: string; cfAccountId: string } | null {
+  const rtrKey = env.REALTIME_REGISTER_API_KEY;
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
+  const cfToken = env.CLOUDFLARE_API_TOKEN;
+  const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (!rtrKey || !rtrCustomer) {
+    console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
+    return null;
+  }
+  if (!cfToken || !cfAccountId) {
+    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured (needed for DNS zone)');
+    return null;
+  }
+  return { rtrKey, rtrCustomer, cfToken, cfAccountId };
+}
+
+/** Register one paid domain row; never throws for per-domain registrar failures. */
+async function processDomainRegistration(
+  ctx: DomainRegistrationContext,
+  domainId: string,
+): Promise<DomainRegistrationOutcome> {
+  const { tenantDb, tenantSchema } = ctx;
+
+  // Fetch the pending row
+  const [domainRow] = await tenantDb
+    .select()
+    .from(tenantSchema.hostDomains)
+    .where(eq(tenantSchema.hostDomains.id, domainId))
+    .limit(1);
+
+  if (!domainRow) {
+    console.error(`[Domain Registration] Domain row not found: ${domainId}`);
+    return 'skipped';
+  }
+
+  // Idempotency: skip if already processed
+  if (domainRow.registrationStatus === 'registered' || domainRow.status === 'active') {
+    console.log(`[Domain Registration] Domain ${domainId} already active, skipping`);
+    return 'skipped';
+  }
+
+  const claim = await claimPendingDomain(ctx, domainId);
+  if (claim !== 'claimed') return claim;
+
+  try {
+    await registerClaimedDomain(ctx, domainRow);
+    return 'registered';
+  } catch (regErr) {
+    await markRegistrationFailed(ctx, domainRow, regErr);
+    return 'failed';
+  }
+}
+
+/**
+ * Atomically claim the row. Only the delivery that transitions
+ * pending_payment → pending_registration may call rtr.register.
+ * `deletedAt IS NULL` blocks completion after unpaid abandon: cancel
+ * soft-deletes first, then best-effort expires Stripe; if expire fails
+ * because the session is already paid, this claim must still lose.
+ */
+async function claimPendingDomain(
+  ctx: DomainRegistrationContext,
+  domainId: string,
+): Promise<DomainClaimResult> {
+  const { tenantDb, tenantSchema } = ctx;
+
+  const [claimedDomain] = await tenantDb
+    .update(tenantSchema.hostDomains)
+    .set({
+      registrationStatus: 'pending_registration',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(tenantSchema.hostDomains.id, domainId),
+        eq(tenantSchema.hostDomains.registrationStatus, 'pending_payment'),
+        isNull(tenantSchema.hostDomains.deletedAt),
+      ),
+    )
+    .returning({ id: tenantSchema.hostDomains.id });
+
+  if (claimedDomain) return 'claimed';
+
+  const [current] = await tenantDb
+    .select({
+      deletedAt: tenantSchema.hostDomains.deletedAt,
+      registrationStatus: tenantSchema.hostDomains.registrationStatus,
+    })
+    .from(tenantSchema.hostDomains)
+    .where(eq(tenantSchema.hostDomains.id, domainId))
+    .limit(1);
+  if (current?.deletedAt && current.registrationStatus === 'pending_payment') {
+    console.log(
+      `[Domain Registration] Domain ${domainId} was soft-deleted before claim; payment not refunded, manual review required`,
+    );
+    return 'lostToDelete';
+  }
+
+  console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
+  return 'skipped';
+}
+
+/** Years to register: the checkout session wins, then the row metadata, then 1. */
+function resolveRegistrationYears(domainRow: DomainRow, sessionYears: number | null): number {
+  if (sessionYears !== null) return sessionYears;
+  const metadata = domainRow.metadata as { registrationYears?: unknown } | null | undefined;
+  const metadataYears =
+    metadata && typeof metadata === 'object' && typeof metadata.registrationYears === 'number'
+      ? metadata.registrationYears
+      : null;
+  return metadataYears !== null && Number.isInteger(metadataYears) && metadataYears >= 1
+    ? metadataYears
+    : 1;
+}
+
+/** Create the Cloudflare DNS zone, or reuse the existing one when a previous attempt made it. */
+async function ensureCloudflareZone(
+  cfToken: string,
+  cfAccountId: string,
+  fullDomain: string,
+): Promise<{ zoneId: string | null; nameservers: string[] }> {
+  try {
+    const zone = await createCloudflareZone(cfToken, cfAccountId, fullDomain);
+    return { zoneId: zone.zoneId, nameservers: zone.nameservers };
+  } catch (zoneErr) {
+    // Zone may already exist (retry) — try to find it
+    const existingId = await findZoneIdByName(cfToken, fullDomain);
+    if (!existingId) throw zoneErr;
+    const existing = await getCloudflareZone(cfToken, existingId);
+    return { zoneId: existingId, nameservers: existing?.nameservers ?? [] };
+  }
+}
+
+/** Persist the zone row (if missing) and the nameservers on the domain row. */
+async function persistDnsZone(
+  ctx: DomainRegistrationContext,
+  domainRow: DomainRow,
+  zoneId: string,
+  nameservers: string[],
+): Promise<void> {
+  const { tenantDb, tenantSchema, platform } = ctx;
+  const domainId = domainRow.id;
+
+  const existingZone = await tenantDb
+    .select()
+    .from(tenantSchema.hostDnsZones)
+    .where(eq(tenantSchema.hostDnsZones.domainId, domainId))
+    .limit(1);
+  if (!existingZone[0]) {
+    const dnsZoneId = generateId('zone');
+    await tenantDb.insert(tenantSchema.hostDnsZones).values({
+      id: dnsZoneId,
+      domainId,
+      name: domainRow.fullDomain,
+      provider: 'cloudflare',
+      externalZoneId: zoneId,
+      externalNameservers: nameservers,
+      status: 'pending',
+    });
+  }
+  await tenantDb
+    .update(tenantSchema.hostDomains)
+    .set({
+      nameservers,
+      rtrRegistrantHandle: platform.registrant,
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantSchema.hostDomains.id, domainId));
+}
+
+/** Map process → workspace so the app-api RTR webhook can finish the row. */
+async function cacheRtrProcess(
+  env: Env,
+  processId: string | number,
+  payload: { workspaceId: string; domainId: string; kind: 'registration' | 'renewal' },
+  logTag: string,
+): Promise<void> {
+  try {
+    await env.WORKSPACE_CACHE.put(`rtr:process:${processId}`, JSON.stringify(payload), {
+      expirationTtl: 60 * 60 * 24 * 14,
+    });
+  } catch (cacheErr) {
+    console.warn(`[${logTag}] Failed to write RTR process cache:`, cacheErr);
+  }
+}
+
+/** Register a claimed domain at the registrar; throws when registration fails. */
+async function registerClaimedDomain(
+  ctx: DomainRegistrationContext,
+  domainRow: DomainRow,
+): Promise<void> {
+  const { platform, rtr } = ctx;
+  const periodMonths = resolveRegistrationYears(domainRow, ctx.sessionYears) * 12;
+
+  // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
+  const { zoneId, nameservers } = await ensureCloudflareZone(
+    ctx.cfToken,
+    ctx.cfAccountId,
+    domainRow.fullDomain,
+  );
+
+  // Persist zone row if we created/found one
+  if (zoneId) {
+    await persistDnsZone(ctx, domainRow, zoneId, nameservers);
+  }
+
+  const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
+
+  // 3) Register at Realtime Register with CF nameservers
+  const result = await rtr.register({
+    name: domainRow.fullDomain,
+    registrant: platform.registrant,
+    contacts: platform.contacts,
+    nameservers: nameservers.length ? nameservers : undefined,
+    // Stripe invoices auto-renew; keep RTR auto-renew off so the
+    // registrar does not bill WeldSuite independently of the customer.
+    autoRenew: false,
+    privacyProtect,
+    periodMonths,
+  });
+
+  await applyRegistrationResult(ctx, domainRow, result, privacyProtect);
+}
+
+async function applyRegistrationResult(
+  ctx: DomainRegistrationContext,
+  domainRow: DomainRow,
+  result: RegisterResult,
+  privacyProtect: ReturnType<typeof privacyProtectForDomain>,
+): Promise<void> {
+  const { env, workspaceId, tenantDb, tenantSchema, platform } = ctx;
+  const domainId = domainRow.id;
+
+  if (result.status === 'completed') {
+    await tenantDb
+      .update(tenantSchema.hostDomains)
+      .set({
+        status: 'active',
+        registrationStatus: 'registered',
+        registrar: 'realtimeregister',
+        externalRegistrarId: result.domain.id,
+        registrarStatus: result.domain.status.join(','),
+        registeredAt: new Date(),
+        expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : null,
+        locked: result.domain.locked,
+        autoRenew: domainRow.autoRenew ?? true,
+        privacyProtection: result.domain.privacyProtect,
+        rtrRegistrantHandle: platform.registrant,
+        registrarSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantSchema.hostDomains.id, domainId));
+
+    console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
+    return;
+  }
+
+  if (result.status === 'failed') {
+    throw new Error(
+      `Realtime Register registration failed (${result.code}): ${result.message}`,
+    );
+  }
+
+  await tenantDb
+    .update(tenantSchema.hostDomains)
+    .set({
+      registrationStatus: 'pending_workflow',
+      registrar: 'realtimeregister',
+      rtrProcessId: String(result.processId),
+      rtrRegistrantHandle: platform.registrant,
+      privacyProtection: result.privacyProtect ?? privacyProtect,
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantSchema.hostDomains.id, domainId));
+
+  // Map process → workspace so the app-api RTR webhook can finish the row.
+  // Status poller can still complete via rtrProcessId on the domain row if
+  // this KV write fails.
+  await cacheRtrProcess(
+    env,
+    result.processId,
+    { workspaceId, domainId, kind: 'registration' },
+    'Domain Registration',
+  );
+
+  // Async acceptance counts as a successful registrar submission —
+  // do not refund the session for a pending workflow.
+  console.log(
+    `[Domain Registration] ${domainRow.fullDomain} pending RTR process: ${result.processId}`,
+  );
+}
+
+async function markRegistrationFailed(
+  ctx: DomainRegistrationContext,
+  domainRow: DomainRow,
+  regErr: unknown,
+): Promise<void> {
+  const { tenantDb, tenantSchema } = ctx;
+  const rtrError = regErr instanceof RealtimeRegistrarError ? regErr : null;
+  const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
+
+  console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
+
+  await tenantDb
+    .update(tenantSchema.hostDomains)
+    .set({
+      status: 'cancelled',
+      registrationStatus: 'registration_failed',
+      metadata: { error: errMsg, rtrStatus: rtrError?.status, rtrCode: rtrError?.code },
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantSchema.hostDomains.id, domainRow.id));
 }
 
 // ============================================================================
@@ -2121,23 +2353,10 @@ async function handleDomainRenewalInvoicePaid(
     return;
   }
 
-  const processedId = (domainRow.metadata as { stripeRenewalProcessedInvoiceId?: unknown } | null)
-    ?.stripeRenewalProcessedInvoiceId;
-  if (processedId === invoice.id) {
-    console.log(`[Domain Renewal] Invoice ${invoice.id} already applied to ${domainRow.fullDomain}`);
+  const skipReason = getRenewalSkipReason(domainRow, invoice.id);
+  if (skipReason) {
+    console.log(`[Domain Renewal] ${skipReason}`);
     return;
-  }
-
-  if (domainRow.registrationStatus === 'pending_renewal' || domainRow.registrationStatus === 'renewed') {
-    const expiresAt = domainRow.expiresAt ? new Date(domainRow.expiresAt).getTime() : 0;
-    if (expiresAt > Date.now() + 30 * 86_400_000) {
-      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already extended, skipping`);
-      return;
-    }
-    if (domainRow.registrationStatus === 'pending_renewal') {
-      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already submitted to registrar`);
-      return;
-    }
   }
 
   const rtr = new RealtimeRegistrar({
@@ -2147,65 +2366,89 @@ async function handleDomainRenewalInvoicePaid(
   });
 
   try {
-    const result = await rtr.renew(domainRow.fullDomain, 12, {
-      expiryDate: domainRow.expiresAt ? new Date(domainRow.expiresAt).toISOString().slice(0, 10) : undefined,
-    });
+    await submitDomainRenewal({ env, workspaceId, tenantDb, tenantSchema, rtr }, domainRow, invoice.id);
+  } catch (err) {
+    console.error(`[Domain Renewal] Failed for ${domainRow.fullDomain}:`, err);
+  }
+}
 
-    if (result.status === 'failed') {
-      throw new Error(result.message);
+/** Why this invoice must not trigger another renewal (null when it should proceed). */
+function getRenewalSkipReason(domainRow: DomainRow, invoiceId: string): string | null {
+  const processedId = (domainRow.metadata as { stripeRenewalProcessedInvoiceId?: unknown } | null)
+    ?.stripeRenewalProcessedInvoiceId;
+  if (processedId === invoiceId) {
+    return `Invoice ${invoiceId} already applied to ${domainRow.fullDomain}`;
+  }
+
+  if (domainRow.registrationStatus === 'pending_renewal' || domainRow.registrationStatus === 'renewed') {
+    const expiresAt = domainRow.expiresAt ? new Date(domainRow.expiresAt).getTime() : 0;
+    if (expiresAt > Date.now() + 30 * 86_400_000) {
+      return `Domain ${domainRow.fullDomain} already extended, skipping`;
     }
-
-    const billedExpiry = domainRow.expiresAt
-      ? new Date(domainRow.expiresAt).toISOString().slice(0, 10)
-      : undefined;
-    const metadata = {
-      ...(domainRow.metadata ?? {}),
-      stripeRenewalInvoiceId: invoice.id,
-      ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
-      stripeRenewalProcessedInvoiceId: invoice.id,
-    };
-
-    if (result.status === 'pending') {
-      await tenantDb
-        .update(tenantSchema.hostDomains)
-        .set({
-          registrationStatus: 'pending_renewal',
-          metadata: { ...metadata, rtrRenewalProcessId: String(result.processId) },
-          updatedAt: new Date(),
-        })
-        .where(eq(tenantSchema.hostDomains.id, domainId));
-
-      try {
-        await env.WORKSPACE_CACHE.put(
-          `rtr:process:${result.processId}`,
-          JSON.stringify({ workspaceId, domainId, kind: 'renewal' }),
-          { expirationTtl: 60 * 60 * 24 * 14 },
-        );
-      } catch (cacheErr) {
-        console.warn('[Domain Renewal] Failed to write RTR process cache:', cacheErr);
-      }
-      console.log(`[Domain Renewal] ${domainRow.fullDomain} pending RTR process: ${result.processId}`);
-      return;
+    if (domainRow.registrationStatus === 'pending_renewal') {
+      return `Domain ${domainRow.fullDomain} already submitted to registrar`;
     }
+  }
 
+  return null;
+}
+
+/** Submit the renewal to the registrar and record the outcome on the domain row. */
+async function submitDomainRenewal(
+  ctx: DomainOpsContext,
+  domainRow: DomainRow,
+  invoiceId: string,
+): Promise<void> {
+  const { env, workspaceId, tenantDb, tenantSchema, rtr } = ctx;
+  const domainId = domainRow.id;
+
+  const billedExpiry = domainRow.expiresAt
+    ? new Date(domainRow.expiresAt).toISOString().slice(0, 10)
+    : undefined;
+
+  const result = await rtr.renew(domainRow.fullDomain, 12, { expiryDate: billedExpiry });
+
+  if (result.status === 'failed') {
+    throw new Error(result.message);
+  }
+
+  const metadata = {
+    ...(domainRow.metadata ?? {}),
+    stripeRenewalInvoiceId: invoiceId,
+    ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
+    stripeRenewalProcessedInvoiceId: invoiceId,
+  };
+
+  if (result.status === 'pending') {
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
-        status: 'active',
-        registrationStatus: 'renewed',
-        renewedAt: new Date(),
-        expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : domainRow.expiresAt,
-        registrarStatus: result.domain.status.join(','),
-        registrarSyncedAt: new Date(),
-        metadata,
+        registrationStatus: 'pending_renewal',
+        metadata: { ...metadata, rtrRenewalProcessId: String(result.processId) },
         updatedAt: new Date(),
       })
       .where(eq(tenantSchema.hostDomains.id, domainId));
 
-    console.log(`[Domain Renewal] Renewed ${domainRow.fullDomain} (invoice ${invoice.id})`);
-  } catch (err) {
-    console.error(`[Domain Renewal] Failed for ${domainRow.fullDomain}:`, err);
+    await cacheRtrProcess(env, result.processId, { workspaceId, domainId, kind: 'renewal' }, 'Domain Renewal');
+    console.log(`[Domain Renewal] ${domainRow.fullDomain} pending RTR process: ${result.processId}`);
+    return;
   }
+
+  await tenantDb
+    .update(tenantSchema.hostDomains)
+    .set({
+      status: 'active',
+      registrationStatus: 'renewed',
+      renewedAt: new Date(),
+      expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : domainRow.expiresAt,
+      registrarStatus: result.domain.status.join(','),
+      registrarSyncedAt: new Date(),
+      metadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantSchema.hostDomains.id, domainId));
+
+  console.log(`[Domain Renewal] Renewed ${domainRow.fullDomain} (invoice ${invoiceId})`);
 }
 
 // ============================================================================

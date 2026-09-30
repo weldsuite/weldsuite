@@ -152,6 +152,69 @@ function phoneSubscriptionMetadata(
 
 const { workspaces } = masterSchema;
 
+type WorkspaceRow = typeof workspaces.$inferSelect;
+type PhoneSubscription = {
+  id: string;
+  status?: string;
+  items?: { data?: Array<{ id: string; price: { id: string }; quantity: number }> };
+};
+
+/** Return the workspace's Stripe customer id, creating (and persisting) one when missing. */
+async function ensureStripeCustomer(
+  stripeKey: string,
+  masterDb: ReturnType<typeof getMasterDb>,
+  workspace: WorkspaceRow,
+  orgId: string,
+): Promise<string> {
+  if (workspace.stripeCustomerId) return workspace.stripeCustomerId;
+
+  const customer = await createStripeCustomer(stripeKey, {
+    name: workspace.name,
+    metadata: {
+      workspaceId: workspace.id,
+      clerkOrgId: orgId,
+    },
+  });
+  const customerId: string = customer.id;
+
+  await masterDb
+    .update(workspaces)
+    .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspace.id));
+
+  return customerId;
+}
+
+/** Retrieve the existing phone subscription; null when it is gone or no longer paid. */
+async function findUsablePhoneSubscription(
+  stripeKey: string,
+  subscriptionId: string,
+): Promise<PhoneSubscription | null> {
+  try {
+    const subscription: PhoneSubscription = await retrieveSubscription(stripeKey, subscriptionId);
+    return isPaidPhoneSubscriptionStatus(subscription?.status) ? subscription : null;
+  } catch (err) {
+    console.warn('[Phone Billing] Existing phone subscription is unusable:', err);
+    return null;
+  }
+}
+
+/** Bump the quantity of the matching price item, or add a new item for it. */
+async function incrementOrAddPhoneItem(
+  stripeKey: string,
+  subscriptionId: string,
+  subscription: PhoneSubscription,
+  stripePriceId: string,
+): Promise<void> {
+  const existingItem = subscription.items?.data?.find((item) => item.price.id === stripePriceId);
+
+  if (existingItem) {
+    await updateSubscriptionItemQuantity(stripeKey, existingItem.id, (existingItem.quantity ?? 0) + 1);
+  } else {
+    await addSubscriptionItem(stripeKey, subscriptionId, stripePriceId, 1);
+  }
+}
+
 export const phoneBillingRoutes = new Hono<{
   Bindings: Env;
   Variables: {
@@ -249,22 +312,7 @@ phoneBillingRoutes.post('/add-number', async (c) => {
 
     if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
 
-    let customerId: string = workspace.stripeCustomerId || '';
-    if (!customerId) {
-      const customer = await createStripeCustomer(c.env.STRIPE_SECRET_KEY, {
-        name: workspace.name,
-        metadata: {
-          workspaceId: workspace.id,
-          clerkOrgId: orgId,
-        },
-      });
-      customerId = customer.id;
-
-      await masterDb
-        .update(workspaces)
-        .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-        .where(eq(workspaces.id, workspace.id));
-    }
+    const customerId = await ensureStripeCustomer(c.env.STRIPE_SECRET_KEY, masterDb, workspace, orgId);
 
     const paymentMethodId = await resolveOffSessionPaymentMethod(
       c.env.STRIPE_SECRET_KEY,
@@ -276,25 +324,13 @@ phoneBillingRoutes.post('/add-number', async (c) => {
 
     const metadata = phoneSubscriptionMetadata(workspace.id, orgId, body);
 
-    let subscriptionId = workspace.stripePhoneSubscriptionId || '';
-    let subscription: { id: string; status?: string; items?: { data?: Array<{ id: string; price: { id: string }; quantity: number }> } } | null = null;
+    const existingSubscriptionId = workspace.stripePhoneSubscriptionId || '';
+    const subscription = existingSubscriptionId
+      ? await findUsablePhoneSubscription(c.env.STRIPE_SECRET_KEY, existingSubscriptionId)
+      : null;
 
-    if (subscriptionId) {
-      try {
-        subscription = await retrieveSubscription(c.env.STRIPE_SECRET_KEY, subscriptionId);
-        if (!isPaidPhoneSubscriptionStatus(subscription?.status)) {
-          subscription = null;
-          subscriptionId = '';
-        }
-      } catch (err) {
-        console.warn('[Phone Billing] Existing phone subscription is unusable:', err);
-        subscription = null;
-        subscriptionId = '';
-      }
-    }
-
-    if (!subscriptionId) {
-      subscription = await createStripeSubscription(c.env.STRIPE_SECRET_KEY, {
+    if (!subscription) {
+      const created = await createStripeSubscription(c.env.STRIPE_SECRET_KEY, {
         customerId,
         priceId: stripePriceId,
         quantity: 1,
@@ -303,47 +339,30 @@ phoneBillingRoutes.post('/add-number', async (c) => {
         paymentBehavior: 'error_if_incomplete',
       });
 
-      if (!isPaidPhoneSubscriptionStatus(subscription.status)) {
+      if (!isPaidPhoneSubscriptionStatus(created.status)) {
         return c.json({ requiresCheckout: true });
       }
 
       await masterDb
         .update(workspaces)
         .set({
-          stripePhoneSubscriptionId: subscription.id,
+          stripePhoneSubscriptionId: created.id,
           updatedAt: new Date(),
         })
         .where(eq(workspaces.id, workspace.id));
 
       return c.json({
         success: true,
-        subscriptionId: subscription.id,
+        subscriptionId: created.id,
         provisioningStatus: 'unavailable',
       });
     }
 
-    const existingItem = subscription?.items?.data?.find(
-      (item) => item.price.id === stripePriceId,
-    );
-
-    if (existingItem) {
-      await updateSubscriptionItemQuantity(
-        c.env.STRIPE_SECRET_KEY,
-        existingItem.id,
-        (existingItem.quantity ?? 0) + 1,
-      );
-    } else {
-      await addSubscriptionItem(
-        c.env.STRIPE_SECRET_KEY,
-        subscriptionId,
-        stripePriceId,
-        1,
-      );
-    }
+    await incrementOrAddPhoneItem(c.env.STRIPE_SECRET_KEY, existingSubscriptionId, subscription, stripePriceId);
 
     return c.json({
       success: true,
-      subscriptionId,
+      subscriptionId: existingSubscriptionId,
       provisioningStatus: 'unavailable',
     });
   } catch (err) {
