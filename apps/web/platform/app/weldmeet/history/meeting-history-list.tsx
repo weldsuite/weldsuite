@@ -71,6 +71,35 @@ import type { ListMeetingsParams, MeetingAttendee } from '@/lib/api/domains/weld
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
+type HistoryPageStrings = { dateToday: string; dateYesterday: string };
+
+/** "Today, 3:05 PM" / "Yesterday, ..." / "Sep 30, 3:05 PM". */
+function formatMeetingDate(dateStr: string, strings: HistoryPageStrings): string {
+  const date = new Date(dateStr);
+  if (isToday(date)) return strings.dateToday.replace('{time}', format(date, 'h:mm a'));
+  if (isYesterday(date)) return strings.dateYesterday.replace('{time}', format(date, 'h:mm a'));
+  return format(date, 'MMM d, h:mm a');
+}
+
+/** "1h 2m 3s" style label from a duration in seconds (hours omitted when 0). */
+function formatDurationSeconds(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const hours = h > 0 ? `${h}h ` : '';
+  return `${hours}${m}m ${s}s`;
+}
+
+/** Recording duration label, or null when the recording has no usable duration. */
+function formatRecordingDuration(rec: MeetingRecordingEntry | undefined): string | null {
+  if (rec?.duration) return formatDurationSeconds(rec.duration);
+  if (rec?.startedAt && rec?.endedAt) {
+    const secs = Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000);
+    return formatDurationSeconds(secs);
+  }
+  return null;
+}
+
 const DAY_MS = 86400000;
 
 interface DateBoundaries {
@@ -359,11 +388,22 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     const TypeIcon = type.icon;
     const dateStr = meeting.scheduledStart ?? meeting.createdAt;
     const rec = meeting.recording;
+    const durationLabel = formatRecordingDuration(rec);
+    const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
 
     return (
       <div
         key={meeting.id}
-        onClick={() => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } })}
+        role="button"
+        tabIndex={0}
+        onClick={openMeeting}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openMeeting();
+          }
+        }}
         className={cn(
           'flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           meeting.status === 'cancelled' && '[&>*]:opacity-50',
@@ -391,11 +431,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
         {/* Date */}
         <div className="w-[180px]">
           <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground">
-            {isToday(new Date(dateStr))
-              ? t.historyPage.dateToday.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-              : isYesterday(new Date(dateStr))
-                ? t.historyPage.dateYesterday.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-                : format(new Date(dateStr), 'MMM d, h:mm a')}
+            {formatMeetingDate(dateStr, t.historyPage)}
           </span>
         </div>
 
@@ -457,28 +493,15 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
 
         {/* Duration */}
         <div className="w-[120px]">
-          {rec?.duration ? (
-            <span className="text-sm font-mono text-muted-foreground">
-              {Math.floor(rec.duration / 3600) > 0 && `${Math.floor(rec.duration / 3600)}h `}
-              {Math.floor((rec.duration % 3600) / 60)}m {rec.duration % 60}s
-            </span>
-          ) : rec?.startedAt && rec?.endedAt ? (
-            <span className="text-sm font-mono text-muted-foreground">
-              {(() => {
-                const secs = Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000);
-                const h = Math.floor(secs / 3600);
-                const m = Math.floor((secs % 3600) / 60);
-                const s = secs % 60;
-                return `${h > 0 ? `${h}h ` : ''}${m}m ${s}s`;
-              })()}
-            </span>
+          {durationLabel ? (
+            <span className="text-sm font-mono text-muted-foreground">{durationLabel}</span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

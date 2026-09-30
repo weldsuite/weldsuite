@@ -41,6 +41,26 @@ function readCorner(): PipCorner {
   return 'br';
 }
 
+/** Corner-anchored CSS insets for the widget's resting position. */
+function restingInsetFor(corner: PipCorner, rightInset: number): CSSProperties {
+  switch (corner) {
+    case 'tl':
+      return { top: MARGIN, left: MARGIN };
+    case 'tr':
+      return { top: MARGIN, right: rightInset };
+    case 'bl':
+      return { bottom: MARGIN, left: MARGIN };
+    default:
+      return { bottom: MARGIN, right: rightInset };
+  }
+}
+
+/** Transition for the widget: animated while snapping, none while dragging. */
+function dragTransition(snapping: boolean, dragging: boolean): string | undefined {
+  if (snapping) return `transform ${SNAP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+  return dragging ? 'none' : undefined;
+}
+
 /** Top-left viewport pixel the widget occupies when anchored to `corner`. */
 function cornerTopLeft(
   corner: PipCorner,
@@ -200,23 +220,10 @@ export function usePipCornerDrag(
     [ref, rightInset],
   );
 
-  const restingInset: CSSProperties =
-    corner === 'tl'
-      ? { top: MARGIN, left: MARGIN }
-      : corner === 'tr'
-        ? { top: MARGIN, right: rightInset }
-        : corner === 'bl'
-          ? { bottom: MARGIN, left: MARGIN }
-          : { bottom: MARGIN, right: rightInset };
-
   const style: CSSProperties = {
-    ...restingInset,
+    ...restingInsetFor(corner, rightInset),
     transform: offset ? `translate(${offset.x}px, ${offset.y}px)` : undefined,
-    transition: snapping
-      ? `transform ${SNAP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
-      : offset
-        ? 'none'
-        : undefined,
+    transition: dragTransition(snapping, offset !== null),
     touchAction: 'none',
   };
 
