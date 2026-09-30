@@ -1729,6 +1729,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
+  const removeAttachedFile = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const closeInlineAi = () => {
     setIsAutoDraft(false);
     setIsAgentInline(false);
@@ -1866,7 +1870,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         {attachedFiles.length > 0 && (
           <AttachedFileChips
             files={attachedFiles}
-            onRemove={(index) => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+            onRemove={removeAttachedFile}
           />
         )}
         {/* Actions bar */}
