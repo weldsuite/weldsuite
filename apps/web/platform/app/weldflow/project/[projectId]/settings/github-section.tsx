@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Github,
   ExternalLink,
@@ -159,6 +159,76 @@ function LinkProjectDialog({ open, onOpenChange, projectId }: Readonly<LinkProje
     setSelectedRepo(null);
   };
 
+  let projectListContent: ReactNode;
+  if (isLoading) {
+    projectListContent = <PageLoader fullScreen={false} />;
+  } else if (filtered.length === 0) {
+    projectListContent = (
+      <div className="py-6 text-center text-sm text-muted-foreground">
+        {gp.dialog.noProjects}
+      </div>
+    );
+  } else {
+    projectListContent = filtered.map((proj) => (
+      <Button
+        key={proj.nodeId}
+        type="button"
+        variant="ghost"
+        className={cn(
+          'w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-muted/50 transition-colors border-b border-border last:border-0',
+          selected?.nodeId === proj.nodeId && 'bg-primary/5 text-primary',
+        )}
+        onClick={() => setSelected(proj)}
+      >
+        <KanbanSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="flex-1 font-medium truncate">
+          {proj.title}
+          <span className="text-xs text-muted-foreground ml-1">#{proj.number}</span>
+        </span>
+        <span className="text-xs text-muted-foreground shrink-0">@{proj.ownerLogin}</span>
+      </Button>
+    ));
+  }
+
+  let statusMappingContent: ReactNode;
+  if (fieldsLoading) {
+    statusMappingContent = (
+      <p className="text-xs text-muted-foreground">{gp.dialog.loadingFields}</p>
+    );
+  } else if (!statusInfo?.fieldId || statusInfo.options.length === 0) {
+    statusMappingContent = (
+      <p className="text-xs text-muted-foreground">{gp.dialog.noStatusField}</p>
+    );
+  } else {
+    statusMappingContent = (
+      <div className="space-y-1.5">
+        {statusInfo.options.map((opt) => (
+          <div key={opt.id} className="flex items-center justify-between gap-2">
+            <span className="text-xs truncate flex-1">{opt.name}</span>
+            <Select
+              value={mapping[opt.id] ?? ''}
+              onValueChange={(v) =>
+                setMapping((m) => ({ ...m, [opt.id]: v === '__none__' ? '' : v }))
+              }
+            >
+              <SelectTrigger className="h-7 w-[150px] text-xs">
+                <SelectValue placeholder={gp.dialog.unmapped} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{gp.dialog.unmapped}</SelectItem>
+                {stages.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : handleClose())}>
       <DialogContent className="max-w-lg">
@@ -183,33 +253,7 @@ function LinkProjectDialog({ open, onOpenChange, projectId }: Readonly<LinkProje
 
           {/* Project list */}
           <div className="border border-border rounded-lg overflow-hidden max-h-44 overflow-y-auto">
-            {isLoading ? (
-              <PageLoader fullScreen={false} />
-            ) : filtered.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                {gp.dialog.noProjects}
-              </div>
-            ) : (
-              filtered.map((proj) => (
-                <Button
-                  key={proj.nodeId}
-                  type="button"
-                  variant="ghost"
-                  className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-muted/50 transition-colors border-b border-border last:border-0',
-                    selected?.nodeId === proj.nodeId && 'bg-primary/5 text-primary',
-                  )}
-                  onClick={() => setSelected(proj)}
-                >
-                  <KanbanSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1 font-medium truncate">
-                    {proj.title}
-                    <span className="text-xs text-muted-foreground ml-1">#{proj.number}</span>
-                  </span>
-                  <span className="text-xs text-muted-foreground shrink-0">@{proj.ownerLogin}</span>
-                </Button>
-              ))
-            )}
+            {projectListContent}
           </div>
 
           {/* Settings (visible when a project is selected) */}
@@ -268,37 +312,7 @@ function LinkProjectDialog({ open, onOpenChange, projectId }: Readonly<LinkProje
               <div className="pt-1 border-t border-border">
                 <Label className="text-xs font-medium">{gp.dialog.statusMapping}</Label>
                 <p className="text-[11px] text-muted-foreground mb-2">{gp.dialog.statusMappingHint}</p>
-                {fieldsLoading ? (
-                  <p className="text-xs text-muted-foreground">{gp.dialog.loadingFields}</p>
-                ) : !statusInfo?.fieldId || statusInfo.options.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{gp.dialog.noStatusField}</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {statusInfo.options.map((opt) => (
-                      <div key={opt.id} className="flex items-center justify-between gap-2">
-                        <span className="text-xs truncate flex-1">{opt.name}</span>
-                        <Select
-                          value={mapping[opt.id] ?? ''}
-                          onValueChange={(v) =>
-                            setMapping((m) => ({ ...m, [opt.id]: v === '__none__' ? '' : v }))
-                          }
-                        >
-                          <SelectTrigger className="h-7 w-[150px] text-xs">
-                            <SelectValue placeholder={gp.dialog.unmapped} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">{gp.dialog.unmapped}</SelectItem>
-                            {stages.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>
-                                {s.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {statusMappingContent}
               </div>
             </div>
           )}
@@ -394,6 +408,42 @@ export function GithubSection({ projectId, isAdmin }: Readonly<GithubSectionProp
   // One WeldFlow project maps to at most one GitHub Project.
   const hasLink = linkedProjects.length > 0;
 
+  let linksContent: ReactNode;
+  if (linksLoading) {
+    linksContent = <PageLoader fullScreen={false} />;
+  } else if (hasLink) {
+    linksContent = (
+      <div className="space-y-2">
+        {linkedProjects.map((link) => (
+          <ProjectLinkRow
+            key={link.id}
+            link={link}
+            canManage={canManage}
+            isSyncing={syncingIds.has(link.id)}
+            onSync={() => handleSync(link.id)}
+            onUnlink={() => setUnlinkTarget(link.id)}
+          />
+        ))}
+      </div>
+    );
+  } else {
+    linksContent = (
+      <div className="bg-muted/40 border border-border rounded-lg p-4 text-center">
+        <p className="text-sm text-muted-foreground">{gp.empty}</p>
+        {canManage && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3"
+            onClick={() => setShowLinkDialog(true)}
+          >
+            {gp.linkProject}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -411,36 +461,7 @@ export function GithubSection({ projectId, isAdmin }: Readonly<GithubSectionProp
         )}
       </div>
 
-      {linksLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : !hasLink ? (
-        <div className="bg-muted/40 border border-border rounded-lg p-4 text-center">
-          <p className="text-sm text-muted-foreground">{gp.empty}</p>
-          {canManage && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-3"
-              onClick={() => setShowLinkDialog(true)}
-            >
-              {gp.linkProject}
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {linkedProjects.map((link) => (
-            <ProjectLinkRow
-              key={link.id}
-              link={link}
-              canManage={canManage}
-              isSyncing={syncingIds.has(link.id)}
-              onSync={() => handleSync(link.id)}
-              onUnlink={() => setUnlinkTarget(link.id)}
-            />
-          ))}
-        </div>
-      )}
+      {linksContent}
 
       {canManage && (
         <LinkProjectDialog
