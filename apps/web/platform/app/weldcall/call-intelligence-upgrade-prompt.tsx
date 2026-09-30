@@ -81,6 +81,11 @@ export const segments = [
   },
 ];
 
+// Stable per-word ids so word spans do not need an array index as their React key.
+const segmentWordItems = segments.map((seg, segIdx) =>
+  seg.words.map((text, pos) => ({ id: `seg${segIdx}-word${pos}`, text })),
+);
+
 // Pre-compute total words and segment start indices
 export const segmentStartIndices = segments.reduce<number[]>((acc, seg, i) => {
   acc.push(i === 0 ? 0 : acc[i - 1] + segments[i - 1].words.length);
@@ -220,18 +225,18 @@ const Segment = React.memo(
           </div>
           {isActive ? (
             <p className="text-[11px] text-gray-600 leading-relaxed">
-              {seg.words.map((word, wordIdx) => {
+              {segmentWordItems[segIdx].map((item, wordIdx) => {
                 const absIdx = segStart + wordIdx;
                 const isHighlighted = absIdx === wrappedWordIndex;
                 return (
                   <span
-                    key={wordIdx}
+                    key={item.id}
                     className="transition-colors duration-300 ease-in-out rounded-[3px] px-[1px] -mx-[1px]"
                     style={{
                       backgroundColor: isHighlighted ? 'rgb(254 240 138)' : 'transparent',
                     }}
                   >
-                    {word}
+                    {item.text}
                     {wordIdx < seg.words.length - 1 ? ' ' : ''}
                   </span>
                 );

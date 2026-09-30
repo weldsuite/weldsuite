@@ -316,7 +316,15 @@ export function CallHistoryList({
   const renderCallRow = useCallback((call: VoipCall) => (
     <div
       key={call.id}
+      role="link"
+      tabIndex={0}
       onClick={() => handleCallClick(call)}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          handleCallClick(call);
+        }
+      }}
       className="flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
     >
       {/* Direction */}
@@ -392,14 +400,14 @@ export function CallHistoryList({
       </div>
 
       {/* Actions */}
-      <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+      <div className="w-[40px] flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent" onClick={(e) => e.stopPropagation()}>
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenuItem onClick={() => handleCallClick(call)}>
               <FileText className="mr-0.5 h-4 w-4" />
               {tc.actions.viewDetails}

@@ -169,7 +169,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
   const renderRow = useCallback((bk: BookmarkItem) => (
     <div
       key={bk.id}
-      role="button"
+      role="link"
       tabIndex={0}
       onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
       onKeyDown={(e) => {
