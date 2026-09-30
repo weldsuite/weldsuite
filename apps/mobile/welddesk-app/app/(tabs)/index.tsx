@@ -38,6 +38,30 @@ import type {
 } from '@/types/desk';
 
 type AssigneeFilter = 'all' | 'mine' | 'unassigned';
+type Translations = ReturnType<typeof useI18n>['t'];
+
+const NEXT_SORT: Record<DeskConversationSort, DeskConversationSort> = {
+  newest: 'waiting_longest',
+  waiting_longest: 'oldest',
+  oldest: 'newest',
+};
+
+function sortLabel(t: Translations, sort: DeskConversationSort): string {
+  switch (sort) {
+    case 'newest':
+      return t.inbox.newest;
+    case 'oldest':
+      return t.inbox.oldest;
+    default:
+      return t.inbox.waitingLongest;
+  }
+}
+
+function rowMeta(t: Translations, item: DeskConversation, waiting: boolean): string {
+  if (waiting) return t.inbox.waiting;
+  const number = `#${item.conversationNumber}`;
+  return item.title ? `${number} · ${item.title}` : number;
+}
 
 export default function InboxScreen() {
   const { colors } = useTheme();
@@ -198,18 +222,12 @@ export default function InboxScreen() {
             })}
             <Pressable
               onPress={() =>
-                setSort((s) =>
-                  s === 'newest' ? 'waiting_longest' : s === 'waiting_longest' ? 'oldest' : 'newest',
-                )
+                setSort((s) => NEXT_SORT[s])
               }
               style={[styles.chip, { backgroundColor: colors.secondary }]}
             >
               <Text style={[styles.chipText, { color: colors.mutedForeground }]}>
-                {sort === 'newest'
-                  ? t.inbox.newest
-                  : sort === 'oldest'
-                    ? t.inbox.oldest
-                    : t.inbox.waitingLongest}
+                {sortLabel(t, sort)}
               </Text>
             </Pressable>
           </View>
@@ -262,13 +280,7 @@ export default function InboxScreen() {
               <RecordRow
                 title={title}
                 subtitle={subtitle}
-                meta={
-                  waiting
-                    ? t.inbox.waiting
-                    : item.title
-                      ? `#${item.conversationNumber} · ${item.title}`
-                      : `#${item.conversationNumber}`
-                }
+                meta={rowMeta(t, item, waiting)}
                 metaColor={waiting ? BRAND : undefined}
                 trailing={formatShortTime(item.lastMessageAt ?? item.updatedAt)}
                 unread={waiting}

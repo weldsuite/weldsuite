@@ -358,7 +358,7 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
         const isActive = index === currentPhase && !failed;
 
         return (
-          <View key={index} style={provisionStyles.phaseRow}>
+          <View key={phase.label} style={provisionStyles.phaseRow}>
             <View style={[
               provisionStyles.iconCircle,
               {
