@@ -175,6 +175,47 @@ const schedulePostSchema = z.object({
   timezone: z.string().max(50).optional(),
 });
 
+/** Map an error thrown by `publishPost` to the standard v1 error response. */
+function publishErrorResponse(c: Context<HonoEnv>, err: unknown) {
+  if (err instanceof PostPeerNotConfiguredError) {
+    return c.json(
+      {
+        error: {
+          code: 'SOCIAL_PUBLISHING_NOT_CONFIGURED',
+          message: 'Social publishing is not configured',
+        },
+      },
+      503,
+    );
+  }
+  if (err instanceof SocialPublishConflictError) {
+    return error.conflict(c, err.message);
+  }
+  if (err instanceof SocialInsufficientCreditsError) {
+    return c.json(
+      {
+        error: {
+          code: 'INSUFFICIENT_CREDITS',
+          message: err.message,
+          details: {
+            currentBalance: err.currentBalance,
+            required: err.required,
+            shortfall: err.required - err.currentBalance,
+          },
+        },
+      },
+      402,
+    );
+  }
+  const message = err instanceof Error ? err.message : 'Failed to publish post';
+  console.error(`${SOCIAL_LOG_PREFIX} publish failed:`, err);
+  // A post with no targets, or none of them connected, is a caller error.
+  const isCallerError =
+    message === 'Post has no target accounts' ||
+    message === 'No PostPeer-connected accounts among the post targets';
+  return isCallerError ? error.badRequest(c, message) : error.internal(c, message);
+}
+
 /**
  * Confirm the post exists in this tenant, then publish or schedule it.
  *
@@ -206,43 +247,7 @@ async function publishOrSchedule(
   try {
     result = await publishPost(db, socialContext(c.env), orgId, id, options);
   } catch (err) {
-    if (err instanceof PostPeerNotConfiguredError) {
-      return c.json(
-        {
-          error: {
-            code: 'SOCIAL_PUBLISHING_NOT_CONFIGURED',
-            message: 'Social publishing is not configured',
-          },
-        },
-        503,
-      );
-    }
-    if (err instanceof SocialPublishConflictError) {
-      return error.conflict(c, err.message);
-    }
-    if (err instanceof SocialInsufficientCreditsError) {
-      return c.json(
-        {
-          error: {
-            code: 'INSUFFICIENT_CREDITS',
-            message: err.message,
-            details: {
-              currentBalance: err.currentBalance,
-              required: err.required,
-              shortfall: err.required - err.currentBalance,
-            },
-          },
-        },
-        402,
-      );
-    }
-    const message = err instanceof Error ? err.message : 'Failed to publish post';
-    console.error(`${SOCIAL_LOG_PREFIX} publish failed:`, err);
-    // A post with no targets, or none of them connected, is a caller error.
-    const isCallerError =
-      message === 'Post has no target accounts' ||
-      message === 'No PostPeer-connected accounts among the post targets';
-    return isCallerError ? error.badRequest(c, message) : error.internal(c, message);
+    return publishErrorResponse(c, err);
   }
 
   // Emitted outside the try, and defensively: the post is live on PostPeer by

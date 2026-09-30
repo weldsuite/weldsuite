@@ -56,6 +56,43 @@ function computeCost(rate?: string | number | null, duration?: string | number |
 const table = schema.timeEntries;
 const app = new Hono<HonoEnv>();
 
+type UpdateTimeEntryBody = z.infer<typeof updateTimeEntrySchema>;
+
+/** Body fields copied to the row as-is when present. */
+const PLAIN_UPDATE_FIELDS = [
+  'date',
+  'description',
+  'activity',
+  'billable',
+  'location',
+  'isRemote',
+  'taskId',
+  'projectId',
+] as const;
+
+function toDateOrNull(value: string | undefined): Date | null {
+  return value ? new Date(value) : null;
+}
+
+/** Build the Drizzle `set` payload for a PATCH, recomputing `cost` when rate or duration change. */
+function buildTimeEntryUpdate(
+  body: UpdateTimeEntryBody,
+  existing: typeof table.$inferSelect,
+): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const key of PLAIN_UPDATE_FIELDS) {
+    if (body[key] !== undefined) update[key] = body[key];
+  }
+  if (body.duration !== undefined) update.duration = String(body.duration);
+  if (body.rate !== undefined) update.rate = body.rate === null ? null : String(body.rate);
+  if (body.startTime !== undefined) update.startTime = toDateOrNull(body.startTime);
+  if (body.endTime !== undefined) update.endTime = toDateOrNull(body.endTime);
+  if (body.rate !== undefined || body.duration !== undefined) {
+    update.cost = computeCost(body.rate ?? existing.rate, body.duration ?? existing.duration);
+  }
+  return update;
+}
+
 app.get('/', requireScope('time_entries:read'), zValidator('query', listTimeEntriesQuery), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
@@ -134,22 +171,7 @@ app.patch('/:id', requireScope('time_entries:write'), zValidator('json', updateT
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!existing) return error.notFound(c, 'TimeEntry', id);
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  if (body.date !== undefined) update.date = body.date;
-  if (body.duration !== undefined) update.duration = String(body.duration);
-  if (body.description !== undefined) update.description = body.description;
-  if (body.activity !== undefined) update.activity = body.activity;
-  if (body.billable !== undefined) update.billable = body.billable;
-  if (body.rate !== undefined) update.rate = body.rate === null ? null : String(body.rate);
-  if (body.startTime !== undefined) update.startTime = body.startTime ? new Date(body.startTime) : null;
-  if (body.endTime !== undefined) update.endTime = body.endTime ? new Date(body.endTime) : null;
-  if (body.location !== undefined) update.location = body.location;
-  if (body.isRemote !== undefined) update.isRemote = body.isRemote;
-  if (body.taskId !== undefined) update.taskId = body.taskId;
-  if (body.projectId !== undefined) update.projectId = body.projectId;
-  if (body.rate !== undefined || body.duration !== undefined) {
-    update.cost = computeCost(body.rate ?? existing.rate, body.duration ?? existing.duration);
-  }
+  const update = buildTimeEntryUpdate(body, existing);
   const [row] = await db
     .update(table)
     .set(update)
