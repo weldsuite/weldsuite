@@ -32,6 +32,7 @@ import {
   playHandRaiseSound,
   playHandLowerSound,
 } from '@/lib/utils/notification-sound';
+import { randomSuffix } from '@/lib/random';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
 // set VITE_NOISE_SUPPRESSION=false to disable. (Legacy alias:
@@ -497,7 +498,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
           return next;
         }
         next.push({
-          id: t.id ?? `cap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: t.id ?? `cap-${Date.now()}-${randomSuffix(4)}`,
           peerId: t.peerId ?? '',
           speakerName: t.name ?? 'Speaker',
           text: t.transcript ?? '',

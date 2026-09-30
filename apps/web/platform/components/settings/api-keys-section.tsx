@@ -37,6 +37,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api'
 import { PricingDialog } from "@/components/pricing-dialog"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
 import type { Billing } from "@/lib/api/types/apps/billing.types"
+import { secureRandom } from "@/lib/random"
 
 // Entity-based permissions grouped by module.
 // IMPORTANT: every scope below must correspond to a scope enforced by the
@@ -379,7 +380,7 @@ function AnimatedCodePreview() {
     timing.lastTime = performance.now();
 
     const charDelay = 30;
-    const linesPerBurst = 5 + Math.floor(Math.random() * 3); // 5-7 lines per burst
+    const linesPerBurst = 5 + Math.floor(secureRandom() * 3); // 5-7 lines per burst
     const pauseDuration = 3000; // 3s pause
 
     const tick = () => {

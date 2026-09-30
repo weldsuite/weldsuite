@@ -8,6 +8,7 @@ import type { ClientApi } from '@weldsuite/api-client/types';
 import type { WeldDeskMessage, SendMessageParams } from './types';
 import { weldDeskKeys } from './keys';
 import * as api from './api';
+import { randomSuffix } from '@/lib/random';
 
 interface UseWeldDeskMessagesOptions {
   conversationId: string;
@@ -52,7 +53,7 @@ export function useWeldDeskMessages({
       const previous = queryClient.getQueryData(weldDeskKeys.messages(conversationId));
 
       const optimistic: WeldDeskMessage = {
-        id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: `pending-${Date.now()}-${randomSuffix(6)}`,
         conversationId,
         content: params.content,
         htmlContent: params.htmlContent,

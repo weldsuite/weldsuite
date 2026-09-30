@@ -51,7 +51,7 @@ export async function cancelSubscriptionImmediately(
   secretKey: string,
   subscriptionId: string,
 ): Promise<void> {
-  await stripeRequest(secretKey, 'DELETE', `/v1/subscriptions/${subscriptionId}?prorate=true`);
+  await stripeRequest(secretKey, 'DELETE', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}?prorate=true`);
 }
 
 export interface DomainLineItem {
@@ -130,7 +130,7 @@ export async function expireCheckoutSession(
   secretKey: string,
   sessionId: string,
 ): Promise<void> {
-  await stripeRequest(secretKey, 'POST', `/v1/checkout/sessions/${sessionId}/expire`);
+  await stripeRequest(secretKey, 'POST', `/v1/checkout/sessions/${encodeURIComponent(sessionId)}/expire`);
 }
 
 // ============================================================================
@@ -218,7 +218,7 @@ export async function retrieveSubscription(
   return (await stripeRequest(
     secretKey,
     'GET',
-    `/v1/subscriptions/${subscriptionId}`,
+    `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
   )) as StripeSubscription;
 }
 
@@ -279,7 +279,7 @@ export async function updateStripeCustomer(
   return (await stripeRequest(
     secretKey,
     'POST',
-    `/v1/customers/${customerId}`,
+    `/v1/customers/${encodeURIComponent(customerId)}`,
     body,
   )) as StripeCustomer;
 }
@@ -362,7 +362,7 @@ export async function updateSubscriptionQuantity(
   itemId: string,
   quantity: number,
 ): Promise<StripeSubscription> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     'items[0][id]': itemId,
     'items[0][quantity]': quantity.toString(),
     proration_behavior: 'always_invoice',
@@ -375,7 +375,7 @@ export async function retrieveInvoice(
   secretKey: string,
   invoiceId: string,
 ): Promise<StripeInvoice> {
-  return (await stripeRequest(secretKey, 'GET', `/v1/invoices/${invoiceId}`)) as StripeInvoice;
+  return (await stripeRequest(secretKey, 'GET', `/v1/invoices/${encodeURIComponent(invoiceId)}`)) as StripeInvoice;
 }
 
 export interface DomainRenewalInvoiceParams {
@@ -447,7 +447,7 @@ export async function payInvoiceOffSession(
   secretKey: string,
   invoiceId: string,
 ): Promise<StripeInvoice> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/invoices/${invoiceId}/pay`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/invoices/${encodeURIComponent(invoiceId)}/pay`, {
     off_session: 'true',
   })) as StripeInvoice;
 }
@@ -460,7 +460,7 @@ export async function voidInvoice(
   return (await stripeRequest(
     secretKey,
     'POST',
-    `/v1/invoices/${invoiceId}/void`,
+    `/v1/invoices/${encodeURIComponent(invoiceId)}/void`,
   )) as StripeInvoice;
 }
 
@@ -473,7 +473,7 @@ export async function cancelSubscriptionAtPeriodEnd(
   secretKey: string,
   subscriptionId: string,
 ): Promise<StripeSubscription> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     cancel_at_period_end: 'true',
   })) as StripeSubscription;
 }
@@ -483,7 +483,7 @@ export async function reactivateSubscription(
   secretKey: string,
   subscriptionId: string,
 ): Promise<StripeSubscription> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     cancel_at_period_end: 'false',
   })) as StripeSubscription;
 }
@@ -495,7 +495,7 @@ export async function createCustomerTaxId(
   type: string,
   value: string,
 ): Promise<StripeTaxId> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/customers/${customerId}/tax_ids`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/customers/${encodeURIComponent(customerId)}/tax_ids`, {
     type,
     value,
   })) as StripeTaxId;
@@ -506,7 +506,7 @@ export async function listCustomerTaxIds(
   secretKey: string,
   customerId: string,
 ): Promise<{ data: StripeTaxId[] }> {
-  return (await stripeRequest(secretKey, 'GET', `/v1/customers/${customerId}/tax_ids`)) as {
+  return (await stripeRequest(secretKey, 'GET', `/v1/customers/${encodeURIComponent(customerId)}/tax_ids`)) as {
     data: StripeTaxId[];
   };
 }
@@ -520,7 +520,7 @@ export async function deleteCustomerTaxId(
   return (await stripeRequest(
     secretKey,
     'DELETE',
-    `/v1/customers/${customerId}/tax_ids/${taxIdId}`,
+    `/v1/customers/${encodeURIComponent(customerId)}/tax_ids/${encodeURIComponent(taxIdId)}`,
   )) as { id: string; deleted: boolean };
 }
 
@@ -541,7 +541,7 @@ export async function retrieveStripeCustomer(
   secretKey: string,
   customerId: string,
 ): Promise<StripeCustomer> {
-  return (await stripeRequest(secretKey, 'GET', `/v1/customers/${customerId}`)) as StripeCustomer;
+  return (await stripeRequest(secretKey, 'GET', `/v1/customers/${encodeURIComponent(customerId)}`)) as StripeCustomer;
 }
 
 /**
@@ -567,7 +567,7 @@ export async function retrievePaymentMethod(
   return (await stripeRequest(
     secretKey,
     'GET',
-    `/v1/payment_methods/${paymentMethodId}`,
+    `/v1/payment_methods/${encodeURIComponent(paymentMethodId)}`,
   )) as StripePaymentMethod & { customer?: string | { id: string } | null };
 }
 
@@ -606,7 +606,7 @@ export async function detachPaymentMethod(
   return (await stripeRequest(
     secretKey,
     'POST',
-    `/v1/payment_methods/${paymentMethodId}/detach`,
+    `/v1/payment_methods/${encodeURIComponent(paymentMethodId)}/detach`,
   )) as StripePaymentMethod;
 }
 
@@ -616,7 +616,7 @@ export async function setCustomerDefaultPaymentMethod(
   customerId: string,
   paymentMethodId: string,
 ): Promise<StripeCustomer> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/customers/${customerId}`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/customers/${encodeURIComponent(customerId)}`, {
     'invoice_settings[default_payment_method]': paymentMethodId,
   })) as StripeCustomer;
 }
@@ -633,7 +633,7 @@ export async function setSubscriptionDefaultPaymentMethod(
   subscriptionId: string,
   paymentMethodId: string,
 ): Promise<StripeSubscription> {
-  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     default_payment_method: paymentMethodId,
   })) as StripeSubscription;
 }
