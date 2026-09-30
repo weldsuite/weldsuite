@@ -217,11 +217,13 @@ export default function WeldPassSyncPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {credential.lastVerifyError ? (
+                  {credential.lastVerifyError && (
                     <Badge variant="destructive">{t('weldpass.syncPage.tokenFailed')}</Badge>
-                  ) : credential.lastVerifiedAt ? (
+                  )}
+                  {!credential.lastVerifyError && credential.lastVerifiedAt && (
                     <Badge>{t('weldpass.syncPage.tokenVerified')}</Badge>
-                  ) : (
+                  )}
+                  {!credential.lastVerifyError && !credential.lastVerifiedAt && (
                     <Badge variant="secondary">{t('weldpass.syncPage.tokenUnverified')}</Badge>
                   )}
                   <Button

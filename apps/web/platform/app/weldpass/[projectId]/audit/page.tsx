@@ -38,11 +38,11 @@ export default function WeldPassAuditPage() {
 
       <ErrorBanner error={error ? errorMessage(error, t('weldpass.audit.loadFailed')) : null} />
 
-      {isLoading ? (
-        <InlineSpinner />
-      ) : !events || events.length === 0 ? (
+      {isLoading && <InlineSpinner />}
+      {!isLoading && (!events || events.length === 0) && (
         <EmptyState title={t('weldpass.audit.emptyTitle')} />
-      ) : (
+      )}
+      {!isLoading && events && events.length > 0 && (
         <Card>
           {events.map((event) => (
             <div

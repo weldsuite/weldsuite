@@ -100,14 +100,16 @@ export function SendParcelDialog({
     );
   };
 
+  let description = t.recipient;
+  if (!configured) description = t.notConfigured;
+  else if (!ready) description = t.noEnabledOptions;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t.sendParcel}</DialogTitle>
-          <DialogDescription>
-            {!configured ? t.notConfigured : !ready ? t.noEnabledOptions : t.recipient}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         {ready ? (
           <div className="space-y-4">

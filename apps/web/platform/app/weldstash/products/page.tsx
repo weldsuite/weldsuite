@@ -22,7 +22,8 @@ function ProductsPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldstash/products${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldstash/products${query}`);
     },
     [router, searchParams],
   );

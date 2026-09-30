@@ -778,7 +778,7 @@ export function useMailSidebarItems(isActive: boolean): {
                       badge.style.cssText = `padding:4px 10px;border-radius:6px;font-size:12px;font-weight:500;background:${color};color:#fff;position:fixed;top:-100px;`;
                       document.body.appendChild(badge);
                       e.dataTransfer.setDragImage(badge, badge.offsetWidth / 2, badge.offsetHeight / 2);
-                      requestAnimationFrame(() => document.body.removeChild(badge));
+                      requestAnimationFrame(() => badge.remove());
                     }}
                   >
                     <span
