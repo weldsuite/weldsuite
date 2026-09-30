@@ -3,8 +3,10 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
+  type Row,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -57,6 +59,182 @@ import {
 
 /** Sentinel entity value for the "All" view (every object type at once). */
 const ALL_ENTITY = 'all';
+
+type Translator = ReturnType<typeof useI18n>['t'];
+type StringTranslator = ReturnType<typeof useTranslations>;
+
+function SortableHeader({
+  column,
+  label,
+}: Readonly<{ column: Column<CustomFieldDefinition, unknown>; label: string }>) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+    >
+      {label}
+      <ArrowUpDown className="h-3 w-3 opacity-30" />
+    </Button>
+  );
+}
+
+function NameCell({
+  row,
+  isAll,
+}: Readonly<{ row: Row<CustomFieldDefinition>; isAll: boolean }>) {
+  const cfg = isAll ? ENTITY_TYPES.find((et) => et.value === row.original.entityType) : undefined;
+  const Icon = cfg?.icon;
+  return (
+    <span className="text-sm flex items-center gap-1.5">
+      {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+      {row.getValue('name')}
+    </span>
+  );
+}
+
+function FieldTypeCell({ row }: Readonly<{ row: Row<CustomFieldDefinition> }>) {
+  return (
+    <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none font-normal border border-border bg-background text-foreground">
+      {getFieldTypeLabel(row.getValue('fieldType'))}
+    </span>
+  );
+}
+
+function SlugCell({ row }: Readonly<{ row: Row<CustomFieldDefinition> }>) {
+  return <span className="text-sm font-mono text-muted-foreground">{row.getValue('slug')}</span>;
+}
+
+function RequiredCell({
+  row,
+  yesLabel,
+  noLabel,
+}: Readonly<{ row: Row<CustomFieldDefinition>; yesLabel: string; noLabel: string }>) {
+  return row.getValue('required') ? (
+    <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">{yesLabel}</span>
+  ) : (
+    <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none bg-gray-100 dark:bg-secondary text-gray-700 dark:text-muted-foreground">{noLabel}</span>
+  );
+}
+
+function ActionsCell({
+  field,
+  t,
+  duplicateLabel,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: Readonly<{
+  field: CustomFieldDefinition;
+  t: Translator;
+  duplicateLabel: string;
+  onEdit: (field: CustomFieldDefinition) => void;
+  onDuplicate: (field: CustomFieldDefinition) => void;
+  onDelete: (id: string) => void;
+}>) {
+  return (
+    <div className="flex justify-end">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+        >
+          <span className="sr-only">{t.common.actions.openMenu}</span>
+          <EllipsisVertical className="h-3.5 w-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => onEdit(field)}>
+          <Pencil className="h-4 w-4 mr-0.5" />
+          {t.common.actions.edit}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onDuplicate(field)}>
+          <Copy className="h-4 w-4 mr-0.5" />
+          {duplicateLabel}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => onDelete(field.id)}
+          className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
+        >
+          <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
+          {t.common.actions.delete}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+    </div>
+  );
+}
+
+interface ColumnDeps {
+  t: Translator;
+  ts: Translator['settings']['customFields'];
+  st: StringTranslator;
+  isAll: boolean;
+  onEdit: (field: CustomFieldDefinition) => void;
+  onDuplicate: (field: CustomFieldDefinition) => void;
+  onDelete: (id: string) => void;
+}
+
+function buildColumns({
+  t,
+  ts,
+  st,
+  isAll,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: ColumnDeps): ColumnDef<CustomFieldDefinition>[] {
+  return [
+    {
+      accessorKey: 'name',
+      header: ({ column }) => <SortableHeader column={column} label={t.common.labels.name} />,
+      cell: ({ row }) => <NameCell row={row} isAll={isAll} />,
+    },
+    {
+      accessorKey: 'fieldType',
+      header: ({ column }) => <SortableHeader column={column} label={t.common.labels.type} />,
+      filterFn: (row, columnId, filterValue) =>
+        row.getValue(columnId) === filterValue,
+      cell: ({ row }) => <FieldTypeCell row={row} />,
+    },
+    {
+      accessorKey: 'slug',
+      header: ts.slug,
+      cell: ({ row }) => <SlugCell row={row} />,
+    },
+    {
+      accessorKey: 'required',
+      header: ts.required,
+      filterFn: (row, columnId, filterValue) =>
+        row.getValue(columnId) === filterValue,
+      cell: ({ row }) => (
+        <RequiredCell
+          row={row}
+          yesLabel={st('sweep.settings.customFieldsExtra.yes')}
+          noLabel={st('sweep.settings.customFieldsExtra.no')}
+        />
+      ),
+    },
+    {
+      id: 'actions',
+      enableHiding: false,
+      cell: ({ row }) => (
+        <ActionsCell
+          field={row.original}
+          t={t}
+          duplicateLabel={ts.duplicate}
+          onEdit={onEdit}
+          onDuplicate={onDuplicate}
+          onDelete={onDelete}
+        />
+      ),
+    },
+  ];
+}
 
 export function CustomFieldsManager() {
   const { t } = useI18n();
@@ -178,114 +356,19 @@ export function CustomFieldsManager() {
   }, []);
 
   // Column definitions — memoized to prevent infinite re-render loop
-  const columns: ColumnDef<CustomFieldDefinition>[] = useMemo(() => [
-    {
-      accessorKey: 'name',
-      header: ({ column }) => (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-        >
-          {t.common.labels.name}
-          <ArrowUpDown className="h-3 w-3 opacity-30" />
-        </Button>
-      ),
-      cell: ({ row }) => {
-        const cfg = isAll ? ENTITY_TYPES.find((et) => et.value === row.original.entityType) : undefined;
-        const Icon = cfg?.icon;
-        return (
-          <span className="text-sm flex items-center gap-1.5">
-            {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-            {row.getValue('name')}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: 'fieldType',
-      header: ({ column }) => (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-        >
-          {t.common.labels.type}
-          <ArrowUpDown className="h-3 w-3 opacity-30" />
-        </Button>
-      ),
-      filterFn: (row, columnId, filterValue) =>
-        row.getValue(columnId) === filterValue,
-      cell: ({ row }) => (
-        <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none font-normal border border-border bg-background text-foreground">
-          {getFieldTypeLabel(row.getValue('fieldType'))}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'slug',
-      header: ts.slug,
-      cell: ({ row }) => (
-        <span className="text-sm font-mono text-muted-foreground">{row.getValue('slug')}</span>
-      ),
-    },
-    {
-      accessorKey: 'required',
-      header: ts.required,
-      filterFn: (row, columnId, filterValue) =>
-        row.getValue(columnId) === filterValue,
-      cell: ({ row }) => (
-        row.getValue('required') ? (
-          <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">{st('sweep.settings.customFieldsExtra.yes')}</span>
-        ) : (
-          <span className="inline-flex items-center h-[22px] px-2 rounded text-xs leading-none bg-gray-100 dark:bg-secondary text-gray-700 dark:text-muted-foreground">{st('sweep.settings.customFieldsExtra.no')}</span>
-        )
-      ),
-    },
-    {
-      id: 'actions',
-      enableHiding: false,
-      cell: ({ row }) => {
-        const field = row.original;
-        return (
-          <div className="flex justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
-              >
-                <span className="sr-only">{t.common.actions.openMenu}</span>
-                <EllipsisVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleEdit(field)}>
-                <Pencil className="h-4 w-4 mr-0.5" />
-                {t.common.actions.edit}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleDuplicate(field)}>
-                <Copy className="h-4 w-4 mr-0.5" />
-                {ts.duplicate}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => handleDelete(field.id)}
-                className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
-                {t.common.actions.delete}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          </div>
-        );
-      },
-    },
-  ], [handleEdit, handleDuplicate, handleDelete, t, ts, isAll, st]);
+  const columns: ColumnDef<CustomFieldDefinition>[] = useMemo(
+    () =>
+      buildColumns({
+        t,
+        ts,
+        st,
+        isAll,
+        onEdit: handleEdit,
+        onDuplicate: handleDuplicate,
+        onDelete: handleDelete,
+      }),
+    [handleEdit, handleDuplicate, handleDelete, t, ts, isAll, st],
+  );
 
   const table = useReactTable({
     data: fields,
@@ -304,6 +387,47 @@ export function CustomFieldsManager() {
   });
 
   const selectedEntityConfig = ENTITY_TYPES.find(et => et.value === selectedEntityType);
+
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <TableRow>
+          <TableCell colSpan={columns.length} className="h-24 text-center">
+            <span className="text-sm text-muted-foreground">{ts.loading}</span>
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    const rows = table.getRowModel().rows;
+    if (rows?.length) {
+      return rows.map((row) => (
+        <TableRow
+          key={row.id}
+          className="group h-[50px]"
+        >
+          {row.getVisibleCells().map((cell) => (
+            <TableCell key={cell.id}>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          ))}
+        </TableRow>
+      ));
+    }
+
+    const entityLabel = isAll
+      ? st('sweep.settings.customFieldsExtra.anyObject')
+      : (selectedEntityConfig?.label.toLowerCase() ?? '');
+    return (
+      <TableRow>
+        <TableCell colSpan={columns.length} className="h-24 text-center">
+          <p className="text-sm text-muted-foreground">
+            {ts.noFields.replace('{entityType}', entityLabel)}
+          </p>
+        </TableCell>
+      </TableRow>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -451,36 +575,7 @@ export function CustomFieldsManager() {
             ))}
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
-                  <span className="text-sm text-muted-foreground">{ts.loading}</span>
-                </TableCell>
-              </TableRow>
-            ) : table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="group h-[50px]"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    {isAll
-                      ? ts.noFields.replace('{entityType}', st('sweep.settings.customFieldsExtra.anyObject'))
-                      : ts.noFields.replace('{entityType}', selectedEntityConfig?.label.toLowerCase() ?? '')}
-                  </p>
-                </TableCell>
-              </TableRow>
-            )}
+            {renderBody()}
           </TableBody>
         </Table>
       </div>
