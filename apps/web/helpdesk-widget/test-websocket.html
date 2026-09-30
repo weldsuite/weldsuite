@@ -70,7 +70,8 @@
             const timestamp = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            entry.style.color = type === 'error' ? 'red' : type === 'success' ? 'green' : 'black';
+            const colors = { error: 'red', success: 'green' };
+            entry.style.color = colors[type] || 'black';
             entry.textContent = `[${timestamp}] ${message}`;
             logDiv.appendChild(entry);
             logDiv.scrollTop = logDiv.scrollHeight;

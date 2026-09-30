@@ -25,6 +25,12 @@ export default function ClientMilestonesView() {
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState onRetry={refetch} />;
 
+  const dateLabel = (m: HrClientView['milestones'][number]): string => {
+    if (m.achievedAt) return format(dict.client.milestones.achievedOn, { date: formatDate(m.achievedAt, locale, timeZone) });
+    if (m.dueDate) return format(dict.client.milestones.due, { date: formatDate(m.dueDate, locale, timeZone) });
+    return dict.common.none;
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader title={dict.client.milestones.title} />
@@ -43,13 +49,7 @@ export default function ClientMilestonesView() {
                   <Badge tone={MILESTONE_TONE[m.status]}>{milestoneStatusLabel(dict, m.status)}</Badge>
                 </div>
                 {m.description && <p className="text-sm text-gray-500 mt-1">{m.description}</p>}
-                <p className="text-xs text-gray-400 mt-1">
-                  {m.achievedAt
-                    ? format(dict.client.milestones.achievedOn, { date: formatDate(m.achievedAt, locale, timeZone) })
-                    : m.dueDate
-                      ? format(dict.client.milestones.due, { date: formatDate(m.dueDate, locale, timeZone) })
-                      : dict.common.none}
-                </p>
+                <p className="text-xs text-gray-400 mt-1">{dateLabel(m)}</p>
               </li>
             ))}
           </ul>

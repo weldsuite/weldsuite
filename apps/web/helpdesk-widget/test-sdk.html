@@ -84,9 +84,12 @@
     <div class="log" id="log"></div>
   </div>
 
+  <script type="importmap">
+    { "imports": { "@weldsuite/helpdesk-widget-sdk": "./node_modules/@weldsuite/helpdesk-widget-sdk/dist/index.esm.js" } }
+  </script>
   <script type="module">
     // Import SDK from local build or use inline implementation
-    import { WeldSDK, createWeldSDK } from './node_modules/@weldsuite/helpdesk-widget-sdk/dist/index.esm.js';
+    import { WeldSDK, createWeldSDK } from '@weldsuite/helpdesk-widget-sdk';
 
     let sdk = null;
 

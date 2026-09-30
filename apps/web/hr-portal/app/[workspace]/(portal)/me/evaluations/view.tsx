@@ -35,6 +35,33 @@ export default function EvaluationsView() {
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState onRetry={refetch} />;
 
+  const renderAcknowledge = (ev: Evaluation) => {
+    if (ev.acknowledgedAt) {
+      return <p className="text-xs text-gray-400 mt-3">{format(dict.evaluations.acknowledgedOn, { date: formatDate(ev.acknowledgedAt, locale, timeZone) })}</p>;
+    }
+    if (ev.status !== 'submitted') return null;
+    if (openComment !== ev.id) {
+      return (
+        <Button type="button" variant="secondary" className="mt-3" onClick={() => setOpenComment(ev.id)}>
+          {dict.evaluations.acknowledge}
+        </Button>
+      );
+    }
+    return (
+      <div className="mt-3 space-y-2">
+        <Textarea rows={2} placeholder={dict.evaluations.commentPlaceholder} value={comment} onChange={(e) => setComment(e.target.value)} />
+        <div className="flex gap-2">
+          <Button type="button" disabled={busyId === ev.id} onClick={() => void acknowledge(ev.id)}>
+            {dict.evaluations.acknowledge}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpenComment(null)}>
+            {dict.common.cancel}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader title={dict.evaluations.title} />
@@ -87,27 +114,7 @@ export default function EvaluationsView() {
                 </div>
               )}
 
-              {ev.acknowledgedAt ? (
-                <p className="text-xs text-gray-400 mt-3">{format(dict.evaluations.acknowledgedOn, { date: formatDate(ev.acknowledgedAt, locale, timeZone) })}</p>
-              ) : ev.status === 'submitted' ? (
-                openComment === ev.id ? (
-                  <div className="mt-3 space-y-2">
-                    <Textarea rows={2} placeholder={dict.evaluations.commentPlaceholder} value={comment} onChange={(e) => setComment(e.target.value)} />
-                    <div className="flex gap-2">
-                      <Button type="button" disabled={busyId === ev.id} onClick={() => void acknowledge(ev.id)}>
-                        {dict.evaluations.acknowledge}
-                      </Button>
-                      <Button type="button" variant="ghost" onClick={() => setOpenComment(null)}>
-                        {dict.common.cancel}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Button type="button" variant="secondary" className="mt-3" onClick={() => setOpenComment(ev.id)}>
-                    {dict.evaluations.acknowledge}
-                  </Button>
-                )
-              ) : null}
+              {renderAcknowledge(ev)}
             </Card>
           ))}
         </div>
