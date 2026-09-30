@@ -44,7 +44,8 @@ function extractSections(node, sections, isRoot = true) {
 export default function withSearch(nextConfig = {}) {
   let cache = new Map()
 
-  return Object.assign({}, nextConfig, {
+  return {
+    ...nextConfig,
     webpack(config, options) {
       config.module.rules.push({
         test: __filename,
@@ -65,10 +66,9 @@ export default function withSearch(nextConfig = {}) {
                 sections = cache.get(file)[1]
               } else {
                 let ast = Markdoc.parse(md)
-                let title =
-                  ast.attributes?.frontmatter?.match(
-                    /^title:\s*(.*?)\s*$/m,
-                  )?.[1]
+                let title = ast.attributes?.frontmatter
+                  ?.match(/^title:[ \t]*(.*)$/m)?.[1]
+                  ?.trim()
                 sections = [[title, null, []]]
                 extractSections(ast, sections)
                 cache.set(file, [md, sections])
@@ -134,5 +134,5 @@ export default function withSearch(nextConfig = {}) {
 
       return config
     },
-  })
+  }
 }

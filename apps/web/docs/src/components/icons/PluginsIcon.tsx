@@ -5,7 +5,7 @@ export function PluginsIcon({
   color,
 }: Readonly<{
   id: string
-  color?: React.ComponentProps<typeof Gradient>['color']
+  color?: NonNullable<React.ComponentProps<typeof Gradient>['color']>
 }>) {
   return (
     <>
