@@ -64,6 +64,22 @@ interface Task {
   type?: "task" | "milestone" | "project";
 }
 
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
+
+const STATUS_BADGE_VARIANT: Record<Task["status"], BadgeVariant> = {
+  completed: "default",
+  in_progress: "secondary",
+  blocked: "destructive",
+  todo: "outline",
+};
+
+const PRIORITY_BADGE_VARIANT: Record<NonNullable<Task["priority"]>, BadgeVariant> = {
+  critical: "destructive",
+  high: "destructive",
+  medium: "secondary",
+  low: "outline",
+};
+
 const mockTasks: Task[] = [
   {
     id: "1",
@@ -561,8 +577,8 @@ export default function TimelinePage() {
           <div className="timeline-grid" style={{ transform: `scaleX(${zoomLevel})` }}>
             {/* Month Headers */}
             <div className="timeline-months">
-              {timelineHeaders.map((date, index) => (
-                <div key={index} className="timeline-month" style={{ minWidth: `${120 * zoomLevel}px` }}>
+              {timelineHeaders.map((date) => (
+                <div key={date.getTime()} className="timeline-month" style={{ minWidth: `${120 * zoomLevel}px` }}>
                   {date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                 </div>
               ))}
@@ -727,24 +743,14 @@ export default function TimelinePage() {
             </div>
             <div>
               <label className="text-sm text-muted-foreground">{st('sweep.weldflow.timeline.status')}</label>
-              <Badge variant={
-                selectedTask.status === "completed" ? "default" :
-                selectedTask.status === "in_progress" ? "secondary" :
-                selectedTask.status === "blocked" ? "destructive" :
-                "outline"
-              }>
+              <Badge variant={STATUS_BADGE_VARIANT[selectedTask.status]}>
                 {selectedTask.status.replace('_', ' ')}
               </Badge>
             </div>
             {selectedTask.priority && (
               <div>
                 <label className="text-sm text-muted-foreground">{st('sweep.weldflow.timeline.priority')}</label>
-                <Badge variant={
-                  selectedTask.priority === "critical" ? "destructive" :
-                  selectedTask.priority === "high" ? "destructive" :
-                  selectedTask.priority === "medium" ? "secondary" :
-                  "outline"
-                }>
+                <Badge variant={PRIORITY_BADGE_VARIANT[selectedTask.priority]}>
                   {selectedTask.priority}
                 </Badge>
               </div>
