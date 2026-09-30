@@ -93,7 +93,8 @@ export default function DirectoriesPage() {
 
   const renderRow = useCallback((item: DirectoryItem) => {
     return (
-      <div
+      <button
+        type="button"
         key={item.id}
         onClick={() =>
           navigate({
@@ -101,10 +102,10 @@ export default function DirectoriesPage() {
             params: { userId: item.userId ?? item.id },
           })
         }
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        className="w-full text-left flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <div className="relative flex-shrink-0">
+        <span className="flex-1 min-w-0 flex items-center gap-3">
+          <span className="relative flex-shrink-0">
             <Avatar className="h-6 w-6 !rounded-[8px]">
               {item.picture && (
                 <AvatarImage src={item.picture} className="!rounded-[8px]" />
@@ -118,24 +119,23 @@ export default function DirectoriesPage() {
               showTooltip
               className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] border-2"
             />
-          </div>
-          <div className="min-w-0">
+          </span>
+          <span className="min-w-0">
             <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
               {item.name}
             </span>
-          </div>
-        </div>
+          </span>
+        </span>
 
-        <div className="w-[120px] flex-shrink-0">
+        <span className="w-[120px] flex-shrink-0">
           <span className={cn(
             'text-sm',
             item.lastMessageAt ? 'text-gray-600 dark:text-muted-foreground' : 'text-gray-400',
           )}>
             {formatRelative(item.lastMessageAt, st)}
           </span>
-        </div>
-
-      </div>
+        </span>
+      </button>
     );
   }, [navigate, presenceMap, st]);
 
