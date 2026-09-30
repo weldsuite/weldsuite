@@ -76,8 +76,10 @@ async function main() {
 
 const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url)
 if (isDirectRun) {
-  main().catch((err) => {
+  try {
+    await main()
+  } catch (err) {
     console.error(err)
     process.exit(1)
-  })
+  }
 }

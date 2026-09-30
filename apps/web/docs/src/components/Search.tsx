@@ -164,9 +164,10 @@ function SearchResult({
   let sectionTitle = navigation.find((section) =>
     section.links.find((link) => link.href === result.url.split('#')[0]),
   )?.title
-  let hierarchy = [sectionTitle, result.pageTitle].filter(
-    (x): x is string => typeof x === 'string',
-  )
+  let hierarchy = [
+    { key: 'section', text: sectionTitle },
+    { key: 'page', text: result.pageTitle },
+  ].filter((x): x is { key: string; text: string } => typeof x.text === 'string')
 
   return (
     <li
@@ -191,8 +192,8 @@ function SearchResult({
           className="mt-0.5 truncate text-xs whitespace-nowrap text-slate-500 dark:text-slate-400"
         >
           {hierarchy.map((item, itemIndex, items) => (
-            <Fragment key={itemIndex}>
-              <HighlightQuery text={item} query={query} />
+            <Fragment key={item.key}>
+              <HighlightQuery text={item.text} query={query} />
               <span
                 className={
                   itemIndex === items.length - 1
