@@ -6,7 +6,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
+import { generateId, randomBase36 } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -84,7 +84,7 @@ app.post('/', requireScope('tickets:write'), zValidator('json', createTicketSche
   const id = generateId('tkt');
   // ticketNumber is NOT NULL with no DB default — generate when absent.
   const ticketNumber =
-    body.ticketNumber ?? `TKT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    body.ticketNumber ?? `TKT-${Date.now().toString(36).toUpperCase()}-${randomBase36(4).toUpperCase()}`;
   const [row] = await db
     .insert(ticketTable)
     .values({ id, createdAt: now, updatedAt: now, ...(body as Record<string, unknown>), ticketNumber } as typeof ticketTable.$inferInsert)
