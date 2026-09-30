@@ -393,7 +393,17 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
         isInPipWindow ? 'flex-1 min-h-0' : 'aspect-[4/3]',
       )}
       style={focusedTrack ? undefined : { backgroundColor: focusedTheme.tile }}
+      role="button"
+      tabIndex={0}
+      aria-label={t.pipWidget.openMeeting}
       onClick={onExpand}
+      onKeyDown={(e) => {
+        // Only react to keys pressed on the tile itself, not on the nested quick-action buttons.
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onExpand();
+        }
+      }}
     >
       {focusedTrack ? (
         <video
