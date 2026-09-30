@@ -291,7 +291,8 @@ async function sweepDatabase(
   } finally {
     await sql.end({ timeout: 5 });
   }
-  const status = counts.v1 === 0 ? 'clean' : execute ? 'rotated' : 'NEEDS ROTATION';
+  let status = 'clean';
+  if (counts.v1 !== 0) status = execute ? 'rotated' : 'NEEDS ROTATION';
   console.log(
     `  ${label}: v1=${counts.v1} v2=${counts.v2} plaintext=${counts.plaintext} failed=${counts.failed} rewritten=${counts.rewritten} → ${status}`,
   );
@@ -408,7 +409,9 @@ async function main() {
   process.exit(total.failed > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Sweep failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

@@ -214,7 +214,9 @@ async function main() {
   process.exit(total.failedTenants === 0 ? 0 : 1);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Per-app permission rewrite failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}
