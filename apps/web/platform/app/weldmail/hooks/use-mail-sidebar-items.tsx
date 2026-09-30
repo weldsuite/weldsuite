@@ -95,6 +95,14 @@ function KeywordTagInput({
     .map((t) => t.trim())
     .filter(Boolean);
 
+  // Stable content-based keys; an occurrence counter disambiguates repeated tags.
+  const tagOccurrences = new Map<string, number>();
+  const tagItems = tags.map((tag, index) => {
+    const occurrence = tagOccurrences.get(tag) ?? 0;
+    tagOccurrences.set(tag, occurrence + 1);
+    return { tag, index, key: `${tag}-${occurrence}` };
+  });
+
   const addTag = (tag: string) => {
     const trimmed = tag.trim();
     if (!trimmed) return;
@@ -134,12 +142,13 @@ function KeywordTagInput({
 
   return (
     <div
+      role="presentation"
       className="flex flex-wrap items-center gap-1.5 min-h-[36px] px-2.5 py-1.5 rounded-md border border-input bg-background cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
-      {tags.map((tag, i) => (
+      {tagItems.map(({ tag, index, key }) => (
         <Badge
-          key={i}
+          key={key}
           variant="secondary"
           className="text-xs px-2 py-0.5 gap-1 flex-shrink-0 rounded-sm"
         >
@@ -150,7 +159,7 @@ function KeywordTagInput({
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              removeTag(i);
+              removeTag(index);
             }}
             className="ml-0.5 hover:text-foreground h-auto w-auto p-0"
           >
@@ -652,67 +661,82 @@ export function useMailSidebarItems(isActive: boolean): {
   ];
 
 
+  const getDragAccountIds = (labelKey: string): string[] => {
+    if (isUnified) return labelAccountMap[labelKey] || [];
+    return resolvedAccountId ? [resolvedAccountId] : [];
+  };
+
   const MoreToggleIcon = showMore ? ChevronUp : ChevronDown;
   const moreToggleLabel = showMore ? t.mail.sidebar.less : t.mail.sidebar.more;
+
+  const renderMailboxBody = () => {
+    if (accountsLoading) {
+      return (
+        <div className="px-3 py-1.5 space-y-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-4 flex-1" />
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (!hasEmailAccounts) {
+      return (
+        <div className="px-3 py-4 space-y-3">
+          <p className="text-sm text-muted-foreground">{t.mail.sidebar.noEmailAccountConnected}</p>
+        </div>
+      );
+    }
+    return (
+      <SidebarMenu key={resolvedAccountId || 'no-account'}>
+        {importantMailboxItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href || (pathname?.startsWith(item.href + '/') ?? false);
+          return (
+            <SidebarMenuItem key={item.title}>
+              <SidebarMenuButton asChild isActive={isActive}>
+                <Link href={item.href}>
+                  <Icon className={`h-4 w-4 ${item.iconClassName || ''}`} />
+                  <span>{item.title}</span>
+                </Link>
+              </SidebarMenuButton>
+              {item.count > 0 && <SidebarMenuBadge>{item.count}</SidebarMenuBadge>}
+            </SidebarMenuItem>
+          );
+        })}
+        {showMore &&
+          lessMailboxItems.map((item) => {
+            const Icon = item.icon;
+            const isItemActive = pathname === item.href || (pathname?.startsWith(item.href + '/') ?? false);
+            return (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton asChild isActive={isItemActive}>
+                  <Link href={item.href}>
+                    <Icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+                {item.count > 0 && <SidebarMenuBadge>{item.count}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+            );
+          })}
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={() => setShowMore(!showMore)}>
+            <MoreToggleIcon className="h-4 w-4 text-gray-500" />
+            <span>{moreToggleLabel}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    );
+  };
 
   const mailboxGroup: MenuGroupProps = {
     group: t.mail.sidebar.mailboxes,
     customContent: (
       <div key={`mailbox-content-${resolvedAccountId || 'none'}`} suppressHydrationWarning>
-        {accountsLoading ? (
-          <div className="px-3 py-1.5 space-y-1">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
-                <Skeleton className="h-4 w-4 rounded" />
-                <Skeleton className="h-4 flex-1" />
-              </div>
-            ))}
-          </div>
-        ) : !hasEmailAccounts ? (
-          <div className="px-3 py-4 space-y-3">
-            <p className="text-sm text-muted-foreground">{t.mail.sidebar.noEmailAccountConnected}</p>
-          </div>
-        ) : (
-          <SidebarMenu key={resolvedAccountId || 'no-account'}>
-            {importantMailboxItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href || (pathname?.startsWith(item.href + '/') ?? false);
-              return (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive}>
-                    <Link href={item.href}>
-                      <Icon className={`h-4 w-4 ${item.iconClassName || ''}`} />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                  {item.count > 0 && <SidebarMenuBadge>{item.count}</SidebarMenuBadge>}
-                </SidebarMenuItem>
-              );
-            })}
-            {showMore &&
-              lessMailboxItems.map((item) => {
-                const Icon = item.icon;
-                const isItemActive = pathname === item.href || (pathname?.startsWith(item.href + '/') ?? false);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isItemActive}>
-                      <Link href={item.href}>
-                        <Icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    {item.count > 0 && <SidebarMenuBadge>{item.count}</SidebarMenuBadge>}
-                  </SidebarMenuItem>
-                );
-              })}
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => setShowMore(!showMore)}>
-                <MoreToggleIcon className="h-4 w-4 text-gray-500" />
-                <span>{moreToggleLabel}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
+        {renderMailboxBody()}
       </div>
     ),
     items: [],
@@ -730,9 +754,7 @@ export function useMailSidebarItems(isActive: boolean): {
             const color = getLabelColor(label.name, label.color ? { [label.name]: label.color } : undefined);
             const labelKey = label.name.toLowerCase();
             // In unified mode, pass accountIds that own this label; in single-account mode, pass the current account
-            const dragAccountIds = isUnified
-              ? labelAccountMap[labelKey] || []
-              : resolvedAccountId ? [resolvedAccountId] : [];
+            const dragAccountIds = getDragAccountIds(labelKey);
             return (
               <SidebarMenuItem key={label.name} className="group/label relative">
                 {/* The 3-dots lives in an absolutely-positioned sibling, so

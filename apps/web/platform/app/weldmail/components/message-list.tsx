@@ -56,10 +56,21 @@ import { useI18n } from '@/lib/i18n/provider';
 
 type EmailMessage = MailTypes.Email;
 
+function scheduledPreview(scheduledFor: string | number | Date, scheduledLabel?: (date: string) => string): string {
+  const formatted = format(new Date(scheduledFor), 'PPp');
+  return scheduledLabel ? scheduledLabel(formatted) : `Scheduled for ${formatted}`;
+}
+
+function threadPreviewText(thread: ThreadSummary, isScheduled: boolean, isUnified?: boolean, scheduledLabel?: (date: string) => string): string {
+  if (isScheduled) return scheduledPreview(thread.scheduledFor!, scheduledLabel);
+  if (isUnified && thread.accountEmail) return `[${thread.accountEmail}] ${thread.preview}`;
+  return thread.preview;
+}
+
 function threadToConversationItem(thread: ThreadSummary, isUnified?: boolean, scheduledLabel?: (date: string) => string): ConversationItem {
   const name = thread.latestSender || 'Unknown';
 
-  const isScheduled = thread.sendStatus === 'scheduled' && thread.scheduledFor;
+  const isScheduled = Boolean(thread.sendStatus === 'scheduled' && thread.scheduledFor);
 
   return {
     id: thread.threadId,
@@ -67,11 +78,7 @@ function threadToConversationItem(thread: ThreadSummary, isUnified?: boolean, sc
     email: thread.latestSenderEmail,
     avatarUrl: thread.latestSenderAvatarUrl ?? undefined,
     subject: thread.subject,
-    preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(thread.scheduledFor!), 'PPp')) : `Scheduled for ${format(new Date(thread.scheduledFor!), 'PPp')}`)
-      : isUnified && thread.accountEmail
-        ? `[${thread.accountEmail}] ${thread.preview}`
-        : thread.preview,
+    preview: threadPreviewText(thread, isScheduled, isUnified, scheduledLabel),
     date: new Date(thread.latestDate),
     isRead: thread.unreadCount === 0,
     isStarred: thread.isStarred,
@@ -104,7 +111,7 @@ function emailToConversationItem(email: EmailMessage, scheduledLabel?: (date: st
     avatarUrl: fromAvatar,
     subject: email.subject || '',
     preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor ?? 0), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor ?? 0), 'PPp')}`)
+      ? scheduledPreview(email.scheduledFor ?? 0, scheduledLabel)
       : email.preview || email.bodyText?.slice(0, 100) || '',
     date: new Date(email.date ?? 0),
     isRead: email.isRead,
@@ -938,6 +945,7 @@ export function MessageList({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[460px] p-4">
         <div
+          role="presentation"
           className="space-y-3"
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
