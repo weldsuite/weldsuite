@@ -601,10 +601,10 @@ export const labelsApi = {
   // Pass projectId for per-project views; omit for cross-project views (my-tasks, CRM).
   // app-api also returns workspace-wide labels (projectId IS NULL) when projectId is set,
   // matching the legacy behaviour the UI depends on.
-  list: (projectId?: string) =>
-    appApiGet<ApiProjectLabel[]>(
-      `/project-labels${projectId ? `?projectId=${encodeURIComponent(projectId)}&limit=100` : '?limit=100'}`,
-    ),
+  list: (projectId?: string) => {
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&limit=100` : '?limit=100';
+    return appApiGet<ApiProjectLabel[]>(`/project-labels${query}`);
+  },
 
   create: (data: { name: string; color: string; projectId?: string }) =>
     appApiPost<ApiProjectLabel>('/project-labels', data),
@@ -1629,8 +1629,9 @@ export const analyticsApi = {
     if (params?.period) qs.set('period', params.period);
     if (params?.projectId) qs.set('projectId', params.projectId);
     const query = qs.toString();
+    const queryString = query ? `?${query}` : '';
     return appApiGet<import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary>(
-      `/project-analytics/summary${query ? `?${query}` : ''}`,
+      `/project-analytics/summary${queryString}`,
     );
   },
 
@@ -1638,8 +1639,9 @@ export const analyticsApi = {
     const qs = new URLSearchParams();
     if (params?.period) qs.set('period', params.period);
     const query = qs.toString();
+    const queryString = query ? `?${query}` : '';
     return appApiGet<import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary>(
-      `/project-analytics/projects/${projectId}/summary${query ? `?${query}` : ''}`,
+      `/project-analytics/projects/${projectId}/summary${queryString}`,
     );
   },
 };

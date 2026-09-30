@@ -144,6 +144,13 @@ type ApiTaskWithSchedule = Projects.ProjectTask & {
   repeat?: { frequency: string; interval?: number; unit?: string } | null;
 };
 
+// Prefer the multi-assignee array, fall back to the singular assignee id.
+function resolveApiAssigneeIds(apiTask: ApiTaskWithSchedule): string[] | undefined {
+  if (apiTask.assigneeIds && apiTask.assigneeIds.length > 0) return apiTask.assigneeIds;
+  if (apiTask.assigneeId) return [apiTask.assigneeId];
+  return undefined;
+}
+
 // Transform API task to local Task format
 function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
   return {
@@ -155,11 +162,7 @@ function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
-    assigneeIds: apiTask.assigneeIds && apiTask.assigneeIds.length > 0
-      ? apiTask.assigneeIds
-      : apiTask.assigneeId
-        ? [apiTask.assigneeId]
-        : undefined,
+    assigneeIds: resolveApiAssigneeIds(apiTask),
     assignees: apiTask.assignees
       ? apiTask.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }))
       : undefined,
@@ -198,15 +201,19 @@ const statusFromCrm: Record<string, Task['status']> = {
   'cancelled': 'cancelled',
 };
 
+function resolveCrmAssignees(task: Task): { id: string; name: string; avatar?: string }[] {
+  if (task.assignees && task.assignees.length > 0) {
+    return task.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }));
+  }
+  if (task.assigneeId && task.assignee) return [{ id: task.assigneeId, name: task.assignee }];
+  return [];
+}
+
 function toCrmTask(task: Task): CrmTask {
   // Build the multi-assignee array the panel actually renders. Without this,
   // the panel only ever sees the singular `assignee` and the picker can't
   // mark additional users as selected even though they're stored on the task.
-  const assigneesList = task.assignees && task.assignees.length > 0
-    ? task.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }))
-    : task.assigneeId && task.assignee
-      ? [{ id: task.assigneeId, name: task.assignee }]
-      : [];
+  const assigneesList = resolveCrmAssignees(task);
   const primary = assigneesList[0];
   return {
     id: task.id,
@@ -302,10 +309,12 @@ function fillNewTaskScalarsFromForm(newTask: Task, data: SaveTaskFormData): void
 // payload (multi-assignee fields win over the singular ones).
 function applyAssigneePayload(apiData: Record<string, unknown>, data: Partial<Task>): void {
   if (data.assigneeIds !== undefined || data.assignees !== undefined) {
-    const ids =
-      data.assigneeIds === undefined
-        ? (data.assignees?.map((a) => a.id) ?? [])
-        : (Array.isArray(data.assigneeIds) ? data.assigneeIds : []);
+    let ids: string[];
+    if (data.assigneeIds === undefined) {
+      ids = data.assignees?.map((a) => a.id) ?? [];
+    } else {
+      ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    }
     apiData.assigneeIds = ids.length > 0 ? ids : null;
     delete apiData.assigneeId;
     delete apiData.assignee;
