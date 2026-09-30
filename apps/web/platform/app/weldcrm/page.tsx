@@ -115,6 +115,21 @@ function applyTaskFilters(items: Task[], filters: ActiveFilter[]): Task[] {
   return result;
 }
 
+/** Ids of everyone assigned to a task (multi-assignee list, else the single assignee). */
+function getTaskAssigneeIds(task: Task): string[] {
+  if (task.assignees && task.assignees.length > 0) return task.assignees.map((a) => a.id);
+  return task.assignee ? [task.assignee.id] : [];
+}
+
+/** Compact label for a repeating task's badge (e.g. `2w`, `3d`, `M`). */
+function formatRepeatBadge(repeat: NonNullable<Task['repeat']>): string {
+  if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
+    return `${repeat.interval}${repeat.unit.charAt(0)}`;
+  }
+  if (repeat.frequency === 'biweekly') return '2w';
+  return repeat.frequency.charAt(0).toUpperCase();
+}
+
 /** Next assignee list after toggling `memberId` in the current selection. */
 function toggleAssignee(
   currentIds: string[],
@@ -269,7 +284,8 @@ export default function CrmTasksClient() {
       const params = new URLSearchParams(searchParams.toString());
       params.delete('new');
       const query = params.toString();
-      router.replace(`/weldcrm${query ? `?${query}` : ''}`);
+      const querySuffix = query ? `?${query}` : '';
+      router.replace(`/weldcrm${querySuffix}`);
     }
   }, [searchParams, router]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
@@ -425,10 +441,7 @@ export default function CrmTasksClient() {
         label: m.name,
         sortOrder: i + 1,
         filter: (t: Task) => {
-          const ids = t.assignees && t.assignees.length > 0
-            ? t.assignees.map(a => a.id)
-            : (t.assignee ? [t.assignee.id] : []);
-          return ids.includes(m.id);
+          return getTaskAssigneeIds(t).includes(m.id);
         },
       }));
       memberGroups.push({
@@ -436,10 +449,7 @@ export default function CrmTasksClient() {
         label: t('crm.tasks.groupBy.unassigned'),
         sortOrder: availableAssignees.length + 1,
         filter: (t) => {
-          const ids = t.assignees && t.assignees.length > 0
-            ? t.assignees.map(a => a.id)
-            : (t.assignee ? [t.assignee.id] : []);
-          return ids.length === 0;
+          return getTaskAssigneeIds(t).length === 0;
         },
       });
       return memberGroups;
@@ -666,9 +676,7 @@ export default function CrmTasksClient() {
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
-              {task.repeat.frequency === 'custom' && task.repeat.interval && task.repeat.unit
-                ? `${task.repeat.interval}${task.repeat.unit.charAt(0)}`
-                : task.repeat.frequency === 'biweekly' ? '2w' : task.repeat.frequency.charAt(0).toUpperCase()}
+              {formatRepeatBadge(task.repeat)}
             </span>
           )}
         </div>

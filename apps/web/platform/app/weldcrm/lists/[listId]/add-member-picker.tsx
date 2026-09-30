@@ -12,7 +12,7 @@
  * nothing is offered twice.
  */
 
-import { useMemo, useState, useCallback, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useQueryClient } from '@tanstack/react-query';
@@ -193,6 +193,10 @@ function SearchField({
   onClearSearch: () => void;
 }>) {
   const t = useTranslations();
+  // Focus the search box whenever the picker page is shown (replaces autoFocus).
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [inputRef]);
   return (
     // Full-bleed wrapper reveals a divider line under it once the results list is scrolled.
     <div
@@ -202,6 +206,7 @@ function SearchField({
       )}
     >
       <div
+        role="presentation"
         onClick={() => inputRef.current?.focus()}
         className="flex flex-wrap items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-1.5 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
       >
@@ -236,7 +241,6 @@ function SearchField({
 
         <input
           ref={inputRef}
-          autoFocus
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyDown={onKeyDown}
