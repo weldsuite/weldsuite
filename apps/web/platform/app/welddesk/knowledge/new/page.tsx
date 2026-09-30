@@ -77,17 +77,18 @@ export default function NewKnowledgeArticlePage() {
             </div>
             <div className="space-y-1">
               {tabs.map((tab) => (
-                <div
+                <button
+                  type="button"
                   key={tab.id}
                   className={cn(
-                    "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm",
+                    "flex w-full items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm text-left",
                     tab.active ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-muted"
                   )}
                   onClick={() => handleTabClick(tab.id)}
                 >
                   <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                   <span className="flex-1 truncate">{tab.name}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
