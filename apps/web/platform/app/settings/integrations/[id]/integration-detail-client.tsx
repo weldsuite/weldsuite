@@ -631,8 +631,8 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               <div className="mb-10">
                 <h2 className="text-xl font-semibold text-foreground mb-4">{ti.features}</h2>
                 <ul className="space-y-2">
-                  {integration.features.map((feature, index) => (
-                    <li key={index} className="flex items-start gap-3">
+                  {integration.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-3">
                       <svg className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
@@ -647,7 +647,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                 <h2 className="text-xl font-semibold text-foreground mb-4">{ti.howItWorks}</h2>
                 <ul className="space-y-3">
                   {integration.howItWorks.map((step, index) => (
-                    <li key={index} className="flex items-start gap-3">
+                    <li key={step} className="flex items-start gap-3">
                       <span className="text-primary text-sm font-mono tabular-nums shrink-0 mt-0.5">
                         {index + 1}.
                       </span>

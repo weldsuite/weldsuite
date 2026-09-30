@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import {
@@ -146,6 +146,45 @@ function AppVersionsSection({
   const { t } = useI18n();
   const wa = t.weldapps;
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!versions || versions.length === 0) {
+    body = (
+      <div className="rounded-md border border-dashed border-border p-4 text-center">
+        <p className="text-sm font-medium text-foreground">{wa.versions.empty}</p>
+        <p className="text-xs text-muted-foreground mt-1">{wa.versions.emptyDescription}</p>
+      </div>
+    );
+  } else {
+    body = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{wa.versions.columnVersion}</TableHead>
+            <TableHead>{wa.versions.columnStatus}</TableHead>
+            <TableHead>{wa.versions.columnSize}</TableHead>
+            <TableHead>{wa.versions.columnDate}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {versions.map((v) => (
+            <TableRow key={v.version}>
+              <TableCell className="font-medium">{v.version}</TableCell>
+              <TableCell className="capitalize">{v.status}</TableCell>
+              <TableCell>{formatBytes(v.bundleSize)}</TableCell>
+              <TableCell>{new Date(v.createdAt).toLocaleDateString()}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -154,37 +193,7 @@ function AppVersionsSection({
           {wa.versions.uploadVersion}
         </Button>
       </div>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : !versions || versions.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border p-4 text-center">
-          <p className="text-sm font-medium text-foreground">{wa.versions.empty}</p>
-          <p className="text-xs text-muted-foreground mt-1">{wa.versions.emptyDescription}</p>
-        </div>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{wa.versions.columnVersion}</TableHead>
-              <TableHead>{wa.versions.columnStatus}</TableHead>
-              <TableHead>{wa.versions.columnSize}</TableHead>
-              <TableHead>{wa.versions.columnDate}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {versions.map((v) => (
-              <TableRow key={v.version}>
-                <TableCell className="font-medium">{v.version}</TableCell>
-                <TableCell className="capitalize">{v.status}</TableCell>
-                <TableCell>{formatBytes(v.bundleSize)}</TableCell>
-                <TableCell>{new Date(v.createdAt).toLocaleDateString()}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      {body}
     </div>
   );
 }

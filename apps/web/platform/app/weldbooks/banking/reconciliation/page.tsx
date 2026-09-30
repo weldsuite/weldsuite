@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -88,6 +88,48 @@ export default function BankReconciliationPage() {
     },
   });
 
+  let transactionList: ReactNode;
+  if (isLoading) {
+    transactionList = <div className="p-4"><PageLoader fullScreen={false} /></div>;
+  } else if (transactions.length === 0) {
+    transactionList = <p className="p-4 text-sm text-muted-foreground">{tbp.allReconciled}</p>;
+  } else {
+    transactionList = (
+      <div className="max-h-[60vh] overflow-y-auto">
+        {transactions.map((txn) => (
+          <div
+            key={txn.id}
+            role="button"
+            tabIndex={0}
+            className={`p-3 border-b cursor-pointer hover:bg-muted/50 ${
+              selectedTxnId === txn.id ? 'bg-muted' : ''
+            }`}
+            onClick={() => setSelectedTxnId(txn.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSelectedTxnId(txn.id);
+              }
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">{txn.counterpartyName || tsl.counterpartyUnknown}</span>
+              <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {fmt(txn.amount, displayCurrency)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                {txn.description}
+              </span>
+              <span className="text-xs text-muted-foreground">{txn.date?.slice(0, 10)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -141,36 +183,7 @@ export default function BankReconciliationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {isLoading ? (
-                <div className="p-4"><PageLoader fullScreen={false} /></div>
-              ) : transactions.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">{tbp.allReconciled}</p>
-              ) : (
-                <div className="max-h-[60vh] overflow-y-auto">
-                  {transactions.map((txn) => (
-                    <div
-                      key={txn.id}
-                      className={`p-3 border-b cursor-pointer hover:bg-muted/50 ${
-                        selectedTxnId === txn.id ? 'bg-muted' : ''
-                      }`}
-                      onClick={() => setSelectedTxnId(txn.id)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{txn.counterpartyName || tsl.counterpartyUnknown}</span>
-                        <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {fmt(txn.amount, displayCurrency)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          {txn.description}
-                        </span>
-                        <span className="text-xs text-muted-foreground">{txn.date?.slice(0, 10)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {transactionList}
             </CardContent>
           </Card>
 
