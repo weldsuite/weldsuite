@@ -12,6 +12,13 @@ interface Env {
   ENVIRONMENT: string;
 }
 
+/** Uniform integer in [0, max) from the Web Crypto RNG. */
+function randomBelow(max: number): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return Math.floor((buf[0] / 0x100000000) * max);
+}
+
 interface GatewayPayload {
   op: number;
   d: unknown;
@@ -197,7 +204,7 @@ export class DiscordGateway implements DurableObject {
     console.log(`[Gateway] HELLO received, heartbeat interval: ${this.heartbeatInterval}ms`);
 
     // Schedule first heartbeat with jitter
-    const jitter = Math.floor(Math.random() * this.heartbeatInterval);
+    const jitter = randomBelow(this.heartbeatInterval);
     this.state.storage.setAlarm(Date.now() + jitter);
 
     // Send IDENTIFY or RESUME
@@ -223,7 +230,7 @@ export class DiscordGateway implements DurableObject {
       this.pendingAction = 'identify';
     }
 
-    const delay = 1000 + Math.floor(Math.random() * 4000);
+    const delay = 1000 + randomBelow(4000);
     this.state.storage.setAlarm(Date.now() + delay);
   }
 
