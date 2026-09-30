@@ -37,6 +37,169 @@ export interface ImageBannerBlockProps {
   button2Style?: 'primary' | 'secondary';
 }
 
+const HEIGHT_CLASSES: Record<string, string> = {
+  adapt: 'min-h-[500px] md:min-h-[600px]',
+  small: 'h-[400px] md:h-[500px]',
+  medium: 'h-[500px] md:h-[650px]',
+  large: 'h-[650px] md:h-[750px]',
+};
+const DEFAULT_HEIGHT_CLASS = 'h-[500px] md:h-[650px]';
+
+const POSITION_CLASSES: Record<string, string> = {
+  top_left: 'items-start justify-start',
+  top_center: 'items-start justify-center',
+  top_right: 'items-start justify-end',
+  middle_left: 'items-center justify-start',
+  middle_center: 'items-center justify-center',
+  middle_right: 'items-center justify-end',
+  bottom_left: 'items-end justify-start',
+  bottom_center: 'items-end justify-center',
+  bottom_right: 'items-end justify-end',
+};
+
+const ALIGNMENT_CLASSES: Record<string, string> = {
+  left: 'text-left items-start',
+  center: 'text-center items-center',
+  right: 'text-right items-end',
+};
+
+const HEADING_CLASSES: Record<string, string> = {
+  h2: 'text-2xl md:text-4xl',
+  h1: 'text-3xl md:text-5xl',
+  h0: 'text-4xl md:text-6xl',
+  hxl: 'text-5xl md:text-7xl',
+  hxxl: 'text-6xl md:text-8xl',
+};
+
+const TEXT_CLASSES: Record<string, string> = {
+  body: 'text-base md:text-lg',
+  subtitle: 'text-lg md:text-xl font-medium',
+  caption: 'text-sm md:text-base uppercase tracking-wider',
+};
+
+const IMAGE_BEHAVIOR_CLASSES: Record<string, string> = {
+  'zoom-in': 'scale-110 animate-zoom-slow',
+  fixed: 'fixed',
+  ambient: 'animate-ambient',
+};
+
+const getHeightClass = (imageHeight: string) => HEIGHT_CLASSES[imageHeight] ?? DEFAULT_HEIGHT_CLASS;
+const getPositionClasses = (position: string) => POSITION_CLASSES[position] || 'items-center justify-center';
+const getAlignmentClass = (alignment: string) => ALIGNMENT_CLASSES[alignment] ?? 'text-center items-center';
+const getHeadingClass = (headingSize: string) => HEADING_CLASSES[headingSize] ?? 'text-3xl md:text-5xl';
+const getTextClass = (textStyle: string) => TEXT_CLASSES[textStyle] ?? 'text-base md:text-lg';
+
+// Always dark text on the white text box
+const getTextColor = (showTextBox: boolean, colorScheme: string) =>
+  !showTextBox && colorScheme === 'inverse' ? 'text-white' : 'text-gray-900';
+
+interface BannerButtonsProps {
+  button1Text?: string;
+  button1Link: string;
+  button1Style: 'primary' | 'secondary';
+  button2Text?: string;
+  button2Link: string;
+  button2Style: 'primary' | 'secondary';
+}
+
+const BANNER_BUTTON_BASE = `
+                      inline-flex items-center justify-center
+                      px-6 py-3 md:px-8 md:py-4
+                      text-base font-medium
+                      transition-colors duration-200
+                      `;
+const BANNER_BUTTON_PRIMARY = 'bg-gray-700 text-white hover:bg-gray-800';
+const BANNER_BUTTON_SECONDARY = 'bg-transparent border-2 border-gray-700 text-gray-700 hover:bg-gray-700 hover:text-white';
+
+function BannerButtons({ button1Text, button1Link, button1Style, button2Text, button2Link, button2Style }: BannerButtonsProps) {
+  if (!button1Text && !button2Text) return null;
+  const styleClass = (style: 'primary' | 'secondary') =>
+    style === 'primary' ? BANNER_BUTTON_PRIMARY : BANNER_BUTTON_SECONDARY;
+
+  return (
+    <div className="flex flex-col sm:flex-row gap-4 mt-2">
+      {button1Text && (
+        <a href={button1Link} className={`${BANNER_BUTTON_BASE}${styleClass(button1Style)}`}>
+          {button1Text}
+        </a>
+      )}
+      {button2Text && (
+        <a href={button2Link} className={`${BANNER_BUTTON_BASE}${styleClass(button2Style)}`}>
+          {button2Text}
+        </a>
+      )}
+    </div>
+  );
+}
+
+const MOBILE_BUTTON_PRIMARY = 'bg-black text-white hover:bg-gray-800';
+const MOBILE_BUTTON_SECONDARY = 'border-2 border-black text-black hover:bg-black hover:text-white';
+
+interface MobileButtonProps {
+  text: string;
+  link: string;
+  style: 'primary' | 'secondary';
+}
+
+function MobileBannerButton({ text, link, style }: MobileButtonProps) {
+  const isPrimary = style === 'primary';
+  return (
+    <Button
+      asChild
+      variant={isPrimary ? 'default' : 'outline'}
+      size="lg"
+      className={isPrimary ? MOBILE_BUTTON_PRIMARY : MOBILE_BUTTON_SECONDARY}
+    >
+      <a href={link}>{text}</a>
+    </Button>
+  );
+}
+
+interface MobileTextBelowProps extends BannerButtonsProps {
+  heading?: string;
+  text?: string;
+  headingClass: string;
+  textClass: string;
+  alignmentClass: string;
+}
+
+function MobileTextBelow({
+  heading,
+  text,
+  headingClass,
+  textClass,
+  alignmentClass,
+  button1Text,
+  button1Link,
+  button1Style,
+  button2Text,
+  button2Link,
+  button2Style,
+}: MobileTextBelowProps) {
+  return (
+    <div className="md:hidden bg-white p-6">
+      <div className={`flex flex-col gap-4 ${alignmentClass}`}>
+        {heading && (
+          <h2 className={`${headingClass} font-bold tracking-tight text-gray-900`}>
+            {heading}
+          </h2>
+        )}
+        {text && (
+          <p className={`${textClass} text-gray-700`}>
+            {text}
+          </p>
+        )}
+        {(button1Text || button2Text) && (
+          <div className="flex flex-col gap-3 mt-2">
+            {button1Text && <MobileBannerButton text={button1Text} link={button1Link} style={button1Style} />}
+            {button2Text && <MobileBannerButton text={button2Text} link={button2Link} style={button2Style} />}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ImageBannerBlock({
   image = 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=1920&h=1080&fit=crop',
   image2,
@@ -61,86 +224,19 @@ export function ImageBannerBlock({
   button2Style = 'secondary',
 }: ImageBannerBlockProps) {
 
-  // Get height classes
-  const getHeightClass = () => {
-    switch (imageHeight) {
-      case 'adapt': return 'min-h-[500px] md:min-h-[600px]';
-      case 'small': return 'h-[400px] md:h-[500px]';
-      case 'medium': return 'h-[500px] md:h-[650px]';
-      case 'large': return 'h-[650px] md:h-[750px]';
-      default: return 'h-[500px] md:h-[650px]';
-    }
-  };
-
-  // Get position classes for desktop
-  const getPositionClasses = () => {
-    const positions = {
-      top_left: 'items-start justify-start',
-      top_center: 'items-start justify-center',
-      top_right: 'items-start justify-end',
-      middle_left: 'items-center justify-start',
-      middle_center: 'items-center justify-center',
-      middle_right: 'items-center justify-end',
-      bottom_left: 'items-end justify-start',
-      bottom_center: 'items-end justify-center',
-      bottom_right: 'items-end justify-end',
-    };
-    return positions[desktopContentPosition] || 'items-center justify-center';
-  };
-
-  // Get alignment classes
-  const getAlignmentClass = (alignment: string) => {
-    switch (alignment) {
-      case 'left': return 'text-left items-start';
-      case 'center': return 'text-center items-center';
-      case 'right': return 'text-right items-end';
-      default: return 'text-center items-center';
-    }
-  };
-
-  // Get heading size classes
-  const getHeadingClass = () => {
-    switch (headingSize) {
-      case 'h2': return 'text-2xl md:text-4xl';
-      case 'h1': return 'text-3xl md:text-5xl';
-      case 'h0': return 'text-4xl md:text-6xl';
-      case 'hxl': return 'text-5xl md:text-7xl';
-      case 'hxxl': return 'text-6xl md:text-8xl';
-      default: return 'text-3xl md:text-5xl';
-    }
-  };
-
-  // Get text style classes
-  const getTextClass = () => {
-    switch (textStyle) {
-      case 'body': return 'text-base md:text-lg';
-      case 'subtitle': return 'text-lg md:text-xl font-medium';
-      case 'caption': return 'text-sm md:text-base uppercase tracking-wider';
-      default: return 'text-base md:text-lg';
-    }
-  };
-
-  // Get text color for content
-  const getTextColor = () => {
-    if (showTextBox) {
-      return 'text-gray-900'; // Always dark text on white background
-    }
-    return colorScheme === 'inverse' ? 'text-white' : 'text-gray-900';
-  };
+  const headingClass = getHeadingClass(headingSize);
+  const textClass = getTextClass(textStyle);
+  const buttonProps = { button1Text, button1Link, button1Style, button2Text, button2Link, button2Style };
 
   return (
-    <div className={`banner relative w-full overflow-hidden ${getHeightClass()} ${showTextBelow ? 'banner--mobile-bottom' : ''}`}>
+    <div className={`banner relative w-full overflow-hidden ${getHeightClass(imageHeight)} ${showTextBelow ? 'banner--mobile-bottom' : ''}`}>
       {/* Image Container */}
       <div className="banner__media absolute inset-0 w-full h-full">
         {/* Primary Image */}
         <img
           src={image}
           alt={heading}
-          className={`w-full h-full object-cover ${
-            imageBehavior === 'zoom-in' ? 'scale-110 animate-zoom-slow' :
-            imageBehavior === 'fixed' ? 'fixed' :
-            imageBehavior === 'ambient' ? 'animate-ambient' : ''
-          }`}
+          className={`w-full h-full object-cover ${IMAGE_BEHAVIOR_CLASSES[imageBehavior] ?? ''}`}
           loading="lazy"
         />
 
@@ -166,12 +262,12 @@ export function ImageBannerBlock({
       </div>
 
       {/* Content Container */}
-      <div className={`banner__content relative z-10 w-full h-full flex ${getPositionClasses()} p-6 md:p-12`}>
+      <div className={`banner__content relative z-10 w-full h-full flex ${getPositionClasses(desktopContentPosition)} p-6 md:p-12`}>
         {/* Text Box - Shopify Style White Card */}
         <div className={`
           ${showTextBox ? 'bg-white shadow-md' : ''}
           ${showTextBox ? 'px-8 py-10 md:px-12 md:py-14' : ''}
-          ${getTextColor()}
+          ${getTextColor(showTextBox, colorScheme)}
           ${getAlignmentClass(desktopContentAlignment)}
           md:${getAlignmentClass(desktopContentAlignment)}
           ${getAlignmentClass(mobileContentAlignment)}
@@ -181,98 +277,33 @@ export function ImageBannerBlock({
         `}>
             {/* Heading */}
             {heading && (
-              <h2 className={`${getHeadingClass()} font-bold tracking-tight leading-tight`}>
+              <h2 className={`${headingClass} font-bold tracking-tight leading-tight`}>
                 {heading}
               </h2>
             )}
 
             {/* Text */}
             {text && (
-              <p className={`${getTextClass()} leading-relaxed ${showTextBox ? 'text-gray-600' : 'opacity-90'}`}>
+              <p className={`${textClass} leading-relaxed ${showTextBox ? 'text-gray-600' : 'opacity-90'}`}>
                 {text}
               </p>
             )}
 
             {/* Buttons - Shopify Style */}
-            {(button1Text || button2Text) && (
-              <div className="flex flex-col sm:flex-row gap-4 mt-2">
-                {button1Text && (
-                  <a
-                    href={button1Link}
-                    className={`
-                      inline-flex items-center justify-center
-                      px-6 py-3 md:px-8 md:py-4
-                      text-base font-medium
-                      transition-colors duration-200
-                      ${button1Style === 'primary'
-                        ? 'bg-gray-700 text-white hover:bg-gray-800'
-                        : 'bg-transparent border-2 border-gray-700 text-gray-700 hover:bg-gray-700 hover:text-white'}
-                    `}
-                  >
-                    {button1Text}
-                  </a>
-                )}
-                {button2Text && (
-                  <a
-                    href={button2Link}
-                    className={`
-                      inline-flex items-center justify-center
-                      px-6 py-3 md:px-8 md:py-4
-                      text-base font-medium
-                      transition-colors duration-200
-                      ${button2Style === 'primary'
-                        ? 'bg-gray-700 text-white hover:bg-gray-800'
-                        : 'bg-transparent border-2 border-gray-700 text-gray-700 hover:bg-gray-700 hover:text-white'}
-                    `}
-                  >
-                    {button2Text}
-                  </a>
-                )}
-              </div>
-            )}
+            <BannerButtons {...buttonProps} />
         </div>
       </div>
 
       {/* Mobile: Text Below Image */}
       {showTextBelow && (
-        <div className="md:hidden bg-white p-6">
-          <div className={`flex flex-col gap-4 ${getAlignmentClass(mobileContentAlignment)}`}>
-            {heading && (
-              <h2 className={`${getHeadingClass()} font-bold tracking-tight text-gray-900`}>
-                {heading}
-              </h2>
-            )}
-            {text && (
-              <p className={`${getTextClass()} text-gray-700`}>
-                {text}
-              </p>
-            )}
-            {(button1Text || button2Text) && (
-              <div className="flex flex-col gap-3 mt-2">
-                {button1Text && (
-                  <Button
-                    asChild
-                    variant={button1Style === 'primary' ? 'default' : 'outline'}
-                    size="lg"
-                    className={button1Style === 'primary' ? 'bg-black text-white hover:bg-gray-800' : 'border-2 border-black text-black hover:bg-black hover:text-white'}
-                  >
-                    <a href={button1Link}>{button1Text}</a>
-                  </Button>
-                )}
-                {button2Text && (
-                  <Button
-                    asChild
-                    variant={button2Style === 'primary' ? 'default' : 'outline'}
-                    size="lg"
-                    className={button2Style === 'primary' ? 'bg-black text-white hover:bg-gray-800' : 'border-2 border-black text-black hover:bg-black hover:text-white'}
-                  >
-                    <a href={button2Link}>{button2Text}</a>
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <MobileTextBelow
+          heading={heading}
+          text={text}
+          headingClass={headingClass}
+          textClass={textClass}
+          alignmentClass={getAlignmentClass(mobileContentAlignment)}
+          {...buttonProps}
+        />
       )}
     </div>
   );

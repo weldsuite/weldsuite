@@ -71,6 +71,37 @@ const maxWidthMap = {
   full: '100%',
 };
 
+const ANIMATION_HIDDEN_CLASSES: Record<string, string> = {
+  fade: 'opacity-0',
+  slideUp: 'opacity-0 translate-y-10',
+  slideDown: 'opacity-0 -translate-y-10',
+  slideLeft: 'opacity-0 translate-x-10',
+  slideRight: 'opacity-0 -translate-x-10',
+  zoom: 'opacity-0 scale-95',
+};
+
+/** Hidden / transition / visible class names for the scroll-in animation. */
+function getAnimationClasses(
+  animation: NonNullable<SectionSettings['animation']>,
+  isVisible: boolean,
+  animationDuration: number,
+) {
+  if (animation === 'none') return { hidden: '', transition: '', visible: '' };
+  return {
+    hidden: isVisible ? '' : ANIMATION_HIDDEN_CLASSES[animation],
+    transition: `transition-all duration-[${animationDuration}ms] ease-out`,
+    visible: isVisible ? 'opacity-100 translate-y-0 translate-x-0 scale-100' : '',
+  };
+}
+
+function getResponsiveClasses({ hideOnMobile, hideOnTablet, hideOnDesktop }: SectionSettings): string {
+  return [
+    hideOnMobile && 'hidden sm:block',
+    hideOnTablet && 'sm:hidden lg:block',
+    hideOnDesktop && 'lg:hidden',
+  ].filter(Boolean).join(' ');
+}
+
 export function SectionWrapper({
   settings = {},
   children,
@@ -133,26 +164,14 @@ export function SectionWrapper({
   }, [animation, animationDelay, mode]);
 
   // Responsive visibility classes
-  const responsiveClasses = [
-    hideOnMobile && 'hidden sm:block',
-    hideOnTablet && 'sm:hidden lg:block',
-    hideOnDesktop && 'lg:hidden',
-  ].filter(Boolean).join(' ');
+  const responsiveClasses = getResponsiveClasses({ hideOnMobile, hideOnTablet, hideOnDesktop });
 
   // Animation classes
-  const animationClasses = animation !== 'none' && !isVisible ? {
-    fade: 'opacity-0',
-    slideUp: 'opacity-0 translate-y-10',
-    slideDown: 'opacity-0 -translate-y-10',
-    slideLeft: 'opacity-0 translate-x-10',
-    slideRight: 'opacity-0 -translate-x-10',
-    zoom: 'opacity-0 scale-95',
-  }[animation] : '';
-
-  const animationTransition = animation !== 'none' ?
-    `transition-all duration-[${animationDuration}ms] ease-out` : '';
-
-  const visibleClasses = isVisible && animation !== 'none' ? 'opacity-100 translate-y-0 translate-x-0 scale-100' : '';
+  const {
+    hidden: animationClasses,
+    transition: animationTransition,
+    visible: visibleClasses,
+  } = getAnimationClasses(animation, isVisible, animationDuration);
 
   // Styles object
   const styles: React.CSSProperties = {

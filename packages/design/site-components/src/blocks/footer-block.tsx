@@ -104,6 +104,308 @@ const socialIcons: Record<string, React.ComponentType<{ className?: string }>> =
   mail: Mail,
 };
 
+const POSITION_JUSTIFY: Record<string, string> = {
+  left: 'justify-start',
+  right: 'justify-end',
+  center: 'justify-center',
+};
+
+const POSITION_TEXT_ALIGN: Record<string, string> = {
+  left: 'text-left',
+  right: 'text-right',
+  center: 'text-center',
+};
+
+const BOTTOM_AREA_CLASS: Record<'left' | 'center' | 'right', (isMobileView: boolean) => string> = {
+  left: (isMobileView) => (isMobileView ? '' : 'flex justify-start'),
+  center: () => 'flex justify-center',
+  right: () => 'flex justify-end',
+};
+
+const PAYMENT_METHODS = ['Visa', 'Mastercard', 'PayPal', 'Apple Pay'];
+
+interface SocialLinkItem {
+  platform: string;
+  url?: string;
+}
+
+function getCookie(name: string): string | null | undefined {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift();
+  return null;
+}
+
+/** Returns the cookie's value when it matches one of the available options. */
+function resolveSavedCode(cookieName: string, options: Array<{ code: string }>): string | null {
+  const saved = getCookie(cookieName);
+  if (!saved) return null;
+  return options.some((option) => option.code === saved) ? saved : null;
+}
+
+interface FooterColumnsGridProps {
+  columns: FooterColumn[];
+  isMobileView: boolean;
+  isEditing: boolean;
+  textColor: string;
+}
+
+function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: FooterColumnsGridProps) {
+  const gridColsClass = isMobileView
+    ? 'grid-cols-1'
+    : `grid-cols-2 md:grid-cols-${Math.min(columns.length, 5)}`;
+
+  return (
+    <div className={`grid gap-8 mb-12 ${gridColsClass}`}>
+      {columns.map((column) => (
+        <div key={column.id}>
+          <h3 className="font-bold text-sm uppercase tracking-wide mb-4" style={{ color: textColor }}>
+            {column.title}
+          </h3>
+          <ul className="space-y-3">
+            {(column.links ?? []).map((link, index) => (
+              <li key={index}>
+                <a
+                  href={isEditing ? undefined : link.url}
+                  onClick={(e) => isEditing && e.preventDefault()}
+                  className={`text-sm hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
+                  style={{ color: `${textColor}cc` }}
+                >
+                  {link.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface SocialIconLinksProps {
+  links: SocialLinkItem[];
+  isEditing: boolean;
+}
+
+function SocialIconLinks({ links, isEditing }: SocialIconLinksProps) {
+  return (
+    <div className="flex gap-4">
+      {links.map((social, index) => {
+        const Icon = socialIcons[social.platform];
+        if (!Icon) return null;
+        return (
+          <a
+            key={index}
+            href={isEditing ? undefined : social.url}
+            onClick={(e) => isEditing && e.preventDefault()}
+            className={`hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={social.platform}
+          >
+            <Icon className="w-5 h-5" />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+interface FooterDropdownProps {
+  wrapperClass: string;
+  triggerLabel: string;
+  leadingIcon?: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  options: Array<{ code: string; label: string }>;
+  selectedCode: string;
+  onSelect: (code: string) => void;
+  isEditing: boolean;
+  textColor: string;
+  background: string;
+}
+
+function FooterDropdown({
+  wrapperClass,
+  triggerLabel,
+  leadingIcon,
+  isOpen,
+  onToggle,
+  options,
+  selectedCode,
+  onSelect,
+  isEditing,
+  textColor,
+  background,
+}: FooterDropdownProps) {
+  return (
+    <div className={wrapperClass}>
+      <button
+        onClick={() => !isEditing && onToggle()}
+        className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${isEditing ? 'pointer-events-none' : ''}`}
+        style={{ borderColor: `${textColor}40`, color: textColor }}
+      >
+        {leadingIcon}
+        <span className="text-sm">{triggerLabel}</span>
+        <ChevronDown className="w-4 h-4" />
+      </button>
+      {isOpen && !isEditing && (
+        <div
+          className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
+          style={{ backgroundColor: background, borderColor: `${textColor}30` }}
+        >
+          {options.map((option) => (
+            <button
+              key={option.code}
+              onClick={() => onSelect(option.code)}
+              className="w-full text-left px-4 py-2 text-sm transition-colors hover:opacity-70"
+              style={{
+                color: textColor,
+                backgroundColor: selectedCode === option.code ? `${textColor}20` : 'transparent',
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface FooterSelectorsProps {
+  showCurrency: boolean;
+  showLanguage: boolean;
+  currencies: CurrencyOption[];
+  languages: LanguageOption[];
+  selectedCurrency: string;
+  selectedLanguage: string;
+  showCurrencyDropdown: boolean;
+  showLanguageDropdown: boolean;
+  onToggleCurrency: () => void;
+  onToggleLanguage: () => void;
+  onCurrencyChange: (code: string) => void;
+  onLanguageChange: (code: string) => void;
+  isEditing: boolean;
+  isMobileView: boolean;
+  textColor: string;
+  background: string;
+}
+
+function FooterSelectors({
+  showCurrency,
+  showLanguage,
+  currencies,
+  languages,
+  selectedCurrency,
+  selectedLanguage,
+  showCurrencyDropdown,
+  showLanguageDropdown,
+  onToggleCurrency,
+  onToggleLanguage,
+  onCurrencyChange,
+  onLanguageChange,
+  isEditing,
+  isMobileView,
+  textColor,
+  background,
+}: FooterSelectorsProps) {
+  if (!showCurrency && !showLanguage) return null;
+
+  return (
+    <div className={`mb-8 flex gap-4 ${isMobileView ? 'flex-col' : 'flex-row'}`}>
+      {showCurrency && (
+        <FooterDropdown
+          wrapperClass="relative currency-selector"
+          triggerLabel={currencies.find((c) => c.code === selectedCurrency)?.code || 'USD'}
+          leadingIcon={<Globe className="w-4 h-4" />}
+          isOpen={showCurrencyDropdown}
+          onToggle={onToggleCurrency}
+          options={currencies.map((c) => ({ code: c.code, label: `${c.symbol} ${c.name} (${c.code})` }))}
+          selectedCode={selectedCurrency}
+          onSelect={onCurrencyChange}
+          isEditing={isEditing}
+          textColor={textColor}
+          background={background}
+        />
+      )}
+      {showLanguage && (
+        <FooterDropdown
+          wrapperClass="relative language-selector"
+          triggerLabel={languages.find((l) => l.code === selectedLanguage)?.name || 'English'}
+          isOpen={showLanguageDropdown}
+          onToggle={onToggleLanguage}
+          options={languages.map((l) => ({ code: l.code, label: l.name ?? '' }))}
+          selectedCode={selectedLanguage}
+          onSelect={onLanguageChange}
+          isEditing={isEditing}
+          textColor={textColor}
+          background={background}
+        />
+      )}
+    </div>
+  );
+}
+
+interface PaymentMethodsProps {
+  isMobileView: boolean;
+  textColor: string;
+}
+
+function PaymentMethods({ isMobileView, textColor }: PaymentMethodsProps) {
+  return (
+    <div className={`mt-8 flex gap-3 ${isMobileView ? 'justify-start' : 'justify-end'}`}>
+      <div className="flex gap-2 items-center flex-wrap">
+        <span className="text-xs" style={{ color: `${textColor}99` }}>Payment methods:</span>
+        {PAYMENT_METHODS.map((payment, index) => (
+          <div
+            key={index}
+            className="px-2 py-1 border rounded text-xs font-medium"
+            style={{ borderColor: `${textColor}30`, color: `${textColor}99` }}
+          >
+            {payment}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface BottomAreaProps {
+  area: 'left' | 'center' | 'right';
+  className: string;
+  socialLinks: SocialLinkItem[];
+  socialIconsPosition: 'left' | 'center' | 'right';
+  copyrightPosition: 'left' | 'center' | 'right';
+  copyright: string;
+  isEditing: boolean;
+  textColor: string;
+}
+
+function BottomArea({
+  area,
+  className,
+  socialLinks,
+  socialIconsPosition,
+  copyrightPosition,
+  copyright,
+  isEditing,
+  textColor,
+}: BottomAreaProps) {
+  return (
+    <div className={className}>
+      {socialLinks.length > 0 && socialIconsPosition === area && (
+        <SocialIconLinks links={socialLinks} isEditing={isEditing} />
+      )}
+      {copyrightPosition === area && (
+        <div className={`text-sm ${POSITION_TEXT_ALIGN[area]}`} style={{ color: `${textColor}99` }}>
+          {copyright}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FooterBlock({
   background = '#000000',
   textColor = '#ffffff',
@@ -159,25 +461,13 @@ export function FooterBlock({
 
   // Load saved preferences from cookies on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const getCookie = (name: string) => {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop()?.split(';').shift();
-        return null;
-      };
+    if (typeof window === 'undefined') return;
 
-      const savedCurrency = getCookie('currency');
-      const savedLocale = getCookie('locale');
+    const savedCurrency = resolveSavedCode('currency', availableCurrencies);
+    if (savedCurrency) setSelectedCurrency(savedCurrency);
 
-      if (savedCurrency && availableCurrencies.find(c => c.code === savedCurrency)) {
-        setSelectedCurrency(savedCurrency);
-      }
-
-      if (savedLocale && availableLanguages.find(l => l.code === savedLocale)) {
-        setSelectedLanguage(savedLocale);
-      }
-    }
+    const savedLocale = resolveSavedCode('locale', availableLanguages);
+    if (savedLocale) setSelectedLanguage(savedLocale);
   }, [availableCurrencies, availableLanguages]);
 
   // Close dropdowns when clicking outside
@@ -224,122 +514,48 @@ export function FooterBlock({
     }
   };
 
+  const selectorProps = {
+    selectedCurrency,
+    selectedLanguage,
+    showCurrencyDropdown,
+    showLanguageDropdown,
+    onToggleCurrency: () => setShowCurrencyDropdown(!showCurrencyDropdown),
+    onToggleLanguage: () => setShowLanguageDropdown(!showLanguageDropdown),
+    onCurrencyChange: handleCurrencyChange,
+    onLanguageChange: handleLanguageChange,
+    isEditing,
+    isMobileView,
+    textColor,
+    background,
+  };
+
   // Render individual footer blocks
   const renderFooterBlock = (block: FooterBlockNode) => {
     const { type, settings } = block;
 
     switch (type) {
-      case 'footerColumns': {
-        const columnCount = (settings.columns || []).length;
-        const gridColsClass = isMobileView
-          ? 'grid-cols-1'
-          : `grid-cols-2 md:grid-cols-${Math.min(columnCount, 5)}`;
-
+      case 'footerColumns':
         return (
-          <div key={block.id} className={`grid gap-8 mb-12 ${gridColsClass}`}>
-            {(settings.columns || []).map((column) => (
-              <div key={column.id}>
-                <h3 className="font-bold text-sm uppercase tracking-wide mb-4" style={{ color: textColor }}>
-                  {column.title}
-                </h3>
-                <ul className="space-y-3">
-                  {(column.links ?? []).map((link, index) => (
-                    <li key={index}>
-                      <a
-                        href={isEditing ? undefined : link.url}
-                        onClick={(e) => isEditing && e.preventDefault()}
-                        className={`text-sm hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
-                        style={{ color: `${textColor}cc` }}
-                      >
-                        {link.label}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <FooterColumnsGrid
+            key={block.id}
+            columns={settings.columns || []}
+            isMobileView={isMobileView}
+            isEditing={isEditing}
+            textColor={textColor}
+          />
         );
-      }
 
-      case 'footerCurrencyLanguage': {
-        const showCurrency = settings.showCurrencySelector !== false;
-        const showLanguage = settings.showLanguageSelector !== false;
-        const currencies = settings.availableCurrencies || availableCurrencies;
-        const languages = settings.availableLanguages || availableLanguages;
-
-        if (!showCurrency && !showLanguage) return null;
-
+      case 'footerCurrencyLanguage':
         return (
-          <div key={block.id} className={`mb-8 flex gap-4 ${isMobileView ? 'flex-col' : 'flex-row'}`}>
-            {showCurrency && (
-              <div className="relative currency-selector">
-                <button
-                  onClick={() => !isEditing && setShowCurrencyDropdown(!showCurrencyDropdown)}
-                  className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${isEditing ? 'pointer-events-none' : ''}`}
-                  style={{ borderColor: `${textColor}40`, color: textColor }}
-                >
-                  <Globe className="w-4 h-4" />
-                  <span className="text-sm">{currencies.find((c) => c.code === selectedCurrency)?.code || 'USD'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {showCurrencyDropdown && !isEditing && (
-                  <div
-                    className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
-                    style={{ backgroundColor: background, borderColor: `${textColor}30` }}
-                  >
-                    {currencies.map((currency) => (
-                      <button
-                        key={currency.code}
-                        onClick={() => handleCurrencyChange(currency.code)}
-                        className="w-full text-left px-4 py-2 text-sm transition-colors hover:opacity-70"
-                        style={{
-                          color: textColor,
-                          backgroundColor: selectedCurrency === currency.code ? `${textColor}20` : 'transparent'
-                        }}
-                      >
-                        {currency.symbol} {currency.name} ({currency.code})
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {showLanguage && (
-              <div className="relative language-selector">
-                <button
-                  onClick={() => !isEditing && setShowLanguageDropdown(!showLanguageDropdown)}
-                  className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${isEditing ? 'pointer-events-none' : ''}`}
-                  style={{ borderColor: `${textColor}40`, color: textColor }}
-                >
-                  <span className="text-sm">{languages.find((l) => l.code === selectedLanguage)?.name || 'English'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {showLanguageDropdown && !isEditing && (
-                  <div
-                    className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
-                    style={{ backgroundColor: background, borderColor: `${textColor}30` }}
-                  >
-                    {languages.map((language) => (
-                      <button
-                        key={language.code}
-                        onClick={() => handleLanguageChange(language.code)}
-                        className="w-full text-left px-4 py-2 text-sm transition-colors hover:opacity-70"
-                        style={{
-                          color: textColor,
-                          backgroundColor: selectedLanguage === language.code ? `${textColor}20` : 'transparent'
-                        }}
-                      >
-                        {language.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <FooterSelectors
+            key={block.id}
+            showCurrency={settings.showCurrencySelector !== false}
+            showLanguage={settings.showLanguageSelector !== false}
+            currencies={settings.availableCurrencies || availableCurrencies}
+            languages={settings.availableLanguages || availableLanguages}
+            {...selectorProps}
+          />
         );
-      }
 
       case 'footerDivider':
         return (
@@ -359,26 +575,8 @@ export function FooterBlock({
         if (socialLinks.length === 0) return null;
 
         return (
-          <div key={block.id} className={`mb-8 flex ${position === 'left' ? 'justify-start' : position === 'right' ? 'justify-end' : 'justify-center'}`}>
-            <div className="flex gap-4">
-              {socialLinks.map((social, index) => {
-                const Icon = socialIcons[social.platform];
-                if (!Icon) return null;
-                return (
-                  <a
-                    key={index}
-                    href={isEditing ? undefined : social.url}
-                    onClick={(e) => isEditing && e.preventDefault()}
-                    className={`hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={social.platform}
-                  >
-                    <Icon className="w-5 h-5" />
-                  </a>
-                );
-              })}
-            </div>
+          <div key={block.id} className={`mb-8 flex ${POSITION_JUSTIFY[position]}`}>
+            <SocialIconLinks links={socialLinks} isEditing={isEditing} />
           </div>
         );
       }
@@ -390,7 +588,7 @@ export function FooterBlock({
         return (
           <div
             key={block.id}
-            className={`text-sm mb-8 ${copyrightPos === 'left' ? 'text-left' : copyrightPos === 'right' ? 'text-right' : 'text-center'}`}
+            className={`text-sm mb-8 ${POSITION_TEXT_ALIGN[copyrightPos]}`}
             style={{ color: `${textColor}99` }}
           >
             {copyrightText}
@@ -400,23 +598,7 @@ export function FooterBlock({
 
       case 'footerPaymentMethods':
         if (!settings.showPaymentIcons) return null;
-
-        return (
-          <div key={block.id} className={`mt-8 flex gap-3 ${isMobileView ? 'justify-start' : 'justify-end'}`}>
-            <div className="flex gap-2 items-center flex-wrap">
-              <span className="text-xs" style={{ color: `${textColor}99` }}>Payment methods:</span>
-              {['Visa', 'Mastercard', 'PayPal', 'Apple Pay'].map((payment, index) => (
-                <div
-                  key={index}
-                  className="px-2 py-1 border rounded text-xs font-medium"
-                  style={{ borderColor: `${textColor}30`, color: `${textColor}99` }}
-                >
-                  {payment}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <PaymentMethods key={block.id} isMobileView={isMobileView} textColor={textColor} />;
 
       default:
         return null;
@@ -439,262 +621,46 @@ export function FooterBlock({
           blocks.map(renderFooterBlock)
         ) : (
           <>
-        {/* Footer Columns */}
-        <div className={`grid gap-8 mb-12 ${isMobileView ? 'grid-cols-1' : `grid-cols-2 md:grid-cols-${Math.min(columns.length, 5)}`}`}>
-          {columns.map((column) => (
-            <div key={column.id}>
-              <h3
-                className="font-bold text-sm uppercase tracking-wide mb-4"
-                style={{ color: textColor }}
-              >
-                {column.title}
-              </h3>
-              <ul className="space-y-3">
-                {column.links.map((link, index) => (
-                  <li key={index}>
-                    <a
-                      href={isEditing ? undefined : link.url}
-                      onClick={(e) => isEditing && e.preventDefault()}
-                      className={`text-sm hover:opacity-70 transition-opacity ${
-                        isEditing ? 'pointer-events-none' : ''
-                      }`}
-                      style={{ color: `${textColor}cc` }}
-                    >
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+            <FooterColumnsGrid
+              columns={columns}
+              isMobileView={isMobileView}
+              isEditing={isEditing}
+              textColor={textColor}
+            />
 
-        {/* Currency and Language Selectors */}
-        {(showCurrencySelector || showLanguageSelector) && (
-          <div className={`mb-8 flex gap-4 ${isMobileView ? 'flex-col' : 'flex-row'}`}>
-            {/* Currency Selector */}
-            {showCurrencySelector && (
-              <div className="relative currency-selector">
-                <button
-                  onClick={() => !isEditing && setShowCurrencyDropdown(!showCurrencyDropdown)}
-                  className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${
-                    isEditing ? 'pointer-events-none' : ''
-                  }`}
-                  style={{
-                    borderColor: `${textColor}40`,
-                    color: textColor,
-                  }}
-                >
-                  <Globe className="w-4 h-4" />
-                  <span className="text-sm">
-                    {availableCurrencies.find(c => c.code === selectedCurrency)?.code || 'USD'}
-                  </span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
+            <FooterSelectors
+              showCurrency={showCurrencySelector}
+              showLanguage={showLanguageSelector}
+              currencies={availableCurrencies}
+              languages={availableLanguages}
+              {...selectorProps}
+            />
 
-                {/* Currency Dropdown */}
-                {showCurrencyDropdown && !isEditing && (
-                  <div
-                    className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
-                    style={{
-                      backgroundColor: background,
-                      borderColor: `${textColor}30`,
-                    }}
-                  >
-                    {availableCurrencies.map((currency) => (
-                      <button
-                        key={currency.code}
-                        onClick={() => handleCurrencyChange(currency.code)}
-                        className="w-full text-left px-4 py-2 text-sm transition-colors hover:opacity-70"
-                        style={{
-                          color: textColor,
-                          backgroundColor: selectedCurrency === currency.code ? `${textColor}20` : 'transparent',
-                        }}
-                      >
-                        {currency.symbol} {currency.name} ({currency.code})
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Divider */}
+            <div
+              className="border-t mb-8"
+              style={{ borderColor: `${textColor}30` }}
+            />
 
-            {/* Language Selector */}
-            {showLanguageSelector && (
-              <div className="relative language-selector">
-                <button
-                  onClick={() => !isEditing && setShowLanguageDropdown(!showLanguageDropdown)}
-                  className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${
-                    isEditing ? 'pointer-events-none' : ''
-                  }`}
-                  style={{
-                    borderColor: `${textColor}40`,
-                    color: textColor,
-                  }}
-                >
-                  <span className="text-sm">
-                    {availableLanguages.find(l => l.code === selectedLanguage)?.name || 'English'}
-                  </span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-
-                {/* Language Dropdown */}
-                {showLanguageDropdown && !isEditing && (
-                  <div
-                    className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
-                    style={{
-                      backgroundColor: background,
-                      borderColor: `${textColor}30`,
-                    }}
-                  >
-                    {availableLanguages.map((language) => (
-                      <button
-                        key={language.code}
-                        onClick={() => handleLanguageChange(language.code)}
-                        className="w-full text-left px-4 py-2 text-sm transition-colors hover:opacity-70"
-                        style={{
-                          color: textColor,
-                          backgroundColor: selectedLanguage === language.code ? `${textColor}20` : 'transparent',
-                        }}
-                      >
-                        {language.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Divider */}
-        <div
-          className="border-t mb-8"
-          style={{ borderColor: `${textColor}30` }}
-        />
-
-        {/* Bottom Section */}
-        <div className={`${isMobileView ? 'space-y-6' : 'grid grid-cols-3 gap-4 items-center'}`}>
-          {/* Left Area */}
-          <div className={`${isMobileView ? '' : 'flex justify-start'}`}>
-            {effectiveSocialLinks && effectiveSocialLinks.length > 0 && socialIconsPosition === 'left' && (
-              <div className="flex gap-4">
-                {effectiveSocialLinks.map((social, index) => {
-                  const Icon = socialIcons[social.platform];
-                  if (!Icon) return null;
-
-                  return (
-                    <a
-                      key={index}
-                      href={isEditing ? undefined : social.url}
-                      onClick={(e) => isEditing && e.preventDefault()}
-                      className={`hover:opacity-70 transition-opacity ${
-                        isEditing ? 'pointer-events-none' : ''
-                      }`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={social.platform}
-                    >
-                      <Icon className="w-5 h-5" />
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-            {copyrightPosition === 'left' && (
-              <div className="text-sm text-left" style={{ color: `${textColor}99` }}>
-                {copyright}
-              </div>
-            )}
-          </div>
-
-          {/* Center Area */}
-          <div className="flex justify-center">
-            {effectiveSocialLinks && effectiveSocialLinks.length > 0 && socialIconsPosition === 'center' && (
-              <div className="flex gap-4">
-                {effectiveSocialLinks.map((social, index) => {
-                  const Icon = socialIcons[social.platform];
-                  if (!Icon) return null;
-
-                  return (
-                    <a
-                      key={index}
-                      href={isEditing ? undefined : social.url}
-                      onClick={(e) => isEditing && e.preventDefault()}
-                      className={`hover:opacity-70 transition-opacity ${
-                        isEditing ? 'pointer-events-none' : ''
-                      }`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={social.platform}
-                    >
-                      <Icon className="w-5 h-5" />
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-            {copyrightPosition === 'center' && (
-              <div className="text-sm text-center" style={{ color: `${textColor}99` }}>
-                {copyright}
-              </div>
-            )}
-          </div>
-
-          {/* Right Area */}
-          <div className="flex justify-end">
-            {effectiveSocialLinks && effectiveSocialLinks.length > 0 && socialIconsPosition === 'right' && (
-              <div className="flex gap-4">
-                {effectiveSocialLinks.map((social, index) => {
-                  const Icon = socialIcons[social.platform];
-                  if (!Icon) return null;
-
-                  return (
-                    <a
-                      key={index}
-                      href={isEditing ? undefined : social.url}
-                      onClick={(e) => isEditing && e.preventDefault()}
-                      className={`hover:opacity-70 transition-opacity ${
-                        isEditing ? 'pointer-events-none' : ''
-                      }`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={social.platform}
-                    >
-                      <Icon className="w-5 h-5" />
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-            {copyrightPosition === 'right' && (
-              <div className="text-sm text-right" style={{ color: `${textColor}99` }}>
-                {copyright}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Payment Icons (optional) */}
-        {showPaymentIcons && (
-          <div className={`mt-8 flex gap-3 ${isMobileView ? 'justify-start' : 'justify-end'}`}>
-            <div className="flex gap-2 items-center flex-wrap">
-              <span className="text-xs" style={{ color: `${textColor}99` }}>Payment methods:</span>
-              {['Visa', 'Mastercard', 'PayPal', 'Apple Pay'].map((payment, index) => (
-                <div
-                  key={index}
-                  className="px-2 py-1 border rounded text-xs font-medium"
-                  style={{
-                    borderColor: `${textColor}30`,
-                    color: `${textColor}99`,
-                  }}
-                >
-                  {payment}
-                </div>
+            {/* Bottom Section */}
+            <div className={`${isMobileView ? 'space-y-6' : 'grid grid-cols-3 gap-4 items-center'}`}>
+              {(['left', 'center', 'right'] as const).map((area) => (
+                <BottomArea
+                  key={area}
+                  area={area}
+                  className={BOTTOM_AREA_CLASS[area](isMobileView)}
+                  socialLinks={effectiveSocialLinks}
+                  socialIconsPosition={socialIconsPosition}
+                  copyrightPosition={copyrightPosition}
+                  copyright={copyright}
+                  isEditing={isEditing}
+                  textColor={textColor}
+                />
               ))}
             </div>
-          </div>
-        )}
+
+            {/* Payment Icons (optional) */}
+            {showPaymentIcons && <PaymentMethods isMobileView={isMobileView} textColor={textColor} />}
           </>
         )}
       </div>
