@@ -116,6 +116,16 @@ function parseRow(cells: string[], i: number, columns: CsvColumns): ParsedRow {
   };
 }
 
+function downloadTemplate() {
+  const blob = new Blob([TEMPLATE], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'weldhr-attendance-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function ImportTab() {
   const t = useTranslations();
   const importAttendance = useImportHrAttendance();
@@ -151,16 +161,6 @@ export function ImportTab() {
     const reader = new FileReader();
     reader.onload = () => setCsvText(String(reader.result ?? ''));
     reader.readAsText(file);
-  }
-
-  function downloadTemplate() {
-    const blob = new Blob([TEMPLATE], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'weldhr-attendance-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function submit() {
@@ -278,8 +278,8 @@ export function ImportTab() {
             <div className="pt-1 text-destructive">
               <p>{t('weldhr.attendance.import.result.errors', { count: result.errors.length })}</p>
               <ul className="mt-1 list-inside list-disc">
-                {result.errors.map((e, i) => (
-                  <li key={i}>{t('weldhr.attendance.import.result.errorRow', { row: e.row, reason: e.reason })}</li>
+                {result.errors.map((e) => (
+                  <li key={`${e.row}-${e.reason}`}>{t('weldhr.attendance.import.result.errorRow', { row: e.row, reason: e.reason })}</li>
                 ))}
               </ul>
             </div>

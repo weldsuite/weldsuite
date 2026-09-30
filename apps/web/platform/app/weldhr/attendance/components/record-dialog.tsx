@@ -86,6 +86,10 @@ export function AttendanceRecordDialog({
     }
   }
 
+  let submitLabel = t('weldhr.attendance.records.form.create');
+  if (pending) submitLabel = t('weldhr.attendance.records.form.saving');
+  else if (record) submitLabel = t('weldhr.attendance.records.form.save');
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -169,11 +173,7 @@ export function AttendanceRecordDialog({
           </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>
             {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {pending
-              ? t('weldhr.attendance.records.form.saving')
-              : record
-                ? t('weldhr.attendance.records.form.save')
-                : t('weldhr.attendance.records.form.create')}
+            {submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
