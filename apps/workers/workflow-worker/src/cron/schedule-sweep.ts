@@ -91,6 +91,80 @@ function boundsOf(row: ScheduleIndexRow): { startDate: Date | null; endDate: Dat
   };
 }
 
+type OnFired = (row: ScheduleIndexRow, ok: boolean, nextRunAt: number | null, now: number) => Promise<void>;
+
+/** (a) Compute + store a row's first/next fire time (or disable it if none). */
+async function computeMissingNextRun(store: ScheduleIndexStore, row: ScheduleIndexRow, now: number): Promise<void> {
+  const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
+  if (!next) await store.disable(row.schedule_id, now);
+  else await store.setNextRun(row.schedule_id, next.getTime(), now);
+}
+
+/**
+ * (b) Validate a due row's range + double-fire guard. Returns true when the
+ * row may fire; disables rows past their end date.
+ */
+async function isReadyToFire(store: ScheduleIndexStore, row: ScheduleIndexRow, now: number): Promise<boolean> {
+  if (row.start_date != null && now < row.start_date) return false;
+  if (row.end_date != null && now > row.end_date) {
+    await store.disable(row.schedule_id, now);
+    return false;
+  }
+  return !(row.last_run_at != null && now - row.last_run_at < DOUBLE_FIRE_GUARD_MS);
+}
+
+/** Dispatch the workflow for a schedule row. Returns whether it succeeded. */
+async function dispatchScheduledWorkflow(executeWorkflow: ExecuteWorkflowBinding, row: ScheduleIndexRow): Promise<boolean> {
+  try {
+    await executeWorkflow.create({
+      params: {
+        workspaceId: row.workspace_id,
+        userId: 'system',
+        workflowId: row.workflow_id,
+        triggerId: row.trigger_id || undefined,
+        triggerType: 'schedule',
+        triggerData: {
+          scheduleId: row.schedule_id,
+          cronExpression: row.cron_expression,
+        },
+        source: row.source === 'helpdesk' ? 'helpdesk' : 'weldconnect',
+      },
+    });
+    console.log(`[ScheduleSweep] Dispatched workflow ${row.workflow_id} for schedule ${row.schedule_id}`);
+    return true;
+  } catch (err) {
+    console.error(`[ScheduleSweep] Failed to dispatch workflow ${row.workflow_id}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Fire one due row: advance next_run_at first, then dispatch, then mirror the
+ * run into the tenant row (best-effort). Returns whether dispatch succeeded.
+ */
+async function fireScheduleRow(
+  store: ScheduleIndexStore,
+  executeWorkflow: ExecuteWorkflowBinding,
+  onFired: OnFired,
+  row: ScheduleIndexRow,
+  now: number,
+): Promise<boolean> {
+  // Advance first, then dispatch.
+  const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
+  const nextMs = next ? next.getTime() : null;
+  await store.markFired(row.schedule_id, nextMs, now);
+
+  const ok = await dispatchScheduledWorkflow(executeWorkflow, row);
+
+  try {
+    await onFired(row, ok, nextMs, now);
+  } catch (statErr) {
+    console.warn(`[ScheduleSweep] Tenant stat update failed for ${row.schedule_id}:`, statErr);
+  }
+
+  return ok;
+}
+
 /**
  * Core sweep: for each candidate row, either (a) compute+store its first/next
  * fire time if missing, or (b) fire it if due — advancing next_run_at BEFORE
@@ -102,71 +176,29 @@ function boundsOf(row: ScheduleIndexRow): { startDate: Date | null; endDate: Dat
 export async function sweepDueSchedules(
   store: ScheduleIndexStore,
   executeWorkflow: ExecuteWorkflowBinding | undefined,
-  onFired: (row: ScheduleIndexRow, ok: boolean, nextRunAt: number | null, now: number) => Promise<void>,
+  onFired: OnFired,
   now: number = Date.now(),
 ): Promise<number> {
   const rows = await store.dueRows(now);
   let dispatched = 0;
 
   for (const row of rows) {
-    const bounds = boundsOf(row);
-
     // (a) Needs a fire time computed. computeNextRunAt always returns a moment
     // strictly in the future, so a freshly-computed row is never due this tick.
     if (row.next_run_at == null) {
-      const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), bounds);
-      if (!next) await store.disable(row.schedule_id, now);
-      else await store.setNextRun(row.schedule_id, next.getTime(), now);
+      await computeMissingNextRun(store, row, now);
       continue;
     }
 
     // (b) Due row — validate range + guard before firing.
-    if (row.start_date != null && now < row.start_date) continue;
-    if (row.end_date != null && now > row.end_date) {
-      await store.disable(row.schedule_id, now);
-      continue;
-    }
-    if (row.last_run_at != null && now - row.last_run_at < DOUBLE_FIRE_GUARD_MS) continue;
+    if (!(await isReadyToFire(store, row, now))) continue;
 
     if (!executeWorkflow) {
       console.warn(`[ScheduleSweep] EXECUTE_WORKFLOW binding unavailable, skipping schedule ${row.schedule_id}`);
       continue;
     }
 
-    // Advance first, then dispatch.
-    const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), bounds);
-    const nextMs = next ? next.getTime() : null;
-    await store.markFired(row.schedule_id, nextMs, now);
-
-    let ok = true;
-    try {
-      await executeWorkflow.create({
-        params: {
-          workspaceId: row.workspace_id,
-          userId: 'system',
-          workflowId: row.workflow_id,
-          triggerId: row.trigger_id || undefined,
-          triggerType: 'schedule',
-          triggerData: {
-            scheduleId: row.schedule_id,
-            cronExpression: row.cron_expression,
-          },
-          source: row.source === 'helpdesk' ? 'helpdesk' : 'weldconnect',
-        },
-      });
-      console.log(`[ScheduleSweep] Dispatched workflow ${row.workflow_id} for schedule ${row.schedule_id}`);
-    } catch (err) {
-      ok = false;
-      console.error(`[ScheduleSweep] Failed to dispatch workflow ${row.workflow_id}:`, err);
-    }
-
-    try {
-      await onFired(row, ok, nextMs, now);
-    } catch (statErr) {
-      console.warn(`[ScheduleSweep] Tenant stat update failed for ${row.schedule_id}:`, statErr);
-    }
-
-    if (ok) dispatched++;
+    if (await fireScheduleRow(store, executeWorkflow, onFired, row, now)) dispatched++;
   }
 
   return dispatched;

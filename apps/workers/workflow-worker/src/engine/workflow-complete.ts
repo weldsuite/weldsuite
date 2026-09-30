@@ -25,6 +25,20 @@ export interface ChainDispatch {
   passOutput: boolean;
 }
 
+type WorkflowCompleteTriggerConfig = { sourceWorkflowId?: string; triggerOn?: string; passOutput?: boolean };
+
+/** Whether an enabled workflow_complete trigger targets the completed workflow and outcome. */
+function triggerMatches(
+  trigger: NonNullable<WorkflowCandidate['triggers']>[number],
+  completedWorkflowId: string,
+  status: string,
+): boolean {
+  if (trigger.type !== 'workflow_complete' || !trigger.isEnabled) return false;
+  const config = trigger.config as WorkflowCompleteTriggerConfig | undefined;
+  if (config?.sourceWorkflowId !== completedWorkflowId) return false;
+  return config?.triggerOn === 'both' || config?.triggerOn === status;
+}
+
 /**
  * Pure matcher: which candidates should fire given the completed workflow id
  * and whether it succeeded. Excludes the completed workflow itself.
@@ -40,12 +54,8 @@ export function matchWorkflowCompleteTriggers(
   for (const candidate of candidates) {
     if (candidate.id === completedWorkflowId) continue;
     for (const trigger of candidate.triggers ?? []) {
-      if (trigger.type !== 'workflow_complete' || !trigger.isEnabled) continue;
-      const config = trigger.config as
-        | { sourceWorkflowId?: string; triggerOn?: string; passOutput?: boolean }
-        | undefined;
-      if (config?.sourceWorkflowId !== completedWorkflowId) continue;
-      if (config?.triggerOn !== 'both' && config?.triggerOn !== status) continue;
+      if (!triggerMatches(trigger, completedWorkflowId, status)) continue;
+      const config = trigger.config as WorkflowCompleteTriggerConfig | undefined;
       out.push({
         workflowId: candidate.id,
         source: candidate._source,
