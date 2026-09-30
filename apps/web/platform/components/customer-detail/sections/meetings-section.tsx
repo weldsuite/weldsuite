@@ -84,6 +84,168 @@ function formatDuration(seconds?: number) {
   return `${mins}m ${secs}s`;
 }
 
+type MeetingFilterValue = NonNullable<ActiveFilter['value']>;
+
+function matchesStatusFilter(r: MeetingRecording, value: MeetingFilterValue): boolean {
+  if (value === 'active') return !!r.isLive;
+  return r.status?.toLowerCase() === value;
+}
+
+function matchesMeetingFilter(r: MeetingRecording, field: string, value: MeetingFilterValue): boolean {
+  switch (field) {
+    case 'source':
+      return r.type === value;
+    case 'status':
+      return matchesStatusFilter(r, value);
+    case 'platform':
+      return !!r.platform?.toLowerCase().includes(value);
+    default:
+      return true;
+  }
+}
+
+function applyMeetingFilters(items: MeetingRecording[], filters: ActiveFilter[]): MeetingRecording[] {
+  let result = items;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    if (!['source', 'status', 'platform'].includes(filter.field)) continue;
+    const isOperator = filter.operator === 'is';
+    const { field, value } = filter;
+    result = result.filter((r) => matchesMeetingFilter(r, field, value) === isOperator);
+  }
+  return result;
+}
+
+type TranslateFn = (key: string) => string;
+
+function RecordingTitleCell({ recording }: Readonly<{ recording: MeetingRecording }>) {
+  return (
+    <div className="flex-1 min-w-0 flex items-center gap-3">
+      <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-muted">
+        <Video className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <div className="min-w-0">
+        <span className="text-sm font-medium text-foreground truncate block">
+          {recording.title}
+        </span>
+        {(recording.contactName || recording.opportunityName) && (
+          <div className="flex items-center gap-2 mt-0.5">
+            {recording.contactName && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <User className="h-3 w-3" />
+                {recording.contactName}
+              </span>
+            )}
+            {recording.opportunityName && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Briefcase className="h-3 w-3" />
+                {recording.opportunityName}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecordingStatusCell({
+  recording,
+  status,
+  statusConfig,
+  t,
+}: Readonly<{
+  recording: MeetingRecording;
+  status: string;
+  statusConfig: Record<string, { label: string; color: string }>;
+  t: TranslateFn;
+}>) {
+  return (
+    <div className="w-[110px] flex-shrink-0">
+      <div className="flex items-center gap-1.5">
+        <Badge className={cn("text-xs font-medium rounded-md border-transparent", statusConfig[status]?.color || 'bg-muted text-foreground')}>
+          {recording.isLive ? t('sweep.weldcrm.meetingsSection.live') : statusConfig[status]?.label || recording.status || t('sweep.weldcrm.customerDetailSidebar.unknown')}
+        </Badge>
+        {recording.isLive && (
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecordingDateCell({ createdAt }: Readonly<{ createdAt: string }>) {
+  return (
+    <div className="w-[130px] flex-shrink-0">
+      {createdAt ? (
+        <span className="text-sm text-muted-foreground">
+          {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+        </span>
+      ) : (
+        <span className="text-sm text-muted-foreground">—</span>
+      )}
+    </div>
+  );
+}
+
+function RecordingActionsMenu({
+  recording,
+  isBotRecording,
+  hasRecording,
+  t,
+}: Readonly<{
+  recording: MeetingRecording;
+  isBotRecording: boolean;
+  hasRecording: boolean;
+  t: TranslateFn;
+}>) {
+  return (
+    <div className="w-[40px] flex justify-end flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+            <EllipsisVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {isBotRecording && hasRecording && (
+            <DropdownMenuItem asChild>
+              <a href={recording.recordingUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-0.5" />
+                {t('sweep.weldcrm.meetingsSection.openRecording')}
+              </a>
+            </DropdownMenuItem>
+          )}
+          {!isBotRecording && (
+            <DropdownMenuItem>
+              <Play className="h-4 w-4 mr-0.5" />
+              {t('sweep.weldcrm.callsSection.playRecording')}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem>
+            <Link2 className="h-4 w-4 mr-0.5" />
+            {t('sweep.weldcrm.callsSection.viewDetails')}
+          </DropdownMenuItem>
+          {!isBotRecording && (
+            <DropdownMenuItem>
+              <Download className="h-4 w-4 mr-0.5" />
+              {t('sweep.weldcrm.filesSection.download')}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400">
+            <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
+            {t('sweep.weldcrm.customerDetailSidebar.delete')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 // `customer` isn't read here, but the parameter must stay to match the
 // shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
  
@@ -182,35 +344,10 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
   }, [t]);
 
   // Apply filters
-  const applyFilters = useCallback((items: MeetingRecording[], filters: ActiveFilter[]) => {
-    let result = items;
-
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-
-      if (filter.field === 'source') {
-        result = filter.operator === 'is'
-          ? result.filter(r => r.type === filter.value)
-          : result.filter(r => r.type !== filter.value);
-      } else if (filter.field === 'status') {
-        if (filter.value === 'active') {
-          result = filter.operator === 'is'
-            ? result.filter(r => r.isLive)
-            : result.filter(r => !r.isLive);
-        } else {
-          result = filter.operator === 'is'
-            ? result.filter(r => r.status?.toLowerCase() === filter.value)
-            : result.filter(r => r.status?.toLowerCase() !== filter.value);
-        }
-      } else if (filter.field === 'platform') {
-        result = filter.operator === 'is'
-          ? result.filter(r => r.platform?.toLowerCase().includes(filter.value))
-          : result.filter(r => !r.platform?.toLowerCase().includes(filter.value));
-      }
-    });
-
-    return result;
-  }, []);
+  const applyFilters = useCallback(
+    (items: MeetingRecording[], filters: ActiveFilter[]) => applyMeetingFilters(items, filters),
+    [],
+  );
 
   // Header columns — adapted for panel width
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -240,32 +377,7 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
         }}
       >
         {/* Title */}
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-muted">
-            <Video className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-foreground truncate block">
-              {recording.title}
-            </span>
-            {(recording.contactName || recording.opportunityName) && (
-              <div className="flex items-center gap-2 mt-0.5">
-                {recording.contactName && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    {recording.contactName}
-                  </span>
-                )}
-                {recording.opportunityName && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Briefcase className="h-3 w-3" />
-                    {recording.opportunityName}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <RecordingTitleCell recording={recording} />
 
         {/* Platform */}
         <div className="w-[120px] flex items-center gap-2 flex-shrink-0">
@@ -274,19 +386,7 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
         </div>
 
         {/* Status */}
-        <div className="w-[110px] flex-shrink-0">
-          <div className="flex items-center gap-1.5">
-            <Badge className={cn("text-xs font-medium rounded-md border-transparent", statusConfig[status]?.color || 'bg-muted text-foreground')}>
-              {recording.isLive ? t('sweep.weldcrm.meetingsSection.live') : statusConfig[status]?.label || recording.status || t('sweep.weldcrm.customerDetailSidebar.unknown')}
-            </Badge>
-            {recording.isLive && (
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-            )}
-          </div>
-        </div>
+        <RecordingStatusCell recording={recording} status={status} statusConfig={statusConfig} t={t} />
 
         {/* Duration */}
         <div className="w-[90px] flex items-center gap-1 text-sm text-muted-foreground flex-shrink-0">
@@ -295,57 +395,10 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
         </div>
 
         {/* Date */}
-        <div className="w-[130px] flex-shrink-0">
-          {recording.createdAt ? (
-            <span className="text-sm text-muted-foreground">
-              {formatDistanceToNow(new Date(recording.createdAt), { addSuffix: true })}
-            </span>
-          ) : (
-            <span className="text-sm text-muted-foreground">—</span>
-          )}
-        </div>
+        <RecordingDateCell createdAt={recording.createdAt} />
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
-                <EllipsisVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isBotRecording && hasRecording && (
-                <DropdownMenuItem asChild>
-                  <a href={recording.recordingUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-0.5" />
-                    {t('sweep.weldcrm.meetingsSection.openRecording')}
-                  </a>
-                </DropdownMenuItem>
-              )}
-              {!isBotRecording && (
-                <DropdownMenuItem>
-                  <Play className="h-4 w-4 mr-0.5" />
-                  {t('sweep.weldcrm.callsSection.playRecording')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem>
-                <Link2 className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.callsSection.viewDetails')}
-              </DropdownMenuItem>
-              {!isBotRecording && (
-                <DropdownMenuItem>
-                  <Download className="h-4 w-4 mr-0.5" />
-                  {t('sweep.weldcrm.filesSection.download')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400">
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-                {t('sweep.weldcrm.customerDetailSidebar.delete')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <RecordingActionsMenu recording={recording} isBotRecording={isBotRecording} hasRecording={!!hasRecording} t={t} />
       </div>
     );
   }, [router, t, statusConfig]);

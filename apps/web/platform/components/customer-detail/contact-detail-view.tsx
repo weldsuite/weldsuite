@@ -301,6 +301,131 @@ function ContactDetailTabs() {
 // Editable contact fields (same Input style as CRM sidebar)
 // =============================================================================
 
+type ContactUpdatePayload = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
+function getOriginalContactFieldValue(contact: HelpdeskContactRow | null | undefined, key: string): string {
+  switch (key) {
+    case 'firstName': return contact?.firstName || '';
+    case 'lastName': return contact?.lastName || '';
+    case 'email': return contact?.email || '';
+    case 'phone': return contact?.directPhone || '';
+    case 'mobile': return contact?.mobilePhone || '';
+    case 'notes': return contact?.notes || '';
+    default: return '';
+  }
+}
+
+/** Maps an edited field to its update payload; `null` for fields that are not persisted here. */
+function buildContactUpdatePayload(key: string, value: string): ContactUpdatePayload | null {
+  switch (key) {
+    case 'firstName': return { firstName: value };
+    case 'lastName': return { lastName: value };
+    case 'email': return { email: value || undefined };
+    case 'phone': return { phone: value || undefined };
+    case 'notes': return { notes: value || undefined };
+    default: return null;
+  }
+}
+
+function ContactFieldRow({
+  icon: Icon,
+  label,
+  fieldKey,
+  value,
+  onChange,
+  onBlur,
+}: Readonly<{
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  fieldKey: string;
+  value: string;
+  onChange: (key: string, value: string) => void;
+  onBlur: (key: string, value: string) => void;
+}>) {
+  const t = useTranslations();
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{label}</span>
+      </div>
+      <Input
+        value={value}
+        onChange={(e) => onChange(fieldKey, e.target.value)}
+        onBlur={(e) => onBlur(fieldKey, e.target.value)}
+        placeholder={t('sweep.weldcrm.contactDetailView.emptyValuePlaceholder')}
+        className={cn(
+          'flex-1 h-8 text-sm border border-transparent bg-transparent dark:bg-transparent shadow-none',
+          'focus-visible:ring-0 focus-visible:border-blue-500 dark:focus-visible:border-blue-500',
+          'focus-visible:bg-white dark:focus-visible:bg-gray-900 rounded-md px-2 -mx-2',
+          'placeholder:text-muted-foreground transition-colors truncate',
+          (fieldKey === 'phone' || fieldKey === 'email') && value && 'text-blue-600 dark:text-blue-400 underline cursor-pointer'
+        )}
+      />
+    </div>
+  );
+}
+
+function VisitorLocationRows({
+  location,
+  showLocation,
+  showTimezone,
+}: Readonly<{
+  location: { city?: string; region?: string; country?: string; timezone?: string };
+  showLocation: boolean;
+  showTimezone: boolean;
+}>) {
+  const t = useTranslations();
+  return (
+    <>
+      {showLocation && location.city && (
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 w-32 flex-shrink-0">
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.location')}</span>
+          </div>
+          <span className="text-sm text-foreground h-8 flex items-center">
+            {[location.city, location.region, location.country].filter(Boolean).join(', ')}
+          </span>
+        </div>
+      )}
+      {showTimezone && location.timezone && (
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 w-32 flex-shrink-0">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.timezone')}</span>
+          </div>
+          <span className="text-sm text-foreground h-8 flex items-center">{location.timezone}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ContactTagsRow({ interests }: Readonly<{ interests: string[] | null | undefined }>) {
+  const t = useTranslations();
+  if (!interests || interests.length === 0) return null;
+  return (
+    <div className="flex items-start gap-3 pt-1">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0 h-8">
+        <Tag className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.tags')}</span>
+      </div>
+      <div className="flex flex-wrap gap-1 py-1">
+        {interests.map((tag: string) => (
+          <span key={tag} className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-foreground font-medium">{tag}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ContactEditableFields() {
   const t = useTranslations();
   const editableFields = [
@@ -330,30 +455,11 @@ function ContactEditableFields() {
   };
 
   const handleFieldBlur = useCallback(async (key: string, value: string) => {
-    const c = contact;
-    const orig =
-      key === 'firstName' ? (c?.firstName || '') :
-      key === 'lastName' ? (c?.lastName || '') :
-      key === 'email' ? (c?.email || '') :
-      key === 'phone' ? (c?.directPhone || '') :
-      key === 'mobile' ? (c?.mobilePhone || '') :
-      key === 'notes' ? (c?.notes || '') : '';
-    if (value === orig) return;
+    if (value === getOriginalContactFieldValue(contact, key)) return;
 
     try {
-      const payload: {
-        firstName?: string;
-        lastName?: string;
-        email?: string;
-        phone?: string;
-        notes?: string;
-      } = {};
-      if (key === 'firstName') payload.firstName = value;
-      else if (key === 'lastName') payload.lastName = value;
-      else if (key === 'email') payload.email = value || undefined;
-      else if (key === 'phone') payload.phone = value || undefined;
-      else if (key === 'notes') payload.notes = value || undefined;
-      else return;
+      const payload = buildContactUpdatePayload(key, value);
+      if (!payload) return;
 
       const result = await updateMutation.mutateAsync({ id: contactId, data: payload });
       if (!result.success) {
@@ -370,71 +476,29 @@ function ContactEditableFields() {
 
   return (
     <div className="space-y-1">
-      {editableFields.filter((field) => isFieldVisible(field.key)).map((field) => {
-        const Icon = field.icon;
-        return (
-          <div key={field.key} className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32 flex-shrink-0">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{field.label}</span>
-            </div>
-            <Input
-              value={fieldValues[field.key] || ''}
-              onChange={(e) => handleFieldChange(field.key, e.target.value)}
-              onBlur={(e) => handleFieldBlur(field.key, e.target.value)}
-              placeholder={t('sweep.weldcrm.contactDetailView.emptyValuePlaceholder')}
-              className={cn(
-                'flex-1 h-8 text-sm border border-transparent bg-transparent dark:bg-transparent shadow-none',
-                'focus-visible:ring-0 focus-visible:border-blue-500 dark:focus-visible:border-blue-500',
-                'focus-visible:bg-white dark:focus-visible:bg-gray-900 rounded-md px-2 -mx-2',
-                'placeholder:text-muted-foreground transition-colors truncate',
-                (field.key === 'phone' || field.key === 'email') && fieldValues[field.key] && 'text-blue-600 dark:text-blue-400 underline cursor-pointer'
-              )}
-            />
-          </div>
-        );
-      })}
+      {editableFields.filter((field) => isFieldVisible(field.key)).map((field) => (
+        <ContactFieldRow
+          key={field.key}
+          icon={field.icon}
+          label={field.label}
+          fieldKey={field.key}
+          value={fieldValues[field.key] || ''}
+          onChange={handleFieldChange}
+          onBlur={handleFieldBlur}
+        />
+      ))}
 
       {/* Visitor location */}
-      {visitorLocation && isFieldVisible('location') && (
-        <>
-          {visitorLocation.city && (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 w-32 flex-shrink-0">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.location')}</span>
-              </div>
-              <span className="text-sm text-foreground h-8 flex items-center">
-                {[visitorLocation.city, visitorLocation.region, visitorLocation.country].filter(Boolean).join(', ')}
-              </span>
-            </div>
-          )}
-        </>
-      )}
-      {visitorLocation && isFieldVisible('timezone') && visitorLocation.timezone && (
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 w-32 flex-shrink-0">
-            <Globe className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.timezone')}</span>
-          </div>
-          <span className="text-sm text-foreground h-8 flex items-center">{visitorLocation.timezone}</span>
-        </div>
+      {visitorLocation && (
+        <VisitorLocationRows
+          location={visitorLocation}
+          showLocation={isFieldVisible('location')}
+          showTimezone={isFieldVisible('timezone')}
+        />
       )}
 
       {/* Categories / Tags */}
-      {isFieldVisible('tags') && contact.interests && (contact.interests as string[]).length > 0 && (
-        <div className="flex items-start gap-3 pt-1">
-          <div className="flex items-center gap-2 w-32 flex-shrink-0 h-8">
-            <Tag className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.contactDetailView.tags')}</span>
-          </div>
-          <div className="flex flex-wrap gap-1 py-1">
-            {(contact.interests as string[]).map((tag: string) => (
-              <span key={tag} className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-foreground font-medium">{tag}</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {isFieldVisible('tags') && <ContactTagsRow interests={contact.interests} />}
     </div>
   );
 }
