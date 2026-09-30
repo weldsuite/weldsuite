@@ -30,6 +30,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
@@ -375,6 +376,78 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
   }
 });
 
+type UpdateEventData = z.infer<typeof updateSchema>;
+type CalendarEventRow = typeof t.$inferSelect;
+
+/** Column values for a PATCH: skips undefined keys and parses the time fields. */
+function buildUpdateFields(data: UpdateEventData): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined) continue;
+    update[k] = k === 'startTime' || k === 'endTime' ? new Date(v as string) : v;
+  }
+  return update;
+}
+
+/** Mails newly-added attendees an invite and re-notifies the list on a time change. */
+async function notifyAttendeesOfUpdate(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  existing: CalendarEventRow,
+  data: UpdateEventData,
+): Promise<void> {
+  const db = c.get('tenantDb');
+  const id = existing.id;
+  const organizer = await getOrganizerInfo(db, existing.organizerId);
+  const title = data.title ?? existing.title;
+  const startTime = data.startTime ?? isoOrNull(existing.startTime);
+  const endTime = data.endTime ?? isoOrNull(existing.endTime);
+  const mailEvent = {
+    id,
+    title,
+    description: data.description ?? existing.description,
+    location: data.location ?? existing.location,
+    startTime,
+    endTime,
+  };
+
+  // Newly-added attendees get an invitation.
+  if (data.attendees !== undefined) {
+    const oldEmails = new Set(
+      (existing.attendees ?? []).map((a) => a.email?.toLowerCase()).filter(Boolean),
+    );
+    const added = data.attendees.filter((a) => !oldEmails.has(a.email.toLowerCase()));
+    if (added.length) {
+      c.executionCtx.waitUntil(
+        sendCalendarEventEmails(c.env, {
+          kind: 'invite',
+          organizer,
+          attendees: added,
+          event: mailEvent,
+          sequence: 1,
+        }),
+      );
+    }
+  }
+
+  // A time change re-notifies the attendee list.
+  if (data.startTime !== undefined || data.endTime !== undefined) {
+    const attendees: AttendeeLike[] = data.attendees ?? existing.attendees ?? [];
+    if (attendees.length) {
+      c.executionCtx.waitUntil(
+        sendCalendarEventEmails(c.env, {
+          kind: 'reschedule',
+          organizer,
+          attendees,
+          event: mailEvent,
+          sequence: 2,
+          oldStartTime: isoOrNull(existing.startTime),
+          oldEndTime: isoOrNull(existing.endTime),
+        }),
+      );
+    }
+  }
+}
+
 // ── PATCH /:id — update (mails attendees on ?sendNotification=true) ──────
 
 app.patch('/:id', requirePermission('events:update'), zValidator('json', updateSchema), async (c) => {
@@ -395,12 +468,7 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
     const accessible = await getAccessibleCalendarIds(db, userId);
     if (!accessible.includes(existing.calendarId)) return error.notFound(c, 'Calendar event', id);
 
-    const update: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      if (k === 'startTime' || k === 'endTime') update[k] = new Date(v as string);
-      else update[k] = v;
-    }
+    const update = buildUpdateFields(data);
 
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
@@ -420,57 +488,7 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
 
     c.executionCtx.waitUntil(pushCalendarEventToGoogle(db, id, 'updated', { id, ...data }, c.env));
 
-    if (sendNotification) {
-      const organizer = await getOrganizerInfo(db, existing.organizerId);
-      const title = data.title ?? existing.title;
-      const startTime = data.startTime ?? isoOrNull(existing.startTime);
-      const endTime = data.endTime ?? isoOrNull(existing.endTime);
-      const mailEvent = {
-        id,
-        title,
-        description: data.description ?? existing.description,
-        location: data.location ?? existing.location,
-        startTime,
-        endTime,
-      };
-
-      // Newly-added attendees get an invitation.
-      if (data.attendees !== undefined) {
-        const oldEmails = new Set(
-          (existing.attendees ?? []).map((a) => a.email?.toLowerCase()).filter(Boolean),
-        );
-        const added = data.attendees.filter((a) => !oldEmails.has(a.email.toLowerCase()));
-        if (added.length) {
-          c.executionCtx.waitUntil(
-            sendCalendarEventEmails(c.env, {
-              kind: 'invite',
-              organizer,
-              attendees: added,
-              event: mailEvent,
-              sequence: 1,
-            }),
-          );
-        }
-      }
-
-      // A time change re-notifies the attendee list.
-      if (data.startTime !== undefined || data.endTime !== undefined) {
-        const attendees: AttendeeLike[] = data.attendees ?? existing.attendees ?? [];
-        if (attendees.length) {
-          c.executionCtx.waitUntil(
-            sendCalendarEventEmails(c.env, {
-              kind: 'reschedule',
-              organizer,
-              attendees,
-              event: mailEvent,
-              sequence: 2,
-              oldStartTime: isoOrNull(existing.startTime),
-              oldEndTime: isoOrNull(existing.endTime),
-            }),
-          );
-        }
-      }
-    }
+    if (sendNotification) await notifyAttendeesOfUpdate(c, existing, data);
 
     return success(c, { id, ...data });
   } catch (err) {

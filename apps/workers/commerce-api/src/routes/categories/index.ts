@@ -13,6 +13,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import type { z } from 'zod';
 import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -236,6 +237,36 @@ app.post('/', requirePermission('categories:create'), zValidator('json', createP
   }
 });
 
+type UpdateCategoryData = z.infer<typeof updateProductCategorySchema>;
+
+/** Body fields written to the row verbatim when present. */
+const PASS_THROUGH_UPDATE_FIELDS = [
+  'name',
+  'description',
+  'position',
+  'image',
+  'icon',
+  'color',
+  'metaTitle',
+  'metaDescription',
+  'publishedAt',
+  'type',
+  'rules',
+  'rulesMatch',
+  'sortOrder',
+  'customFields',
+] as const;
+
+/** Column values for a PATCH: only the fields present in the body. */
+function buildCategoryUpdate(data: UpdateCategoryData, now: Date): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: now };
+  for (const key of PASS_THROUGH_UPDATE_FIELDS) {
+    if (data[key] !== undefined) update[key] = data[key];
+  }
+  if (data.isActive !== undefined) update.isActive = data.isActive ? 1 : 0;
+  return update;
+}
+
 app.patch('/:id', requirePermission('categories:update'), zValidator('json', updateProductCategorySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -258,23 +289,7 @@ app.patch('/:id', requirePermission('categories:update'), zValidator('json', upd
       });
     }
 
-    const update: Record<string, unknown> = { updatedAt: now };
-
-    if (data.name !== undefined) update.name = data.name;
-    if (data.description !== undefined) update.description = data.description;
-    if (data.position !== undefined) update.position = data.position;
-    if (data.image !== undefined) update.image = data.image;
-    if (data.icon !== undefined) update.icon = data.icon;
-    if (data.color !== undefined) update.color = data.color;
-    if (data.metaTitle !== undefined) update.metaTitle = data.metaTitle;
-    if (data.metaDescription !== undefined) update.metaDescription = data.metaDescription;
-    if (data.isActive !== undefined) update.isActive = data.isActive ? 1 : 0;
-    if (data.publishedAt !== undefined) update.publishedAt = data.publishedAt;
-    if (data.type !== undefined) update.type = data.type;
-    if (data.rules !== undefined) update.rules = data.rules;
-    if (data.rulesMatch !== undefined) update.rulesMatch = data.rulesMatch;
-    if (data.sortOrder !== undefined) update.sortOrder = data.sortOrder;
-    if (data.customFields !== undefined) update.customFields = data.customFields;
+    const update = buildCategoryUpdate(data, now);
 
     if (data.slug !== undefined && data.slug !== existing.slug) {
       update.slug = await uniqueSlug(db, slugify(data.slug, id), id);
