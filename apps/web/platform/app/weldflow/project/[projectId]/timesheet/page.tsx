@@ -459,6 +459,20 @@ function DeleteEntryDescription({ entry }: Readonly<{ entry: TimeEntry }>) {
   );
 }
 
+function renderCellContent(hours: number, isHovered: boolean) {
+  if (hours > 0) {
+    return (
+      <span className="text-[13px] font-medium tabular-nums text-[#111] dark:text-[#eee]">
+        {hours.toFixed(1)}h
+      </span>
+    );
+  }
+  if (isHovered) {
+    return <Plus className="h-4 w-4 text-[#bbb] dark:text-[#555]" />;
+  }
+  return null;
+}
+
 type OpenAddDialogForCell = (taskId: string, taskName: string, date: Date) => void;
 
 function TimesheetWeekView({
@@ -494,9 +508,9 @@ function TimesheetWeekView({
         <div className="px-5 flex items-center text-[13px] font-mono font-medium text-[#666] dark:text-[#888] uppercase tracking-wide">
           {st('sweep.weldflow.timesheetPage.task')}
         </div>
-        {weekDays.map((day, index) => (
+        {weekDays.map((day) => (
           <div
-            key={index}
+            key={day.date.getTime()}
             className={cn(
               "text-center flex flex-col items-center justify-center border-l border-border",
               day.isToday && "bg-zinc-50/60 dark:bg-zinc-900/30"
@@ -570,30 +584,25 @@ function TimesheetWeekView({
                 day.isWeekend && !day.isToday && "bg-[#fafafa] dark:bg-[#0a0a0a]",
                 isHovered && "bg-[#f0f0f0] dark:bg-[#1a1a1a]"
               );
-              const cellContent = hours > 0 ? (
-                <span className="text-[13px] font-medium tabular-nums text-[#111] dark:text-[#eee]">
-                  {hours.toFixed(1)}h
-                </span>
-              ) : isHovered ? (
-                <Plus className="h-4 w-4 text-[#bbb] dark:text-[#555]" />
-              ) : null;
+              const cellContent = renderCellContent(hours, isHovered);
 
               if (cellEntries.length === 0) {
                 return (
-                  <div
-                    key={dayIndex}
+                  <button
+                    key={day.date.getTime()}
+                    type="button"
                     className={cellClass}
                     onMouseEnter={() => setHoveredCell({ task: task.id, day: dayIndex })}
                     onMouseLeave={() => setHoveredCell(null)}
                     onClick={() => openAddDialogForCell(task.taskId || '', task.name, day.date)}
                   >
                     {cellContent}
-                  </div>
+                  </button>
                 );
               }
 
               return (
-                <Popover key={dayIndex}>
+                <Popover key={day.date.getTime()}>
                   <PopoverTrigger asChild>
                     <div
                       className={cellClass}
@@ -700,9 +709,9 @@ function TimesheetWeekView({
           <Plus className="h-3.5 w-3.5" />
           {st('sweep.weldflow.timesheetPage.addEntry')}
         </Button>
-        {weekDays.map((day, index) => (
+        {weekDays.map((day) => (
           <div
-            key={index}
+            key={day.date.getTime()}
             className={cn(
               "border-l border-[#e5e5e5] dark:border-[#222]",
               day.isToday && "bg-blue-50/30 dark:bg-blue-900/5",
@@ -735,7 +744,7 @@ function TimesheetMonthView({
       <div className="hidden md:grid grid-cols-7 border-b border-[#e5e5e5] dark:border-[#222]">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
           <div
-            key={index}
+            key={day}
             className={cn(
               "text-center py-2 text-[11px] font-medium uppercase tracking-wide",
               index >= 5 ? "text-[#bbb] dark:text-[#555]" : "text-[#666] dark:text-[#888]",
@@ -751,7 +760,7 @@ function TimesheetMonthView({
       <div className="hidden md:flex flex-1 flex-col bg-white dark:bg-[#111]">
         {monthWeeks.map((week, weekIndex) => (
           <div
-            key={weekIndex}
+            key={week[0]?.date.getTime() ?? weekIndex}
             className={cn(
               "grid grid-cols-7 flex-1",
               weekIndex > 0 && "border-t border-[#e5e5e5] dark:border-[#222]"
@@ -770,7 +779,7 @@ function TimesheetMonthView({
 
               return (
                 <div
-                  key={dayIndex}
+                  key={day.date.getTime()}
                   className={cn(
                     "px-2.5 py-2 cursor-pointer transition-colors group flex flex-col",
                     dayIndex > 0 && "border-l border-[#e5e5e5] dark:border-[#222]",
@@ -843,7 +852,7 @@ function TimesheetMonthView({
 
       {/* Mobile Month View - List of days */}
       <div className="md:hidden flex-1 overflow-auto bg-white dark:bg-[#111]">
-        {monthWeeks.flat().filter(day => day.date.getMonth() === currentMonth.getMonth()).map((day, index) => {
+        {monthWeeks.flat().filter(day => day.date.getMonth() === currentMonth.getMonth()).map((day) => {
           const totalHours = getTotalHoursForDate(day.date);
           const dayEntries = entries.filter(entry => {
             const entryDate = new Date(entry.date);
@@ -855,7 +864,7 @@ function TimesheetMonthView({
 
           return (
             <div
-              key={index}
+              key={day.date.getTime()}
               className={cn(
                 "px-4 py-3 border-b border-[#e5e5e5] dark:border-[#222] cursor-pointer",
                 day.isToday && "bg-blue-50/50 dark:bg-blue-900/10",
@@ -952,10 +961,10 @@ function TimesheetWeekFooter({
     <div className="border-t bg-white dark:bg-background">
       <div className="grid grid-cols-[240px_repeat(7,1fr)_80px] min-w-[900px]">
         <div className="px-5 py-2 text-sm text-gray-500 dark:text-muted-foreground">Daily Total</div>
-        {weekDays.map((day, index) => {
+        {weekDays.map((day) => {
           const dayTotal = getTotalHoursForDate(day.date);
           return (
-            <div key={index} className="pl-4 pr-2 py-2 text-sm text-gray-500 dark:text-muted-foreground text-left border-l border-[#e5e5e5] dark:border-[#222]">
+            <div key={day.date.getTime()} className="pl-4 pr-2 py-2 text-sm text-gray-500 dark:text-muted-foreground text-left border-l border-[#e5e5e5] dark:border-[#222]">
               <span className="font-medium">{dayTotal > 0 ? `${dayTotal.toFixed(1)}h` : '—'}</span>
             </div>
           );
