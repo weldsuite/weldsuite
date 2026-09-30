@@ -230,43 +230,21 @@ async function main() {
   let successCount = 0;
   let skipCount = 0;
 
-  // Add list metadata
-  console.log('\n📋 Adding metadata to list pages...');
-  for (const [filePath, [entityName, moduleName]] of Object.entries(listPages)) {
-    if (addListMetadata(filePath, entityName, moduleName)) {
-      successCount++;
-    } else {
-      skipCount++;
-    }
-  }
+  const groups = [
+    ['\n📋 Adding metadata to list pages...', listPages, addListMetadata],
+    ['\n➕ Adding metadata to create pages...', createPages, addCreateMetadata],
+    ['\n📊 Adding metadata to report pages...', reportPages, addReportMetadata],
+    ['\n⚙️  Adding metadata to settings pages...', settingsPages, addSettingsMetadata],
+  ];
 
-  // Add create metadata
-  console.log('\n➕ Adding metadata to create pages...');
-  for (const [filePath, [entityName, moduleName]] of Object.entries(createPages)) {
-    if (addCreateMetadata(filePath, entityName, moduleName)) {
-      successCount++;
-    } else {
-      skipCount++;
-    }
-  }
-
-  // Add report metadata
-  console.log('\n📊 Adding metadata to report pages...');
-  for (const [filePath, [reportName, moduleName]] of Object.entries(reportPages)) {
-    if (addReportMetadata(filePath, reportName, moduleName)) {
-      successCount++;
-    } else {
-      skipCount++;
-    }
-  }
-
-  // Add settings metadata
-  console.log('\n⚙️  Adding metadata to settings pages...');
-  for (const [filePath, [settingName, moduleName]] of Object.entries(settingsPages)) {
-    if (addSettingsMetadata(filePath, settingName, moduleName)) {
-      successCount++;
-    } else {
-      skipCount++;
+  for (const [heading, pages, addMetadata] of groups) {
+    console.log(heading);
+    for (const [filePath, [name, moduleName]] of Object.entries(pages)) {
+      if (addMetadata(filePath, name, moduleName)) {
+        successCount++;
+      } else {
+        skipCount++;
+      }
     }
   }
 
