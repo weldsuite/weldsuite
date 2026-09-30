@@ -89,6 +89,100 @@ function MemberAvatarWithPresence({ user }: { user: TeamMember }) {
   );
 }
 
+function isPendingMember(user: TeamMember): boolean {
+  return user.status === "PENDING" || (!user.auth0Id && user.status !== "ACTIVE")
+}
+
+function matchesActiveFilter(user: TeamMember, filter: ActiveFilter): boolean {
+  if (!filter.value) return true
+  let value: string
+  if (filter.field === 'role') {
+    value = user.workspaceRole || (user.role === 'ADMIN' ? 'ADMIN' : 'MEMBER')
+  } else if (filter.field === 'status') {
+    value = isPendingMember(user) ? 'PENDING' : (user.status || 'ACTIVE')
+  } else {
+    return true
+  }
+  const match = value === filter.value
+  return filter.operator === 'is not' ? !match : match
+}
+
+function filterMembers(users: TeamMember[], searchQuery: string, activeFilters: ActiveFilter[]): TeamMember[] {
+  let result = users
+
+  if (searchQuery) {
+    const query = searchQuery.toLowerCase()
+    result = result.filter(
+      (user) =>
+        user.name?.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query)
+    )
+  }
+
+  if (activeFilters.length > 0) {
+    result = result.filter((user) =>
+      activeFilters.every((filter) => matchesActiveFilter(user, filter))
+    )
+  }
+
+  return result
+}
+
+const ROLE_BADGE_BASE = "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none"
+
+const SYSTEM_ROLE_BADGE: Record<string, { className: string; labelKey: string }> = {
+  OWNER: {
+    className: "bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400",
+    labelKey: 'sweep.settings.team.roles.owner',
+  },
+  ADMIN: {
+    className: "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400",
+    labelKey: 'sweep.settings.team.roles.admin',
+  },
+  MEMBER: {
+    className: "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400",
+    labelKey: 'sweep.settings.team.roles.member',
+  },
+  VIEWER: {
+    className: "bg-gray-50 text-gray-700 dark:bg-background/30 dark:text-muted-foreground",
+    labelKey: 'sweep.settings.team.roles.viewer',
+  },
+}
+
+const FALLBACK_ROLE_CLASS = "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
+
+function MemberRoleBadge({
+  user,
+  customRoleNameById,
+}: {
+  user: TeamMember
+  customRoleNameById: Record<string, string>
+}) {
+  const t = useTranslations()
+  // Custom role wins if assigned (workspaceRoleId is the
+  // source of truth — `workspaceRole` is just the system
+  // tier we keep around for Clerk sync + fallback).
+  const customRoleName = user.workspaceRoleId
+    ? customRoleNameById[user.workspaceRoleId]
+    : undefined
+  if (customRoleName) {
+    return (
+      <span className={cn(ROLE_BADGE_BASE, "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400")}>
+        {customRoleName}
+      </span>
+    )
+  }
+  const systemRole = user.workspaceRole ? SYSTEM_ROLE_BADGE[user.workspaceRole] : undefined
+  const fallbackLabelKey = user.role === "ADMIN"
+    ? 'sweep.settings.team.roles.admin'
+    : 'sweep.settings.team.roles.member'
+  return (
+    <span className={cn(ROLE_BADGE_BASE, systemRole?.className ?? FALLBACK_ROLE_CLASS)}>
+      {t(systemRole?.labelKey ?? fallbackLabelKey)}
+    </span>
+  )
+}
+
 interface TeamSectionProps {
   users: TeamMember[]
   currentPage: number
@@ -168,42 +262,10 @@ export function TeamSection({
   const isAtLimit = memberLimit !== null && memberLimit !== undefined && totalCount >= memberLimit
   const isNearLimit = memberLimit !== null && memberLimit !== undefined && totalCount >= memberLimit * 0.8 && !isAtLimit
   const usagePercentage = memberLimit ? Math.min(100, (totalCount / memberLimit) * 100) : 0
-  const filteredUsers = React.useMemo(() => {
-    let result = users
-
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter(
-        (user) =>
-          user.name?.toLowerCase().includes(query) ||
-          user.email.toLowerCase().includes(query)
-      )
-    }
-
-    if (activeFilters.length > 0) {
-      result = result.filter((user) =>
-        activeFilters.every((filter) => {
-          if (!filter.value) return true
-          switch (filter.field) {
-            case 'role': {
-              const role = user.workspaceRole || (user.role === 'ADMIN' ? 'ADMIN' : 'MEMBER')
-              const match = role === filter.value
-              return filter.operator === 'is not' ? !match : match
-            }
-            case 'status': {
-              const status = (user.status === 'PENDING' || (!user.auth0Id && user.status !== 'ACTIVE')) ? 'PENDING' : (user.status || 'ACTIVE')
-              const match = status === filter.value
-              return filter.operator === 'is not' ? !match : match
-            }
-            default:
-              return true
-          }
-        })
-      )
-    }
-
-    return result
-  }, [users, searchQuery, activeFilters])
+  const filteredUsers = React.useMemo(
+    () => filterMembers(users, searchQuery, activeFilters),
+    [users, searchQuery, activeFilters],
+  )
 
   const handleResendInvite = async (user: TeamMember) => {
     try {
@@ -380,7 +442,7 @@ export function TeamSection({
                       {user.workspaceRole === "OWNER" && (
                         <Crown className="h-3.5 w-3.5 text-amber-500" />
                       )}
-                      {(user.status === "PENDING" || (!user.auth0Id && user.status !== "ACTIVE")) && (
+                      {isPendingMember(user) && (
                         <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-yellow-50 text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-400">
                           {t('sweep.settings.team.status.pending')}
                         </span>
@@ -400,49 +462,7 @@ export function TeamSection({
                   {user.email}
                 </TableCell>
                 <TableCell className="py-2">
-                  {(() => {
-                    // Custom role wins if assigned (workspaceRoleId is the
-                    // source of truth — `workspaceRole` is just the system
-                    // tier we keep around for Clerk sync + fallback).
-                    const customRoleName = user.workspaceRoleId
-                      ? customRoleNameById[user.workspaceRoleId]
-                      : undefined
-                    if (customRoleName) {
-                      return (
-                        <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-                          {customRoleName}
-                        </span>
-                      )
-                    }
-                    return (
-                      <span
-                        className={cn(
-                          "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none",
-                          user.workspaceRole === "OWNER"
-                            ? "bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400"
-                            : user.workspaceRole === "ADMIN"
-                            ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400"
-                            : user.workspaceRole === "MEMBER"
-                            ? "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
-                            : user.workspaceRole === "VIEWER"
-                            ? "bg-gray-50 text-gray-700 dark:bg-background/30 dark:text-muted-foreground"
-                            : "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
-                        )}
-                      >
-                        {user.workspaceRole === "OWNER"
-                          ? t('sweep.settings.team.roles.owner')
-                          : user.workspaceRole === "ADMIN"
-                          ? t('sweep.settings.team.roles.admin')
-                          : user.workspaceRole === "MEMBER"
-                          ? t('sweep.settings.team.roles.member')
-                          : user.workspaceRole === "VIEWER"
-                          ? t('sweep.settings.team.roles.viewer')
-                          : user.role === "ADMIN"
-                          ? t('sweep.settings.team.roles.admin')
-                          : t('sweep.settings.team.roles.member')}
-                      </span>
-                    )
-                  })()}
+                  <MemberRoleBadge user={user} customRoleNameById={customRoleNameById} />
                 </TableCell>
                 <TableCell className="py-2">
                   <div className="flex flex-wrap gap-1">
@@ -476,7 +496,7 @@ export function TeamSection({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
-                        {(user.status === "PENDING" || (!user.auth0Id && user.status !== "ACTIVE")) && (
+                        {isPendingMember(user) && (
                           <>
                             <DropdownMenuItem
                               onClick={() => handleResendInvite(user)}
@@ -492,7 +512,7 @@ export function TeamSection({
                           onClick={() => onDeleteMember(user.id)}
                         >
                           <Trash2 className="h-4 w-4 mr-0.5" />
-                          {user.status === "PENDING" || (!user.auth0Id && user.status !== "ACTIVE") ? t('sweep.settings.team.cancelInvite') : t('sweep.settings.team.removeMember')}
+                          {isPendingMember(user) ? t('sweep.settings.team.cancelInvite') : t('sweep.settings.team.removeMember')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

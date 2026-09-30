@@ -900,35 +900,61 @@ export function TeamMemberDetailsPanel({
   return (
     <div
       key={skipAnimation ? 'static' : animationKey}
-      className={cn(
-        'fixed bg-background z-50 flex flex-col',
-        !isExpanded && 'border-l border-border',
-        'inset-0',
-        'md:inset-auto md:right-0 md:top-[60px] md:bottom-0',
-        // While the width is animating, clip any content that would otherwise
-        // bleed past the shrinking/growing panel edge. Lifted again at rest so
-        // popovers, dropdowns and tooltips that anchor to the panel edge don't
-        // get clipped in steady state.
-        animatingWidth && 'overflow-hidden',
-        // Mount-time entrance only. We deliberately do NOT toggle this class
-        // based on `animatingWidth` — toggling it off and back on while the
-        // element stays mounted causes the CSS animation to *replay* (slide in
-        // from translateX(100%) and fade from 50% opacity), which on a
-        // maximize/minimize click reads as the panel disappearing and then
-        // reappearing. The `key` on this element (animationKey) is what
-        // controls when the entrance should play; once the element has
-        // mounted, this class is inert.
-        !skipAnimation && 'animate-in slide-in-from-right fade-in-50 duration-300',
-      )}
-      style={{
-        width: isExpanded ? 'calc(100% - 64px - 16rem)' : width,
-        transition: animatingWidth ? `width ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}` : undefined,
-        willChange: animatingWidth ? 'width' : undefined,
-      }}
+      className={getPanelClassName({ isExpanded, animatingWidth, skipAnimation })}
+      style={getPanelStyle({ isExpanded, animatingWidth, width, transition: `width ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}` })}
     >
       {panelContent}
     </div>
   );
+}
+
+function getPanelClassName({
+  isExpanded,
+  animatingWidth,
+  skipAnimation,
+}: {
+  isExpanded: boolean;
+  animatingWidth: boolean;
+  skipAnimation?: boolean;
+}): string {
+  return cn(
+    'fixed bg-background z-50 flex flex-col',
+    !isExpanded && 'border-l border-border',
+    'inset-0',
+    'md:inset-auto md:right-0 md:top-[60px] md:bottom-0',
+    // While the width is animating, clip any content that would otherwise
+    // bleed past the shrinking/growing panel edge. Lifted again at rest so
+    // popovers, dropdowns and tooltips that anchor to the panel edge don't
+    // get clipped in steady state.
+    animatingWidth && 'overflow-hidden',
+    // Mount-time entrance only. We deliberately do NOT toggle this class
+    // based on `animatingWidth` — toggling it off and back on while the
+    // element stays mounted causes the CSS animation to *replay* (slide in
+    // from translateX(100%) and fade from 50% opacity), which on a
+    // maximize/minimize click reads as the panel disappearing and then
+    // reappearing. The `key` on this element (animationKey) is what
+    // controls when the entrance should play; once the element has
+    // mounted, this class is inert.
+    !skipAnimation && 'animate-in slide-in-from-right fade-in-50 duration-300',
+  );
+}
+
+function getPanelStyle({
+  isExpanded,
+  animatingWidth,
+  width,
+  transition,
+}: {
+  isExpanded: boolean;
+  animatingWidth: boolean;
+  width: string;
+  transition: string;
+}): React.CSSProperties {
+  return {
+    width: isExpanded ? 'calc(100% - 64px - 16rem)' : width,
+    transition: animatingWidth ? transition : undefined,
+    willChange: animatingWidth ? 'width' : undefined,
+  };
 }
 
 /* ─── Expanded Panel Content ──────────────────────────────────────────── */
