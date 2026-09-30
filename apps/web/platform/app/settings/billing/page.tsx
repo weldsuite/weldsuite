@@ -75,19 +75,11 @@ interface WorkspaceSettingsData extends WorkspaceBusinessSettings {
   };
 }
 
-function PhoneNumbersTable({
-  phoneNumbers,
-  phoneSubscription,
-  formatCurrency,
-}: Readonly<{
-  phoneNumbers: VoipPhoneNumber[];
-  phoneSubscription: PhoneSubscriptionResponse | null;
-  formatCurrency: (amount: number, currency?: string) => string;
-}>) {
-  const { t } = useI18n();
-  const st = useTranslations();
-  const ts = t.settings.billing;
-  const columns: ColumnDef<VoipPhoneNumber>[] = useMemo(() => [
+type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
+type Translate = ReturnType<typeof useTranslations>;
+
+function buildPhoneColumns(ts: BillingStrings, st: Translate): ColumnDef<VoipPhoneNumber>[] {
+  return [
     {
       accessorKey: 'phoneNumber',
       header: ts.number,
@@ -142,7 +134,22 @@ function PhoneNumbersTable({
         </Badge>
       ),
     },
-  ], [ts, st]);
+  ];
+}
+
+function PhoneNumbersTable({
+  phoneNumbers,
+  phoneSubscription,
+  formatCurrency,
+}: Readonly<{
+  phoneNumbers: VoipPhoneNumber[];
+  phoneSubscription: PhoneSubscriptionResponse | null;
+  formatCurrency: (amount: number, currency?: string) => string;
+}>) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  const ts = t.settings.billing;
+  const columns = useMemo(() => buildPhoneColumns(ts, st), [ts, st]);
 
   const table = useReactTable({
     data: phoneNumbers,
@@ -205,10 +212,17 @@ function PhoneNumbersTable({
   );
 }
 
-function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
-  const { t } = useI18n();
-  const ts = t.settings.billing;
-  const columns: ColumnDef<HostDomain>[] = useMemo(() => [
+const DOMAIN_STATUS_CLASSES: Record<string, string> = {
+  active: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800',
+  expired: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800',
+};
+
+function domainStatusClass(status: string | null | undefined): string {
+  return (status && DOMAIN_STATUS_CLASSES[status]) || '';
+}
+
+function buildDomainColumns(ts: BillingStrings, statusLabel: string): ColumnDef<HostDomain>[] {
+  return [
     {
       accessorKey: 'fullDomain',
       header: ts.domain,
@@ -242,7 +256,7 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
     },
     {
       id: 'status',
-      header: t.common.labels.status,
+      header: statusLabel,
       cell: ({ row }) => {
         const domain = row.original;
         const isExpiringSoon = domain.expiresAt && new Date(domain.expiresAt) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -255,13 +269,7 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
             )}
             <Badge
               variant="outline"
-              className={`rounded-sm text-xs capitalize ${
-                domain.status === 'active'
-                  ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800'
-                  : domain.status === 'expired'
-                  ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
-                  : ''
-              }`}
+              className={`rounded-sm text-xs capitalize ${domainStatusClass(domain.status)}`}
             >
               {domain.status}
             </Badge>
@@ -269,7 +277,13 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
         );
       },
     },
-  ], [ts, t]);
+  ];
+}
+
+function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
+  const { t } = useI18n();
+  const ts = t.settings.billing;
+  const columns = useMemo(() => buildDomainColumns(ts, t.common.labels.status), [ts, t.common.labels.status]);
 
   const table = useReactTable({
     data: domains,
@@ -319,8 +333,6 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
     </div>
   );
 }
-
-type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
 
 // Seat and credit usage figures derived from the subscription and plan limits.
 function computeBillingUsage(
