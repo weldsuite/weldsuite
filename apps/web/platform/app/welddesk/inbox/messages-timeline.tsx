@@ -171,11 +171,10 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
           const isNote = message.kind === 'note';
           const isBot = message.authorType === 'bot';
           const member = members.find((m) => m.userId === message.authorId);
-          const label = isVisitor
-            ? visitorLabel
-            : isBot
-              ? t.pane.ai
-              : member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
+          let label: string;
+          if (isVisitor) label = visitorLabel;
+          else if (isBot) label = t.pane.ai;
+          else label = member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
           const grouped = !showDay && sameGroup(prev, message);
           const next = messages[index + 1];
           const lastInGroup = !next || !sameGroup(message, next);

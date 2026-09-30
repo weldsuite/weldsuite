@@ -19,10 +19,18 @@ const RESERVED_INBOX_SEGMENTS = new Set([
   'team',
 ]);
 
+type InboxChannel = 'phone' | 'email' | 'messenger';
+
+const CHANNEL_BY_SEGMENT: Record<string, InboxChannel | undefined> = {
+  phone: 'phone',
+  email: 'email',
+  chat: 'messenger',
+};
+
 interface InboxPageProps {
   conversationId?: string;
   /** When set, list is filtered to this desk channel (e.g. phone inbox). */
-  channel?: 'phone' | 'email' | 'messenger';
+  channel?: InboxChannel;
 }
 
 export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>) {
@@ -39,19 +47,13 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
 
   const channelFromSegment =
     conversationId && RESERVED_INBOX_SEGMENTS.has(conversationId)
-      ? conversationId === 'phone'
-        ? ('phone' as const)
-        : conversationId === 'email'
-          ? ('email' as const)
-          : conversationId === 'chat'
-            ? ('messenger' as const)
-            : undefined
+      ? CHANNEL_BY_SEGMENT[conversationId]
       : undefined;
 
   const activeChannel = channel ?? channelFromSegment;
 
   const filters = useMemo(() => {
-    const base: { assigneeId?: string; unassigned?: boolean; channel?: typeof activeChannel } = {};
+    const base: { assigneeId?: string; unassigned?: boolean; channel?: InboxChannel } = {};
     if (assigneeFilter === 'mine' && user?.id) base.assigneeId = user.id;
     if (assigneeFilter === 'unassigned') base.unassigned = true;
     if (activeChannel) base.channel = activeChannel;

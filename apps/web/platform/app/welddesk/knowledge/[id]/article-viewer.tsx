@@ -55,14 +55,28 @@ const HEADINGS = [
   { prefix: '### ', Tag: 'h3', className: 'text-2xl font-semibold mb-3 mt-4' },
 ] as const;
 
+/**
+ * Pair each string with a stable React key built from its text plus how many
+ * times that text has already appeared (duplicates stay unique without using
+ * the array position as the key).
+ */
+function keyByOccurrence(items: readonly string[]): { item: string; key: string; index: number }[] {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const n = (seen.get(item) ?? 0) + 1;
+    seen.set(item, n);
+    return { item, key: `${item}#${n}`, index };
+  });
+}
+
 function flushList(state: MarkdownState) {
   if (state.listItems.length === 0) return;
   if (state.listType) {
     const { Tag, className } = LIST_STYLES[state.listType];
     state.elements.push(
       <Tag key={state.elements.length} className={className}>
-        {state.listItems.map((item, i) => (
-          <li key={i}>{item}</li>
+        {keyByOccurrence(state.listItems).map(({ item, key }) => (
+          <li key={key}>{item}</li>
         ))}
       </Tag>
     );
