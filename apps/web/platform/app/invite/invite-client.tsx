@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from '@/lib/router';
 import { useSignIn, useSignUp, useOrganizationList, useAuth, useClerk } from '@clerk/clerk-react';
 import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
@@ -144,6 +144,10 @@ function PasswordRequiredView({
   onSubmit,
 }: Readonly<PasswordRequiredViewProps>) {
   const t = getTranslations('common');
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    passwordInputRef.current?.focus();
+  }, []);
   return (
     <div className="min-h-screen bg-white flex relative">
       <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
@@ -184,13 +188,13 @@ function PasswordRequiredView({
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[17px] w-[17px] text-gray-400 pointer-events-none" />
                 <input
                   id="password"
+                  ref={passwordInputRef}
                   type="password"
                   placeholder={t.invite.passwordPlaceholder}
                   value={password}
                   onChange={(e) => onPasswordChange(e.target.value)}
                   required
                   disabled={isLoading}
-                  autoFocus
                   className="w-full pl-10 h-[40px] border border-gray-300 bg-white text-gray-900 text-[14px] rounded-lg focus:border-gray-400 focus:outline-none"
                 />
               </div>
@@ -487,6 +491,7 @@ interface InvitePreviewProps {
 // Default invite preview UI (for non-ticket invitations)
 function InvitePreview({ orgName, email, isAuthenticated, isLoading, onAccept }: Readonly<InvitePreviewProps>) {
   const t = getTranslations('common');
+  const acceptLabel = isAuthenticated ? t.invite.acceptInvitation : t.invite.acceptAndCreateAccount;
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="max-w-md w-full mx-4">
@@ -545,10 +550,8 @@ function InvitePreview({ orgName, email, isAuthenticated, isLoading, onAccept }:
                 <Loader2 className="w-5 h-5 animate-spin" />
                 {t.invite.processing}
               </span>
-            ) : isAuthenticated ? (
-              t.invite.acceptInvitation
             ) : (
-              t.invite.acceptAndCreateAccount
+              acceptLabel
             )}
           </Button>
 

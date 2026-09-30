@@ -113,6 +113,15 @@ export function OnboardingSetup({
   const [appSelection, setAppSelection] = useState<string[] | null>(null);
   const selectedApps = appSelection ?? pickDefaultApps(visibleApps);
   const selectedRegion = NEON_REGIONS.find((item) => item.id === region);
+  const emptyAppsHint = visibleApps.length === 0 ? copy.appsLater : copy.appsRequired;
+  const selectedAppsTemplate =
+    selectedApps.length === 1
+      ? t.onboarding.appsStep.appsSelected
+      : t.onboarding.appsStep.appsSelectedPlural;
+  const appsSummary =
+    selectedApps.length > 0
+      ? selectedAppsTemplate.replace("{count}", String(selectedApps.length))
+      : emptyAppsHint;
   // An empty catalog is a load failure, not a choice — don't trap the user
   // behind a requirement they have no way to satisfy.
   const validation = (
@@ -252,14 +261,7 @@ export function OnboardingSetup({
                   <span>
                     {copy.chooseApps}
                     <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                      {selectedApps.length > 0
-                        ? (selectedApps.length === 1
-                            ? t.onboarding.appsStep.appsSelected
-                            : t.onboarding.appsStep.appsSelectedPlural
-                          ).replace("{count}", String(selectedApps.length))
-                        : visibleApps.length === 0
-                          ? copy.appsLater
-                          : copy.appsRequired}
+                      {appsSummary}
                     </span>
                   </span>
                   <ChevronDown
