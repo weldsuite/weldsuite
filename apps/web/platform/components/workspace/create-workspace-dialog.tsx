@@ -17,6 +17,54 @@ import { setPendingOrganization } from '@/lib/pending-organization';
 /** Apps pre-selected when the dialog opens. Mirrors the backend default set. */
 const DEFAULT_SELECTED_APPS = ['crm', 'projects', 'task', 'mail', 'helpdesk'];
 
+type ProvisioningStepStatus = 'pending' | 'in_progress' | 'completed';
+
+interface ProvisioningStep {
+  id: string;
+  label: string;
+  status: ProvisioningStepStatus;
+}
+
+const STEP_ROW_CLASSES: Record<ProvisioningStepStatus, string> = {
+  completed: 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800',
+  in_progress: 'bg-muted/50 border-border',
+  pending: 'bg-background border-border/50',
+};
+
+const STEP_ICON_CLASSES: Record<ProvisioningStepStatus, string> = {
+  completed: 'text-green-600 dark:text-green-400',
+  in_progress: 'text-muted-foreground',
+  pending: 'text-muted-foreground/40',
+};
+
+const STEP_LABEL_CLASSES: Record<ProvisioningStepStatus, string> = {
+  completed: 'text-green-700 dark:text-green-300 font-medium',
+  in_progress: 'text-foreground font-medium',
+  pending: 'text-muted-foreground/60',
+};
+
+function ProvisioningStepIcon({ step }: { step: ProvisioningStep }) {
+  if (step.status === 'completed') return <CheckCircle2 className="h-4 w-4" />;
+  if (step.status === 'in_progress') return <Loader2 className="h-4 w-4 animate-spin" />;
+  if (step.id === 'database') return <Database className="h-4 w-4" />;
+  if (step.id === 'security') return <Shield className="h-4 w-4" />;
+  return <Sparkles className="h-4 w-4" />;
+}
+
+function ProvisioningStepRow({ step, doneLabel }: { step: ProvisioningStep; doneLabel: string }) {
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-lg border ${STEP_ROW_CLASSES[step.status]}`}>
+      <div className={`flex-shrink-0 ${STEP_ICON_CLASSES[step.status]}`}>
+        <ProvisioningStepIcon step={step} />
+      </div>
+      <span className={`flex-1 text-sm ${STEP_LABEL_CLASSES[step.status]}`}>{step.label}</span>
+      {step.status === 'completed' && (
+        <span className="text-xs text-green-600 dark:text-green-400 font-medium">{doneLabel}</span>
+      )}
+    </div>
+  );
+}
+
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -80,9 +128,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     setSelectedApps(DEFAULT_SELECTED_APPS.filter((code) => availableCodes.has(code)));
   }, [visibleApps]);
 
-  const [provisioningSteps, setProvisioningSteps] = React.useState<
-    { id: string; label: string; status: 'pending' | 'in_progress' | 'completed' }[]
-  >([
+  const [provisioningSteps, setProvisioningSteps] = React.useState<ProvisioningStep[]>([
     { id: 'database', label: t('sweep.shared.creatingYourDatabase'), status: 'in_progress' },
     { id: 'security', label: t('sweep.shared.settingUpSecurity'), status: 'pending' },
     { id: 'features', label: t('sweep.shared.enablingFeatures'), status: 'pending' },
@@ -254,54 +300,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
             </DialogHeader>
             <div className="space-y-2 py-4">
               {provisioningSteps.map((step) => (
-                <div
-                  key={step.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border ${
-                    step.status === 'completed'
-                      ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800'
-                      : step.status === 'in_progress'
-                      ? 'bg-muted/50 border-border'
-                      : 'bg-background border-border/50'
-                  }`}
-                >
-                  <div
-                    className={`flex-shrink-0 ${
-                      step.status === 'completed'
-                        ? 'text-green-600 dark:text-green-400'
-                        : step.status === 'in_progress'
-                        ? 'text-muted-foreground'
-                        : 'text-muted-foreground/40'
-                    }`}
-                  >
-                    {step.status === 'completed' ? (
-                      <CheckCircle2 className="h-4 w-4" />
-                    ) : step.status === 'in_progress' ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : step.id === 'database' ? (
-                      <Database className="h-4 w-4" />
-                    ) : step.id === 'security' ? (
-                      <Shield className="h-4 w-4" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )}
-                  </div>
-                  <span
-                    className={`flex-1 text-sm ${
-                      step.status === 'completed'
-                        ? 'text-green-700 dark:text-green-300 font-medium'
-                        : step.status === 'in_progress'
-                        ? 'text-foreground font-medium'
-                        : 'text-muted-foreground/60'
-                    }`}
-                  >
-                    {step.label}
-                  </span>
-                  {step.status === 'completed' && (
-                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                      {t('sweep.shared.done')}
-                    </span>
-                  )}
-                </div>
+                <ProvisioningStepRow key={step.id} step={step} doneLabel={t('sweep.shared.done')} />
               ))}
               {provisioningPollCount >= 90 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center dark:bg-amber-950/30 dark:border-amber-800">

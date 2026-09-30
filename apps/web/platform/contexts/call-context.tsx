@@ -92,6 +92,23 @@ interface CallContextType {
 
 const CallContext = createContext<CallContextType | null>(null);
 
+/** Maps a getUserMedia failure to a user-facing message. */
+function getMicrophoneErrorMessage(error: Error): string {
+  switch (error.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'Microphone access denied. Please allow microphone permissions in your browser settings and reload the page.';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No microphone found. Please connect a microphone and try again.';
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'Microphone is in use by another application. Please close other apps using the microphone.';
+    default:
+      return `Microphone error: ${error.message}`;
+  }
+}
+
 export function CallProvider({ children }: { children: ReactNode }) {
   const [isDialerOpen, setIsDialerOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -233,27 +250,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const error = e as Error;
         console.error('[Telnyx] Microphone access failed:', error.name, error.message);
 
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          return {
-            success: false,
-            error: 'Microphone access denied. Please allow microphone permissions in your browser settings and reload the page.',
-          };
-        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-          return {
-            success: false,
-            error: 'No microphone found. Please connect a microphone and try again.',
-          };
-        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-          return {
-            success: false,
-            error: 'Microphone is in use by another application. Please close other apps using the microphone.',
-          };
-        } else {
-          return {
-            success: false,
-            error: `Microphone error: ${error.message}`,
-          };
-        }
+        return { success: false, error: getMicrophoneErrorMessage(error) };
       }
     }
 
