@@ -138,6 +138,12 @@ function fileKeyBase(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+// Stable module-level ref callback: focuses the element once when it mounts
+// (the inline reply box is opened by an explicit user action).
+function focusOnMount(el: HTMLTextAreaElement | null): void {
+  el?.focus();
+}
+
 interface CollapsedListRowHeaderProps {
   email: EmailMessage;
   formatEmailDate: (date: Date | undefined) => string;
@@ -1313,6 +1319,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
           "fixed inset-0 z-40",
           isAiPanelFullscreen ? "bg-black/50 pointer-events-auto animate-fade-in" : "bg-transparent pointer-events-none"
         )} 
+        role="presentation"
         onClick={() => isAiPanelFullscreen && setIsAiPanelFullscreen(false)} 
       />
 
@@ -3321,7 +3328,7 @@ export function InboxClient({
                     className="w-full h-32 text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.body}
                     onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
-                    autoFocus
+                    ref={focusOnMount}
                   />
                   {attachedFiles.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
@@ -3515,6 +3522,7 @@ export function InboxClient({
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50 z-50"
+            role="presentation"
             onClick={() => setShowPreferencesModal(false)}
           />
           
@@ -3680,6 +3688,7 @@ export function InboxClient({
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50 z-50"
+            role="presentation"
             onClick={() => setShowAppDetailModal(false)}
           />
           
