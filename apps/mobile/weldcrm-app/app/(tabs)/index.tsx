@@ -120,12 +120,12 @@ export default function CrmDashboard() {
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
-          {statCards.map((stat, index) => {
+          {statCards.map((stat) => {
             const Icon = stat.icon;
             const TrendIcon = stat.isPositive ? TrendingUp : TrendingDown;
             const trendColor = stat.isPositive ? '#10B981' : '#EF4444';
             return (
-              <View key={index} style={[styles.statCard, { backgroundColor: colors.background }]}>
+              <View key={stat.title} style={[styles.statCard, { backgroundColor: colors.background }]}>
                 <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
                   <Icon size={24} color={stat.color} strokeWidth={2} />
                 </View>
