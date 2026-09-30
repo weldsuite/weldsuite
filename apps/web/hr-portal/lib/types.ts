@@ -406,13 +406,11 @@ export interface ClientTeamMemberDetail {
   }>;
 }
 
-export type ClientRequestStatus = string;
-
 export interface ClientRequestTicket {
   id: string;
   ticketNumber: string;
   subject: string;
-  status: ClientRequestStatus;
+  status: string;
   createdAt: string;
   updatedAt?: string;
 }

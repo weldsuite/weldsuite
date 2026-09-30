@@ -17,7 +17,8 @@ export function sessionCookieName(): string {
 }
 
 export function portalUpstream(slug: string, path: string): string {
-  const base = `${appApiUrl()}/public/hr-portal${path.startsWith('/') ? path : `/${path}`}`;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const base = `${appApiUrl()}/public/hr-portal${normalizedPath}`;
   const url = new URL(base);
   if (slug) url.searchParams.set('slug', slug);
   return url.toString();
