@@ -25,6 +25,12 @@ interface RawTeamAgent {
   availability?: string;
 }
 
+function getAgentStatus(agent: { isOnline?: boolean; availability?: string }): 'online' | 'away' | 'offline' {
+  if (agent.isOnline) return 'online';
+  if (agent.availability === 'away') return 'away';
+  return 'offline';
+}
+
 export default function TeamDetailPage() {
   const { t } = useI18n();
   const params = useParams();
@@ -76,7 +82,7 @@ export default function TeamDetailPage() {
     activeTickets: agent.currentActiveTickets || 0,
     resolvedToday: agent.ticketsResolved || 0,
     avgResponseTime: formatResponseTime(agent.averageResponseTime),
-    status: (agent.isOnline ? 'online' : agent.availability === 'away' ? 'away' : 'offline') as 'online' | 'away' | 'offline',
+    status: getAgentStatus(agent),
   }));
 
   return (
