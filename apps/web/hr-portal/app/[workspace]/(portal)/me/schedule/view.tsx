@@ -25,6 +25,68 @@ export default function ScheduleView() {
   // range loads, instead of suspending the whole page.
   const updating = from !== deferredFrom || to !== deferredTo;
 
+  const renderBody = () => {
+    if (loading) return <LoadingState />;
+    if (error || !data) return <ErrorState onRetry={refetch} />;
+    return (
+      <div className={`space-y-6 transition-opacity ${updating ? 'opacity-60' : ''}`} aria-busy={updating}>
+        <Card>
+          <h2 className="font-medium text-gray-900 mb-3">{dict.schedule.upcomingShifts}</h2>
+          {data.shifts.length === 0 ? (
+            <EmptyState message={dict.schedule.noShifts} />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {data.shifts.map((s) => (
+                <li key={s.id} className="py-2 flex justify-between text-sm">
+                  <span className="text-gray-700">
+                    {formatDateTime(s.startsAt, locale, timeZone)} – {formatDateTime(s.endsAt, locale, timeZone)}
+                  </span>
+                  <span className="text-gray-500">{s.companyName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="font-medium text-gray-900 mb-3">{dict.schedule.attendanceRecords}</h2>
+          {data.records.length === 0 ? (
+            <EmptyState message={dict.schedule.noRecords} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-100">
+                    <th className="py-2 pr-3 font-medium">{dict.schedule.date}</th>
+                    <th className="py-2 pr-3 font-medium">{dict.schedule.worked}</th>
+                    <th className="py-2 pr-3 font-medium">{dict.schedule.late}</th>
+                    <th className="py-2 font-medium">{dict.schedule.status}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.records.map((r) => (
+                    <tr key={r.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-2 pr-3 text-gray-700">{formatDate(r.date, locale, timeZone)}</td>
+                      <td className="py-2 pr-3 text-gray-700">
+                        {r.workedMinutes !== null ? format(dict.schedule.minutes, { minutes: r.workedMinutes }) : dict.common.none}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-700">
+                        {r.lateMinutes ? format(dict.schedule.minutes, { minutes: r.lateMinutes }) : dict.common.none}
+                      </td>
+                      <td className="py-2">
+                        <Badge tone={r.approved ? 'positive' : 'warning'}>{r.approved ? dict.schedule.approved : dict.schedule.pending}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader title={dict.schedule.title} />
@@ -45,67 +107,7 @@ export default function ScheduleView() {
         </div>
       </Card>
 
-      {loading ? (
-        <LoadingState />
-      ) : error || !data ? (
-        <ErrorState onRetry={refetch} />
-      ) : (
-        <div className={`space-y-6 transition-opacity ${updating ? 'opacity-60' : ''}`} aria-busy={updating}>
-          <Card>
-            <h2 className="font-medium text-gray-900 mb-3">{dict.schedule.upcomingShifts}</h2>
-            {data.shifts.length === 0 ? (
-              <EmptyState message={dict.schedule.noShifts} />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {data.shifts.map((s) => (
-                  <li key={s.id} className="py-2 flex justify-between text-sm">
-                    <span className="text-gray-700">
-                      {formatDateTime(s.startsAt, locale, timeZone)} – {formatDateTime(s.endsAt, locale, timeZone)}
-                    </span>
-                    <span className="text-gray-500">{s.companyName}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card>
-            <h2 className="font-medium text-gray-900 mb-3">{dict.schedule.attendanceRecords}</h2>
-            {data.records.length === 0 ? (
-              <EmptyState message={dict.schedule.noRecords} />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b border-gray-100">
-                      <th className="py-2 pr-3 font-medium">{dict.schedule.date}</th>
-                      <th className="py-2 pr-3 font-medium">{dict.schedule.worked}</th>
-                      <th className="py-2 pr-3 font-medium">{dict.schedule.late}</th>
-                      <th className="py-2 font-medium">{dict.schedule.status}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.records.map((r) => (
-                      <tr key={r.id} className="border-b border-gray-50 last:border-0">
-                        <td className="py-2 pr-3 text-gray-700">{formatDate(r.date, locale, timeZone)}</td>
-                        <td className="py-2 pr-3 text-gray-700">
-                          {r.workedMinutes !== null ? format(dict.schedule.minutes, { minutes: r.workedMinutes }) : dict.common.none}
-                        </td>
-                        <td className="py-2 pr-3 text-gray-700">
-                          {r.lateMinutes ? format(dict.schedule.minutes, { minutes: r.lateMinutes }) : dict.common.none}
-                        </td>
-                        <td className="py-2">
-                          <Badge tone={r.approved ? 'positive' : 'warning'}>{r.approved ? dict.schedule.approved : dict.schedule.pending}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </div>
-      )}
+      {renderBody()}
     </div>
   );
 }

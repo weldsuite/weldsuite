@@ -41,6 +41,27 @@ export default function ClientRequestsView() {
     }
   }
 
+  const renderHistory = () => {
+    if (loading) return <LoadingState />;
+    if (error || !data) return <ErrorState onRetry={refetch} />;
+    if (data.length === 0) return <EmptyState message={dict.client.requests.empty} />;
+    return (
+      <ul className="divide-y divide-gray-100">
+        {data.map((ticket) => (
+          <li key={ticket.id} className="py-3 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-gray-900">{ticket.subject}</p>
+              <p className="text-xs text-gray-500">
+                {ticket.ticketNumber} · {formatDate(ticket.createdAt, locale, timeZone)}
+              </p>
+            </div>
+            <Badge tone="neutral">{ticket.status}</Badge>
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
   if (confirmed) {
     return (
       <div className="space-y-6">
@@ -95,27 +116,7 @@ export default function ClientRequestsView() {
 
       <Card>
         <h2 className="font-medium text-gray-900 mb-3">{dict.client.requests.history}</h2>
-        {loading ? (
-          <LoadingState />
-        ) : error || !data ? (
-          <ErrorState onRetry={refetch} />
-        ) : data.length === 0 ? (
-          <EmptyState message={dict.client.requests.empty} />
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {data.map((ticket) => (
-              <li key={ticket.id} className="py-3 flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{ticket.subject}</p>
-                  <p className="text-xs text-gray-500">
-                    {ticket.ticketNumber} · {formatDate(ticket.createdAt, locale, timeZone)}
-                  </p>
-                </div>
-                <Badge tone="neutral">{ticket.status}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
+        {renderHistory()}
       </Card>
     </div>
   );
