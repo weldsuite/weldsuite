@@ -227,7 +227,7 @@
     .welcome p { font-size: 15px; color: var(--subtle); line-height: 22px; }
     .field {
       width: 100%; height: 44px; border: 1px solid #e5e7eb; border-radius: 8px;
-      padding: 0 16px; color: #9ca3af; font-size: 16px;
+      padding: 0 16px; color: #6b7280; font-size: 16px;
       display: flex; align-items: center; margin-bottom: 14px; background: #fff;
     }
     .field.pw { justify-content: space-between; }
@@ -321,7 +321,8 @@
       <div class="home-bar"></div>`;
 
     function projRow(name, code, meta, pct, color, st) {
-      const label = st === 'active' ? 'Active' : st === 'planning' ? 'Planning' : st === 'hold' ? 'On hold' : 'Completed';
+      const labels = { active: 'Active', planning: 'Planning', hold: 'On hold' };
+      const label = labels[st] ?? 'Completed';
       return `<div class="row">
         <div class="swatch" style="background:${color}"></div>
         <div class="main"><div class="t">${name}</div><div class="u">${code}</div><div class="m">${meta}</div></div>
@@ -330,7 +331,8 @@
     }
 
     function taskRow(title, project, due, st, overdue) {
-      const label = st === 'progress' ? 'In progress' : st === 'review' ? 'In review' : st === 'todo' ? 'To do' : 'Done';
+      const labels = { progress: 'In progress', review: 'In review', todo: 'To do' };
+      const label = labels[st] ?? 'Done';
       return `<div class="row">
         <div class="tile">${I.check}</div>
         <div class="main"><div class="t">${title}</div><div class="u">${project}</div><div class="m${overdue?' overdue':''}">${due}</div></div>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -19,21 +19,21 @@ function resolveTaskDeepLink(data: Record<string, unknown> | undefined): {
 } | null {
   if (!data) return null;
 
-  const projectId =
-    typeof data.projectId === 'string' && data.projectId
-      ? data.projectId
-      : typeof data.actionUrl === 'string'
-        ? data.actionUrl.match(/\/weldflow\/project\/([^/?#]+)/)?.[1]
-        : undefined;
+  let projectId: string | undefined;
+  if (typeof data.projectId === 'string' && data.projectId) {
+    projectId = data.projectId;
+  } else if (typeof data.actionUrl === 'string') {
+    projectId = data.actionUrl.match(/\/weldflow\/project\/([^/?#]+)/)?.[1];
+  }
 
   if (!projectId || !/^[A-Za-z0-9_-]+$/.test(projectId)) return null;
 
-  const taskId =
-    typeof data.taskId === 'string' && data.taskId
-      ? data.taskId
-      : typeof data.entityId === 'string' && data.entityType === 'task'
-        ? data.entityId
-        : undefined;
+  let taskId: string | undefined;
+  if (typeof data.taskId === 'string' && data.taskId) {
+    taskId = data.taskId;
+  } else if (typeof data.entityId === 'string' && data.entityType === 'task') {
+    taskId = data.entityId;
+  }
 
   if (taskId && !/^[A-Za-z0-9_-]+$/.test(taskId)) {
     return { projectId };
@@ -130,7 +130,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const registerPushToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
+    const nativeTokenType = Platform.OS === 'android' ? 'fcm' : 'apns';
+    const tokenType = isExpoToken ? 'expo' : nativeTokenType;
     try {
       await appApi.pushTokens.register({
         token,
@@ -147,7 +148,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
   }, []);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -164,12 +165,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [registerPushToken]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
   const refreshBadgeCount = useCallback(async () => {
     try {
@@ -292,18 +293,29 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [user, organizationId, registerPushToken, refreshBadgeCount, router]);
 
+  const contextValue = useMemo(
+    () => ({
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+    }),
+    [
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+    ],
+  );
+
   return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        isConnected,
-        isPermissionGranted,
-        requestPermissions,
-        openNotificationSettings,
-        refreshBadgeCount,
-        unregisterDevice,
-      }}
-    >
+    <NotificationContext.Provider value={contextValue}>
       {children}
     </NotificationContext.Provider>
   );
