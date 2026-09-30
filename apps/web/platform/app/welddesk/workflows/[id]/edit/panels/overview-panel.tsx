@@ -185,7 +185,9 @@ export function OverviewPanel({
         <p className="text-xs text-muted-foreground mb-3">{op.helpfulResources}</p>
         <div className="grid grid-cols-2 gap-2">
           <a
-            href="#"
+            href="https://help.weldsuite.org"
+            target="_blank"
+            rel="noopener noreferrer"
             className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors"
           >
             <p className="text-sm font-medium mb-1">{op.documentation}</p>
