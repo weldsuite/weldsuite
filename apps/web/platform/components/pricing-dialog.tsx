@@ -108,6 +108,614 @@ interface PricingDialogProps {
   };
 }
 
+// Format a price in cents as EUR (checkout summary currency)
+const formatCurrency = (cents: number) => {
+  return new Intl.NumberFormat('nl-NL', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(cents / 100);
+};
+
+type CheckoutCycle = 'monthly' | 'annually';
+
+interface CheckoutPrices {
+  pricePerSeat: number;
+  seatsTotal: number;
+  creditsPrice: number;
+  creditsPriceMonthly: number;
+  subtotal: number;
+  isAnnual: boolean;
+  annualPricePerSeat: number;
+  monthlyPricePerSeat: number;
+}
+
+// Calculate checkout prices
+const computeCheckoutPrices = (
+  plan: Billing.BillingPlan,
+  billingCycle: CheckoutCycle,
+  seatCount: number,
+  emailCredits: number,
+): CheckoutPrices => {
+  const isAnnual = billingCycle === 'annually';
+  const monthlyPricePerSeat = plan.monthlyPrice;
+  const annualPricePerSeat = plan.yearlyPrice || Math.round(plan.monthlyPrice * 10);
+  const pricePerSeat = isAnnual ? annualPricePerSeat : monthlyPricePerSeat;
+
+  // Calculate email price based on plan
+  const creditsPriceMonthly = getEmailPrice(plan.name, emailCredits);
+  const creditsPriceAnnual = creditsPriceMonthly * 12;
+  const creditsPrice = isAnnual ? creditsPriceAnnual : creditsPriceMonthly;
+
+  const seatsTotal = pricePerSeat * seatCount;
+  const subtotal = seatsTotal + creditsPrice;
+
+  return {
+    pricePerSeat,
+    seatsTotal,
+    creditsPrice,
+    creditsPriceMonthly,
+    subtotal,
+    isAnnual,
+    annualPricePerSeat,
+    monthlyPricePerSeat,
+  };
+};
+
+interface CheckoutViewProps {
+  plan: Billing.BillingPlan;
+  prices: CheckoutPrices;
+  billingCycle: CheckoutCycle;
+  onBillingCycleChange: (cycle: CheckoutCycle) => void;
+  seatCount: number;
+  onSeatCountChange: (count: number) => void;
+  emailCredits: number;
+  onEmailCreditsChange: (credits: number) => void;
+  /** True while a plan change / checkout redirect is in flight. */
+  processing: boolean;
+  onBack: () => void;
+  onClose: () => void;
+  onCheckout: () => void;
+}
+
+function CheckoutView({
+  plan,
+  prices,
+  billingCycle,
+  onBillingCycleChange,
+  seatCount,
+  onSeatCountChange,
+  emailCredits,
+  onEmailCreditsChange,
+  processing,
+  onBack,
+  onClose,
+  onCheckout,
+}: CheckoutViewProps) {
+  return (
+    /* Checkout View */
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center px-4 h-[55px] border-b shrink-0">
+        <Button variant="ghost" size="icon" className="h-7 w-7 mr-2" onClick={onBack}>
+          <ChevronLeft className="h-4 w-4 translate-y-px" />
+        </Button>
+        <h2 className="text-base font-semibold flex-1">Change summary</h2>
+        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onClose}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left side - Configuration */}
+        <ScrollArea className="flex-1">
+          <div className="px-6 pt-4 pb-6 space-y-6">
+            {/* Plan header */}
+            <div>
+              <h3 className="text-sm font-semibold leading-none">Upgrade to {plan.name}</h3>
+              <Button
+                type="button"
+                variant="link"
+                className="text-xs text-muted-foreground underline hover:text-foreground transition-colors leading-none mt-0.5 h-auto p-0"
+                onClick={onBack}
+              >
+                Change plan
+              </Button>
+            </div>
+
+            <CheckoutBillingPeriod
+              prices={prices}
+              billingCycle={billingCycle}
+              onBillingCycleChange={onBillingCycleChange}
+            />
+            <CheckoutSeats plan={plan} seatCount={seatCount} onSeatCountChange={onSeatCountChange} />
+            <CheckoutEmails
+              plan={plan}
+              prices={prices}
+              emailCredits={emailCredits}
+              onEmailCreditsChange={onEmailCreditsChange}
+            />
+          </div>
+        </ScrollArea>
+
+        <CheckoutSummary
+          plan={plan}
+          prices={prices}
+          seatCount={seatCount}
+          emailCredits={emailCredits}
+          processing={processing}
+          onCheckout={onCheckout}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CheckoutBillingPeriod({
+  prices,
+  billingCycle,
+  onBillingCycleChange,
+}: Pick<CheckoutViewProps, 'prices' | 'billingCycle' | 'onBillingCycleChange'>) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm text-muted-foreground">Billing period</Label>
+      <Select value={billingCycle} onValueChange={(v) => onBillingCycleChange(v as 'monthly' | 'annually')}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="annually">
+            <div className="flex items-center gap-2">
+              <span>Annually - {formatCurrency(prices.annualPricePerSeat / 12)} / user / month</span>
+              <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">Save 17%</Badge>
+            </div>
+          </SelectItem>
+          <SelectItem value="monthly">
+            Monthly - {formatCurrency(prices.monthlyPricePerSeat)} / user / month
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function CheckoutSeats({
+  plan,
+  seatCount,
+  onSeatCountChange,
+}: Pick<CheckoutViewProps, 'plan' | 'seatCount' | 'onSeatCountChange'>) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm text-muted-foreground">Seats</Label>
+      <div className="flex items-center justify-between px-4 py-3 border rounded-lg">
+        <div>
+          <p className="text-sm font-medium">Seats</p>
+          <p className="text-sm text-muted-foreground">
+            {plan.maxMembers != null
+              ? `Up to ${plan.maxMembers} seats on ${plan.name}`
+              : 'Purchase additional seats to add more users'}
+          </p>
+        </div>
+        <div className="flex items-center border rounded-md overflow-hidden">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={() => onSeatCountChange(Math.max(1, seatCount - 1))}
+            disabled={seatCount <= 1}
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <span className="w-8 text-center text-sm font-medium">{seatCount}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={() => onSeatCountChange(plan.maxMembers != null ? Math.min(plan.maxMembers, seatCount + 1) : seatCount + 1)}
+            disabled={plan.maxMembers != null && seatCount >= plan.maxMembers}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutEmails({
+  plan,
+  prices,
+  emailCredits,
+  onEmailCreditsChange,
+}: Pick<CheckoutViewProps, 'plan' | 'prices' | 'emailCredits' | 'onEmailCreditsChange'>) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm text-muted-foreground">Monthly Emails</Label>
+      <div className="p-4 border rounded-lg space-y-3">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Extra monthly emails</p>
+            <span className="text-sm font-medium">
+              {prices.creditsPriceMonthly > 0 ? `${formatCurrency(prices.creditsPriceMonthly)}/ month` : 'Included'}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {plan.emailsPerMonth?.toLocaleString() || '1000'} included on {plan.name}
+            {emailCredits > 0 && <span className="text-blue-600"> + {(emailCredits / 1000).toFixed(0)}k/ month</span>}
+          </p>
+        </div>
+
+        {/* Slider */}
+        <div className="space-y-2 pt-2">
+          <Slider
+            value={[EMAIL_CREDIT_OPTIONS.findIndex(o => o.value === emailCredits)]}
+            min={0}
+            max={EMAIL_CREDIT_OPTIONS.length - 1}
+            step={1}
+            onValueChange={(values) => {
+              onEmailCreditsChange(EMAIL_CREDIT_OPTIONS[values[0]].value);
+            }}
+          />
+          <div className="relative h-5 mt-1 mx-[10px]">
+            {EMAIL_CREDIT_OPTIONS.map((option, index) => {
+              const totalStops = EMAIL_CREDIT_OPTIONS.length - 1;
+              const position = (index / totalStops) * 100;
+
+              return (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onEmailCreditsChange(option.value)}
+                  className={cn(
+                    "absolute text-xs transition-colors whitespace-nowrap -translate-x-1/2 h-auto p-0",
+                    emailCredits === option.value
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  style={{ left: `${position}%` }}
+                >
+                  {option.label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutSummary({
+  plan,
+  prices,
+  seatCount,
+  emailCredits,
+  processing,
+  onCheckout,
+}: Pick<
+  CheckoutViewProps,
+  'plan' | 'prices' | 'seatCount' | 'emailCredits' | 'processing' | 'onCheckout'
+>) {
+  return (
+    <div className="w-[344px] border-l bg-muted/30 p-6 flex flex-col">
+      <div className="flex-1 space-y-4">
+        {/* Seats line item */}
+        <div className="flex justify-between text-sm">
+          <div>
+            <p>{seatCount} seat{seatCount !== 1 ? 's' : ''} &times; {plan.name}</p>
+            <p className="text-muted-foreground text-xs">
+              (at {formatCurrency(prices.pricePerSeat)} / {prices.isAnnual ? 'year' : 'month'})
+            </p>
+          </div>
+          <span className="font-medium">{formatCurrency(prices.seatsTotal)}</span>
+        </div>
+
+        {/* Email credits line item */}
+        {emailCredits > 0 && (
+          <div className="flex justify-between text-sm">
+            <div>
+              <p>Extra emails {(emailCredits / 1000).toFixed(0)}k</p>
+              <p className="text-muted-foreground text-xs">
+                (at {formatCurrency(prices.creditsPrice)} / {prices.isAnnual ? 'year' : 'month'})
+              </p>
+            </div>
+            <span className="font-medium">{formatCurrency(prices.creditsPrice)}</span>
+          </div>
+        )}
+
+        <Separator />
+
+        <div className="flex justify-between text-sm">
+          <span>Subtotal</span>
+          <span className="font-medium">{formatCurrency(prices.subtotal)}</span>
+        </div>
+
+        <div className="flex justify-between text-sm">
+          <span>Tax</span>
+          <span className="text-muted-foreground text-xs">Calculated at checkout</span>
+        </div>
+
+        <Separator />
+
+        <div className="flex justify-between text-sm">
+          <div className="flex items-center gap-1">
+            <span>Subtotal {prices.isAnnual ? '/ year' : '/ month'}</span>
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p className="text-xs">Final price including applicable tax will be shown at checkout</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <span className="font-semibold">{formatCurrency(prices.subtotal)}</span>
+        </div>
+      </div>
+
+
+      {/* Checkout button */}
+      <Button
+        className="w-full mt-6"
+        size="lg"
+        onClick={onCheckout}
+        disabled={processing}
+      >
+        {processing ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Redirecting to checkout...
+          </>
+        ) : (
+          'Continue to checkout'
+        )}
+      </Button>
+    </div>
+  );
+}
+
+interface PlanCardProps {
+  plan: Billing.BillingPlan;
+  features: string[];
+  highlighted: boolean;
+  isCurrent: boolean;
+  isContact: boolean;
+  isAnnual: boolean;
+  /** This plan's change is being processed. */
+  isProcessing: boolean;
+  /** Any plan change transition is pending. */
+  isPending: boolean;
+  /** Show the "Processing..." state on the CTA. */
+  showProcessing: boolean;
+  buttonText: string;
+  onSelect: () => void;
+}
+
+function PlanPrice({
+  plan,
+  isContact,
+  isAnnual,
+}: Pick<PlanCardProps, 'plan' | 'isContact' | 'isAnnual'>) {
+  return (
+  <div className="mb-1">
+    <div className="flex items-center gap-2">
+      <span className="text-3xl font-semibold">
+        {isContact
+          ? 'Custom'
+          : (
+            <NumberFlow
+              value={isAnnual
+                ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
+                : plan.monthlyPrice / 100}
+              format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
+              transformTiming={{ duration: 400, easing: 'ease-out' }}
+            />
+          )}
+      </span>
+      {!isContact && plan.monthlyPrice > 0 && isAnnual && (
+        <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
+          Save 17%
+        </span>
+      )}
+    </div>
+  </div>
+  );
+}
+
+function PlanCta({
+  isContact,
+  isCurrent,
+  highlighted,
+  disabled,
+  showProcessing,
+  buttonText,
+  onSelect,
+}: Pick<PlanCardProps, 'isContact' | 'isCurrent' | 'highlighted' | 'showProcessing' | 'buttonText' | 'onSelect'> & {
+  disabled: boolean;
+}) {
+  if (isContact) {
+    return (
+      <EnterpriseContactForm
+        trigger={
+          <Button
+            variant="outline"
+            className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 bg-card border hover:bg-muted disabled:opacity-50"
+            disabled={isCurrent}
+          >
+            {isCurrent ? 'Current Plan' : 'Contact sales'}
+          </Button>
+        }
+      />
+    );
+  }
+
+  return (
+    <Button
+      variant={highlighted && !isCurrent ? 'default' : 'outline'}
+      className={`block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 disabled:opacity-50 ${
+        highlighted && !isCurrent
+          ? 'bg-foreground text-background hover:bg-foreground/90'
+          : 'bg-card border hover:bg-muted'
+      }`}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      {showProcessing ? (
+        <>
+          <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />
+          Processing...
+        </>
+      ) : (
+        buttonText
+      )}
+    </Button>
+  );
+}
+
+function PlanCard({
+  plan,
+  features,
+  highlighted,
+  isCurrent,
+  isContact,
+  isAnnual,
+  isProcessing,
+  isPending,
+  showProcessing,
+  buttonText,
+  onSelect,
+}: PlanCardProps) {
+  return (
+    <div
+      className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
+        highlighted
+          ? 'border border-blue-200 ring-4 ring-blue-50 dark:border-blue-800 dark:ring-blue-950'
+          : 'border'
+      }`}
+    >
+      {/* Plan name */}
+      <h3 className="text-base font-medium mb-[21px]">{plan.name}</h3>
+
+      <PlanPrice plan={plan} isContact={isContact} isAnnual={isAnnual} />
+
+      {/* Price subtitle */}
+      <p className="text-sm text-muted-foreground mb-1">
+        {isContact
+          ? 'Billed annually'
+          : (isAnnual ? 'Per user/month, billed annually' : 'Per user/month')}
+      </p>
+
+
+      {/* Description */}
+      {plan.description && (
+        <p className="text-sm font-medium mb-[10px]">{plan.description}</p>
+      )}
+
+      {/* Features */}
+      <div className="space-y-3 flex-1">
+        {features.map((feature, featureIndex) => (
+          <div key={featureIndex} className="flex items-start gap-2">
+            <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
+              <Check className="h-3 w-3 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">{feature}</span>
+          </div>
+        ))}
+      </div>
+
+      <PlanCta
+        isContact={isContact}
+        isCurrent={isCurrent}
+        highlighted={highlighted}
+        disabled={isCurrent || isProcessing || isPending}
+        showProcessing={showProcessing}
+        buttonText={buttonText}
+        onSelect={onSelect}
+      />
+    </div>
+  );
+}
+
+// Decorative grid lines + corner plus icons around the plans grid.
+function PlanGridDecorations({ planCount }: { planCount: number }) {
+  return (
+    <>
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block -left-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      {planCount === 4 && (
+        <>
+          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(25% - 4.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(75% + 3.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+        </>
+      )}
+      {planCount === 3 && (
+        <>
+          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(33.33% - 2px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+          <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(66.66% + 1px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+        </>
+      )}
+      {planCount === 2 && (
+        <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+      )}
+      <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block -right-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+
+      {/* Horizontal lines */}
+      <div className="absolute -top-[9px] -left-2 -right-2 h-px hidden sm:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
+      <div className="absolute -bottom-[9px] -left-2 -right-2 h-px hidden sm:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
+
+      {/* Corner plus icons */}
+      <Plus className="absolute -top-[9px] -left-2 w-3 h-3 text-border hidden sm:block -translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
+      <Plus className="absolute -top-[9px] -right-2 w-3 h-3 text-border hidden sm:block translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
+      <Plus className="absolute -bottom-[9px] -left-2 w-3 h-3 text-border hidden sm:block -translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
+      <Plus className="absolute -bottom-[9px] -right-2 w-3 h-3 text-border hidden sm:block translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
+    </>
+  );
+}
+
+function getPlanGridColsClass(planCount: number): string {
+  if (planCount === 4) return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-4';
+  if (planCount === 3) return 'grid-cols-1 sm:grid-cols-3';
+  return 'grid-cols-1 sm:grid-cols-2';
+}
+
+function FeatureHighlightBanner({
+  featureHighlight,
+  billingCycle,
+  onToggle,
+}: {
+  featureHighlight: NonNullable<PricingDialogProps['featureHighlight']>;
+  billingCycle: 'monthly' | 'yearly';
+  onToggle: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card px-5 h-[53px] flex items-center justify-between gap-3">
+      <p className="text-sm text-muted-foreground">{featureHighlight.description.split(featureHighlight.feature).map((part, i, arr) => i < arr.length - 1 ? <React.Fragment key={i}>{part}<span className="font-medium text-foreground">{featureHighlight.feature}</span></React.Fragment> : part)}</p>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-sm font-medium">{billingCycle === 'yearly' ? 'Annual' : 'Monthly'}</span>
+        {billingCycle === 'yearly' && <span className="text-sm font-medium text-green-600 -ml-1.5">(Save 17%)</span>}
+        <Button
+          variant="ghost"
+          onClick={() => onToggle()}
+          className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
+            billingCycle === 'yearly' ? 'bg-foreground' : 'bg-muted-foreground/20'
+          }`}
+        >
+          <span
+            className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
+              billingCycle === 'yearly' ? 'translate-x-3' : 'translate-x-0'
+            }`}
+          />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+
 export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: PricingDialogProps) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [allPlans, setAllPlans] = useState<Billing.BillingPlan[]>([]);
@@ -313,43 +921,19 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     return plan.id === subscription?.planId;
   };
 
-  // Calculate checkout prices
-  const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat('nl-NL', {
-      style: 'currency',
-      currency: 'EUR',
-    }).format(cents / 100);
+  const checkoutPrices = selectedPlanForCheckout
+    ? computeCheckoutPrices(
+        selectedPlanForCheckout,
+        checkoutBillingCycle,
+        checkoutSeatCount,
+        checkoutEmailCredits,
+      )
+    : null;
+
+  const backToPlans = () => {
+    setViewMode('plans');
+    setSelectedPlanForCheckout(null);
   };
-
-  const getCheckoutPrices = () => {
-    if (!selectedPlanForCheckout) return null;
-
-    const isAnnual = checkoutBillingCycle === 'annually';
-    const monthlyPricePerSeat = selectedPlanForCheckout.monthlyPrice;
-    const annualPricePerSeat = selectedPlanForCheckout.yearlyPrice || Math.round(selectedPlanForCheckout.monthlyPrice * 10);
-    const pricePerSeat = isAnnual ? annualPricePerSeat : monthlyPricePerSeat;
-
-    // Calculate email price based on plan
-    const creditsPriceMonthly = getEmailPrice(selectedPlanForCheckout.name, checkoutEmailCredits);
-    const creditsPriceAnnual = creditsPriceMonthly * 12;
-    const creditsPrice = isAnnual ? creditsPriceAnnual : creditsPriceMonthly;
-
-    const seatsTotal = pricePerSeat * checkoutSeatCount;
-    const subtotal = seatsTotal + creditsPrice;
-
-    return {
-      pricePerSeat,
-      seatsTotal,
-      creditsPrice,
-      creditsPriceMonthly,
-      subtotal,
-      isAnnual,
-      annualPricePerSeat,
-      monthlyPricePerSeat,
-    };
-  };
-
-  const checkoutPrices = getCheckoutPrices();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -361,236 +945,20 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
         showCloseButton={viewMode !== 'checkout'}
       >
         {viewMode === 'checkout' && selectedPlanForCheckout && checkoutPrices ? (
-          /* Checkout View */
-          <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="flex items-center px-4 h-[55px] border-b shrink-0">
-              <Button variant="ghost" size="icon" className="h-7 w-7 mr-2" onClick={() => { setViewMode('plans'); setSelectedPlanForCheckout(null); }}>
-                <ChevronLeft className="h-4 w-4 translate-y-px" />
-              </Button>
-              <h2 className="text-base font-semibold flex-1">Change summary</h2>
-              <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => onOpenChange(false)}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-
-            <div className="flex flex-1 min-h-0">
-              {/* Left side - Configuration */}
-              <ScrollArea className="flex-1">
-                <div className="px-6 pt-4 pb-6 space-y-6">
-                  {/* Plan header */}
-                  <div>
-                    <h3 className="text-sm font-semibold leading-none">Upgrade to {selectedPlanForCheckout.name}</h3>
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="text-xs text-muted-foreground underline hover:text-foreground transition-colors leading-none mt-0.5 h-auto p-0"
-                      onClick={() => {
-                        setViewMode('plans');
-                        setSelectedPlanForCheckout(null);
-                      }}
-                    >
-                      Change plan
-                    </Button>
-                  </div>
-
-                  {/* Billing period */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Billing period</Label>
-                    <Select value={checkoutBillingCycle} onValueChange={(v) => setCheckoutBillingCycle(v as 'monthly' | 'annually')}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="annually">
-                          <div className="flex items-center gap-2">
-                            <span>Annually - {formatCurrency(checkoutPrices.annualPricePerSeat / 12)} / user / month</span>
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">Save 17%</Badge>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="monthly">
-                          Monthly - {formatCurrency(checkoutPrices.monthlyPricePerSeat)} / user / month
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Seats */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Seats</Label>
-                    <div className="flex items-center justify-between px-4 py-3 border rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium">Seats</p>
-                        <p className="text-sm text-muted-foreground">
-                          {selectedPlanForCheckout.maxMembers != null
-                            ? `Up to ${selectedPlanForCheckout.maxMembers} seats on ${selectedPlanForCheckout.name}`
-                            : 'Purchase additional seats to add more users'}
-                        </p>
-                      </div>
-                      <div className="flex items-center border rounded-md overflow-hidden">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                          onClick={() => setCheckoutSeatCount(Math.max(1, checkoutSeatCount - 1))}
-                          disabled={checkoutSeatCount <= 1}
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <span className="w-8 text-center text-sm font-medium">{checkoutSeatCount}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                          onClick={() => setCheckoutSeatCount(selectedPlanForCheckout.maxMembers != null ? Math.min(selectedPlanForCheckout.maxMembers, checkoutSeatCount + 1) : checkoutSeatCount + 1)}
-                          disabled={selectedPlanForCheckout.maxMembers != null && checkoutSeatCount >= selectedPlanForCheckout.maxMembers}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Monthly Emails */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Monthly Emails</Label>
-                    <div className="p-4 border rounded-lg space-y-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium">Extra monthly emails</p>
-                          <span className="text-sm font-medium">
-                            {checkoutPrices.creditsPriceMonthly > 0 ? `${formatCurrency(checkoutPrices.creditsPriceMonthly)}/ month` : 'Included'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {selectedPlanForCheckout.emailsPerMonth?.toLocaleString() || '1000'} included on {selectedPlanForCheckout.name}
-                          {checkoutEmailCredits > 0 && <span className="text-blue-600"> + {(checkoutEmailCredits / 1000).toFixed(0)}k/ month</span>}
-                        </p>
-                      </div>
-
-                      {/* Slider */}
-                      <div className="space-y-2 pt-2">
-                        <Slider
-                          value={[EMAIL_CREDIT_OPTIONS.findIndex(o => o.value === checkoutEmailCredits)]}
-                          min={0}
-                          max={EMAIL_CREDIT_OPTIONS.length - 1}
-                          step={1}
-                          onValueChange={(values) => {
-                            setCheckoutEmailCredits(EMAIL_CREDIT_OPTIONS[values[0]].value);
-                          }}
-                        />
-                        <div className="relative h-5 mt-1 mx-[10px]">
-                          {EMAIL_CREDIT_OPTIONS.map((option, index) => {
-                            const totalStops = EMAIL_CREDIT_OPTIONS.length - 1;
-                            const position = (index / totalStops) * 100;
-
-                            return (
-                              <Button
-                                key={option.value}
-                                type="button"
-                                variant="ghost"
-                                onClick={() => setCheckoutEmailCredits(option.value)}
-                                className={cn(
-                                  "absolute text-xs transition-colors whitespace-nowrap -translate-x-1/2 h-auto p-0",
-                                  checkoutEmailCredits === option.value
-                                    ? "text-primary font-medium"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                                style={{ left: `${position}%` }}
-                              >
-                                {option.label}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </ScrollArea>
-
-              {/* Right side - Summary */}
-              <div className="w-[344px] border-l bg-muted/30 p-6 flex flex-col">
-                <div className="flex-1 space-y-4">
-                  {/* Seats line item */}
-                  <div className="flex justify-between text-sm">
-                    <div>
-                      <p>{checkoutSeatCount} seat{checkoutSeatCount !== 1 ? 's' : ''} &times; {selectedPlanForCheckout.name}</p>
-                      <p className="text-muted-foreground text-xs">
-                        (at {formatCurrency(checkoutPrices.pricePerSeat)} / {checkoutPrices.isAnnual ? 'year' : 'month'})
-                      </p>
-                    </div>
-                    <span className="font-medium">{formatCurrency(checkoutPrices.seatsTotal)}</span>
-                  </div>
-
-                  {/* Email credits line item */}
-                  {checkoutEmailCredits > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <div>
-                        <p>Extra emails {(checkoutEmailCredits / 1000).toFixed(0)}k</p>
-                        <p className="text-muted-foreground text-xs">
-                          (at {formatCurrency(checkoutPrices.creditsPrice)} / {checkoutPrices.isAnnual ? 'year' : 'month'})
-                        </p>
-                      </div>
-                      <span className="font-medium">{formatCurrency(checkoutPrices.creditsPrice)}</span>
-                    </div>
-                  )}
-
-                  <Separator />
-
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal</span>
-                    <span className="font-medium">{formatCurrency(checkoutPrices.subtotal)}</span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span>Tax</span>
-                    <span className="text-muted-foreground text-xs">Calculated at checkout</span>
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex justify-between text-sm">
-                    <div className="flex items-center gap-1">
-                      <span>Subtotal {checkoutPrices.isAnnual ? '/ year' : '/ month'}</span>
-                      <TooltipProvider delayDuration={0}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            <p className="text-xs">Final price including applicable tax will be shown at checkout</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <span className="font-semibold">{formatCurrency(checkoutPrices.subtotal)}</span>
-                  </div>
-                </div>
-
-
-                {/* Checkout button */}
-                <Button
-                  className="w-full mt-6"
-                  size="lg"
-                  onClick={handleCheckout}
-                  disabled={!!processingPlanId || isPending}
-                >
-                  {processingPlanId || isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Redirecting to checkout...
-                    </>
-                  ) : (
-                    'Continue to checkout'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
+          <CheckoutView
+            plan={selectedPlanForCheckout}
+            prices={checkoutPrices}
+            billingCycle={checkoutBillingCycle}
+            onBillingCycleChange={setCheckoutBillingCycle}
+            seatCount={checkoutSeatCount}
+            onSeatCountChange={setCheckoutSeatCount}
+            emailCredits={checkoutEmailCredits}
+            onEmailCreditsChange={setCheckoutEmailCredits}
+            processing={!!processingPlanId || isPending}
+            onBack={backToPlans}
+            onClose={() => onOpenChange(false)}
+            onCheckout={handleCheckout}
+          />
         ) : (
           /* Plans View */
           <ScrollArea className="max-h-[90vh]">
@@ -612,26 +980,11 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
           <>
             {/* Feature highlight banner with billing toggle */}
             {featureHighlight && (
-              <div className="rounded-2xl border bg-card px-5 h-[53px] flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">{featureHighlight.description.split(featureHighlight.feature).map((part, i, arr) => i < arr.length - 1 ? <React.Fragment key={i}>{part}<span className="font-medium text-foreground">{featureHighlight.feature}</span></React.Fragment> : part)}</p>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-sm font-medium">{billingCycle === 'yearly' ? 'Annual' : 'Monthly'}</span>
-                  {billingCycle === 'yearly' && <span className="text-sm font-medium text-green-600 -ml-1.5">(Save 17%)</span>}
-                  <Button
-                    variant="ghost"
-                    onClick={() => setBillingCycle(billingCycle === 'yearly' ? 'monthly' : 'yearly')}
-                    className={`relative w-8 h-5 rounded-full transition-colors p-0 ${
-                      billingCycle === 'yearly' ? 'bg-foreground' : 'bg-muted-foreground/20'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 left-1 w-3 h-3 bg-background rounded-full transition-transform ${
-                        billingCycle === 'yearly' ? 'translate-x-3' : 'translate-x-0'
-                      }`}
-                    />
-                  </Button>
-                </div>
-              </div>
+              <FeatureHighlightBanner
+                featureHighlight={featureHighlight}
+                billingCycle={billingCycle}
+                onToggle={() => setBillingCycle(billingCycle === 'yearly' ? 'monthly' : 'yearly')}
+              />
             )}
 
             {/* Error message */}
@@ -659,145 +1012,27 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
 
             {/* Plans Grid with decorative lines */}
             <div className="relative overflow-visible mt-[17px]">
-              {/* Vertical lines between packages */}
-              <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block -left-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-              {displayPlans.length === 4 && (
-                <>
-                  <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(25% - 4.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-                  <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-                  <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(75% + 3.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-                </>
-              )}
-              {displayPlans.length === 3 && (
-                <>
-                  <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(33.33% - 2px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-                  <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(66.66% + 1px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-                </>
-              )}
-              {displayPlans.length === 2 && (
-                <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block bg-border/50" style={{ left: 'calc(50% - 0.5px)', maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
-              )}
-              <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block -right-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
+              <PlanGridDecorations planCount={displayPlans.length} />
 
-              {/* Horizontal lines */}
-              <div className="absolute -top-[9px] -left-2 -right-2 h-px hidden sm:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
-              <div className="absolute -bottom-[9px] -left-2 -right-2 h-px hidden sm:block bg-border/50" style={{ maskImage: 'linear-gradient(to right, transparent, black 2%, black 98%, transparent)' }} />
-
-              {/* Corner plus icons */}
-              <Plus className="absolute -top-[9px] -left-2 w-3 h-3 text-border hidden sm:block -translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
-              <Plus className="absolute -top-[9px] -right-2 w-3 h-3 text-border hidden sm:block translate-x-[calc(50%-0.5px)] -translate-y-1/2 z-10" strokeWidth={3.5} />
-              <Plus className="absolute -bottom-[9px] -left-2 w-3 h-3 text-border hidden sm:block -translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
-              <Plus className="absolute -bottom-[9px] -right-2 w-3 h-3 text-border hidden sm:block translate-x-[calc(50%-0.5px)] translate-y-[calc(50%-0.5px)] z-10" strokeWidth={3.5} />
-
-              <div className={cn(
-                'grid gap-4',
-                displayPlans.length === 4 ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-4' :
-                displayPlans.length === 3 ? 'grid-cols-1 sm:grid-cols-3' :
-                'grid-cols-1 sm:grid-cols-2'
-              )}>
+              <div className={cn('grid gap-4', getPlanGridColsClass(displayPlans.length))}>
               {displayPlans.map((plan) => {
                 const isProcessing = processingPlanId === plan.id;
-                const features = getPlanFeatures(plan);
-                const highlighted = isPlanHighlighted(plan);
-                const isCurrent = isPlanCurrent(plan);
-                const isAnnual = billingCycle === 'yearly';
 
                 return (
-                  <div
+                  <PlanCard
                     key={plan.id}
-                    className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
-                      highlighted
-                        ? 'border border-blue-200 ring-4 ring-blue-50 dark:border-blue-800 dark:ring-blue-950'
-                        : 'border'
-                    }`}
-                  >
-                    {/* Plan name */}
-                    <h3 className="text-base font-medium mb-[21px]">{plan.name}</h3>
-
-                    {/* Price */}
-                    <div className="mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-3xl font-semibold">
-                          {isContactPlan(plan)
-                            ? 'Custom'
-                            : (
-                              <NumberFlow
-                                value={isAnnual
-                                  ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
-                                  : plan.monthlyPrice / 100}
-                                format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
-                                transformTiming={{ duration: 400, easing: 'ease-out' }}
-                              />
-                            )}
-                        </span>
-                        {!isContactPlan(plan) && plan.monthlyPrice > 0 && isAnnual && (
-                          <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
-                            Save 17%
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Price subtitle */}
-                    <p className="text-sm text-muted-foreground mb-1">
-                      {isContactPlan(plan)
-                        ? 'Billed annually'
-                        : (isAnnual ? 'Per user/month, billed annually' : 'Per user/month')}
-                    </p>
-
-
-                    {/* Description */}
-                    {plan.description && (
-                      <p className="text-sm font-medium mb-[10px]">{plan.description}</p>
-                    )}
-
-                    {/* Features */}
-                    <div className="space-y-3 flex-1">
-                      {features.map((feature, featureIndex) => (
-                        <div key={featureIndex} className="flex items-start gap-2">
-                          <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
-                            <Check className="h-3 w-3 text-muted-foreground" />
-                          </div>
-                          <span className="text-sm text-muted-foreground">{feature}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* CTA Button */}
-                    {isContactPlan(plan) ? (
-                      <EnterpriseContactForm
-                        trigger={
-                          <Button
-                            variant="outline"
-                            className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 bg-card border hover:bg-muted disabled:opacity-50"
-                            disabled={isCurrent}
-                          >
-                            {isCurrent ? 'Current Plan' : 'Contact sales'}
-                          </Button>
-                        }
-                      />
-                    ) : (
-                      <Button
-                        variant={highlighted && !isCurrent ? 'default' : 'outline'}
-                        className={`block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 disabled:opacity-50 ${
-                          highlighted && !isCurrent
-                            ? 'bg-foreground text-background hover:bg-foreground/90'
-                            : 'bg-card border hover:bg-muted'
-                        }`}
-                        disabled={isCurrent || isProcessing || isPending}
-                        onClick={() => handleSelectPlan(plan)}
-                      >
-                        {isProcessing || (isPending && processingPlanId === plan.id) ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />
-                            Processing...
-                          </>
-                        ) : (
-                          getButtonText(plan)
-                        )}
-                      </Button>
-                    )}
-                  </div>
+                    plan={plan}
+                    features={getPlanFeatures(plan)}
+                    highlighted={isPlanHighlighted(plan)}
+                    isCurrent={isPlanCurrent(plan)}
+                    isContact={isContactPlan(plan)}
+                    isAnnual={billingCycle === 'yearly'}
+                    isProcessing={isProcessing}
+                    isPending={isPending}
+                    showProcessing={isProcessing || (isPending && processingPlanId === plan.id)}
+                    buttonText={getButtonText(plan)}
+                    onSelect={() => handleSelectPlan(plan)}
+                  />
                 );
               })}
               </div>

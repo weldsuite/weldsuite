@@ -59,6 +59,49 @@ export interface PropertyRowProps {
   accessory?: React.ReactNode;
 }
 
+const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
+  text: 'text',
+  email: 'email',
+  phone: 'tel',
+  url: 'url',
+  address: 'text',
+};
+
+const LINK_CLASS = 'text-primary hover:underline truncate inline-block max-w-full';
+
+/** Read-mode render of a non-empty value: link for url/email/phone, plain text otherwise. */
+function renderReadValue(type: PropertyRowType, value: string) {
+  if (type === 'url') {
+    return (
+      <a
+        href={value.startsWith('http') ? value : `https://${value}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={LINK_CLASS}
+        onClick={(e) => {
+          // Prevent the row from entering edit mode when the user
+          // clicks the link itself.
+          e.stopPropagation();
+        }}
+      >
+        {value}
+      </a>
+    );
+  }
+  if (type === 'email' || type === 'phone') {
+    return (
+      <a
+        href={`${type === 'email' ? 'mailto' : 'tel'}:${value}`}
+        className={LINK_CLASS}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {value}
+      </a>
+    );
+  }
+  return <span className="text-foreground break-words">{value}</span>;
+}
+
 export function PropertyRow({
   icon: Icon,
   label,
@@ -104,20 +147,49 @@ export function PropertyRow({
   };
 
   const handleKey = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && type !== 'address') {
-      e.preventDefault();
-      commit();
-    } else if (e.key === 'Escape') {
+    if (e.key === 'Escape') {
       e.preventDefault();
       cancel();
-    } else if (e.key === 'Enter' && type === 'address' && (e.metaKey || e.ctrlKey)) {
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    // Address is multiline: Enter inserts a newline, Cmd/Ctrl+Enter commits.
+    if (type !== 'address' || e.metaKey || e.ctrlKey) {
       e.preventDefault();
       commit();
     }
   };
 
-  const isEmpty = !value;
   const fallback = placeholder ?? t('sweep.entities.setFieldPlaceholder', { label });
+
+  const renderEditor = () =>
+    type === 'address' ? (
+      <textarea
+        ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKey}
+        rows={3}
+        className="w-full bg-transparent border-0 p-0 text-sm outline-none resize-none"
+      />
+    ) : (
+      <input
+        ref={inputRef as React.RefObject<HTMLInputElement>}
+        type={INPUT_TYPE_BY_ROW_TYPE[type]}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKey}
+        className="w-full bg-transparent border-0 p-0 text-sm outline-none"
+      />
+    );
+
+  const renderReadMode = () => {
+    if (!value) return <span className="text-muted-foreground/70">{fallback}</span>;
+    if (renderValue) return renderValue(value);
+    return renderReadValue(type, value);
+  };
 
   return (
     <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
@@ -146,65 +218,7 @@ export function PropertyRow({
           if (e.key === 'Enter') setIsEditing(true);
         }}
       >
-        {isEditing ? (
-          type === 'address' ? (
-            <textarea
-              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={handleKey}
-              rows={3}
-              className="w-full bg-transparent border-0 p-0 text-sm outline-none resize-none"
-            />
-          ) : (
-            <input
-              ref={inputRef as React.RefObject<HTMLInputElement>}
-              type={type === 'email' ? 'email' : type === 'phone' ? 'tel' : type === 'url' ? 'url' : 'text'}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={handleKey}
-              className="w-full bg-transparent border-0 p-0 text-sm outline-none"
-            />
-          )
-        ) : isEmpty ? (
-          <span className="text-muted-foreground/70">{fallback}</span>
-        ) : renderValue ? (
-          renderValue(value)
-        ) : type === 'url' && value ? (
-          <a
-            href={value.startsWith('http') ? value : `https://${value}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline truncate inline-block max-w-full"
-            onClick={(e) => {
-              // Prevent the row from entering edit mode when the user
-              // clicks the link itself.
-              e.stopPropagation();
-            }}
-          >
-            {value}
-          </a>
-        ) : type === 'email' && value ? (
-          <a
-            href={`mailto:${value}`}
-            className="text-primary hover:underline truncate inline-block max-w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {value}
-          </a>
-        ) : type === 'phone' && value ? (
-          <a
-            href={`tel:${value}`}
-            className="text-primary hover:underline truncate inline-block max-w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {value}
-          </a>
-        ) : (
-          <span className="text-foreground break-words">{value}</span>
-        )}
+        {isEditing ? renderEditor() : renderReadMode()}
       </div>
       <div className="text-muted-foreground">
         {!isEditing && accessory ? accessory : null}
