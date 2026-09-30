@@ -23,6 +23,13 @@ const SEGMENT_STATUSES: Record<Segment, SocialPostStatus[]> = {
   sent: ['published', 'failed', 'cancelled'],
 };
 
+/** Empty-state headline for each segment. */
+const EMPTY_TITLES: Record<Segment, string> = {
+  scheduled: 'Nothing scheduled',
+  drafts: 'No drafts',
+  sent: 'Nothing sent yet',
+};
+
 interface QueueData {
   posts: SocialPost[];
   accounts: SocialAccount[];
@@ -115,7 +122,7 @@ export default function QueueScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<Inbox size={40} color={colors.mutedForeground} />}
-              title={segment === 'drafts' ? 'No drafts' : segment === 'sent' ? 'Nothing sent yet' : 'Nothing scheduled'}
+              title={EMPTY_TITLES[segment]}
               description="Create a post with the pencil button above."
             />
           }

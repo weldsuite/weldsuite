@@ -117,6 +117,8 @@ type ComposeAccount = ReturnType<typeof useMail>['accounts'][number];
 type ThemeColors = ReturnType<typeof useTheme>['colors'];
 type MailOutbox = ReturnType<typeof useMailOutbox>;
 type Attachment = { name: string; uri: string; type: string };
+/** An attachment in the composer, with a stable id to key its chip by. */
+type AttachedFile = Attachment & { id: string };
 type Formats = { b: boolean; i: boolean; u: boolean; l: boolean; ol: boolean };
 type SendTimeSheet = null | 'send-later' | 'schedule';
 type ContactRows = {
@@ -199,14 +201,16 @@ function buildQuotedProps(mode: ComposeMode | undefined, params: ComposePrefill)
   };
 }
 
-function getCalendarDays(calendarMonth: Date): (number | null)[] {
+type CalendarSlot = { key: string; day: number | null };
+
+function getCalendarDays(calendarMonth: Date): CalendarSlot[] {
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const days: (number | null)[] = [];
-  for (let i = 0; i < firstDay; i++) days.push(null);
-  for (let i = 1; i <= daysInMonth; i++) days.push(i);
+  const days: CalendarSlot[] = [];
+  for (let i = 0; i < firstDay; i++) days.push({ key: `empty-${i}`, day: null });
+  for (let i = 1; i <= daysInMonth; i++) days.push({ key: `day-${i}`, day: i });
   return days;
 }
 
@@ -624,16 +628,20 @@ function useRichEditor(textColor: string) {
 }
 
 function useAttachments() {
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const nextId = useRef(0);
 
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => removeAt(prev, index));
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
   };
 
   const addFrom = async (pick: () => Promise<Attachment[]>, errorLabel: string) => {
     try {
       const added = await pick();
-      if (added.length > 0) setAttachments(prev => [...prev, ...added]);
+      if (added.length > 0) {
+        const withIds = added.map(a => ({ ...a, id: `attachment-${nextId.current++}` }));
+        setAttachments(prev => [...prev, ...withIds]);
+      }
     } catch (error) {
       console.error(errorLabel, error);
     }
@@ -1016,19 +1024,19 @@ function SuggestionsList({ suggestions, activeInput, colors, onSelect, onCreate 
 }
 
 function AttachmentChips({ attachments, colors, onRemove }: Readonly<{
-  attachments: Attachment[];
+  attachments: AttachedFile[];
   colors: ThemeColors;
-  onRemove: (index: number) => void;
+  onRemove: (id: string) => void;
 }>) {
   return (
     <View style={styles.attachmentsList}>
-      {attachments.map((attachment, index) => (
-        <View key={index} style={[styles.attachmentChip, { backgroundColor: colors.card, borderColor: colors.border || colors.divider }]}>
+      {attachments.map((attachment) => (
+        <View key={attachment.id} style={[styles.attachmentChip, { backgroundColor: colors.card, borderColor: colors.border || colors.divider }]}>
           <Paperclip size={14} color={colors.muted} strokeWidth={2} />
           <Text style={[styles.attachmentName, { color: colors.text }]} numberOfLines={1}>
             {attachment.name}
           </Text>
-          <TouchableOpacity onPress={() => onRemove(index)}>
+          <TouchableOpacity onPress={() => onRemove(attachment.id)}>
             <X size={14} color={colors.muted} strokeWidth={2} />
           </TouchableOpacity>
         </View>
@@ -1041,8 +1049,8 @@ function AttachmentChips({ attachments, colors, onRemove }: Readonly<{
 function ComposeBody({ subject, onChangeSubject, attachments, onRemoveAttachment, editor, quoted, colors }: Readonly<{
   subject: string;
   onChangeSubject: (subject: string) => void;
-  attachments: Attachment[];
-  onRemoveAttachment: (index: number) => void;
+  attachments: AttachedFile[];
+  onRemoveAttachment: (id: string) => void;
   editor: ReturnType<typeof useRichEditor>;
   quoted: ReturnType<typeof buildQuotedProps>;
   colors: ThemeColors;
@@ -1289,10 +1297,10 @@ function CustomDatePickerModal({ visible, colors, calendarMonth, selectedDate, i
 
           {/* Day grid */}
           <View style={styles.calendarGrid}>
-            {getCalendarDays(calendarMonth).map((day, i) => (
+            {getCalendarDays(calendarMonth).map(({ key, day }) => (
               day === null
-                ? <View key={`empty-${i}`} style={styles.calendarDayCell} />
-                : <CalendarDayCell key={`day-${day}`} day={day} calendarMonth={calendarMonth} selectedDate={selectedDate} colors={colors} onSelect={onChangeDate} />
+                ? <View key={key} style={styles.calendarDayCell} />
+                : <CalendarDayCell key={key} day={day} calendarMonth={calendarMonth} selectedDate={selectedDate} colors={colors} onSelect={onChangeDate} />
             ))}
           </View>
 
