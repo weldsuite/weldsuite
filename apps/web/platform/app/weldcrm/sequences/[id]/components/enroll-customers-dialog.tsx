@@ -135,19 +135,67 @@ export function EnrollCustomersDialog({
         customerIds: Array.from(selectedIds),
       });
       const enrolled = result?.data?.enrolled ?? 0;
-      toast.success(
-        enrolled === 0
-          ? t('crm.enrollCustomersDialog.alreadyEnrolled')
-          : enrolled === 1
-            ? t('crm.enrollCustomersDialog.enrolledSuccess', { count: enrolled })
-            : t('crm.enrollCustomersDialog.enrolledSuccessPlural', { count: enrolled }),
-      );
+      let enrolledMessage: string;
+      if (enrolled === 0) {
+        enrolledMessage = t('crm.enrollCustomersDialog.alreadyEnrolled');
+      } else if (enrolled === 1) {
+        enrolledMessage = t('crm.enrollCustomersDialog.enrolledSuccess', { count: enrolled });
+      } else {
+        enrolledMessage = t('crm.enrollCustomersDialog.enrolledSuccessPlural', { count: enrolled });
+      }
+      toast.success(enrolledMessage);
       onComplete();
     } catch {
       toast.error(t('crm.enrollCustomersDialog.enrollFailed'));
     } finally {
       setIsEnrolling(false);
     }
+  };
+
+  const enrollButtonLabel =
+    selectedIds.size !== 1
+      ? t('crm.enrollCustomersDialog.enrollButtonPlural', { count: selectedIds.size || 0 })
+      : t('crm.enrollCustomersDialog.enrollButton', { count: selectedIds.size });
+
+  const renderCustomerList = () => {
+    if (isSearching && !hasSearched) {
+      return (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      );
+    }
+    if (customers.length === 0) {
+      return (
+        <div className="text-sm text-gray-500 text-center py-8">
+          {hasSearched ? t('crm.enrollCustomersDialog.noCustomersFound') : t('crm.enrollCustomersDialog.typeToSearch')}
+        </div>
+      );
+    }
+    return customers.map((customer) => (
+      <label
+        key={customer.id}
+        className={cn(
+          'flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50 border-b last:border-b-0 border-gray-200/70 dark:border-border',
+          selectedIds.has(customer.id) && 'bg-primary/5'
+        )}
+      >
+        <Checkbox
+          checked={selectedIds.has(customer.id)}
+          onCheckedChange={() => handleToggle(customer.id)}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+            {customer.name}
+          </p>
+          {customer.type && (
+            <p className="text-xs text-gray-500">
+              {customer.type === 'b2b' ? t('crm.enrollCustomersDialog.customerTypeCompany') : t('crm.enrollCustomersDialog.customerTypeIndividual')}
+            </p>
+          )}
+        </div>
+      </label>
+    ));
   };
 
   return (
@@ -171,40 +219,7 @@ export function EnrollCustomersDialog({
 
           {/* Customer list */}
           <div className="border rounded-md max-h-[300px] overflow-auto">
-            {isSearching && !hasSearched ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-              </div>
-            ) : customers.length === 0 ? (
-              <div className="text-sm text-gray-500 text-center py-8">
-                {hasSearched ? t('crm.enrollCustomersDialog.noCustomersFound') : t('crm.enrollCustomersDialog.typeToSearch')}
-              </div>
-            ) : (
-              customers.map((customer) => (
-                <label
-                  key={customer.id}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50 border-b last:border-b-0 border-gray-200/70 dark:border-border',
-                    selectedIds.has(customer.id) && 'bg-primary/5'
-                  )}
-                >
-                  <Checkbox
-                    checked={selectedIds.has(customer.id)}
-                    onCheckedChange={() => handleToggle(customer.id)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-                      {customer.name}
-                    </p>
-                    {customer.type && (
-                      <p className="text-xs text-gray-500">
-                        {customer.type === 'b2b' ? t('crm.enrollCustomersDialog.customerTypeCompany') : t('crm.enrollCustomersDialog.customerTypeIndividual')}
-                      </p>
-                    )}
-                  </div>
-                </label>
-              ))
-            )}
+            {renderCustomerList()}
           </div>
 
           {selectedIds.size > 0 && (
@@ -230,9 +245,7 @@ export function EnrollCustomersDialog({
                 {t('crm.enrollCustomersDialog.enrollingLabel')}
               </>
             ) : (
-              selectedIds.size !== 1
-                ? t('crm.enrollCustomersDialog.enrollButtonPlural', { count: selectedIds.size || 0 })
-                : t('crm.enrollCustomersDialog.enrollButton', { count: selectedIds.size })
+              enrollButtonLabel
             )}
           </Button>
         </DialogFooter>

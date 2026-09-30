@@ -316,46 +316,47 @@ export function PeopleTab({
               const isSelected = selectedId === enrollment.id;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={enrollment.id}
                   onClick={() => setSelectedId(enrollment.id)}
                   className={cn(
-                    'block border-b border-gray-100 dark:border-border transition-colors cursor-pointer',
+                    'block w-full text-left border-b border-gray-100 dark:border-border transition-colors cursor-pointer',
                     isSelected ? 'bg-accent' : 'hover:bg-gray-50 dark:hover:bg-secondary'
                   )}
                 >
-                  <div className="px-3 md:px-4 py-3">
-                    <div className="flex items-start gap-2.5">
+                  <span className="block px-3 md:px-4 py-3">
+                    <span className="flex items-start gap-2.5">
                       {/* Avatar */}
-                      <div className="relative flex-shrink-0 mt-[3px]">
-                        <div
+                      <span className="relative flex-shrink-0 mt-[3px]">
+                        <span
                           className="w-7 h-7 rounded-[10px] flex items-center justify-center text-white font-semibold text-xs"
                           style={{ backgroundColor: getAvatarColor(name) }}
                         >
                           {(name || '?').charAt(0).toUpperCase()}
-                        </div>
-                      </div>
+                        </span>
+                      </span>
 
                       {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
+                      <span className="block flex-1 min-w-0">
+                        <span className="flex items-center justify-between gap-2">
                           <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
                             {name}
                           </span>
                           <span className="text-[11px] text-gray-400 dark:text-muted-foreground flex-shrink-0">
                             {formatRelativeTime(enrollment.enrolledAt)}
                           </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-px">
+                        </span>
+                        <span className="flex items-center gap-1.5 mt-px">
                           <StatusIcon className={cn('h-3 w-3 flex-shrink-0', statusColor)} />
                           <span className="text-[13px] text-gray-400 dark:text-muted-foreground truncate">
                             {getStatusDescription(enrollment)}
                           </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                </button>
               );
             })
           )}
