@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef, useTransition, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
@@ -839,6 +839,28 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                 },
               } satisfies ChartConfig;
 
+              const points = chartData[chart.id];
+              let chartBody: ReactNode;
+              if (isLoadingData && !points) {
+                chartBody = (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <div className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.loadingData}</div>
+                  </div>
+                );
+              } else if (!points || points.length === 0) {
+                chartBody = (
+                  <div className="h-full w-full flex flex-col items-center justify-center">
+                    <p className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.noDataAvailable}</p>
+                  </div>
+                );
+              } else {
+                chartBody = (
+                  <ChartContainer config={dynamicChartConfig} className="h-full w-full">
+                    {renderChart(chart, points, t.helpdesk.analyticsReports.total)}
+                  </ChartContainer>
+                );
+              }
+
               return (
                 <div key={chart.id} className="h-full w-full">
                   <Card className={`relative w-full h-full flex flex-col border-gray-200/50 dark:border-border/50 shadow-none ${isDragging ? 'opacity-80' : ''}`}>
@@ -928,19 +950,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                       </div>
                     </CardHeader>
                     <CardContent className="pb-2 pt-0 flex-1 min-h-[200px] overflow-hidden">
-                      {isLoadingData && !chartData[chart.id] ? (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <div className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.loadingData}</div>
-                        </div>
-                      ) : !chartData[chart.id] || chartData[chart.id].length === 0 ? (
-                        <div className="h-full w-full flex flex-col items-center justify-center">
-                          <p className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.noDataAvailable}</p>
-                        </div>
-                      ) : (
-                        <ChartContainer config={dynamicChartConfig} className="h-full w-full">
-                          {renderChart(chart, chartData[chart.id] || [], t.helpdesk.analyticsReports.total)}
-                        </ChartContainer>
-                      )}
+                      {chartBody}
                     </CardContent>
                   </Card>
                 </div>
