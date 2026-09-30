@@ -26,7 +26,8 @@ function iconColorForAgent(agent: { id: string; name: string; isSystem: boolean 
   if (agent.isSystem) return SYSTEM_AGENT_ICON_PALETTE;
   const seed = agent.id || agent.name;
   let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  // Math.imul(x, 1) wraps to a signed 32-bit integer, like the old `| 0`.
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(Math.imul(hash, 31) + seed.charCodeAt(i), 1);
   return AGENT_ICON_PALETTES[Math.abs(hash) % AGENT_ICON_PALETTES.length];
 }
 
@@ -74,16 +75,17 @@ function makeAgentIcon(agent: { id: string; name: string; icon?: string | null; 
         </span>
       );
     }
+    const fallbackIcon = <WeldAgentIcon className={`${slot} ${colorClass}`} />;
     if (kind === 'lucide' && agent.icon && !agent.isSystem) {
       return (
         <LucideDynamicIcon
           name={agent.icon}
           className={`${slot} ${colorClass}`}
-          fallback={() => <WeldAgentIcon className={`${slot} ${colorClass}`} />}
+          fallback={() => fallbackIcon}
         />
       );
     }
-    return <WeldAgentIcon className={`${slot} ${colorClass}`} />;
+    return fallbackIcon;
   };
 }
 

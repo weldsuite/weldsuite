@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, type ReactNode } from 'react';
 import { useRouter } from '@/lib/router';
 import { useInstallApp, useUninstallApp, type AvailableApp } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
@@ -58,6 +58,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
   const uninstallApp = useUninstallApp();
 
   const overview = content.overview || t.appstore.defaultOverview;
+  const installLabel = app.isInstalled ? t.appstore.uninstall : t.appstore.install;
   const resources = [
     app.websiteUrl ? { label: t.appstore.resourceWebsite, href: app.websiteUrl, icon: Globe } : null,
     app.documentationUrl ? { label: t.appstore.resourceDocumentation, href: app.documentationUrl, icon: FileText } : null,
@@ -99,6 +100,61 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
     }
   }
 
+  let installControls: ReactNode = null;
+  if (canManage) {
+    installControls = (
+      <div className="flex flex-col items-end gap-3">
+        {!app.isInstalled && (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="assign-to-all"
+              checked={assignToAllMembers}
+              onCheckedChange={(checked) => setAssignToAllMembers(checked === true)}
+              disabled={isLoading}
+            />
+            <label
+              htmlFor="assign-to-all"
+              className="text-sm text-foreground cursor-pointer select-none"
+            >
+              {t.appstore.assignToAllMembers}
+            </label>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-56 text-xs">
+                  {t.appstore.assignToAllMembersTooltip}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )}
+        <Button
+          variant={app.isInstalled ? 'outline' : 'default'}
+          disabled={isLoading}
+          className={app.isInstalled ? 'hover:text-destructive' : ''}
+          onClick={() => {
+            if (app.isInstalled) {
+              setShowUninstallDialog(true);
+            } else {
+              handleInstall();
+            }
+          }}
+        >
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : installLabel}
+        </Button>
+      </div>
+    );
+  } else if (app.isInstalled) {
+    installControls = (
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+        <CheckCircle className="h-4 w-4" />
+        {t.appstore.installed}
+      </span>
+    );
+  }
+
   return (
     <>
       <div className="flex-1 overflow-y-auto">
@@ -135,62 +191,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
               </div>
             </div>
 
-            {/* Install Controls */}
-            {canManage ? (
-              <div className="flex flex-col items-end gap-3">
-                {!app.isInstalled && (
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="assign-to-all"
-                      checked={assignToAllMembers}
-                      onCheckedChange={(checked) => setAssignToAllMembers(checked === true)}
-                      disabled={isLoading}
-                    />
-                    <label
-                      htmlFor="assign-to-all"
-                      className="text-sm text-foreground cursor-pointer select-none"
-                    >
-                      {t.appstore.assignToAllMembers}
-                    </label>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="max-w-56 text-xs">
-                          {t.appstore.assignToAllMembersTooltip}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                )}
-                <Button
-                  variant={app.isInstalled ? 'outline' : 'default'}
-                  disabled={isLoading}
-                  className={app.isInstalled ? 'hover:text-destructive' : ''}
-                  onClick={() => {
-                    if (app.isInstalled) {
-                      setShowUninstallDialog(true);
-                    } else {
-                      handleInstall();
-                    }
-                  }}
-                >
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : app.isInstalled ? (
-                    t.appstore.uninstall
-                  ) : (
-                    t.appstore.install
-                  )}
-                </Button>
-              </div>
-            ) : app.isInstalled ? (
-              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                <CheckCircle className="h-4 w-4" />
-                {t.appstore.installed}
-              </span>
-            ) : null}
+            {installControls}
           </div>
 
           <hr className="border-border/70 mb-8" />

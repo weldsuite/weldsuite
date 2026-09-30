@@ -144,51 +144,45 @@ export function AgentsBotList() {
             return (
               <div
                 key={agent.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => router.push(`/agents/${agent.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    router.push(`/agents/${agent.id}`);
-                  }
-                }}
                 className={cn(
-                  'group w-full flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer',
+                  'group w-full flex items-start rounded-lg pr-3 text-left transition-colors',
                   selected ? 'bg-accent' : 'hover:bg-accent/50',
                 )}
               >
-                <div
-                  className={cn(
-                    'h-11 w-11 rounded-full flex items-center justify-center shrink-0',
-                    selected ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
-                  )}
+                <button
+                  type="button"
+                  onClick={() => router.push(`/agents/${agent.id}`)}
+                  className="flex min-w-0 flex-1 items-start gap-3 rounded-lg py-2.5 pl-3 text-left cursor-pointer"
                 >
-                  <Bot className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1 pt-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium truncate text-sm">{agent.name}</span>
-                    <Badge variant={statusVariant(agent.status)} className="shrink-0 text-[10px] px-1.5 py-0">
-                      {t.agents.status[agent.status as 'active' | 'paused' | 'draft']}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                    {setup
-                      ? t.agents.list.needsSetupPreview
-                      : agent.description || t.agents.list.readyPreview}
-                  </p>
-                </div>
+                  <span
+                    className={cn(
+                      'h-11 w-11 rounded-full flex items-center justify-center shrink-0',
+                      selected ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    <Bot className="h-5 w-5" />
+                  </span>
+                  <span className="block min-w-0 flex-1 pt-0.5">
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium truncate text-sm">{agent.name}</span>
+                      <Badge variant={statusVariant(agent.status)} className="shrink-0 text-[10px] px-1.5 py-0">
+                        {t.agents.status[agent.status as 'active' | 'paused' | 'draft']}
+                      </Badge>
+                    </span>
+                    <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                      {setup
+                        ? t.agents.list.needsSetupPreview
+                        : agent.description || t.agents.list.readyPreview}
+                    </span>
+                  </span>
+                </button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+                  className="mt-2.5 ml-3 h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
                   aria-label={t.agents.actions.deleteAgent}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setAgentToDelete(agent);
-                  }}
+                  onClick={() => setAgentToDelete(agent)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

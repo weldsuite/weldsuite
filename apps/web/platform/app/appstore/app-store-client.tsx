@@ -68,6 +68,8 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
+  const appActionLabel = (isInstalled: boolean | undefined) =>
+    isInstalled ? t.appstore.uninstall : t.appstore.install;
 
   async function handleInstallApp(app: AvailableApp) {
     try {
@@ -237,10 +239,8 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                         >
                           {loadingApp === app.code ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : app.isInstalled ? (
-                            t.appstore.uninstall
                           ) : (
-                            t.appstore.install
+                            appActionLabel(app.isInstalled)
                           )}
                         </Button>
                       )}
