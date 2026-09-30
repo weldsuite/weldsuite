@@ -69,6 +69,11 @@ const FILTER_OPTIONS: Record<string, { icon: any; label: string }[]> = {
   ],
 };
 
+function resultDateLabel(item: EmailListItem): string {
+  const date = item.receivedDate || item.createdAt;
+  return date ? formatEmailTime(date) : '';
+}
+
 export default function SearchScreen() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -153,15 +158,18 @@ export default function SearchScreen() {
   const highlightText = (text: string, query: string) => {
     if (!query.trim()) return <Text>{text}</Text>;
     const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    let offset = 0;
     return (
       <Text>
-        {parts.map((part, index) =>
-          part.toLowerCase() === query.toLowerCase() ? (
-            <Text key={index} style={styles.highlight}>{part}</Text>
+        {parts.map((part) => {
+          const key = offset;
+          offset += part.length;
+          return part.toLowerCase() === query.toLowerCase() ? (
+            <Text key={key} style={styles.highlight}>{part}</Text>
           ) : (
-            <Text key={index}>{part}</Text>
-          )
-        )}
+            <Text key={key}>{part}</Text>
+          );
+        })}
       </Text>
     );
   };
@@ -229,11 +237,7 @@ export default function SearchScreen() {
             </Text>
             <View style={styles.resultMeta}>
               <Text style={[styles.resultDate, { color: colors.muted }]}>
-                {item.receivedDate
-                  ? formatEmailTime(item.receivedDate)
-                  : item.createdAt
-                    ? formatEmailTime(item.createdAt)
-                    : ''}
+                {resultDateLabel(item)}
               </Text>
               {item.hasAttachments && (
                 <Paperclip size={14} color={colors.muted} strokeWidth={2} />
@@ -372,12 +376,12 @@ export default function SearchScreen() {
           )}
 
           <ScrollView style={styles.modalOptionsList} showsVerticalScrollIndicator={false}>
-            {getFilteredOptions().map((option, index) => {
+            {getFilteredOptions().map((option) => {
               const IconComponent = option.icon;
               const isSelected = activeFilters[activeFilterType || ''] === option.label;
               return (
                 <TouchableOpacity
-                  key={index}
+                  key={option.label}
                   style={[styles.modalOption, isSelected && styles.modalOptionSelected]}
                   onPress={() => selectFilterOption(activeFilterType || '', option.label)}
                   activeOpacity={0.6}
