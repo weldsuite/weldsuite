@@ -547,33 +547,9 @@ export class DatabaseProvisioningService {
 
     // A database already exists for this workspace.
     if (workspace.neonProjectId && workspace.neonRoleName) {
-      // If provisioning never completed (databaseProvisionedAt is still null),
-      // the workflow died or was never triggered. Re-trigger it — its steps are
-      // idempotent — instead of leaving the workspace permanently stuck. This is
-      // the recovery path that the /onboarding/retry endpoint relies on.
-      if (!workspace.databaseProvisionedAt) {
-        const databaseUrl = await this.resolveConnectionUri(workspace);
-        if (databaseUrl) {
-          const retrigger = await this.triggerProvisioningWorkflow(
-            workspaceId, databaseUrl, workspaceName, initialMember, selectedApps, slug, seedSampleData,
-          );
-          if (!retrigger.success) {
-            console.warn(`[Provisioning] Could not re-trigger workflow for ${workspaceId}: ${retrigger.error}`);
-          }
-        } else {
-          console.warn(`[Provisioning] Cannot resolve connection URI to re-trigger workspace ${workspaceId}`);
-        }
-      }
-
-      return {
-        success: true,
-        workspaceId,
-        neonProjectId: workspace.neonProjectId,
-        neonDatabaseName: workspace.neonDatabaseName || 'neondb',
-        neonBranchId: workspace.neonBranchId || '',
-        neonRoleName: workspace.neonRoleName || undefined,
-        isDedicated: true,
-      };
+      return this.resumeExistingDatabase(
+        workspace, workspaceId, workspaceName, initialMember, selectedApps, slug, seedSampleData,
+      );
     }
 
     // Entry tiers (legacy free + Starter, which is where every new workspace
@@ -585,17 +561,8 @@ export class DatabaseProvisioningService {
     // is deliberately NO dedicated-project fallback: if the shared path fails
     // the workspace is marked 'failed' and the user retries via onboarding.
     if (planSlug === 'free' || planSlug === 'business') {
-      if (latestSchemaVersion) {
-        const warmShared = await this.claimFromPool(masterDb, workspaceId, 'shared', this.defaultRegion);
-        if (warmShared) {
-          return this.activateWarmSlot(
-            masterDb, warmShared, workspaceId, workspaceName, latestSchemaVersion,
-            initialMember, selectedApps, slug, seedSampleData,
-          );
-        }
-      }
-      return this.provisionSharedDatabase(
-        masterDb, workspaceId, workspaceName, initialMember, selectedApps, slug, seedSampleData,
+      return this.provisionEntryTier(
+        masterDb, workspaceId, workspaceName, initialMember, selectedApps, slug, latestSchemaVersion, seedSampleData,
       );
     }
 
@@ -612,6 +579,80 @@ export class DatabaseProvisioningService {
 
     // Pool empty or stale — create dedicated project on-demand
     return this.provisionDedicatedProject(masterDb, workspaceId, workspaceName, initialMember, selectedApps, slug, seedSampleData);
+  }
+
+  /**
+   * The workspace already has a database: report it, and re-trigger the
+   * provisioning workflow when it never completed.
+   */
+  private async resumeExistingDatabase(
+    workspace: {
+      id?: string;
+      neonProjectId: string;
+      neonBranchId?: string | null;
+      neonDatabaseName?: string | null;
+      neonRoleName?: string | null;
+      databaseProvisionedAt?: Date | null;
+    },
+    workspaceId: string,
+    workspaceName: string,
+    initialMember?: InitialMember,
+    selectedApps?: string[],
+    slug?: string,
+    seedSampleData?: boolean,
+  ): Promise<ProvisioningResult> {
+    // If provisioning never completed (databaseProvisionedAt is still null),
+    // the workflow died or was never triggered. Re-trigger it — its steps are
+    // idempotent — instead of leaving the workspace permanently stuck. This is
+    // the recovery path that the /onboarding/retry endpoint relies on.
+    if (!workspace.databaseProvisionedAt) {
+      const databaseUrl = await this.resolveConnectionUri(workspace);
+      if (databaseUrl) {
+        const retrigger = await this.triggerProvisioningWorkflow(
+          workspaceId, databaseUrl, workspaceName, initialMember, selectedApps, slug, seedSampleData,
+        );
+        if (!retrigger.success) {
+          console.warn(`[Provisioning] Could not re-trigger workflow for ${workspaceId}: ${retrigger.error}`);
+        }
+      } else {
+        console.warn(`[Provisioning] Cannot resolve connection URI to re-trigger workspace ${workspaceId}`);
+      }
+    }
+
+    return {
+      success: true,
+      workspaceId,
+      neonProjectId: workspace.neonProjectId,
+      neonDatabaseName: workspace.neonDatabaseName || 'neondb',
+      neonBranchId: workspace.neonBranchId || '',
+      neonRoleName: workspace.neonRoleName || undefined,
+      isDedicated: true,
+    };
+  }
+
+  /** Entry tiers: warm shared slot if available, else an on-demand shared database. */
+  private async provisionEntryTier(
+    masterDb: any,
+    workspaceId: string,
+    workspaceName: string,
+    initialMember?: InitialMember,
+    selectedApps?: string[],
+    slug?: string,
+    latestSchemaVersion?: string,
+    seedSampleData?: boolean,
+  ): Promise<ProvisioningResult> {
+    if (latestSchemaVersion) {
+      const warmShared = await this.claimFromPool(masterDb, workspaceId, 'shared', this.defaultRegion);
+      if (warmShared) {
+        return this.activateWarmSlot(
+          masterDb, warmShared, workspaceId, workspaceName, latestSchemaVersion,
+          initialMember, selectedApps, slug, seedSampleData,
+        );
+      }
+    }
+    return this.provisionSharedDatabase(
+      masterDb, workspaceId, workspaceName, initialMember, selectedApps, slug, seedSampleData,
+    );
   }
 
   /**
