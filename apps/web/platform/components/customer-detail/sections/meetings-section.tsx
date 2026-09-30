@@ -203,7 +203,7 @@ function RecordingActionsMenu({
   t: TranslateFn;
 }>) {
   return (
-    <div className="w-[40px] flex justify-end flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+    <div className="w-[40px] flex justify-end flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -363,16 +363,26 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
     const isBotRecording = recording.type === 'bot';
     const status = recording.status?.toLowerCase() || '';
     const hasRecording = recording.recordingUrl && status === 'completed';
+    const openRecording = () => {
+      if (isBotRecording) {
+        router.push(`/weldmeet/${recording.id.replace('bot-', '')}`);
+      } else {
+        router.push(`/weldcall/${recording.id.replace('call-', '')}`);
+      }
+    };
 
     return (
       <div
         key={recording.id}
         className="flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
-        onClick={() => {
-          if (isBotRecording) {
-            router.push(`/weldmeet/${recording.id.replace('bot-', '')}`);
-          } else {
-            router.push(`/weldcall/${recording.id.replace('call-', '')}`);
+        role="button"
+        tabIndex={0}
+        onClick={openRecording}
+        onKeyDown={(e) => {
+          // Only react to keys pressed on the row itself, not on nested controls.
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            openRecording();
           }
         }}
       >

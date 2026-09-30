@@ -29,6 +29,12 @@ function formatCurrency(amount: string | number, currency = 'USD'): string {
   }).format(num);
 }
 
+function paymentStatusColor(paymentStatus: string): string {
+  if (paymentStatus === 'paid') return 'text-green-600';
+  if (paymentStatus === 'refunded') return 'text-red-600';
+  return 'text-muted-foreground';
+}
+
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
     month: 'short',
@@ -142,12 +148,7 @@ function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
           {formatCurrency(order.total, order.currency)}
         </p>
         {order.paymentStatus && (
-          <p className={cn(
-            "text-xs",
-            order.paymentStatus === 'paid' ? 'text-green-600' :
-            order.paymentStatus === 'refunded' ? 'text-red-600' :
-            'text-muted-foreground'
-          )}>
+          <p className={cn("text-xs", paymentStatusColor(order.paymentStatus))}>
             {order.paymentStatus}
           </p>
         )}

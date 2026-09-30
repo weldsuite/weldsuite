@@ -342,14 +342,23 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
       {/* Desktop row - hidden in panel mode. Matches the canonical WeldFlow
           tasks page row design (apps/web/platform/app/weldflow/project/[id]/tasks). */}
       {!isPanel && <div
+        role="button"
+        tabIndex={0}
         onClick={() => openTaskPanel(task)}
+        onKeyDown={(e) => {
+          // Only react to keys pressed on the row itself, not on nested controls.
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            openTaskPanel(task);
+          }
+        }}
         className={cn(
           "hidden md:flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50",
           task.status === 'done' && 'opacity-50'
         )}
       >
         {/* Checkbox */}
-        <div className="flex-shrink-0 translate-y-[1px]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-shrink-0 translate-y-[1px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}

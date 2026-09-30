@@ -289,11 +289,20 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
     <div key={note.id}>
       {/* Desktop row - hidden in panel mode */}
       {!isPanel && <div
+        role="button"
+        tabIndex={0}
         onClick={() => openEditDialog(note)}
+        onKeyDown={(e) => {
+          // Only react to keys pressed on the row itself, not on nested controls.
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            openEditDialog(note);
+          }
+        }}
         className="hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
       >
         {/* Favorite */}
-        <div className="w-[28px] flex items-center -mr-4" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[28px] flex items-center -mr-4" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             onClick={() => handleToggleFavorite(note.id)}
@@ -353,9 +362,18 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
           isPanel ? "flex" : "md:hidden flex",
           "group items-center gap-3 px-3 py-3 border-b border-border/70 cursor-pointer hover:bg-muted/50"
         )}
+        role="button"
+        tabIndex={0}
         onClick={() => openEditDialog(note)}
+        onKeyDown={(e) => {
+          // Only react to keys pressed on the row itself, not on nested controls.
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            openEditDialog(note);
+          }
+        }}
       >
-        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             onClick={() => handleToggleFavorite(note.id)}
@@ -384,7 +402,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
             </>
           )}
         </div>
-        <div onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
