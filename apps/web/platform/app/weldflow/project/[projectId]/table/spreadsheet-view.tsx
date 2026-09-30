@@ -1539,8 +1539,9 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onMouseDown={onClose} />
+      <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose} />
       <div
+        role="presentation"
         className="fixed z-50 w-64 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
         style={{ left: Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 270), top: y }}
         onMouseDown={(e) => e.stopPropagation()}
