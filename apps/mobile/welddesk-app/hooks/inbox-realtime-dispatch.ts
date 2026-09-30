@@ -81,7 +81,6 @@ function mapMessage(data: LoosePayload): InboxNewMessageEvent {
   let senderType: InboxNewMessageEvent['senderType'] = 'customer';
   if (authorType === 'agent' || authorType === 'bot') senderType = 'agent';
   else if (authorType === 'system') senderType = 'system';
-  else if (authorType === 'visitor' || authorType === 'customer') senderType = 'customer';
 
   return {
     conversationId: conversationIdFrom(data),
