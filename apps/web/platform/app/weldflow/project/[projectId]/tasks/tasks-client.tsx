@@ -322,6 +322,190 @@ const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: numb
   x: 0,
 });
 
+// Look for a task in the main list first, then in any expanded parent's
+// inlineSubtasks (subtasks may only exist there).
+function findTaskWithParent(
+  tasks: Task[],
+  inlineSubtasks: Record<string, Task[]>,
+  taskId: string,
+): { task: Task | undefined; subtaskParentId: string | null } {
+  const task = tasks.find((t) => t.id === taskId);
+  if (task) return { task, subtaskParentId: null };
+  for (const [parentId, subs] of Object.entries(inlineSubtasks)) {
+    const match = subs.find((s) => s.id === taskId);
+    if (match) return { task: match, subtaskParentId: parentId };
+  }
+  return { task: undefined, subtaskParentId: null };
+}
+
+// Commit a synchronous state update inside a View Transition when the browser
+// supports it, otherwise run it directly.
+function runInViewTransition(commit: () => void): void {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } };
+  if (typeof doc.startViewTransition === 'function') {
+    doc.startViewTransition(() => flushSync(commit));
+  } else {
+    commit();
+  }
+}
+
+// Persist a stage pick. Moving into/out of 'done' goes through the toggle
+// endpoint (which handles recurrence), then the stage/status is saved on top.
+async function persistStageChange(
+  projectId: string,
+  taskId: string,
+  stageId: string,
+  oldStatus: Task['status'],
+  newStatus: Task['status'],
+) {
+  if (newStatus === 'done' && oldStatus !== 'done') {
+    const result = await tasksApi.toggle(projectId, taskId, oldStatus);
+    if (result.success) {
+      // toggle only flips status; also persist the picked stageId
+      await tasksApi.update(projectId, taskId, { stageId });
+    }
+    return result;
+  }
+  if (newStatus !== 'done' && oldStatus === 'done') {
+    const result = await tasksApi.toggle(projectId, taskId, 'done');
+    if (result.success) {
+      await tasksApi.update(projectId, taskId, { stageId, status: newStatus });
+    }
+    return result;
+  }
+  return tasksApi.update(projectId, taskId, { stageId, status: newStatus });
+}
+
+function repeatBadgeLabel(repeat: NonNullable<Task['repeat']>): string {
+  if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
+    return `${repeat.interval}${repeat.unit.charAt(0)}`;
+  }
+  if (repeat.frequency === 'biweekly') return '2w';
+  return repeat.frequency.charAt(0).toUpperCase();
+}
+
+type TaskAssigneeEntry = NonNullable<Task['assignees']>[number];
+
+function AssigneeStackAvatar({ assignee, src, multiple }: Readonly<{ assignee: TaskAssigneeEntry; src: string | undefined; multiple: boolean }>) {
+  const avatar = (
+    <Avatar
+      className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+      title={multiple ? undefined : assignee.name}
+    >
+      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[7px]" />}
+      <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+        {assignee.name.charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
+  if (!multiple) return avatar;
+  return (
+    <Tooltip delayDuration={150}>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{avatar}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={4}>
+        {assignee.name}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function AssigneeStack({ assignees, projectMembers }: Readonly<{ assignees: TaskAssigneeEntry[]; projectMembers: ProjectMember[] }>) {
+  const multiple = assignees.length > 1;
+  return (
+    <div className="flex items-center">
+      <div className="flex -space-x-1.5">
+        {assignees.slice(0, 3).map((a) => {
+          const memberAvatar = projectMembers.find((m) => m.userId === a.id)?.user?.avatar;
+          return <AssigneeStackAvatar key={a.id} assignee={a} src={a.avatar || memberAvatar} multiple={multiple} />;
+        })}
+        {assignees.length > 3 && (
+          <div className="relative z-10 w-5 h-5 rounded-[7px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
+            <span className="text-[9.5px] font-mono font-medium text-gray-600 dark:text-muted-foreground">
+              +{assignees.length - 3}
+            </span>
+          </div>
+        )}
+      </div>
+      {assignees.length === 1 && (
+        <span className="text-sm text-gray-600 dark:text-muted-foreground truncate ml-1.5">
+          {assignees[0].name.split(' ')[0]}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TaskAssigneeTriggerContent({ task, projectMembers }: Readonly<{ task: Task; projectMembers: ProjectMember[] }>) {
+  if (task.assignees && task.assignees.length > 0) {
+    return <AssigneeStack assignees={task.assignees} projectMembers={projectMembers} />;
+  }
+  if (!task.assignee) return <span className="text-sm text-gray-400">—</span>;
+
+  const memberAvatar = task.assigneeId
+    ? projectMembers.find((m) => m.userId === task.assigneeId)?.user?.avatar
+    : undefined;
+  return (
+    <div className="flex items-center gap-1.5">
+      <Avatar className="h-5 w-5 !rounded-[7px]">
+        {memberAvatar && (
+          <AvatarImage src={memberAvatar} alt={task.assignee} className="!rounded-[7px]" />
+        )}
+        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          {task.assignee.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
+        {task.assignee.split(' ')[0]}
+      </span>
+    </div>
+  );
+}
+
+type SortableRowStyleArgs = {
+  isDragging: boolean;
+  isSorting: boolean;
+  isDragEnabled: boolean;
+  activeIndex: number;
+  overIndex: number;
+  rectHeight: number | undefined;
+  transform: Parameters<typeof CSS.Transform.toString>[0];
+};
+
+function getSortableRowStyle({
+  isDragging,
+  isSorting,
+  isDragEnabled,
+  activeIndex,
+  overIndex,
+  rectHeight,
+  transform,
+}: SortableRowStyleArgs): React.CSSProperties {
+  // Only apply drag-related layout styles while a sort is in progress. When idle, leave
+  // the row completely alone so there are no stray stacking contexts or transitions that
+  // could flicker during normal hover.
+  if (!isSorting) return { cursor: isDragEnabled ? 'grab' : undefined };
+
+  // Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
+  // transform so they fill the gap the dragged row leaves behind. We override transition
+  // for both so they share the exact same timing and never cross paths mid-animation.
+  let snapY = 0;
+  if (isDragging && rectHeight !== undefined && activeIndex !== -1) {
+    const targetIndex = overIndex === -1 ? activeIndex : overIndex;
+    snapY = (targetIndex - activeIndex) * rectHeight;
+  }
+
+  return {
+    transform: isDragging ? `translate3d(0, ${snapY}px, 0)` : CSS.Transform.toString(transform),
+    transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
+    position: 'relative',
+    zIndex: isDragging ? 50 : undefined,
+    backgroundColor: isDragging ? 'var(--background)' : undefined,
+    cursor: isDragEnabled ? 'grabbing' : undefined,
+  };
+}
+
 function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string; isDragEnabled: boolean; children: React.ReactNode }>) {
   const {
     attributes,
@@ -339,31 +523,15 @@ function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string;
     animateLayoutChanges: () => false,
   });
 
-  // Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
-  // transform so they fill the gap the dragged row leaves behind. We override transition
-  // for both so they share the exact same timing and never cross paths mid-animation.
-  const snapY =
-    isDragging && rect.current && activeIndex !== -1
-      ? ((overIndex !== -1 ? overIndex : activeIndex) - activeIndex) * rect.current.height
-      : 0;
-
-  // Only apply drag-related layout styles while a sort is in progress. When idle, leave
-  // the row completely alone so there are no stray stacking contexts or transitions that
-  // could flicker during normal hover.
-  const style: React.CSSProperties = isSorting
-    ? {
-        transform: isDragging
-          ? `translate3d(0, ${snapY}px, 0)`
-          : CSS.Transform.toString(transform),
-        transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
-        position: 'relative',
-        zIndex: isDragging ? 50 : undefined,
-        backgroundColor: isDragging ? 'var(--background)' : undefined,
-        cursor: isDragEnabled ? 'grabbing' : undefined,
-      }
-    : {
-        cursor: isDragEnabled ? 'grab' : undefined,
-      };
+  const style = getSortableRowStyle({
+    isDragging,
+    isSorting,
+    isDragEnabled,
+    activeIndex,
+    overIndex,
+    rectHeight: rect.current?.height,
+    transform,
+  });
 
   return (
     <div ref={setNodeRef} style={style} {...(isDragEnabled ? { ...attributes, ...listeners } : {})}>
@@ -774,6 +942,16 @@ export function TasksClient({
     }
   };
 
+  // Fetch the follow-up occurrence of a recurring task and add it to the list.
+  const prependNextRecurringTask = useCallback(async (nextTaskId: string) => {
+    const nextResult = await tasksApi.get(projectId, nextTaskId);
+    if (nextResult.success && nextResult.data) {
+      const nextTask = transformApiTask(nextResult.data as RawApiTask);
+      setTasks(prev => [nextTask, ...prev]);
+      toast.success(t.projects.tasks.nextRecurringCreated);
+    }
+  }, [projectId, t.projects.tasks.nextRecurringCreated]);
+
   const handleCheckboxToggle = useCallback(async (taskId: string, currentStatus: Task['status']) => {
     if (!canWrite) return;
 
@@ -790,18 +968,7 @@ export function TasksClient({
 
     // Look for the task in the main list first, then in any expanded parent's
     // inlineSubtasks (subtasks may only exist there).
-    let task = tasks.find(t => t.id === taskId);
-    let subtaskParentId: string | null = null;
-    if (!task) {
-      for (const [parentId, subs] of Object.entries(inlineSubtasks)) {
-        const match = subs.find(s => s.id === taskId);
-        if (match) {
-          task = match;
-          subtaskParentId = parentId;
-          break;
-        }
-      }
-    }
+    const { task, subtaskParentId } = findTaskWithParent(tasks, inlineSubtasks, taskId);
     if (!task) return;
 
     // Helper to patch both `tasks` and any matching entry in `inlineSubtasks`.
@@ -897,24 +1064,14 @@ export function TasksClient({
       });
     };
 
-    const doc = document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } };
-    if (typeof doc.startViewTransition === 'function') {
-      doc.startViewTransition(() => flushSync(commit));
-    } else {
-      commit();
-    }
+    runInViewTransition(commit);
 
     // Fetch the next recurring task (if any) after the view transition kicks off —
     // its arrival in the list will naturally re-render without blocking the animation.
     if (result.success && result.data?.nextTaskId) {
-      const nextResult = await tasksApi.get(projectId, result.data.nextTaskId);
-      if (nextResult.success && nextResult.data) {
-        const nextTask = transformApiTask(nextResult.data as RawApiTask);
-        setTasks(prev => [nextTask, ...prev]);
-        toast.success(t.projects.tasks.nextRecurringCreated);
-      }
+      await prependNextRecurringTask(result.data.nextTaskId);
     }
-  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, t.projects.tasks.failedToUpdateTask, t.projects.tasks.nextRecurringCreated]);
+  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, prependNextRecurringTask, t.projects.tasks.failedToUpdateTask]);
 
   // When a pending-complete parent has all its subtasks finished, promote it
   // to a real 'done' status via the API. This moves it into the Done group.
@@ -975,36 +1132,17 @@ export function TasksClient({
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stageId: stage.id, status: newStatus } : t));
 
-    let result;
-    if (newStatus === 'done' && oldStatus !== 'done') {
-      result = await tasksApi.toggle(projectId, taskId, oldStatus);
-      if (result.success) {
-        // toggle only flips status; also persist the picked stageId
-        await tasksApi.update(projectId, taskId, { stageId: stage.id });
-      }
-    } else if (newStatus !== 'done' && oldStatus === 'done') {
-      result = await tasksApi.toggle(projectId, taskId, 'done');
-      if (result.success) {
-        await tasksApi.update(projectId, taskId, { stageId: stage.id, status: newStatus });
-      }
-    } else {
-      result = await tasksApi.update(projectId, taskId, { stageId: stage.id, status: newStatus });
-    }
+    const result = await persistStageChange(projectId, taskId, stage.id, oldStatus, newStatus);
 
     if (result.success) {
       if (result.data?.nextTaskId) {
-        const nextResult = await tasksApi.get(projectId, result.data.nextTaskId);
-        if (nextResult.success && nextResult.data) {
-          const nextTask = transformApiTask(nextResult.data as RawApiTask);
-          setTasks(prev => [nextTask, ...prev]);
-          toast.success(t.projects.tasks.nextRecurringCreated);
-        }
+        await prependNextRecurringTask(result.data.nextTaskId);
       }
     } else {
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus, stageId: oldStageId } : t));
       toast.error(t.projects.tasks.failedToUpdateTask);
     }
-  }, [tasks, projectId, projectStages, t.projects.tasks.failedToUpdateTask, t.projects.tasks.nextRecurringCreated]);
+  }, [tasks, projectId, projectStages, prependNextRecurringTask, t.projects.tasks.failedToUpdateTask]);
 
   const updateTaskInline = useCallback(async (taskId: string, data: Partial<Task>) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
@@ -1406,9 +1544,7 @@ export function TasksClient({
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
-              {task.repeat.frequency === 'custom' && task.repeat.interval && task.repeat.unit
-                ? `${task.repeat.interval}${task.repeat.unit.charAt(0)}`
-                : task.repeat.frequency === 'biweekly' ? '2w' : task.repeat.frequency.charAt(0).toUpperCase()}
+              {repeatBadgeLabel(task.repeat)}
             </span>
           )}
           {((task.dependsOn?.length ?? 0) > 0 || (task.blocks?.length ?? 0) > 0) && (
@@ -1546,76 +1682,7 @@ export function TasksClient({
                   task.assignees && task.assignees.length > 1 ? 'pr-0.5' : 'pr-1.5',
                 )}
               >
-                {task.assignees && task.assignees.length > 0 ? (
-                  <div className="flex items-center">
-                    <div className="flex -space-x-1.5">
-                      {task.assignees.slice(0, 3).map((a) => {
-                        const memberAvatar =
-                          projectMembers.find((m) => m.userId === a.id)?.user?.avatar;
-                        const src = a.avatar || memberAvatar;
-                        const multiple = (task.assignees?.length ?? 0) > 1;
-                        const avatar = (
-                          <Avatar
-                            key={a.id}
-                            className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
-                            title={multiple ? undefined : a.name}
-                          >
-                            {src && <AvatarImage src={src} alt={a.name} className="!rounded-[7px]" />}
-                            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                              {a.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                        );
-                        if (!multiple) return avatar;
-                        return (
-                          <Tooltip key={a.id} delayDuration={150}>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex">{avatar}</span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" sideOffset={4}>
-                              {a.name}
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                      {task.assignees.length > 3 && (
-                        <div className="relative z-10 w-5 h-5 rounded-[7px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
-                          <span className="text-[9.5px] font-mono font-medium text-gray-600 dark:text-muted-foreground">
-                            +{task.assignees.length - 3}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {task.assignees.length === 1 && (
-                      <span className="text-sm text-gray-600 dark:text-muted-foreground truncate ml-1.5">
-                        {task.assignees[0].name.split(' ')[0]}
-                      </span>
-                    )}
-                  </div>
-                ) : task.assignee ? (
-                  (() => {
-                    const memberAvatar = task.assigneeId
-                      ? projectMembers.find((m) => m.userId === task.assigneeId)?.user?.avatar
-                      : undefined;
-                    return (
-                      <div className="flex items-center gap-1.5">
-                        <Avatar className="h-5 w-5 !rounded-[7px]">
-                          {memberAvatar && (
-                            <AvatarImage src={memberAvatar} alt={task.assignee} className="!rounded-[7px]" />
-                          )}
-                          <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                            {task.assignee.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
-                          {task.assignee.split(' ')[0]}
-                        </span>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <span className="text-sm text-gray-400">—</span>
-                )}
+                <TaskAssigneeTriggerContent task={task} projectMembers={projectMembers} />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
