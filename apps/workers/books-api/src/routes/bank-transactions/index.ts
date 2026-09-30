@@ -13,7 +13,7 @@
  * Permissions: banking:read | banking:create | banking:update.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
@@ -23,7 +23,7 @@ import { createBankTransactionSchema } from '@weldsuite/core-api-client/schemas/
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
 import { parseBankFile } from '../../services/bank-parsers';
 import { autoReconcileBatch } from '../../services/accounting-reconciliation';
@@ -126,6 +126,106 @@ function parseDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+type BankAccountRow = typeof schema.bankAccounts.$inferSelect;
+type BankTransactionRow = typeof schema.bankTransactions.$inferSelect;
+type CreateBankTransactionInput = z.infer<typeof createBankTransactionSchema>;
+
+/** Parse the manual entry's `date` / `valueDate`, or return the 400 message. */
+function parseManualDates(
+  data: CreateBankTransactionInput,
+): { date: Date; valueDate: Date | null } | { errorMessage: string } {
+  const date = parseDate(data.date);
+  if (!date) return { errorMessage: 'Invalid date' };
+  const valueDate = data.valueDate ? parseDate(data.valueDate) : null;
+  if (data.valueDate && !valueDate) return { errorMessage: 'Invalid valueDate' };
+  return { date, valueDate };
+}
+
+/** Build the row for a manually recorded (cashbook) transaction. */
+function buildManualTransaction(
+  bankAccount: BankAccountRow,
+  data: CreateBankTransactionInput,
+  dates: { date: Date; valueDate: Date | null },
+) {
+  const amountNumber = typeof data.amount === 'number' ? data.amount : Number(data.amount);
+  const amount = roundMoney(amountNumber);
+  const previousBalance = Number(bankAccount.currentBalance || '0');
+  const runningBalance = roundMoney(previousBalance + Number(amount));
+  const now = new Date();
+  const counterpartyIban = data.counterpartyIban
+    ? data.counterpartyIban.replace(/\s+/g, '').toUpperCase()
+    : null;
+
+  return {
+    id: generateId('bt'),
+    entityId: bankAccount.entityId,
+    bankAccountId: data.bankAccountId,
+    date: dates.date,
+    valueDate: dates.valueDate,
+    description: data.description?.trim() || null,
+    amount,
+    runningBalance,
+    counterpartyName: data.counterpartyName?.trim() || null,
+    counterpartyIban,
+    counterpartyBic: data.counterpartyBic?.trim().toUpperCase() || null,
+    reference: data.reference?.trim() || null,
+    notes: data.notes?.trim() || null,
+    importBatchId: null,
+    externalId: null,
+    status: 'unreconciled' as const,
+    rawData: { source: 'manual' },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** Write the audit trail and entity events for a manually created transaction. */
+async function recordManualCreated(
+  c: AppContext,
+  db: Database,
+  txn: ReturnType<typeof buildManualTransaction>,
+  journalEntryId: string | null,
+): Promise<void> {
+  await writeAccountingAudit(c, db, {
+    accountingEntityId: txn.entityId,
+    entityType: 'bank_transaction',
+    entityId: txn.id,
+    action: 'created',
+    changes: {
+      bankAccountId: { old: null, new: txn.bankAccountId },
+      date: { old: null, new: txn.date.toISOString() },
+      amount: { old: null, new: txn.amount },
+      description: { old: null, new: txn.description },
+      source: { old: null, new: 'manual' },
+      ...(journalEntryId ? { journalEntryId: { old: null, new: journalEntryId } } : {}),
+    },
+  });
+  publishEntityEvent({
+    c,
+    entityType: 'bank_transaction',
+    entityId: txn.id,
+    action: 'created',
+    data: {
+      id: txn.id,
+      bankAccountId: txn.bankAccountId,
+      amount: txn.amount,
+      description: txn.description,
+      date: txn.date.toISOString(),
+      status: journalEntryId ? 'reconciled' : 'unreconciled',
+    },
+  });
+  if (journalEntryId) {
+    publishEntityEvent({
+      c,
+      entityType: 'journal_entry',
+      entityId: journalEntryId,
+      action: 'created',
+      data: { id: journalEntryId, sourceType: 'bank_transaction', sourceId: txn.id },
+    });
+  }
+}
+
 // POST / — manually record a single bank transaction (cashbook entry)
 app.post('/', requirePermission('banking:create'), zValidator('json', createBankTransactionSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -143,53 +243,21 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       );
     }
 
-    const date = parseDate(data.date);
-    if (!date) return error.badRequest(c, 'Invalid date');
-    const valueDate = data.valueDate ? parseDate(data.valueDate) : null;
-    if (data.valueDate && !valueDate) return error.badRequest(c, 'Invalid valueDate');
+    const dates = parseManualDates(data);
+    if ('errorMessage' in dates) return error.badRequest(c, dates.errorMessage);
 
-    const amountNumber = typeof data.amount === 'number' ? data.amount : Number(data.amount);
-    const amount = roundMoney(amountNumber);
-    const previousBalance = Number(bankAccount.currentBalance || '0');
-    const runningBalance = roundMoney(previousBalance + Number(amount));
-    const now = new Date();
-    const id = generateId('bt');
-    const counterpartyIban = data.counterpartyIban
-      ? data.counterpartyIban.replace(/\s+/g, '').toUpperCase()
-      : null;
-
-    const txn = {
-      id,
-      entityId: bankAccount.entityId,
-      bankAccountId: data.bankAccountId,
-      date,
-      valueDate,
-      description: data.description?.trim() || null,
-      amount,
-      runningBalance,
-      counterpartyName: data.counterpartyName?.trim() || null,
-      counterpartyIban,
-      counterpartyBic: data.counterpartyBic?.trim().toUpperCase() || null,
-      reference: data.reference?.trim() || null,
-      notes: data.notes?.trim() || null,
-      importBatchId: null,
-      externalId: null,
-      status: 'unreconciled' as const,
-      rawData: { source: 'manual' },
-      createdAt: now,
-      updatedAt: now,
-    };
+    const txn = buildManualTransaction(bankAccount, data, dates);
 
     await db.insert(bankTransactions).values(txn);
     await db.update(bankAccounts).set({
-      currentBalance: runningBalance,
-      updatedAt: now,
+      currentBalance: txn.runningBalance,
+      updatedAt: txn.updatedAt,
     }).where(eq(bankAccounts.id, data.bankAccountId));
 
     let journalEntryId: string | null = null;
     if (data.categoryAccountId) {
       const [inserted] = await db.select().from(bankTransactions)
-        .where(eq(bankTransactions.id, id)).limit(1);
+        .where(eq(bankTransactions.id, txn.id)).limit(1);
       if (!inserted) return error.internal(c, 'Failed to create bank transaction');
       const posted = await categorizeBankTransaction(db, {
         txn: inserted,
@@ -199,43 +267,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       journalEntryId = posted.journalEntryId;
     }
 
-    await writeAccountingAudit(c, db, {
-      accountingEntityId: bankAccount.entityId,
-      entityType: 'bank_transaction',
-      entityId: id,
-      action: 'created',
-      changes: {
-        bankAccountId: { old: null, new: data.bankAccountId },
-        date: { old: null, new: date.toISOString() },
-        amount: { old: null, new: amount },
-        description: { old: null, new: txn.description },
-        source: { old: null, new: 'manual' },
-        ...(journalEntryId ? { journalEntryId: { old: null, new: journalEntryId } } : {}),
-      },
-    });
-    publishEntityEvent({
-      c,
-      entityType: 'bank_transaction',
-      entityId: id,
-      action: 'created',
-      data: {
-        id,
-        bankAccountId: data.bankAccountId,
-        amount,
-        description: txn.description,
-        date: date.toISOString(),
-        status: journalEntryId ? 'reconciled' : 'unreconciled',
-      },
-    });
-    if (journalEntryId) {
-      publishEntityEvent({
-        c,
-        entityType: 'journal_entry',
-        entityId: journalEntryId,
-        action: 'created',
-        data: { id: journalEntryId, sourceType: 'bank_transaction', sourceId: id },
-      });
-    }
+    await recordManualCreated(c, db, txn, journalEntryId);
 
     return success(c, {
       ...txn,
@@ -252,12 +284,148 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
   }
 });
 
+type ParsedBankFile = ReturnType<typeof parseBankFile>;
+type ParsedBankTransaction = ParsedBankFile['transactions'][number];
+
+/** Create the import batch row in `processing` state. */
+async function createImportBatch(
+  db: Database,
+  args: {
+    batchId: string;
+    accountingEntityId: string;
+    bankAccountId: string;
+    fileName: string;
+    userId: string;
+    parseResult: ParsedBankFile;
+  },
+): Promise<void> {
+  const { batchId, accountingEntityId, bankAccountId, fileName, userId, parseResult } = args;
+  await db.insert(schema.bankImportBatches).values({
+    id: batchId,
+    entityId: accountingEntityId,
+    bankAccountId,
+    fileName,
+    format: parseResult.format,
+    totalTransactions: parseResult.transactions.length,
+    importedCount: 0,
+    duplicateCount: 0,
+    autoReconciledCount: 0,
+    status: 'processing',
+    dateRange: parseResult.dateRange ? { from: parseResult.dateRange.from, to: parseResult.dateRange.to } : null,
+    openingBalance: parseResult.openingBalance?.toString() ?? null,
+    closingBalance: parseResult.closingBalance?.toString() ?? null,
+    errors: parseResult.errors.length > 0 ? parseResult.errors : null,
+    importedBy: userId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+}
+
+/** Whether a transaction with this externalId was already imported for the account. */
+async function isDuplicateImport(db: Database, bankAccountId: string, externalId: string): Promise<boolean> {
+  const { bankTransactions } = schema;
+  const existing = await db.select({ id: bankTransactions.id })
+    .from(bankTransactions)
+    .where(and(
+      eq(bankTransactions.bankAccountId, bankAccountId),
+      eq(bankTransactions.externalId, externalId),
+      isNull(bankTransactions.deletedAt),
+    )).limit(1);
+  return existing.length > 0;
+}
+
+/** Insert one parsed statement line as an unreconciled transaction. */
+async function insertImportedTransaction(
+  db: Database,
+  txn: ParsedBankTransaction,
+  ids: { accountingEntityId: string; bankAccountId: string; batchId: string },
+): Promise<void> {
+  await db.insert(schema.bankTransactions).values({
+    id: generateId('bt'),
+    entityId: ids.accountingEntityId,
+    bankAccountId: ids.bankAccountId,
+    date: new Date(txn.date),
+    valueDate: txn.valueDate ? new Date(txn.valueDate) : null,
+    description: txn.description,
+    amount: txn.amount.toString(),
+    runningBalance: txn.runningBalance?.toString() ?? null,
+    counterpartyName: txn.counterpartyName ?? null,
+    counterpartyIban: txn.counterpartyIban ?? null,
+    counterpartyBic: txn.counterpartyBic ?? null,
+    reference: txn.reference ?? null,
+    transactionCode: txn.transactionCode ?? null,
+    endToEndId: txn.endToEndId ?? null,
+    mandateId: txn.mandateId ?? null,
+    importBatchId: ids.batchId,
+    externalId: txn.externalId ?? null,
+    status: 'unreconciled',
+    rawData: txn.rawData ?? null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+}
+
+/** Import transactions, skipping duplicates by externalId. */
+async function importTransactions(
+  db: Database,
+  transactions: ParsedBankTransaction[],
+  ids: { accountingEntityId: string; bankAccountId: string; batchId: string },
+): Promise<{ importedCount: number; duplicateCount: number }> {
+  let importedCount = 0;
+  let duplicateCount = 0;
+
+  for (const txn of transactions) {
+    if (txn.externalId && (await isDuplicateImport(db, ids.bankAccountId, txn.externalId))) {
+      duplicateCount++;
+      continue;
+    }
+    await insertImportedTransaction(db, txn, ids);
+    importedCount++;
+  }
+
+  return { importedCount, duplicateCount };
+}
+
+/** Best-effort auto-reconciliation; a failure never fails the import. */
+async function tryAutoReconcile(db: Database, bankAccountId: string): Promise<number> {
+  try {
+    const reconcileResult = await autoReconcileBatch(db, schema, bankAccountId);
+    return reconcileResult.reconciledCount;
+  } catch {
+    // Auto-reconciliation is best-effort
+    return 0;
+  }
+}
+
+/** Final batch status derived from what was parsed and imported. */
+function importBatchStatus(errorCount: number, importedCount: number): 'partial' | 'completed' | 'failed' {
+  if (importedCount === 0) return 'failed';
+  return errorCount > 0 ? 'partial' : 'completed';
+}
+
+/** Record the last import date / closing balance on the bank account. */
+async function updateAccountAfterImport(
+  db: Database,
+  bankAccountId: string,
+  closingBalance: ParsedBankFile['closingBalance'],
+): Promise<void> {
+  const updateData: Record<string, unknown> = {
+    lastImportDate: new Date(),
+    updatedAt: new Date(),
+  };
+  if (closingBalance != null) {
+    updateData.lastImportBalance = closingBalance.toString();
+    updateData.currentBalance = closingBalance.toString();
+  }
+  await db.update(schema.bankAccounts).set(updateData).where(eq(schema.bankAccounts.id, bankAccountId));
+}
+
 // POST /import — parse and import bank transactions from MT940/CAMT.053/CSV files
 app.post('/import', requirePermission('banking:create'), zValidator('json', importSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
-  const { bankTransactions, bankImportBatches, bankAccounts } = schema;
+  const { bankImportBatches, bankAccounts } = schema;
 
   try {
     // Verify bank account exists
@@ -273,86 +441,30 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
 
     // Create import batch
     const batchId = generateId('bib');
-    await db.insert(bankImportBatches).values({
-      id: batchId,
-      entityId: accountingEntityId,
+    await createImportBatch(db, {
+      batchId,
+      accountingEntityId,
       bankAccountId: data.bankAccountId,
       fileName: data.fileName,
-      format: parseResult.format,
-      totalTransactions: parseResult.transactions.length,
-      importedCount: 0,
-      duplicateCount: 0,
-      autoReconciledCount: 0,
-      status: 'processing',
-      dateRange: parseResult.dateRange ? { from: parseResult.dateRange.from, to: parseResult.dateRange.to } : null,
-      openingBalance: parseResult.openingBalance?.toString() ?? null,
-      closingBalance: parseResult.closingBalance?.toString() ?? null,
-      errors: parseResult.errors.length > 0 ? parseResult.errors : null,
-      importedBy: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      userId,
+      parseResult,
     });
 
     // Import transactions (skip duplicates by externalId)
-    let importedCount = 0;
-    let duplicateCount = 0;
-
-    for (const txn of parseResult.transactions) {
-      // Check for duplicate
-      if (txn.externalId) {
-        const existing = await db.select({ id: bankTransactions.id })
-          .from(bankTransactions)
-          .where(and(
-            eq(bankTransactions.bankAccountId, data.bankAccountId),
-            eq(bankTransactions.externalId, txn.externalId),
-            isNull(bankTransactions.deletedAt),
-          )).limit(1);
-        if (existing.length > 0) {
-          duplicateCount++;
-          continue;
-        }
-      }
-
-      await db.insert(bankTransactions).values({
-        id: generateId('bt'),
-        entityId: accountingEntityId,
-        bankAccountId: data.bankAccountId,
-        date: new Date(txn.date),
-        valueDate: txn.valueDate ? new Date(txn.valueDate) : null,
-        description: txn.description,
-        amount: txn.amount.toString(),
-        runningBalance: txn.runningBalance?.toString() ?? null,
-        counterpartyName: txn.counterpartyName ?? null,
-        counterpartyIban: txn.counterpartyIban ?? null,
-        counterpartyBic: txn.counterpartyBic ?? null,
-        reference: txn.reference ?? null,
-        transactionCode: txn.transactionCode ?? null,
-        endToEndId: txn.endToEndId ?? null,
-        mandateId: txn.mandateId ?? null,
-        importBatchId: batchId,
-        externalId: txn.externalId ?? null,
-        status: 'unreconciled',
-        rawData: txn.rawData ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      importedCount++;
-    }
+    const { importedCount, duplicateCount } = await importTransactions(db, parseResult.transactions, {
+      accountingEntityId,
+      bankAccountId: data.bankAccountId,
+      batchId,
+    });
 
     // Run auto-reconciliation
-    let autoReconciledCount = 0;
-    if (bankAccount.autoReconcile) {
-      try {
-        const reconcileResult = await autoReconcileBatch(db, schema, data.bankAccountId);
-        autoReconciledCount = reconcileResult.reconciledCount;
-      } catch {
-        // Auto-reconciliation is best-effort
-      }
-    }
+    const autoReconciledCount = bankAccount.autoReconcile
+      ? await tryAutoReconcile(db, data.bankAccountId)
+      : 0;
 
     // Update batch status
     await db.update(bankImportBatches).set({
-      status: parseResult.errors.length > 0 && importedCount > 0 ? 'partial' : importedCount > 0 ? 'completed' : 'failed',
+      status: importBatchStatus(parseResult.errors.length, importedCount),
       importedCount,
       duplicateCount,
       autoReconciledCount,
@@ -361,15 +473,7 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
 
     // Update bank account last import info
     if (importedCount > 0) {
-      const updateData: Record<string, unknown> = {
-        lastImportDate: new Date(),
-        updatedAt: new Date(),
-      };
-      if (parseResult.closingBalance != null) {
-        updateData.lastImportBalance = parseResult.closingBalance.toString();
-        updateData.currentBalance = parseResult.closingBalance.toString();
-      }
-      await db.update(bankAccounts).set(updateData).where(eq(bankAccounts.id, data.bankAccountId));
+      await updateAccountAfterImport(db, data.bankAccountId, parseResult.closingBalance);
     }
 
     await writeAccountingAudit(c, db, {
@@ -449,61 +553,95 @@ app.get('/:id', requirePermission('banking:read'), async (c) => {
   }
 });
 
+interface MatchSuggestion {
+  type: string;
+  id: string;
+  number: string | null;
+  contactName: string | null;
+  amount: string | null;
+  confidence: number;
+}
+
+/** Whether an open balance equals the transaction amount (within one cent). */
+function balanceMatches(balanceDue: string | null, amount: number): boolean {
+  return Math.abs(Number.parseFloat(balanceDue || '0') - Math.abs(amount)) < 0.01;
+}
+
+/** Confidence that an incoming transaction settles the given open invoice. */
+async function invoiceConfidence(
+  db: Database,
+  txn: BankTransactionRow,
+  inv: typeof schema.invoices.$inferSelect,
+  amount: number,
+): Promise<number> {
+  let confidence = 0;
+  if (balanceMatches(inv.balanceDue, amount)) confidence += 0.5;
+  if (txn.counterpartyIban && txn.reference && inv.invoiceNumber && txn.reference.includes(inv.invoiceNumber)) confidence += 0.3;
+
+  // Check IBAN match via contact
+  if (txn.counterpartyIban && inv.contactId) {
+    const [contact] = await db.select().from(schema.parties)
+      .where(and(eq(schema.parties.id, inv.contactId), eq(schema.parties.iban, txn.counterpartyIban))).limit(1);
+    if (contact) confidence += 0.2;
+  }
+  return confidence;
+}
+
+/** Incoming: match against open invoices. */
+async function suggestInvoices(db: Database, txn: BankTransactionRow, amount: number): Promise<MatchSuggestion[]> {
+  const invoicesTable = schema.invoices;
+  const openInvoices = await db
+    .select()
+    .from(invoicesTable)
+    .where(and(isNull(invoicesTable.deletedAt), sql`${invoicesTable.balanceDue}::numeric > 0`))
+    .limit(20);
+
+  const suggestions: MatchSuggestion[] = [];
+  for (const inv of openInvoices) {
+    const confidence = await invoiceConfidence(db, txn, inv, amount);
+    if (confidence > 0) {
+      suggestions.push({ type: 'invoice', id: inv.id, number: inv.invoiceNumber, contactName: inv.contactName, amount: inv.balanceDue, confidence });
+    }
+  }
+  return suggestions;
+}
+
+/** Outgoing: match against open bills. */
+async function suggestBills(db: Database, txn: BankTransactionRow, amount: number): Promise<MatchSuggestion[]> {
+  const billsTable = schema.bills;
+  const openBills = await db
+    .select()
+    .from(billsTable)
+    .where(and(isNull(billsTable.deletedAt), sql`${billsTable.balanceDue}::numeric > 0`))
+    .limit(20);
+
+  const suggestions: MatchSuggestion[] = [];
+  for (const bill of openBills) {
+    let confidence = 0;
+    if (balanceMatches(bill.balanceDue, amount)) confidence += 0.5;
+    if (txn.reference && bill.externalReference && txn.reference.includes(bill.externalReference)) confidence += 0.3;
+
+    if (confidence > 0) {
+      suggestions.push({ type: 'bill', id: bill.id, number: bill.billNumber, contactName: bill.contactName, amount: bill.balanceDue, confidence });
+    }
+  }
+  return suggestions;
+}
+
 // GET /:id/suggestions — matching suggestions for a transaction
 app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const txnId = c.req.param('id');
-  const { bankTransactions, invoices: invoicesTable, bills: billsTable, parties } = schema;
+  const { bankTransactions } = schema;
 
   try {
     const [txn] = await db.select().from(bankTransactions).where(eq(bankTransactions.id, txnId)).limit(1);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
 
     const amount = Number.parseFloat(txn.amount || '0');
-    const suggestions: Array<{ type: string; id: string; number: string | null; contactName: string | null; amount: string | null; confidence: number }> = [];
-
-    if (amount > 0) {
-      // Incoming: match against open invoices
-      const openInvoices = await db
-        .select()
-        .from(invoicesTable)
-        .where(and(isNull(invoicesTable.deletedAt), sql`${invoicesTable.balanceDue}::numeric > 0`))
-        .limit(20);
-
-      for (const inv of openInvoices) {
-        let confidence = 0;
-        if (Math.abs(Number.parseFloat(inv.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
-        if (txn.counterpartyIban && txn.reference && inv.invoiceNumber && txn.reference.includes(inv.invoiceNumber)) confidence += 0.3;
-
-        // Check IBAN match via contact
-        if (txn.counterpartyIban && inv.contactId) {
-          const [contact] = await db.select().from(parties)
-            .where(and(eq(parties.id, inv.contactId), eq(parties.iban, txn.counterpartyIban))).limit(1);
-          if (contact) confidence += 0.2;
-        }
-
-        if (confidence > 0) {
-          suggestions.push({ type: 'invoice', id: inv.id, number: inv.invoiceNumber, contactName: inv.contactName, amount: inv.balanceDue, confidence });
-        }
-      }
-    } else {
-      // Outgoing: match against open bills
-      const openBills = await db
-        .select()
-        .from(billsTable)
-        .where(and(isNull(billsTable.deletedAt), sql`${billsTable.balanceDue}::numeric > 0`))
-        .limit(20);
-
-      for (const bill of openBills) {
-        let confidence = 0;
-        if (Math.abs(Number.parseFloat(bill.balanceDue || '0') - Math.abs(amount)) < 0.01) confidence += 0.5;
-        if (txn.reference && bill.externalReference && txn.reference.includes(bill.externalReference)) confidence += 0.3;
-
-        if (confidence > 0) {
-          suggestions.push({ type: 'bill', id: bill.id, number: bill.billNumber, contactName: bill.contactName, amount: bill.balanceDue, confidence });
-        }
-      }
-    }
+    const suggestions = amount > 0
+      ? await suggestInvoices(db, txn, amount)
+      : await suggestBills(db, txn, amount);
 
     suggestions.sort((a, b) => b.confidence - a.confidence);
     return success(c, suggestions.slice(0, 10));

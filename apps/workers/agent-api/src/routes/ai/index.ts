@@ -18,7 +18,7 @@
  */
 
 import { z } from 'zod';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import {
   ensurePermissionsResolved,
@@ -177,6 +177,197 @@ app.post(
   },
 );
 
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+type ChatInput = z.infer<typeof chatSchema>;
+type ChatTurn = { role: 'user' | 'assistant'; content: string };
+type ChatParts = { extraSystem: string; chatMessages: ChatTurn[] };
+type Metering = Awaited<ReturnType<typeof resolveAiMetering>>;
+type WorkspaceAgent = NonNullable<Awaited<ReturnType<typeof getAgent>>>;
+type ResolvedPermissions = NonNullable<Awaited<ReturnType<typeof ensurePermissionsResolved>>>;
+
+/** Map a thrown AI error to the HTTP response (402 for an empty wallet, else 500). */
+function aiErrorResponse(c: AppContext, err: unknown) {
+  if (err instanceof InsufficientAiCreditsError) {
+    return error.insufficientCredits(c, {
+      currentBalance: err.currentBalance,
+      required: err.required,
+      shortfall: err.shortfall,
+    });
+  }
+  return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+}
+
+/**
+ * Fold `system` turns (plus the optional extra `system` field) into one system
+ * string and keep only the user/assistant turns as chat messages.
+ */
+function splitChatMessages(messages: ChatInput['messages'], system: string | undefined): ChatParts {
+  const extraSystem = [
+    ...messages.filter((m) => m.role === 'system').map((m) => m.content),
+    ...(system ? [system] : []),
+  ].join('\n\n');
+  const chatMessages = messages
+    .filter((m): m is ChatTurn => m.role !== 'system')
+    .map((m) => ({ role: m.role, content: m.content }));
+  return { extraSystem, chatMessages };
+}
+
+/** The WeldAgent persona, extended with any extra system context. */
+function buildSystemPrompt(extraSystem: string): string {
+  return extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
+}
+
+/** Ops credit state from one edge-cached KV read; empty = fee order. */
+async function loadCreditStates(c: AppContext) {
+  return c.env.WORKSPACE_CACHE
+    ? toCreditStates(await readGatewayCreditSnapshot(c.env.WORKSPACE_CACHE))
+    : [];
+}
+
+/**
+ * Gate a workspace-agent chat on `weldagent:use` and load the agent.
+ * On failure returns the error response to send.
+ */
+async function loadWorkspaceAgent(
+  c: AppContext,
+  agentId: string,
+): Promise<
+  | { ok: true; agent: WorkspaceAgent; resolved: ResolvedPermissions }
+  | { ok: false; response: Response }
+> {
+  const resolved = await ensurePermissionsResolved(c);
+  if (!resolved || !(await hasContextPermission(c, 'weldagent:use'))) {
+    return { ok: false, response: error.forbidden(c, 'Missing permission: weldagent:use') };
+  }
+  const agent = await getAgent(c.get('tenantDb'), agentId);
+  if (!agent) return { ok: false, response: error.notFound(c, 'Agent not found') };
+  return { ok: true, agent, resolved };
+}
+
+/** Arguments shared by `runAgentOnce` and `streamAgentChat`. */
+function buildAgentRunArgs(
+  c: AppContext,
+  input: ChatInput,
+  loaded: { agent: WorkspaceAgent; resolved: ResolvedPermissions },
+  chat: ChatParts,
+) {
+  const { agent, resolved } = loaded;
+  return {
+    env: c.env,
+    workspaceId: c.get('workspaceId'),
+    actorUserId: c.get('userId'),
+    agent: {
+      id: agent.id,
+      name: agent.name,
+      systemPrompt: agent.systemPrompt,
+      modelId: input.model ?? agent.modelId,
+      temperature: input.temperature !== undefined ? String(input.temperature) : agent.temperature,
+      maxTokens: input.maxTokens ?? agent.maxTokens,
+      maxIterations: agent.maxIterations,
+      permissions: agent.permissions,
+      enabledTools: agent.enabledTools,
+      autoReviewEnabled: agent.autoReviewEnabled,
+    },
+    toolContext: {
+      db: c.get('tenantDb'),
+      agentId: agent.id,
+      actorUserId: c.get('userId'),
+      workspaceId: c.get('workspaceId'),
+      env: c.env,
+    },
+    messages: chat.chatMessages,
+    extraSystem: chat.extraSystem || undefined,
+    actorPermissions: resolved.permissions,
+  };
+}
+
+/** /chat with a workspace agent — tools + agent instructions. */
+async function chatWithWorkspaceAgent(
+  c: AppContext,
+  input: ChatInput,
+  agentId: string,
+  chat: ChatParts,
+) {
+  const loaded = await loadWorkspaceAgent(c, agentId);
+  if (!loaded.ok) return loaded.response;
+
+  try {
+    const result = await runAgentOnce(buildAgentRunArgs(c, input, loaded, chat));
+    return success(c, {
+      text: result.text,
+      model: result.modelId,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      creditsUsed: result.creditsUsed,
+      toolInvocations: result.toolInvocations,
+    });
+  } catch (err) {
+    return aiErrorResponse(c, err);
+  }
+}
+
+/** /chat with the plain WeldAgent persona (no workspace agent). */
+async function chatWithPersona(
+  c: AppContext,
+  input: ChatInput,
+  metering: Metering,
+  chat: ChatParts,
+) {
+  const modelId = input.model ?? recommended.copilot.free;
+  const systemPrompt = buildSystemPrompt(chat.extraSystem);
+
+  try {
+    await assertAiCredits(metering);
+
+    const credits = await loadCreditStates(c);
+
+    let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
+    const { value: result } = await runWithFallback(
+      c.env,
+      {
+        modelId,
+        op: 'chat',
+        credits,
+        onUsage: (rec) => {
+          served = {
+            gateway: rec.gateway as Gateway,
+            providerCostUsd: rec.providerCostUsd,
+            covered: rec.coveredByServiceCredit,
+          };
+        },
+      },
+      ({ model: resolved }) =>
+        generateText({
+          model: resolved,
+          system: systemPrompt,
+          messages: chat.chatMessages,
+          temperature: input.temperature,
+          maxOutputTokens: input.maxTokens,
+          maxRetries: 1,
+        }),
+    );
+
+    const creditsUsed = await chargeAiUsage(metering, {
+      modelId,
+      usage: result.usage,
+      op: 'chat',
+      gateway: served?.gateway,
+      providerCostUsd: served?.providerCostUsd,
+      coveredByServiceCredit: served?.covered,
+    });
+
+    return success(c, {
+      text: result.text,
+      model: modelId,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      creditsUsed,
+    });
+  } catch (err) {
+    return aiErrorResponse(c, err);
+  }
+}
+
 /**
  * POST /chat — multi-turn WeldAgent chat via the AI gateway.
  *
@@ -194,142 +385,92 @@ app.post(
       return error.internal(c, 'AI gateway is not configured');
     }
 
-    const { messages, model, system, temperature, maxTokens, agentId } = c.req.valid('json');
+    const input = c.req.valid('json');
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
-    const extraSystem = [
-      ...messages.filter((m) => m.role === 'system').map((m) => m.content),
-      ...(system ? [system] : []),
-    ].join('\n\n');
-    const chatMessages = messages
-      .filter((m): m is { role: 'user' | 'assistant'; content: string } => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    if (chatMessages.length === 0) {
+    const chat = splitChatMessages(input.messages, input.system);
+    if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }
 
     // Workspace agent path — tools + agent instructions.
-    if (agentId) {
-      const resolved = await ensurePermissionsResolved(c);
-      if (!resolved || !(await hasContextPermission(c, 'weldagent:use'))) {
-        return error.forbidden(c, 'Missing permission: weldagent:use');
-      }
-      const agent = await getAgent(c.get('tenantDb'), agentId);
-      if (!agent) return error.notFound(c, 'Agent not found');
-
-      try {
-        const result = await runAgentOnce({
-          env: c.env,
-          workspaceId: c.get('workspaceId'),
-          actorUserId: c.get('userId'),
-          agent: {
-            id: agent.id,
-            name: agent.name,
-            systemPrompt: agent.systemPrompt,
-            modelId: model ?? agent.modelId,
-            temperature: temperature !== undefined ? String(temperature) : agent.temperature,
-            maxTokens: maxTokens ?? agent.maxTokens,
-            maxIterations: agent.maxIterations,
-            permissions: agent.permissions,
-            enabledTools: agent.enabledTools,
-            autoReviewEnabled: agent.autoReviewEnabled,
-          },
-          toolContext: {
-            db: c.get('tenantDb'),
-            agentId: agent.id,
-            actorUserId: c.get('userId'),
-            workspaceId: c.get('workspaceId'),
-            env: c.env,
-          },
-          messages: chatMessages,
-          extraSystem: extraSystem || undefined,
-          actorPermissions: resolved.permissions,
-        });
-        return success(c, {
-          text: result.text,
-          model: result.modelId,
-          finishReason: result.finishReason,
-          usage: result.usage,
-          creditsUsed: result.creditsUsed,
-          toolInvocations: result.toolInvocations,
-        });
-      } catch (err) {
-        if (err instanceof InsufficientAiCreditsError) {
-          return error.insufficientCredits(c, {
-            currentBalance: err.currentBalance,
-            required: err.required,
-            shortfall: err.shortfall,
-          });
-        }
-        return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
-      }
+    if (input.agentId) {
+      return chatWithWorkspaceAgent(c, input, input.agentId, chat);
     }
 
-    const modelId = model ?? recommended.copilot.free;
-    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
-
-    try {
-      await assertAiCredits(metering);
-
-      const credits = c.env.WORKSPACE_CACHE
-        ? toCreditStates(await readGatewayCreditSnapshot(c.env.WORKSPACE_CACHE))
-        : [];
-
-      let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
-      const { value: result } = await runWithFallback(
-        c.env,
-        {
-          modelId,
-          op: 'chat',
-          credits,
-          onUsage: (rec) => {
-            served = {
-              gateway: rec.gateway as Gateway,
-              providerCostUsd: rec.providerCostUsd,
-              covered: rec.coveredByServiceCredit,
-            };
-          },
-        },
-        ({ model: resolved }) =>
-          generateText({
-            model: resolved,
-            system: systemPrompt,
-            messages: chatMessages,
-            temperature,
-            maxOutputTokens: maxTokens,
-            maxRetries: 1,
-          }),
-      );
-
-      const creditsUsed = await chargeAiUsage(metering, {
-        modelId,
-        usage: result.usage,
-        op: 'chat',
-        gateway: served?.gateway,
-        providerCostUsd: served?.providerCostUsd,
-        coveredByServiceCredit: served?.covered,
-      });
-
-      return success(c, {
-        text: result.text,
-        model: modelId,
-        finishReason: result.finishReason,
-        usage: result.usage,
-        creditsUsed,
-      });
-    } catch (err) {
-      if (err instanceof InsufficientAiCreditsError) {
-        return error.insufficientCredits(c, {
-          currentBalance: err.currentBalance,
-          required: err.required,
-          shortfall: err.shortfall,
-        });
-      }
-      return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
-    }
+    return chatWithPersona(c, input, metering, chat);
   },
 );
+
+/** /chat/stream with a workspace agent — tools + agent instructions. */
+async function streamWithWorkspaceAgent(
+  c: AppContext,
+  input: ChatInput,
+  agentId: string,
+  metering: Metering,
+  chat: ChatParts,
+) {
+  const loaded = await loadWorkspaceAgent(c, agentId);
+  if (!loaded.ok) return loaded.response;
+
+  try {
+    const { result } = await streamAgentChat({
+      ...buildAgentRunArgs(c, input, loaded, chat),
+      metering,
+      executionCtx: c.executionCtx,
+    });
+    return result.toTextStreamResponse();
+  } catch (err) {
+    return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+  }
+}
+
+/** /chat/stream with the plain WeldAgent persona (no workspace agent). */
+async function streamWithPersona(
+  c: AppContext,
+  input: ChatInput,
+  metering: Metering,
+  chat: ChatParts,
+) {
+  const modelId = input.model ?? recommended.copilot.free;
+  const systemPrompt = buildSystemPrompt(chat.extraSystem);
+
+  try {
+    const credits = await loadCreditStates(c);
+    const attempt = pickGateway(c.env, { modelId, credits });
+
+    const result = streamText({
+      model: attempt.model,
+      system: systemPrompt,
+      messages: chat.chatMessages,
+      temperature: input.temperature,
+      maxOutputTokens: input.maxTokens,
+      maxRetries: 1,
+      onError: ({ error: streamErr }) => {
+        console.error('[ai/chat/stream] model error:', streamErr);
+      },
+      onFinish: ({ usage }) => {
+        const cost = providerCostUsd(modelId, usage) * (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
+        c.executionCtx.waitUntil(
+          chargeAiUsage(metering, {
+            modelId,
+            usage,
+            op: 'chat',
+            gateway: attempt.gateway as Gateway,
+            providerCostUsd: cost,
+            coveredByServiceCredit: false,
+          }).catch((chargeErr) => {
+            console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
+          }),
+        );
+      },
+    });
+
+    return result.toTextStreamResponse();
+  } catch (err) {
+    return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+  }
+}
 
 /**
  * POST /chat/stream — the streaming twin of /chat.
@@ -350,118 +491,25 @@ app.post(
       return error.internal(c, 'AI gateway is not configured');
     }
 
-    const { messages, model, system, temperature, maxTokens, agentId } = c.req.valid('json');
+    const input = c.req.valid('json');
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
-    const extraSystem = [
-      ...messages.filter((m) => m.role === 'system').map((m) => m.content),
-      ...(system ? [system] : []),
-    ].join('\n\n');
-    const chatMessages = messages
-      .filter((m): m is { role: 'user' | 'assistant'; content: string } => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    if (chatMessages.length === 0) {
+    const chat = splitChatMessages(input.messages, input.system);
+    if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }
 
     try {
       await assertAiCredits(metering);
     } catch (err) {
-      if (err instanceof InsufficientAiCreditsError) {
-        return error.insufficientCredits(c, {
-          currentBalance: err.currentBalance,
-          required: err.required,
-          shortfall: err.shortfall,
-        });
-      }
-      return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+      return aiErrorResponse(c, err);
     }
 
-    if (agentId) {
-      const resolved = await ensurePermissionsResolved(c);
-      if (!resolved || !(await hasContextPermission(c, 'weldagent:use'))) {
-        return error.forbidden(c, 'Missing permission: weldagent:use');
-      }
-      const agent = await getAgent(c.get('tenantDb'), agentId);
-      if (!agent) return error.notFound(c, 'Agent not found');
-
-      try {
-        const { result } = await streamAgentChat({
-          env: c.env,
-          workspaceId: c.get('workspaceId'),
-          actorUserId: c.get('userId'),
-          agent: {
-            id: agent.id,
-            name: agent.name,
-            systemPrompt: agent.systemPrompt,
-            modelId: model ?? agent.modelId,
-            temperature: temperature !== undefined ? String(temperature) : agent.temperature,
-            maxTokens: maxTokens ?? agent.maxTokens,
-            maxIterations: agent.maxIterations,
-            permissions: agent.permissions,
-            enabledTools: agent.enabledTools,
-            autoReviewEnabled: agent.autoReviewEnabled,
-          },
-          toolContext: {
-            db: c.get('tenantDb'),
-            agentId: agent.id,
-            actorUserId: c.get('userId'),
-            workspaceId: c.get('workspaceId'),
-            env: c.env,
-          },
-          messages: chatMessages,
-          extraSystem: extraSystem || undefined,
-          actorPermissions: resolved.permissions,
-          metering,
-          executionCtx: c.executionCtx,
-        });
-        return result.toTextStreamResponse();
-      } catch (err) {
-        return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
-      }
+    if (input.agentId) {
+      return streamWithWorkspaceAgent(c, input, input.agentId, metering, chat);
     }
 
-    const modelId = model ?? recommended.copilot.free;
-    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
-
-    try {
-      const credits = c.env.WORKSPACE_CACHE
-        ? toCreditStates(await readGatewayCreditSnapshot(c.env.WORKSPACE_CACHE))
-        : [];
-      const attempt = pickGateway(c.env, { modelId, credits });
-
-      const result = streamText({
-        model: attempt.model,
-        system: systemPrompt,
-        messages: chatMessages,
-        temperature,
-        maxOutputTokens: maxTokens,
-        maxRetries: 1,
-        onError: ({ error: streamErr }) => {
-          console.error('[ai/chat/stream] model error:', streamErr);
-        },
-        onFinish: ({ usage }) => {
-          const cost = providerCostUsd(modelId, usage) * (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
-          c.executionCtx.waitUntil(
-            chargeAiUsage(metering, {
-              modelId,
-              usage,
-              op: 'chat',
-              gateway: attempt.gateway as Gateway,
-              providerCostUsd: cost,
-              coveredByServiceCredit: false,
-            }).catch((chargeErr) => {
-              console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
-            }),
-          );
-        },
-      });
-
-      return result.toTextStreamResponse();
-    } catch (err) {
-      return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
-    }
+    return streamWithPersona(c, input, metering, chat);
   },
 );
 

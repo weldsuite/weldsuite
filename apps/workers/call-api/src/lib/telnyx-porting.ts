@@ -53,6 +53,54 @@ function classifyHttpStatus(status: number): TelnyxPortingErrorCode {
   return 'unknown';
 }
 
+/** Build the request headers, defaulting Content-Type to JSON when a body is sent. */
+function buildRequestHeaders(apiKey: string, options: RequestInit): HeadersInit {
+  const callerHeaders = options.headers as Record<string, string> | undefined;
+  const needsJsonContentType = Boolean(options.body) && !callerHeaders?.['Content-Type'];
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    Accept: 'application/json',
+    ...(needsJsonContentType ? { 'Content-Type': 'application/json' } : {}),
+    ...options.headers,
+  };
+}
+
+/** Turn a non-2xx Telnyx response into a TelnyxPortingError (logging the failure). */
+async function buildFailureError(
+  response: Response,
+  url: string,
+  endpoint: string,
+): Promise<TelnyxPortingError> {
+  // Read the body as text first so we always have something to log even
+  // when Telnyx returns HTML (404 from a path they don't recognize) or
+  // an empty body. Then try to parse JSON for the structured error.
+  const rawText = await response.text().catch(() => '');
+  let body: Record<string, any> | null = null;
+  try {
+    body = rawText ? (JSON.parse(rawText) as Record<string, any>) : null;
+  } catch {
+    body = null;
+  }
+  const telnyxDetail = body?.errors?.[0]?.detail || body?.errors?.[0]?.title;
+  const errorMsg = telnyxDetail
+    ? `Telnyx ${response.status}: ${telnyxDetail}`
+    : `Telnyx ${response.status} on ${endpoint} — ${response.statusText || 'no body'}${rawText ? ` — body: ${rawText.slice(0, 300)}` : ''}`;
+
+  console.error('[TelnyxPorting] Request failed', {
+    url,
+    status: response.status,
+    statusText: response.statusText,
+    bodySnippet: rawText.slice(0, 500),
+  });
+
+  return new TelnyxPortingError(
+    classifyHttpStatus(response.status),
+    response.status,
+    errorMsg,
+    body?.errors ?? null,
+  );
+}
+
 async function telnyxPortingRequest<T>(
   env: TelnyxEnv,
   endpoint: string,
@@ -73,14 +121,7 @@ async function telnyxPortingRequest<T>(
   try {
     response = await fetch(url, {
       ...options,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json',
-        ...(options.body && !(options.headers as any)?.['Content-Type']
-          ? { 'Content-Type': 'application/json' }
-          : {}),
-        ...options.headers,
-      },
+      headers: buildRequestHeaders(apiKey, options),
     });
   } catch (networkErr) {
     throw new TelnyxPortingError(
@@ -91,34 +132,7 @@ async function telnyxPortingRequest<T>(
   }
 
   if (!response.ok) {
-    // Read the body as text first so we always have something to log even
-    // when Telnyx returns HTML (404 from a path they don't recognize) or
-    // an empty body. Then try to parse JSON for the structured error.
-    const rawText = await response.text().catch(() => '');
-    let body: Record<string, any> | null = null;
-    try {
-      body = rawText ? (JSON.parse(rawText) as Record<string, any>) : null;
-    } catch {
-      body = null;
-    }
-    const telnyxDetail = body?.errors?.[0]?.detail || body?.errors?.[0]?.title;
-    const errorMsg = telnyxDetail
-      ? `Telnyx ${response.status}: ${telnyxDetail}`
-      : `Telnyx ${response.status} on ${endpoint} — ${response.statusText || 'no body'}${rawText ? ` — body: ${rawText.slice(0, 300)}` : ''}`;
-
-    console.error('[TelnyxPorting] Request failed', {
-      url,
-      status: response.status,
-      statusText: response.statusText,
-      bodySnippet: rawText.slice(0, 500),
-    });
-
-    throw new TelnyxPortingError(
-      classifyHttpStatus(response.status),
-      response.status,
-      errorMsg,
-      body?.errors ?? null,
-    );
+    throw await buildFailureError(response, url, endpoint);
   }
 
   if (response.status === 204) return {} as T;
