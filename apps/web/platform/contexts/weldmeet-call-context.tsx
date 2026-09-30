@@ -84,6 +84,66 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
+interface CallBroadcastMessage {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+function readStringPayload(payload: Record<string, unknown> | undefined, key: string): string | null {
+  const value = payload?.[key];
+  return typeof value === 'string' ? value : null;
+}
+
+/** Extracts + parses a `call:host-controls-updated` payload; null when malformed. */
+function parseHostControlsUpdate(
+  payload: Record<string, unknown> | undefined,
+): { meetingId: string; controls: Record<string, unknown> } | null {
+  const meetingId = readStringPayload(payload, 'meetingId');
+  const json = readStringPayload(payload, 'controlsJson');
+  if (!meetingId || !json) return null;
+  try {
+    return { meetingId, controls: JSON.parse(json) as Record<string, unknown> };
+  } catch {
+    return null;
+  }
+}
+
+function pickIdeal(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
+    return (v as { ideal: number }).ideal;
+  }
+  return undefined;
+}
+
+/**
+ * Applies the resolution/framerate the user picked in the share picker via the
+ * SDK-supported updateScreenshareConstraints, retuning the active track in
+ * place. Failures are logged and never abort the share.
+ */
+async function applyScreenShareConstraints(
+  self: RealtimeKitSelfInternal,
+  constraints?: DisplayMediaStreamOptions,
+): Promise<void> {
+  const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
+    ? (constraints.video as MediaTrackConstraints)
+    : undefined;
+  const width = pickIdeal(videoConstraints?.width);
+  const height = pickIdeal(videoConstraints?.height);
+  const frameRate = pickIdeal(videoConstraints?.frameRate);
+
+  if (!width || !height) return;
+  try {
+    await self.updateScreenshareConstraints?.({
+      width: { ideal: width },
+      height: { ideal: height },
+      ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
+    });
+  } catch (err) {
+    console.warn('[WeldMeet] updateScreenshareConstraints failed:', err);
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -460,43 +520,37 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!meeting) return;
     const selfId: string | undefined = meeting.self?.id;
-    const handler = (msg: { type: string; payload: Record<string, unknown> }) => {
+    const onHandBroadcast = (msg: CallBroadcastMessage) => {
+      const peerId = readStringPayload(msg.payload, 'peerId');
+      if (!peerId) return;
+      const raised = msg.type === 'call:hand-raised';
+      setHandRaisedParticipants((prev) => {
+        const next = new Set(prev);
+        if (raised) next.add(peerId);
+        else next.delete(peerId);
+        return next;
+      });
+      if (peerId === selfId) return;
+      if (raised) playHandRaiseSound();
+      else playHandLowerSound();
+    };
+    const handler = (msg: CallBroadcastMessage) => {
       if (msg.type === 'call:hand-raised' || msg.type === 'call:hand-lowered') {
-        const peerId = typeof msg.payload?.peerId === 'string' ? msg.payload.peerId : null;
-        if (!peerId) return;
-        setHandRaisedParticipants((prev) => {
-          const next = new Set(prev);
-          if (msg.type === 'call:hand-raised') next.add(peerId);
-          else next.delete(peerId);
-          return next;
-        });
-        if (peerId !== selfId) {
-          if (msg.type === 'call:hand-raised') playHandRaiseSound();
-          else playHandLowerSound();
-        }
+        onHandBroadcast(msg);
         return;
       }
-      if (msg.type === 'call:host-controls-updated') {
-        const targetMeetingId = typeof msg.payload?.meetingId === 'string' ? msg.payload.meetingId : null;
-        const json = typeof msg.payload?.controlsJson === 'string' ? msg.payload.controlsJson : null;
-        if (!targetMeetingId || !json) return;
-        let controls: Record<string, unknown>;
-        try {
-          controls = JSON.parse(json) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-        // Optimistically merge into the cached meeting so the UI re-renders
-        // its policy gates immediately. The next refetch will reconcile.
-        queryClient.setQueryData(
-          weldmeetKeys.meeting(targetMeetingId),
-          (prev: Record<string, unknown> | null | undefined) => {
-            if (!prev) return prev;
-            return { ...prev, ...controls };
-          },
-        );
-        return;
-      }
+      if (msg.type !== 'call:host-controls-updated') return;
+      const update = parseHostControlsUpdate(msg.payload);
+      if (!update) return;
+      // Optimistically merge into the cached meeting so the UI re-renders
+      // its policy gates immediately. The next refetch will reconcile.
+      queryClient.setQueryData(
+        weldmeetKeys.meeting(update.meetingId),
+        (prev: Record<string, unknown> | null | undefined) => {
+          if (!prev) return prev;
+          return { ...prev, ...update.controls };
+        },
+      );
     };
     try {
       meeting.participants.on('broadcastedMessage', handler);
@@ -915,31 +969,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
-        ? (constraints.video as MediaTrackConstraints)
-        : undefined;
-      const pickIdeal = (v: unknown): number | undefined => {
-        if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
-          return (v as { ideal: number }).ideal;
-        }
-        return undefined;
-      };
-      const width = pickIdeal(videoConstraints?.width);
-      const height = pickIdeal(videoConstraints?.height);
-      const frameRate = pickIdeal(videoConstraints?.frameRate);
-
-      if (width && height) {
-        try {
-          await self.updateScreenshareConstraints?.({
-            width: { ideal: width },
-            height: { ideal: height },
-            ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
-          });
-        } catch (err) {
-          console.warn('[WeldMeet] updateScreenshareConstraints failed:', err);
-        }
-      }
+      await applyScreenShareConstraints(self, constraints);
 
       // Bias the encoder for spatial sharpness. Per WeldMeet UX policy
       // (quality > smoothness > delay), 'detail' tells the browser to

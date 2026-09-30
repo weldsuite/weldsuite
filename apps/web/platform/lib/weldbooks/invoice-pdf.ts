@@ -6,7 +6,7 @@
  * Runs in-browser (Vite SPA) today; the pure-function signature means it can
  * move to a Worker unchanged if/when we need server-side generation.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 
 export interface InvoicePdfEntity {
@@ -151,34 +151,26 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines.length > 0 ? lines : [''];
 }
 
-export async function generateInvoicePdf(
+type InvoiceCustomer = {
+  name?: string | null;
+  email?: string | null;
+  address?: InvoicePdfEntity['address'];
+} | null;
+
+/** Logo (or entity name) on the left, "INVOICE" + number on the right. */
+function drawHeader(
+  ctx: DrawContext,
   invoice: InvoiceDetail,
   entity: InvoicePdfEntity,
-  customer?: { name?: string | null; email?: string | null; address?: InvoicePdfEntity['address'] } | null,
-): Promise<Uint8Array> {
-  const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-
-  const accent = hexToRgb(entity.branding?.accentColor ?? entity.branding?.primaryColor, rgb(0.23, 0.38, 0.87));
-  const muted = rgb(0.45, 0.47, 0.52);
-  const text = rgb(0.1, 0.1, 0.12);
-  const currency = invoice.currency ?? entity.baseCurrency ?? 'EUR';
-  const locale = entity.locale ?? 'en-US';
-  const logo = await fetchLogo(entity.branding?.logoUrl, pdf);
-
-  let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  const ctx: DrawContext = { page, font, fontBold, accent, muted, text };
-
-  // --- Header ---
-  let y = PAGE_HEIGHT - MARGIN_TOP;
-
+  logo: PDFImage | null,
+  y: number,
+) {
   if (logo) {
     const maxLogoH = 48;
     const scale = Math.min(maxLogoH / logo.height, 160 / logo.width);
     const logoW = logo.width * scale;
     const logoH = logo.height * scale;
-    page.drawImage(logo, { x: MARGIN_X, y: y - logoH, width: logoW, height: logoH });
+    ctx.page.drawImage(logo, { x: MARGIN_X, y: y - logoH, width: logoW, height: logoH });
   } else {
     drawText(ctx, entity.name, MARGIN_X, y - 14, { size: 16, bold: true });
   }
@@ -187,22 +179,29 @@ export async function generateInvoicePdf(
   drawText(ctx, 'INVOICE', MARGIN_X, y - 12, {
     size: 22,
     bold: true,
-    color: accent,
+    color: ctx.accent,
     align: 'right',
     width: PAGE_WIDTH - 2 * MARGIN_X,
   });
   if (invoice.invoiceNumber) {
     drawText(ctx, invoice.invoiceNumber, MARGIN_X, y - 34, {
       size: 10,
-      color: muted,
+      color: ctx.muted,
       align: 'right',
       width: PAGE_WIDTH - 2 * MARGIN_X,
     });
   }
+}
 
-  y -= 72;
-
-  // --- Company + meta row ---
+/** Company address block (left) + issue/due/reference dates (right). Returns the next y. */
+function drawFromAndMeta(
+  ctx: DrawContext,
+  invoice: InvoiceDetail,
+  entity: InvoicePdfEntity,
+  locale: string,
+  y: number,
+): number {
+  const muted = ctx.muted;
   const fromLines = [
     entity.legalName || entity.name,
     [entity.address?.street, entity.address?.houseNumber].filter(Boolean).join(' '),
@@ -243,10 +242,18 @@ export async function generateInvoicePdf(
     });
   }
 
-  y = Math.min(fromY, y - 48) - 12;
+  return Math.min(fromY, y - 48) - 12;
+}
 
-  // --- Bill To ---
-  drawText(ctx, 'BILL TO', MARGIN_X, y, { size: 8, bold: true, color: muted });
+/** "BILL TO" block. Returns the next y. */
+function drawBillTo(
+  ctx: DrawContext,
+  invoice: InvoiceDetail,
+  customer: InvoiceCustomer | undefined,
+  startY: number,
+): number {
+  let y = startY;
+  drawText(ctx, 'BILL TO', MARGIN_X, y, { size: 8, bold: true, color: ctx.muted });
   y -= 14;
   const billLines = [
     customer?.name ?? invoice.contactName ?? '',
@@ -259,63 +266,53 @@ export async function generateInvoicePdf(
     drawText(ctx, line, MARGIN_X, y, { size: 9 });
     y -= 12;
   }
+  return y;
+}
 
-  y -= 16;
-
-  // --- Line items header ---
-  const tableX = MARGIN_X;
-  const tableWidth = PAGE_WIDTH - 2 * MARGIN_X;
+/** Accent bar + column headings of the line-items table. */
+function drawTableHeader(ctx: DrawContext, tableX: number, tableWidth: number, y: number) {
+  const headerOpts = { size: 8, bold: true, color: ctx.muted };
   // Accent bar under header row
-  page.drawRectangle({
+  ctx.page.drawRectangle({
     x: tableX,
     y: y - 4,
     width: tableWidth,
     height: 1,
-    color: accent,
+    color: ctx.accent,
   });
-  drawText(ctx, 'DESCRIPTION', tableX + COL.description.x, y, { size: 8, bold: true, color: muted });
-  drawText(ctx, 'QTY', tableX + COL.qty.x, y, {
-    size: 8,
-    bold: true,
-    color: muted,
-    align: 'right',
-    width: COL.qty.width,
-  });
-  drawText(ctx, 'UNIT PRICE', tableX + COL.unitPrice.x, y, {
-    size: 8,
-    bold: true,
-    color: muted,
-    align: 'right',
-    width: COL.unitPrice.width,
-  });
-  drawText(ctx, 'TAX', tableX + COL.tax.x, y, {
-    size: 8,
-    bold: true,
-    color: muted,
-    align: 'right',
-    width: COL.tax.width,
-  });
-  drawText(ctx, 'AMOUNT', tableX + COL.total.x, y, {
-    size: 8,
-    bold: true,
-    color: muted,
-    align: 'right',
-    width: COL.total.width,
-  });
+  drawText(ctx, 'DESCRIPTION', tableX + COL.description.x, y, headerOpts);
+  const rightAligned: Array<[string, { x: number; width: number }]> = [
+    ['QTY', COL.qty],
+    ['UNIT PRICE', COL.unitPrice],
+    ['TAX', COL.tax],
+    ['AMOUNT', COL.total],
+  ];
+  for (const [label, col] of rightAligned) {
+    drawText(ctx, label, tableX + col.x, y, { ...headerOpts, align: 'right', width: col.width });
+  }
+}
 
-  y -= TABLE_HEADER_HEIGHT;
-
-  // --- Line items rows ---
+/** Line-item rows with page breaks. Mutates `ctx.page` on a break; returns the next y. */
+function drawLineItems(
+  pdf: PDFDocument,
+  ctx: DrawContext,
+  invoice: InvoiceDetail,
+  currency: string,
+  locale: string,
+  tableX: number,
+  tableWidth: number,
+  startY: number,
+): number {
+  let y = startY;
   const totalsReservedHeight = 120; // approx space for totals + footer
   for (const item of invoice.items ?? []) {
-    const descLines = wrapText(item.description, font, 9, COL.description.width);
+    const descLines = wrapText(item.description, ctx.font, 9, COL.description.width);
     const rowLines = Math.max(1, descLines.length);
     const rowH = rowLines * ROW_HEIGHT;
 
     // Page break if we'd overlap totals band.
     if (y - rowH < MARGIN_BOTTOM + totalsReservedHeight) {
-      page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-      ctx.page = page;
+      ctx.page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
       y = PAGE_HEIGHT - MARGIN_TOP;
       // Re-draw compact header on continuation pages
       drawText(ctx, (invoice.invoiceNumber ?? 'Invoice') + ' (continued)', MARGIN_X, y, {
@@ -353,7 +350,7 @@ export async function generateInvoicePdf(
 
     y -= rowH;
     // Row separator
-    page.drawRectangle({
+    ctx.page.drawRectangle({
       x: tableX,
       y: y + 4,
       width: tableWidth,
@@ -361,14 +358,23 @@ export async function generateInvoicePdf(
       color: rgb(0.85, 0.86, 0.88),
     });
   }
+  return y;
+}
 
-  // --- Totals (right-aligned) ---
-  y -= 20;
+/** Right-aligned subtotal / tax / total (+ paid / balance) block. */
+function drawTotals(
+  ctx: DrawContext,
+  invoice: InvoiceDetail,
+  currency: string,
+  locale: string,
+  startY: number,
+) {
+  let y = startY - 20;
   const totalsX = PAGE_WIDTH - MARGIN_X - 200;
   const totalsW = 200;
 
   const totalsRow = (label: string, value: string, bold = false, color?: RGB) => {
-    drawText(ctx, label, totalsX, y, { size: 9, bold, color: color ?? muted });
+    drawText(ctx, label, totalsX, y, { size: 9, bold, color: color ?? ctx.muted });
     drawText(ctx, value, totalsX, y, { size: 9, bold, color, align: 'right', width: totalsW });
     y -= 16;
   };
@@ -377,47 +383,101 @@ export async function generateInvoicePdf(
   totalsRow('Tax', formatCurrency(invoice.taxTotal, currency, locale));
   y -= 4;
   // Accent line above grand total
-  page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: accent });
+  ctx.page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: ctx.accent });
   y -= 4;
-  totalsRow('Total', formatCurrency(invoice.total, currency, locale), true, text);
+  totalsRow('Total', formatCurrency(invoice.total, currency, locale), true, ctx.text);
   if (invoice.amountPaid && Number(invoice.amountPaid) > 0) {
     totalsRow('Paid', '-' + formatCurrency(invoice.amountPaid, currency, locale));
-    totalsRow('Balance Due', formatCurrency(invoice.balanceDue, currency, locale), true, accent);
+    totalsRow('Balance Due', formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
   }
+}
 
-  // --- Footer (payment instructions + terms + footer text) ---
+/** Footer (payment instructions + bank details + terms + footer text). */
+function drawFooter(ctx: DrawContext, entity: InvoicePdfEntity) {
+  const bank = entity.bankDetails;
   const footerBlocks = [
     entity.branding?.paymentInstructions,
-    entity.bankDetails?.iban ? 'Bank: ' + (entity.bankDetails.bankName ?? '') + ' · IBAN: ' + entity.bankDetails.iban + (entity.bankDetails.bic ? ' · BIC: ' + entity.bankDetails.bic : '') : null,
+    bank?.iban ? 'Bank: ' + (bank.bankName ?? '') + ' · IBAN: ' + bank.iban + (bank.bic ? ' · BIC: ' + bank.bic : '') : null,
     entity.branding?.termsAndConditions,
     entity.branding?.footerText,
   ].filter((b): b is string => !!b && b.trim().length > 0);
 
   let footerY = MARGIN_BOTTOM + footerBlocks.length * 24;
   for (const block of footerBlocks) {
-    const lines = wrapText(block, font, 8, PAGE_WIDTH - 2 * MARGIN_X);
+    const lines = wrapText(block, ctx.font, 8, PAGE_WIDTH - 2 * MARGIN_X);
     for (const line of lines) {
-      drawText(ctx, line, MARGIN_X, footerY, { size: 8, color: muted });
+      drawText(ctx, line, MARGIN_X, footerY, { size: 8, color: ctx.muted });
       footerY -= 11;
     }
     footerY -= 6;
   }
+}
 
-  // --- Page numbers (on every page, bottom-right) ---
+/** Page numbers on every page, bottom-right. */
+function drawPageNumbers(pdf: PDFDocument, ctx: DrawContext) {
   const pages = pdf.getPages();
   const totalPages = pages.length;
   for (let i = 0; i < totalPages; i++) {
-    const p = pages[i];
     const label = 'Page ' + (i + 1) + ' of ' + totalPages;
-    const w = font.widthOfTextAtSize(label, 8);
-    p.drawText(label, {
+    const w = ctx.font.widthOfTextAtSize(label, 8);
+    pages[i].drawText(label, {
       x: PAGE_WIDTH - MARGIN_X - w,
       y: MARGIN_BOTTOM - 20,
       size: 8,
-      font,
-      color: muted,
+      font: ctx.font,
+      color: ctx.muted,
     });
   }
+}
+
+export async function generateInvoicePdf(
+  invoice: InvoiceDetail,
+  entity: InvoicePdfEntity,
+  customer?: InvoiceCustomer,
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const accent = hexToRgb(entity.branding?.accentColor ?? entity.branding?.primaryColor, rgb(0.23, 0.38, 0.87));
+  const muted = rgb(0.45, 0.47, 0.52);
+  const text = rgb(0.1, 0.1, 0.12);
+  const currency = invoice.currency ?? entity.baseCurrency ?? 'EUR';
+  const locale = entity.locale ?? 'en-US';
+  const logo = await fetchLogo(entity.branding?.logoUrl, pdf);
+
+  const page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  const ctx: DrawContext = { page, font, fontBold, accent, muted, text };
+
+  // --- Header ---
+  let y = PAGE_HEIGHT - MARGIN_TOP;
+  drawHeader(ctx, invoice, entity, logo, y);
+  y -= 72;
+
+  // --- Company + meta row ---
+  y = drawFromAndMeta(ctx, invoice, entity, locale, y);
+
+  // --- Bill To ---
+  y = drawBillTo(ctx, invoice, customer, y);
+  y -= 16;
+
+  // --- Line items header ---
+  const tableX = MARGIN_X;
+  const tableWidth = PAGE_WIDTH - 2 * MARGIN_X;
+  drawTableHeader(ctx, tableX, tableWidth, y);
+  y -= TABLE_HEADER_HEIGHT;
+
+  // --- Line items rows ---
+  y = drawLineItems(pdf, ctx, invoice, currency, locale, tableX, tableWidth, y);
+
+  // --- Totals (right-aligned) ---
+  drawTotals(ctx, invoice, currency, locale, y);
+
+  // --- Footer (payment instructions + terms + footer text) ---
+  drawFooter(ctx, entity);
+
+  // --- Page numbers (on every page, bottom-right) ---
+  drawPageNumbers(pdf, ctx);
 
   return await pdf.save();
 }

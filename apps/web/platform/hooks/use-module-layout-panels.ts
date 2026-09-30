@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
@@ -26,6 +26,29 @@ interface UseModuleLayoutPanelsOptions {
 }
 
 /**
+ * Listens for a panel's `{ isOpen, width }` CustomEvent and records its
+ * reserved width. Returns the unsubscribe function.
+ */
+function subscribePanelEvent(
+  name: string,
+  sync: boolean,
+  setPanelWidths: Dispatch<SetStateAction<Record<string, number>>>,
+): () => void {
+  const handler = (e: Event) => {
+    const { isOpen, width } = (e as CustomEvent).detail;
+    const update = () =>
+      setPanelWidths((prev) => {
+        const next = isOpen ? width : 0;
+        return prev[name] === next ? prev : { ...prev, [name]: next };
+      });
+    if (sync) flushSync(update);
+    else update();
+  };
+  window.addEventListener(name, handler);
+  return () => window.removeEventListener(name, handler);
+}
+
+/**
  * Shared wiring for module layout shells: WeldAgent / calendar / notifications
  * drawer state (WeldAgent routed through MobileNavContext when present, so the
  * global shortcut stays in sync) plus width reservation for detail panels that
@@ -50,20 +73,7 @@ export function useModuleLayoutPanels({
   const eventsKey = panelEvents.join(',');
   useEffect(() => {
     const events = eventsKey.split(',').filter(Boolean);
-    const cleanups = events.map((name) => {
-      const handler = (e: Event) => {
-        const { isOpen, width } = (e as CustomEvent).detail;
-        const update = () =>
-          setPanelWidths((prev) => {
-            const next = isOpen ? width : 0;
-            return prev[name] === next ? prev : { ...prev, [name]: next };
-          });
-        if (sync) flushSync(update);
-        else update();
-      };
-      window.addEventListener(name, handler);
-      return () => window.removeEventListener(name, handler);
-    });
+    const cleanups = events.map((name) => subscribePanelEvent(name, sync, setPanelWidths));
     return () => cleanups.forEach((cleanup) => cleanup());
   }, [eventsKey, sync]);
 

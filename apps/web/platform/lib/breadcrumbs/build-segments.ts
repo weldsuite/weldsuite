@@ -61,6 +61,42 @@ function isIdLike(seg: string): boolean {
   return false;
 }
 
+/**
+ * Resolve the label + source for one match (loader > static > fallback), or
+ * null when no usable label exists (e.g. an ID segment with no descriptor).
+ */
+function resolveLabel(
+  match: MatchLike,
+  descriptor: BreadcrumbDescriptor | undefined,
+  fallbackRegistry: Map<string, string>,
+): { label: string; source: BreadcrumbSegment['source'] } | null {
+  const loaderLabel = match.loaderData?.breadcrumbLabel;
+  if (loaderLabel && loaderLabel.trim()) {
+    return { label: loaderLabel.trim(), source: 'loader' };
+  }
+  if (descriptor?.label) {
+    return { label: descriptor.label, source: 'static' };
+  }
+  // No descriptor yet, fall back to segment-name heuristics
+  const fallback = defaultLabelFor(match.pathname, fallbackRegistry);
+  return fallback ? { label: fallback, source: 'fallback' } : null;
+}
+
+/**
+ * Collapse duplicate consecutive labels (can happen when a child index route
+ * falls back to the same path-segment name that its parent route already
+ * set via staticData, or when a child loader resolves to the parent label).
+ */
+function collapseDuplicateLabels(segments: BreadcrumbSegment[]): BreadcrumbSegment[] {
+  const collapsed: BreadcrumbSegment[] = [];
+  for (const seg of segments) {
+    const prev = collapsed[collapsed.length - 1];
+    if (prev && prev.label === seg.label) continue;
+    collapsed.push(seg);
+  }
+  return collapsed;
+}
+
 export function buildBreadcrumbSegments(
   matches: readonly MatchLike[],
   fallbackRegistry: Map<string, string> = new Map(),
@@ -76,50 +112,21 @@ export function buildBreadcrumbSegments(
     }
     if (descriptor?.hidden) continue;
 
-    const loaderLabel = match.loaderData?.breadcrumbLabel;
+    const resolved = resolveLabel(match, descriptor, fallbackRegistry);
+    if (!resolved) continue; // skip — no usable label (e.g. ID segment with no descriptor)
+
+    const { label, source } = resolved;
     const isPending = match.status === 'pending';
-
-    let label: string | undefined;
-    let source: BreadcrumbSegment['source'] = 'fallback';
-
-    if (loaderLabel && loaderLabel.trim()) {
-      label = loaderLabel.trim();
-      source = 'loader';
-    } else if (descriptor?.label) {
-      label = descriptor.label;
-      source = 'static';
-    } else {
-      // No descriptor yet, fall back to segment-name heuristics
-      const fallback = defaultLabelFor(match.pathname, fallbackRegistry);
-      if (fallback) {
-        label = fallback;
-        source = 'fallback';
-      }
-    }
-
-    if (!label) continue; // skip — no usable label (e.g. ID segment with no descriptor)
-
-    const href = descriptor?.href ?? match.pathname;
     segments.push({
       label,
-      href,
+      href: descriptor?.href ?? match.pathname,
       icon: descriptor?.icon,
       pending: isPending && source !== 'static',
       source,
     });
   }
 
-  // Collapse duplicate consecutive labels (can happen when a child index route
-  // falls back to the same path-segment name that its parent route already
-  // set via staticData, or when a child loader resolves to the parent label).
-  const collapsed: BreadcrumbSegment[] = [];
-  for (const seg of segments) {
-    const prev = collapsed[collapsed.length - 1];
-    if (prev && prev.label === seg.label) continue;
-    collapsed.push(seg);
-  }
-
-  return { segments: collapsed, hideAll };
+  return { segments: collapseDuplicateLabels(segments), hideAll };
 }
 
 /**

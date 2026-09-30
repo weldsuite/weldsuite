@@ -184,65 +184,63 @@ export function createVariable(name: string, modifier?: string): string {
   return `{{${name}}}`;
 }
 
+type VariableFormatters = {
+  currency?: (value: number) => string;
+  date?: (value: string | Date, format?: string) => string;
+  number?: (value: number) => string;
+  boolean?: (value: boolean) => string;
+};
+
+/**
+ * Apply the formatter matching the modifier name (if one is provided);
+ * otherwise the plain string value is returned.
+ */
+function applyModifierFormatter(
+  value: unknown,
+  modifier: string,
+  formatters: VariableFormatters,
+): string {
+  const [modifierName, dateFormat] = modifier.split(':');
+  switch (modifierName) {
+    case 'currency':
+      return formatters.currency ? formatters.currency(Number(value)) : String(value);
+    case 'date':
+      return formatters.date ? formatters.date(value as string | Date, dateFormat) : String(value);
+    case 'number':
+      return formatters.number ? formatters.number(Number(value)) : String(value);
+    case 'boolean':
+      return formatters.boolean ? formatters.boolean(Boolean(value)) : String(value);
+    default:
+      return String(value);
+  }
+}
+
 /**
  * Replace variables in content with values from data object
  */
 export function replaceVariables(
   content: string,
   data: Record<string, unknown>,
-  formatters?: {
-    currency?: (value: number) => string;
-    date?: (value: string | Date, format?: string) => string;
-    number?: (value: number) => string;
-    boolean?: (value: boolean) => string;
-  }
+  formatters?: VariableFormatters
 ): string {
   let result = content;
   const variables = extractVariables(content);
 
   variables.forEach(variable => {
     const value = data[variable.name];
+    const hasValue = value !== undefined && value !== null;
 
-    if (value !== undefined && value !== null) {
-      let formattedValue = String(value);
-
-      // Apply formatter if modifier is present
-      if (variable.modifier && formatters) {
-        const modifierName = variable.modifier.split(':')[0];
-
-        switch (modifierName) {
-          case 'currency':
-            if (formatters.currency) {
-              formattedValue = formatters.currency(Number(value));
-            }
-            break;
-          case 'date':
-            if (formatters.date) {
-              const dateFormat = variable.modifier.split(':')[1];
-              formattedValue = formatters.date(value as string | Date, dateFormat);
-            }
-            break;
-          case 'number':
-            if (formatters.number) {
-              formattedValue = formatters.number(Number(value));
-            }
-            break;
-          case 'boolean':
-            if (formatters.boolean) {
-              formattedValue = formatters.boolean(Boolean(value));
-            }
-            break;
-        }
-      }
-
-      // Escape special regex characters in the variable string
-      const escapedVariable = variable.fullMatch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      result = result.replace(new RegExp(escapedVariable, 'g'), formattedValue);
-    } else {
-      // Replace with empty string if no value
-      const escapedVariable = variable.fullMatch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      result = result.replace(new RegExp(escapedVariable, 'g'), '');
+    // Apply formatter if modifier is present; replace with empty string if no value
+    let replacement = '';
+    if (hasValue) {
+      replacement = variable.modifier && formatters
+        ? applyModifierFormatter(value, variable.modifier, formatters)
+        : String(value);
     }
+
+    // Escape special regex characters in the variable string
+    const escapedVariable = variable.fullMatch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escapedVariable, 'g'), replacement);
   });
 
   return result;

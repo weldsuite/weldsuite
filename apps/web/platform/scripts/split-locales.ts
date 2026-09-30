@@ -31,23 +31,41 @@ function unwrapAsConst(node: ts.Expression): ts.Expression {
   return node;
 }
 
-function splitLocale(locale: 'en' | 'nl', baseDir: string): SplitResult {
-  const sourcePath = path.join(baseDir, `${locale}.ts`);
-  const src = fs.readFileSync(sourcePath, 'utf-8');
-  const sf = ts.createSourceFile(`${locale}.ts`, src, ts.ScriptTarget.ESNext, true);
-
+/** Object literal assigned to `const <locale> = {...}` (last matching declaration wins). */
+function findLocaleObjectLiteral(sf: ts.SourceFile, locale: string): ts.ObjectLiteralExpression | undefined {
   let objLiteral: ts.ObjectLiteralExpression | undefined;
 
   for (const stmt of sf.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name)) continue;
-      if (decl.name.text !== locale) continue;
-      if (!decl.initializer) continue;
+      if (!ts.isIdentifier(decl.name) || decl.name.text !== locale || !decl.initializer) continue;
       const expr = unwrapAsConst(decl.initializer);
       if (ts.isObjectLiteralExpression(expr)) objLiteral = expr;
     }
   }
+
+  return objLiteral;
+}
+
+function readNamespaceProperty(
+  prop: ts.ObjectLiteralElementLike,
+  locale: string,
+): { name: string; initializer: ts.Expression } {
+  if (!ts.isPropertyAssignment(prop)) {
+    throw new Error(`Unexpected property kind ${ts.SyntaxKind[prop.kind]} in ${locale}.ts`);
+  }
+  if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) {
+    return { name: prop.name.text, initializer: prop.initializer };
+  }
+  throw new Error(`Unsupported property name kind in ${locale}.ts`);
+}
+
+function splitLocale(locale: 'en' | 'nl', baseDir: string): SplitResult {
+  const sourcePath = path.join(baseDir, `${locale}.ts`);
+  const src = fs.readFileSync(sourcePath, 'utf-8');
+  const sf = ts.createSourceFile(`${locale}.ts`, src, ts.ScriptTarget.ESNext, true);
+
+  const objLiteral = findLocaleObjectLiteral(sf, locale);
 
   if (!objLiteral) {
     throw new Error(`Could not find object literal for export const ${locale} in ${sourcePath}`);
@@ -59,15 +77,8 @@ function splitLocale(locale: 'en' | 'nl', baseDir: string): SplitResult {
   const namespaces: string[] = [];
 
   for (const prop of objLiteral.properties) {
-    if (!ts.isPropertyAssignment(prop)) {
-      throw new Error(`Unexpected property kind ${ts.SyntaxKind[prop.kind]} in ${locale}.ts`);
-    }
-    let name: string;
-    if (ts.isIdentifier(prop.name)) name = prop.name.text;
-    else if (ts.isStringLiteral(prop.name)) name = prop.name.text;
-    else throw new Error(`Unsupported property name kind in ${locale}.ts`);
-
-    const valueText = prop.initializer.getText(sf);
+    const { name, initializer } = readNamespaceProperty(prop, locale);
+    const valueText = initializer.getText(sf);
     const outPath = path.join(outDir, `${name}.ts`);
     // No `as const` — the original monolithic en.ts / nl.ts inferred wide string
     // types, and adding `as const` would make `typeof en` literal-narrow (e.g.,

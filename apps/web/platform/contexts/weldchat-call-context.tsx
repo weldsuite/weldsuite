@@ -83,6 +83,42 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
+function pickIdeal(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
+    return (v as { ideal: number }).ideal;
+  }
+  return undefined;
+}
+
+/**
+ * Applies the resolution/framerate the user picked in the share picker via the
+ * SDK-supported updateScreenshareConstraints, retuning the active track in
+ * place. Failures are logged and never abort the share.
+ */
+async function applyScreenShareConstraints(
+  self: RealtimeKitSelfInternal,
+  constraints?: DisplayMediaStreamOptions,
+): Promise<void> {
+  const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
+    ? (constraints.video as MediaTrackConstraints)
+    : undefined;
+  const width = pickIdeal(videoConstraints?.width);
+  const height = pickIdeal(videoConstraints?.height);
+  const frameRate = pickIdeal(videoConstraints?.frameRate);
+
+  if (!width || !height) return;
+  try {
+    await self.updateScreenshareConstraints?.({
+      width: { ideal: width },
+      height: { ideal: height },
+      ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
+    });
+  } catch (err) {
+    console.warn('[WeldChat] updateScreenshareConstraints failed:', err);
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -764,31 +800,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
-        ? (constraints.video as MediaTrackConstraints)
-        : undefined;
-      const pickIdeal = (v: unknown): number | undefined => {
-        if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
-          return (v as { ideal: number }).ideal;
-        }
-        return undefined;
-      };
-      const width = pickIdeal(videoConstraints?.width);
-      const height = pickIdeal(videoConstraints?.height);
-      const frameRate = pickIdeal(videoConstraints?.frameRate);
-
-      if (width && height) {
-        try {
-          await self.updateScreenshareConstraints?.({
-            width: { ideal: width },
-            height: { ideal: height },
-            ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
-          });
-        } catch (err) {
-          console.warn('[WeldChat] updateScreenshareConstraints failed:', err);
-        }
-      }
+      await applyScreenShareConstraints(self, constraints);
 
       // Bias the encoder for spatial sharpness — sharp text/UI over smooth
       // motion, matching WeldMeet's screen-share quality policy.
