@@ -1,3 +1,5 @@
+import type { FlatTimelineSegment } from './types';
+
 
 export function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -43,4 +45,46 @@ export function formatDurationMin(seconds: number): string {
 export function parseSpeakerId(speakerLabel: string): number {
   const match = speakerLabel.match(/\d+/);
   return match ? Number.parseInt(match[0]) : 0;
+}
+
+const MAGNET_ZONE = 0.3;
+
+/**
+ * Applies the hover state of a timeline track: highlights the hovered speaker
+ * segment and moves (or snaps) the hover cursor to the pointer position.
+ */
+export function showSegmentHover(
+  highlight: HTMLDivElement | null,
+  cursor: HTMLDivElement | null,
+  seg: FlatTimelineSegment,
+  duration: number,
+  trackWidth: number,
+  x: number,
+  highlightHeight: string,
+): void {
+  const segLeftPx = (seg.start / duration) * trackWidth;
+  const segWidthPx = ((seg.end - seg.start) / duration) * trackWidth;
+  const localPercent = (x - segLeftPx) / segWidthPx;
+  const snapped = localPercent < MAGNET_ZONE;
+  if (highlight) {
+    highlight.style.left = `${(seg.start / duration) * 100}%`;
+    highlight.style.width = `${Math.max(0.3, ((seg.end - seg.start) / duration) * 100)}%`;
+    highlight.style.backgroundColor = seg.hex;
+    highlight.style.opacity = '0.9';
+    highlight.style.height = highlightHeight;
+  }
+  if (cursor) {
+    cursor.style.left = `${snapped ? segLeftPx : x}px`;
+    cursor.style.transition = snapped ? 'left 0.15s ease-out' : 'none';
+    cursor.style.opacity = '1';
+  }
+}
+
+/** Clears the timeline hover state applied by {@link showSegmentHover}. */
+export function hideSegmentHover(highlight: HTMLDivElement | null, cursor: HTMLDivElement | null): void {
+  if (highlight) {
+    highlight.style.opacity = '0';
+    highlight.style.height = '4px';
+  }
+  if (cursor) cursor.style.opacity = '0';
 }

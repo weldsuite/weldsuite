@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
-import { formatTimestamp } from './utils';
+import { formatTimestamp, hideSegmentHover, showSegmentHover } from './utils';
 import type { FlatTimelineSegment, TranscriptionSegment } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -187,50 +187,21 @@ export function AudioPlayer({
                 const rect = trackRef.current.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const timeAtCursor = (x / rect.width) * duration;
-                let idx = -1;
-                for (let i = 0; i < flattenedTimeline.length; i++) {
-                  if (timeAtCursor >= flattenedTimeline[i].start && timeAtCursor <= flattenedTimeline[i].end) {
-                    idx = i;
-                    break;
-                  }
-                }
+                const idx = flattenedTimeline.findIndex(
+                  (seg) => timeAtCursor >= seg.start && timeAtCursor <= seg.end,
+                );
                 const highlight = segHighlightRef.current;
                 const cursor = segCursorRef.current;
                 if (idx >= 0) {
-                  const seg = flattenedTimeline[idx];
-                  const segLeftPx = (seg.start / duration) * rect.width;
-                  const segWidthPx = ((seg.end - seg.start) / duration) * rect.width;
-                  const localPercent = (x - segLeftPx) / segWidthPx;
-                  const magnetZone = 0.3;
-                  if (highlight) {
-                    highlight.style.left = `${(seg.start / duration) * 100}%`;
-                    highlight.style.width = `${Math.max(0.3, ((seg.end - seg.start) / duration) * 100)}%`;
-                    highlight.style.backgroundColor = seg.hex;
-                    highlight.style.opacity = '0.9';
-                    highlight.style.height = '10px';
-                  }
-                  if (cursor) {
-                    const snappedPx = localPercent < magnetZone ? segLeftPx : x;
-                    cursor.style.left = `${snappedPx}px`;
-                    cursor.style.transition = localPercent < magnetZone ? 'left 0.15s ease-out' : 'none';
-                    cursor.style.opacity = '1';
-                  }
+                  showSegmentHover(highlight, cursor, flattenedTimeline[idx], duration, rect.width, x, '10px');
                 } else {
-                  if (highlight) {
-                    highlight.style.opacity = '0';
-                    highlight.style.height = '4px';
-                  }
-                  if (cursor) cursor.style.opacity = '0';
+                  hideSegmentHover(highlight, cursor);
                 }
                 hoveredSegRef.current = idx;
               }}
               onMouseLeave={() => {
                 hoveredSegRef.current = -1;
-                if (segHighlightRef.current) {
-                  segHighlightRef.current.style.opacity = '0';
-                  segHighlightRef.current.style.height = '4px';
-                }
-                if (segCursorRef.current) segCursorRef.current.style.opacity = '0';
+                hideSegmentHover(segHighlightRef.current, segCursorRef.current);
               }}
             >
               {/* Base track */}
