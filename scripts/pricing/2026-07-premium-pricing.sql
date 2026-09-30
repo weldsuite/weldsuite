@@ -22,21 +22,20 @@ BEGIN;
 -- 1) Rename the tenant_tier enum VALUES (guarded, so a re-run is a no-op).
 --    No table column currently uses this enum, so this is a pure type update
 --    that keeps the DB in sync with packages/core/db/src/schema/master.ts.
+--    Pairs are (old label, new label): starter → business, professional → scale.
 DO $$
+DECLARE
+  renames CONSTANT text[] := ARRAY[ARRAY['starter', 'business'], ARRAY['professional', 'scale']];
+  pair text[];
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-    WHERE t.typname = 'tenant_tier' AND e.enumlabel = 'starter'
-  ) THEN
-    ALTER TYPE tenant_tier RENAME VALUE 'starter' TO 'business';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-    WHERE t.typname = 'tenant_tier' AND e.enumlabel = 'professional'
-  ) THEN
-    ALTER TYPE tenant_tier RENAME VALUE 'professional' TO 'scale';
-  END IF;
+  FOREACH pair SLICE 1 IN ARRAY renames LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typname = 'tenant_tier' AND e.enumlabel = pair[1]
+    ) THEN
+      EXECUTE format('ALTER TYPE tenant_tier RENAME VALUE %L TO %L', pair[1], pair[2]);
+    END IF;
+  END LOOP;
 END $$;
 
 -- 2) Update the plans catalog.

@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { manifest, resolveEntry } from "./manifest";
+import { manifest, resolveEntry, type SecretEntry } from "./manifest";
 
 const DOPPLER_PROJECT = process.env.DOPPLER_PROJECT || "weldsuite";
 const VALID_ENVS = ["test", "preview", "production"] as const;
@@ -103,17 +103,85 @@ function syncWorker(
 
 // ── Main ─────────────────────────────────────────────────────
 
+function exitWithUsage(): never {
+  console.error(
+    `\nUsage: pnpm secrets:sync <${VALID_ENVS.join("|")}> [worker ...]\n`,
+  );
+  console.error("Examples:");
+  console.error("  pnpm secrets:sync test");
+  console.error("  pnpm secrets:sync production api-worker billing-worker\n");
+  process.exit(1);
+}
+
+/** Pick only the secrets a worker needs, and list the ones Doppler lacks. */
+function pickWorkerSecrets(
+  secretNames: readonly SecretEntry[],
+  allSecrets: Record<string, string>,
+): { workerSecrets: Record<string, string>; missing: string[] } {
+  const workerSecrets: Record<string, string> = {};
+  const missing: string[] = [];
+
+  for (const entry of secretNames) {
+    const { dopplerKey, workerSecret } = resolveEntry(entry);
+    if (dopplerKey in allSecrets) {
+      workerSecrets[workerSecret] = allSecrets[dopplerKey];
+    } else {
+      missing.push(
+        dopplerKey === workerSecret
+          ? workerSecret
+          : `${dopplerKey}→${workerSecret}`,
+      );
+    }
+  }
+
+  return { workerSecrets, missing };
+}
+
+/** Sync one worker's secrets. Returns true when it failed. */
+function syncWorkerEntry(
+  workerDir: string,
+  secretNames: readonly SecretEntry[],
+  env: Env,
+  allSecrets: Record<string, string>,
+): boolean {
+  // Check worker directory exists
+  if (!existsSync(join(process.cwd(), "apps", "workers", workerDir))) {
+    console.warn(`  ⚠ ${workerDir}: Directory apps/workers/${workerDir} not found, skipping`);
+    return false;
+  }
+
+  const { workerSecrets, missing } = pickWorkerSecrets(secretNames, allSecrets);
+
+  if (missing.length > 0) {
+    console.warn(
+      `  ⚠ ${workerDir}: Not found in Doppler: ${missing.join(", ")}`,
+    );
+  }
+
+  if (Object.keys(workerSecrets).length === 0) {
+    console.log(`  ⏭ ${workerDir}: No secrets to sync\n`);
+    return false;
+  }
+
+  console.log(
+    `  → ${workerDir}: Syncing ${Object.keys(workerSecrets).length} secrets...`,
+  );
+
+  try {
+    syncWorker(workerDir, env, workerSecrets);
+    console.log(`  ✓ ${workerDir}: Done\n`);
+    return false;
+  } catch {
+    console.error(`  ✗ ${workerDir}: Failed\n`);
+    return true;
+  }
+}
+
 async function main() {
   const [env, ...workerFilter] = process.argv.slice(2);
 
   if (!env || !VALID_ENVS.includes(env as Env)) {
-    console.error(
-      `\nUsage: pnpm secrets:sync <${VALID_ENVS.join("|")}> [worker ...]\n`,
-    );
-    console.error("Examples:");
-    console.error("  pnpm secrets:sync test");
-    console.error("  pnpm secrets:sync production api-worker billing-worker\n");
-    process.exit(1);
+    exitWithUsage();
   }
 
   const token = process.env.DOPPLER_TOKEN || null;
@@ -145,49 +213,7 @@ async function main() {
   let failed = 0;
 
   for (const [workerDir, secretNames] of entries) {
-    // Check worker directory exists
-    if (!existsSync(join(process.cwd(), "apps", "workers", workerDir))) {
-      console.warn(`  ⚠ ${workerDir}: Directory apps/workers/${workerDir} not found, skipping`);
-      continue;
-    }
-
-    // Pick only the secrets this worker needs
-    const workerSecrets: Record<string, string> = {};
-    const missing: string[] = [];
-
-    for (const entry of secretNames) {
-      const { dopplerKey, workerSecret } = resolveEntry(entry);
-      if (dopplerKey in allSecrets) {
-        workerSecrets[workerSecret] = allSecrets[dopplerKey];
-      } else {
-        missing.push(
-          dopplerKey === workerSecret
-            ? workerSecret
-            : `${dopplerKey}→${workerSecret}`,
-        );
-      }
-    }
-
-    if (missing.length > 0) {
-      console.warn(
-        `  ⚠ ${workerDir}: Not found in Doppler: ${missing.join(", ")}`,
-      );
-    }
-
-    if (Object.keys(workerSecrets).length === 0) {
-      console.log(`  ⏭ ${workerDir}: No secrets to sync\n`);
-      continue;
-    }
-
-    console.log(
-      `  → ${workerDir}: Syncing ${Object.keys(workerSecrets).length} secrets...`,
-    );
-
-    try {
-      syncWorker(workerDir, env as Env, workerSecrets);
-      console.log(`  ✓ ${workerDir}: Done\n`);
-    } catch {
-      console.error(`  ✗ ${workerDir}: Failed\n`);
+    if (syncWorkerEntry(workerDir, secretNames, env as Env, allSecrets)) {
       failed++;
     }
   }

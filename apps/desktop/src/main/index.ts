@@ -420,6 +420,11 @@ function registerIpc() {
     const returnTo = `${DEEP_LINK_SCHEME}://auth`;
     const targetPath = opts.path ?? '/auth/login';
     const url = new URL(targetPath, appOrigin);
+    // An absolute or protocol-relative `path` would override the base origin;
+    // never hand the system browser a URL outside the WeldSuite app.
+    if (url.origin !== appOrigin) {
+      throw new Error('weldsuite:sign-in-external path must stay on the app origin');
+    }
     url.searchParams.set('desktop', '1');
     url.searchParams.set('return_to', opts.returnTo ?? returnTo);
     shell.openExternal(url.toString());

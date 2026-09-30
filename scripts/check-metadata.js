@@ -85,17 +85,20 @@ function getModuleName(filePath) {
 }
 
 /**
- * Main function
+ * Increment a with/without counter
  */
-async function main() {
-  console.log('🔍 Scanning pages for metadata...\n');
+function bump(counts, hasMetadata) {
+  if (hasMetadata) {
+    counts.with++;
+  } else {
+    counts.without++;
+  }
+}
 
-  // Find all page.tsx files
-  const pageFiles = await glob('**/page.tsx', {
-    cwd: PLATFORM_APP_DIR,
-    absolute: true,
-  });
-
+/**
+ * Scan all page files and collect results
+ */
+function collectResults(pageFiles) {
   const results = {
     withMetadata: [],
     withoutMetadata: [],
@@ -111,87 +114,100 @@ async function main() {
     },
   };
 
-  // Process each page file
   for (const filePath of pageFiles) {
-    const relativePath = path.relative(PLATFORM_APP_DIR, filePath);
     const metadata = hasMetadata(filePath);
     const pageType = categorizePageType(filePath);
     const moduleName = getModuleName(filePath);
 
     const pageInfo = {
-      path: relativePath,
+      path: path.relative(PLATFORM_APP_DIR, filePath),
       module: moduleName,
       type: pageType,
       hasStatic: metadata.hasStatic,
       hasDynamic: metadata.hasDynamic,
     };
 
-    if (metadata.hasAny) {
-      results.withMetadata.push(pageInfo);
-      results.byType[pageType].with++;
-    } else {
-      results.withoutMetadata.push(pageInfo);
-      results.byType[pageType].without++;
-    }
+    (metadata.hasAny ? results.withMetadata : results.withoutMetadata).push(pageInfo);
+    bump(results.byType[pageType], metadata.hasAny);
 
     // Track by module
-    if (!results.byModule[moduleName]) {
-      results.byModule[moduleName] = { with: 0, without: 0 };
-    }
-
-    if (metadata.hasAny) {
-      results.byModule[moduleName].with++;
-    } else {
-      results.byModule[moduleName].without++;
-    }
+    results.byModule[moduleName] ??= { with: 0, without: 0 };
+    bump(results.byModule[moduleName], metadata.hasAny);
   }
 
-  // Print summary
-  console.log('📊 Summary\n');
-  console.log(`Total pages: ${pageFiles.length}`);
-  console.log(`✅ With metadata: ${results.withMetadata.length} (${Math.round((results.withMetadata.length / pageFiles.length) * 100)}%)`);
-  console.log(`❌ Without metadata: ${results.withoutMetadata.length} (${Math.round((results.withoutMetadata.length / pageFiles.length) * 100)}%)`);
-  console.log('');
+  return results;
+}
 
-  // Print by type
+function percent(part, total) {
+  return Math.round((part / total) * 100);
+}
+
+function printSummary(results, totalPages) {
+  console.log('📊 Summary\n');
+  console.log(`Total pages: ${totalPages}`);
+  console.log(`✅ With metadata: ${results.withMetadata.length} (${percent(results.withMetadata.length, totalPages)}%)`);
+  console.log(`❌ Without metadata: ${results.withoutMetadata.length} (${percent(results.withoutMetadata.length, totalPages)}%)`);
+  console.log('');
+}
+
+function printByType(byType) {
   console.log('📋 By Page Type\n');
-  for (const [type, counts] of Object.entries(results.byType)) {
+  for (const [type, counts] of Object.entries(byType)) {
     const total = counts.with + counts.without;
     if (total > 0) {
-      const percentage = Math.round((counts.with / total) * 100);
-      console.log(`${type.padEnd(12)} ${counts.with}/${total} (${percentage}%)`);
+      console.log(`${type.padEnd(12)} ${counts.with}/${total} (${percent(counts.with, total)}%)`);
     }
   }
   console.log('');
+}
 
-  // Print by module
+function printByModule(byModule) {
   console.log('📁 By Module\n');
-  for (const [module, counts] of Object.entries(results.byModule)) {
+  for (const [module, counts] of Object.entries(byModule)) {
     const total = counts.with + counts.without;
-    const percentage = Math.round((counts.with / total) * 100);
-    console.log(`${module.padEnd(15)} ${counts.with}/${total} (${percentage}%)`);
+    console.log(`${module.padEnd(15)} ${counts.with}/${total} (${percent(counts.with, total)}%)`);
   }
   console.log('');
+}
 
-  // Print pages without metadata
+function printMissing(withoutMetadata) {
+  console.log('❌ Pages Missing Metadata\n');
+
+  // Group by module
+  const byModule = {};
+  for (const page of withoutMetadata) {
+    byModule[page.module] ??= [];
+    byModule[page.module].push(page);
+  }
+
+  for (const [module, pages] of Object.entries(byModule)) {
+    console.log(`\n${module}:`);
+    for (const page of pages) {
+      console.log(`  [${page.type}] ${page.path}`);
+    }
+  }
+}
+
+/**
+ * Main function
+ */
+async function main() {
+  console.log('🔍 Scanning pages for metadata...\n');
+
+  // Find all page.tsx files
+  const pageFiles = await glob('**/page.tsx', {
+    cwd: PLATFORM_APP_DIR,
+    absolute: true,
+  });
+
+  const results = collectResults(pageFiles);
+
+  printSummary(results, pageFiles.length);
+  printByType(results.byType);
+  printByModule(results.byModule);
+
   if (results.withoutMetadata.length > 0) {
-    console.log('❌ Pages Missing Metadata\n');
-
-    // Group by module
-    const byModule = {};
-    for (const page of results.withoutMetadata) {
-      if (!byModule[page.module]) {
-        byModule[page.module] = [];
-      }
-      byModule[page.module].push(page);
-    }
-
-    for (const [module, pages] of Object.entries(byModule)) {
-      console.log(`\n${module}:`);
-      for (const page of pages) {
-        console.log(`  [${page.type}] ${page.path}`);
-      }
-    }
+    printMissing(results.withoutMetadata);
   }
 
   console.log('\n✨ Done!\n');
