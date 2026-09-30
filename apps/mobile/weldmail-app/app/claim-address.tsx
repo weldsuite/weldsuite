@@ -126,7 +126,8 @@ export default function ClaimAddressScreen() {
       // existed; without a refetch the inbox stays empty (and the personal push
       // token is never registered) until the app restarts.
       await refreshAccounts().catch(() => {});
-      Alert.alert('Welcome', `${result.email || `${address}@${domain}`} is yours`);
+      const claimedEmail = result.email || `${address}@${domain}`;
+      Alert.alert('Welcome', `${claimedEmail} is yours`);
       router.replace('/');
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not claim address');
@@ -134,6 +135,29 @@ export default function ClaimAddressScreen() {
       setSubmitting(false);
     }
   }, [address, displayName, refreshAccounts, availability, domain, router]);
+
+  let availabilityIndicator: React.ReactNode = null;
+  if (checking) {
+    availabilityIndicator = (
+      <MaterialSpinner size={16} strokeWidth={2.2} color={colors.muted} spinning />
+    );
+  } else if (availability?.available) {
+    availabilityIndicator = (
+      <>
+        <CheckCircle2 size={16} color="#16A34A" />
+        <Text style={{ color: '#16A34A', fontSize: 13 }}>Available</Text>
+      </>
+    );
+  } else if (availability) {
+    availabilityIndicator = (
+      <>
+        <AlertCircle size={16} color="#DC2626" />
+        <Text style={{ color: '#DC2626', fontSize: 13 }}>
+          {availability.message || 'Not available'}
+        </Text>
+      </>
+    );
+  }
 
   return (
     <View
@@ -207,21 +231,7 @@ export default function ClaimAddressScreen() {
             </View>
             {address.length >= 3 && (
               <View style={styles.availabilityRow}>
-                {checking ? (
-                  <MaterialSpinner size={16} strokeWidth={2.2} color={colors.muted} spinning />
-                ) : availability?.available ? (
-                  <>
-                    <CheckCircle2 size={16} color="#16A34A" />
-                    <Text style={{ color: '#16A34A', fontSize: 13 }}>Available</Text>
-                  </>
-                ) : availability ? (
-                  <>
-                    <AlertCircle size={16} color="#DC2626" />
-                    <Text style={{ color: '#DC2626', fontSize: 13 }}>
-                      {availability.message || 'Not available'}
-                    </Text>
-                  </>
-                ) : null}
+                {availabilityIndicator}
               </View>
             )}
           </View>
