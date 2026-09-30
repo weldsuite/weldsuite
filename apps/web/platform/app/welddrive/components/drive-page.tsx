@@ -1214,8 +1214,13 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
 
     const isSelected = selectedIds.has(item.id);
 
+    let rowStateClass = 'hover:bg-gray-50 dark:hover:bg-secondary/50';
+    if (isDragOver) rowStateClass = 'bg-primary/10 border-primary/30';
+    else if (isSelected) rowStateClass = 'bg-primary/8 dark:bg-primary/15';
+
     return (
       <div
+        role="presentation"
         key={item.id}
         onClick={(e) => handleItemClick(item, e)}
         onDoubleClick={() => handleItemDoubleClick(item)}
@@ -1247,11 +1252,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         onDrop={(e) => handleRowDrop(item, e)}
         className={cn(
           'flex items-center gap-4 px-4 cursor-pointer border-b border-gray-200/70 dark:border-border group transition-all duration-200',
-          isDragOver
-            ? 'bg-primary/10 border-primary/30'
-            : isSelected
-              ? 'bg-primary/8 dark:bg-primary/15'
-              : 'hover:bg-gray-50 dark:hover:bg-secondary/50',
+          rowStateClass,
           isBeingDragged && 'opacity-40 bg-muted/30',
         )}
         style={{ height: '51px' }}
@@ -1304,7 +1305,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
 
         {/* Actions */}
         <div className="w-[40px] flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+          <div role="presentation" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="p-1 rounded-md hover:bg-muted">
@@ -1360,6 +1361,16 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       </DropdownMenuContent>
     </DropdownMenu>
   );
+
+  const noResultsState = isTrashView
+    ? {
+        title: t.welddrive.page.emptyState.noItemsInTrash,
+        description: t.welddrive.page.emptyState.noItemsInTrashDescription,
+      }
+    : {
+        title: t.welddrive.page.emptyState.noFilesFound,
+        description: t.welddrive.page.emptyState.noFilesFoundDescription,
+      };
 
   const actionButtons = isTrashView ? (
     <Button
@@ -1431,6 +1442,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
 
   return (
     <div
+      role="presentation"
       className="flex-1 flex flex-col min-w-0 h-full relative"
       onClick={(e) => { if (e.target === e.currentTarget) clearSelection(); }}
       onDragEnter={handlePageDragEnter}
@@ -1462,13 +1474,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
           leftActionButtons={viewToggle}
           actionButtons={actionButtons}
           emptyState={getDriveEmptyState(t, sidebarView, isTrashView, handleUploadClick)}
-          noResultsState={isTrashView ? {
-            title: t.welddrive.page.emptyState.noItemsInTrash,
-            description: t.welddrive.page.emptyState.noItemsInTrashDescription,
-          } : {
-            title: t.welddrive.page.emptyState.noFilesFound,
-            description: t.welddrive.page.emptyState.noFilesFoundDescription,
-          }}
+          noResultsState={noResultsState}
         />
       ) : (
         <DriveGridView
@@ -1904,12 +1910,13 @@ function DriveGridView({
       </div>
 
       {/* Grid content */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex-1 flex items-center justify-center gap-2 p-12">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           <span className="text-sm text-muted-foreground">{t.welddrive.page.loading}</span>
         </div>
-      ) : isEmpty ? (
+      )}
+      {!isLoading && isEmpty && (
         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
           <EmptyStateIllustration>
             <svg width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
@@ -1926,8 +1933,9 @@ function DriveGridView({
             {t.welddrive.page.uploadFiles}
           </Button>
         </div>
-      ) : (
-        <div className="flex-1 overflow-auto p-4" onClick={(e) => { if (e.target === e.currentTarget) onClearSelection(); }}>
+      )}
+      {!isLoading && !isEmpty && (
+        <div role="presentation" className="flex-1 overflow-auto p-4" onClick={(e) => { if (e.target === e.currentTarget) onClearSelection(); }}>
           {filteredFolders.length > 0 && (
             <div className="mb-6">
               <p className="text-xs font-medium text-muted-foreground mb-3 px-1">{t.welddrive.page.gridSections.folders}</p>
