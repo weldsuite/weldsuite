@@ -752,6 +752,16 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
   );
 }
 
+/** Content-based React keys that stay unique when two items share the same base key. */
+function uniqueKeys(baseKeys: string[]): string[] {
+  const seen = new Map<string, number>();
+  return baseKeys.map((base) => {
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return occurrence === 0 ? base : `${base}#${occurrence}`;
+  });
+}
+
 function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Readonly<{
   allRecipients: { email: string; type: 'To' | 'Cc' }[];
   open: boolean;
@@ -759,6 +769,7 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
   onSelect: (email: string, name: string) => void;
 }>) {
   const { t } = useI18n();
+  const recipientKeys = uniqueKeys(allRecipients.map((r) => `${r.type}:${r.email}`));
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -777,7 +788,7 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
             return (
               <Button
                 variant="ghost"
-                key={index}
+                key={recipientKeys[index]}
                 onClick={() => onSelect(recipient.email, name)}
                 className="flex items-center gap-3 w-full text-left hover:bg-gray-100 px-2 py-1.5 rounded-md"
               >
@@ -1118,11 +1129,12 @@ function AttachedFileChips({ files, onRemove }: Readonly<{
   onRemove: (index: number) => void;
 }>) {
   const { t } = useI18n();
+  const fileKeys = uniqueKeys(files.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
   return (
     <div className="flex flex-wrap gap-1.5 px-3 pb-2">
       {files.map((file, index) => (
         <div
-          key={`${file.name}-${index}`}
+          key={fileKeys[index]}
           className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
         >
           <span className="truncate">{file.name}</span>
