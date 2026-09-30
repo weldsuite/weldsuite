@@ -57,6 +57,108 @@ export async function hasExistingAgentRunForEvent(
 export const AGENT_ORIGIN_KEY = 'triggeredByAgentId';
 
 type Schedule = (job: WeldAgentJob) => Promise<void>;
+type MatchedAgent = Awaited<ReturnType<typeof findAgentsForEvent>>[number];
+type MatchedRoutine = Awaited<ReturnType<typeof findEventRoutines>>[number];
+
+/** What every run scheduled for one entity event has in common. */
+interface EventDispatchContext {
+  db: AgentDb;
+  schedule: Schedule;
+  message: WeldAgentDispatchMessage;
+  eventKey: string;
+  eventPrompt: string;
+  baseTrigger: Record<string, unknown>;
+}
+
+/**
+ * Look up the agents (falling back to the `type:action` key) and event
+ * routines subscribed to an event. Returns null when the lookup fails.
+ */
+async function findEventSubscribers(
+  db: AgentDb,
+  eventKey: string,
+  altKey: string,
+): Promise<{ agents: MatchedAgent[]; routines: MatchedRoutine[] } | null> {
+  try {
+    let agents = await findAgentsForEvent(db, eventKey);
+    if (agents.length === 0) {
+      agents = await findAgentsForEvent(db, altKey);
+    }
+    const routines = await findEventRoutines(db, eventKey);
+    return { agents, routines };
+  } catch (err) {
+    console.error('[weldagent/dispatch] find agents failed:', err);
+    return null;
+  }
+}
+
+async function dispatchToAgent(ctx: EventDispatchContext, agent: MatchedAgent): Promise<void> {
+  const { db, schedule, message, eventKey, eventPrompt, baseTrigger } = ctx;
+  try {
+    if (message.eventId) {
+      const exists = await hasExistingAgentRunForEvent(db, agent.id, message.eventId);
+      if (exists) {
+        console.log(
+          `[weldagent/dispatch] Skipping duplicate event ${message.eventId} for agent ${agent.id}`,
+        );
+        return;
+      }
+    }
+
+    const runId = await createAgentRun(db, {
+      agentId: agent.id,
+      status: 'queued',
+      triggerType: 'event',
+      triggerData: { ...baseTrigger, data: message.data },
+    });
+
+    await schedule({
+      kind: 'agent-run',
+      workspaceId: message.workspaceId,
+      actorUserId: message.userId || agent.createdBy || 'system',
+      agentId: agent.id,
+      triggerType: 'event',
+      triggerData: baseTrigger,
+      userMessage: `${eventPrompt}Follow your instructions and use tools if needed.`,
+      extraSystem: `Triggered by entity event ${eventKey}.`,
+      runId,
+    });
+  } catch (err) {
+    console.error(`[weldagent/dispatch] agent ${agent.id} failed:`, err);
+  }
+}
+
+async function dispatchToRoutine(ctx: EventDispatchContext, routine: MatchedRoutine): Promise<void> {
+  const { db, schedule, message, eventKey, eventPrompt, baseTrigger } = ctx;
+  try {
+    // Hub retries re-deliver the same evt_ id: key the run on it so a
+    // redelivery never starts the routine twice.
+    const trigger = message.eventId ? `evt:${message.eventId}` : `event:${eventKey}`;
+    if (message.eventId && (await hasRoutineRunForTrigger(db, routine.id, trigger))) {
+      return;
+    }
+    const routineRunId = await createRoutineRun(db, {
+      routineId: routine.id,
+      agentId: routine.agentId,
+      trigger,
+    });
+    await markRoutineScheduled(db, routine);
+    await schedule({
+      kind: 'agent-run',
+      workspaceId: message.workspaceId,
+      actorUserId: message.userId || routine.createdBy || 'system',
+      agentId: routine.agentId,
+      triggerType: 'event',
+      triggerData: { ...baseTrigger, routineId: routine.id },
+      userMessage:
+        `${eventPrompt}Follow routine "${routine.name}":\n${routine.instructions}`,
+      routineRunId,
+      skipApprovals: !routine.requireApproval,
+    });
+  } catch (err) {
+    console.error(`[weldagent/dispatch] routine ${routine.id} failed:`, err);
+  }
+}
 
 /**
  * Match active agents (and event routines) for an entity event, queue a run
@@ -74,18 +176,9 @@ export async function dispatchWeldAgentsForEvent(
   const eventKey = `${message.entityType}.${message.action}`;
   const altKey = `${message.entityType}:${message.action}`;
 
-  let agents;
-  let routines: Awaited<ReturnType<typeof findEventRoutines>> = [];
-  try {
-    agents = await findAgentsForEvent(db, eventKey);
-    if (agents.length === 0) {
-      agents = await findAgentsForEvent(db, altKey);
-    }
-    routines = await findEventRoutines(db, eventKey);
-  } catch (err) {
-    console.error('[weldagent/dispatch] find agents failed:', err);
-    return;
-  }
+  const subscribers = await findEventSubscribers(db, eventKey, altKey);
+  if (!subscribers) return;
+  const { agents, routines } = subscribers;
 
   if (agents.length === 0 && routines.length === 0) return;
 
@@ -100,70 +193,12 @@ export async function dispatchWeldAgentsForEvent(
     entityId: message.entityId,
     ...(message.eventId ? { eventId: message.eventId } : {}),
   };
+  const ctx: EventDispatchContext = { db, schedule, message, eventKey, eventPrompt, baseTrigger };
 
   for (const agent of agents) {
-    try {
-      if (message.eventId) {
-        const exists = await hasExistingAgentRunForEvent(db, agent.id, message.eventId);
-        if (exists) {
-          console.log(
-            `[weldagent/dispatch] Skipping duplicate event ${message.eventId} for agent ${agent.id}`,
-          );
-          continue;
-        }
-      }
-
-      const runId = await createAgentRun(db, {
-        agentId: agent.id,
-        status: 'queued',
-        triggerType: 'event',
-        triggerData: { ...baseTrigger, data: message.data },
-      });
-
-      await schedule({
-        kind: 'agent-run',
-        workspaceId: message.workspaceId,
-        actorUserId: message.userId || agent.createdBy || 'system',
-        agentId: agent.id,
-        triggerType: 'event',
-        triggerData: baseTrigger,
-        userMessage: `${eventPrompt}Follow your instructions and use tools if needed.`,
-        extraSystem: `Triggered by entity event ${eventKey}.`,
-        runId,
-      });
-    } catch (err) {
-      console.error(`[weldagent/dispatch] agent ${agent.id} failed:`, err);
-    }
+    await dispatchToAgent(ctx, agent);
   }
-
   for (const routine of routines) {
-    try {
-      // Hub retries re-deliver the same evt_ id: key the run on it so a
-      // redelivery never starts the routine twice.
-      const trigger = message.eventId ? `evt:${message.eventId}` : `event:${eventKey}`;
-      if (message.eventId && (await hasRoutineRunForTrigger(db, routine.id, trigger))) {
-        continue;
-      }
-      const routineRunId = await createRoutineRun(db, {
-        routineId: routine.id,
-        agentId: routine.agentId,
-        trigger,
-      });
-      await markRoutineScheduled(db, routine);
-      await schedule({
-        kind: 'agent-run',
-        workspaceId: message.workspaceId,
-        actorUserId: message.userId || routine.createdBy || 'system',
-        agentId: routine.agentId,
-        triggerType: 'event',
-        triggerData: { ...baseTrigger, routineId: routine.id },
-        userMessage:
-          `${eventPrompt}Follow routine "${routine.name}":\n${routine.instructions}`,
-        routineRunId,
-        skipApprovals: !routine.requireApproval,
-      });
-    } catch (err) {
-      console.error(`[weldagent/dispatch] routine ${routine.id} failed:`, err);
-    }
+    await dispatchToRoutine(ctx, routine);
   }
 }

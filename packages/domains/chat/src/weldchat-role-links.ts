@@ -183,92 +183,25 @@ export async function applyRoleChangeToChannels(
   const result = { added: [] as ChannelChange[], removed: [] as ChannelChange[] };
   if (!userId || oldRoleId === newRoleId) return result;
 
-  const { chatChannels, chatChannelMembers, chatChannelRoleLinks } = schema;
   const touchedChannels = new Set<string>();
 
   if (oldRoleId) {
-    const oldChannels = await db
-      .select({ id: chatChannels.id, name: chatChannels.name })
-      .from(chatChannelRoleLinks)
-      .innerJoin(chatChannels, eq(chatChannels.id, chatChannelRoleLinks.channelId))
-      .where(
-        and(
-          eq(chatChannelRoleLinks.roleId, oldRoleId),
-          isNull(chatChannels.deletedAt),
-        ),
-      );
-
-    for (const ch of oldChannels) {
-      const deleted = await db
-        .delete(chatChannelMembers)
-        .where(
-          and(
-            eq(chatChannelMembers.channelId, ch.id),
-            eq(chatChannelMembers.userId, userId),
-            eq(chatChannelMembers.addedByRoleId, oldRoleId),
-          ),
-        )
-        .returning({ id: chatChannelMembers.id });
-
-      if (deleted.length > 0) {
-        result.removed.push({ channelId: ch.id, channelName: ch.name, userIds: [userId] });
-        touchedChannels.add(ch.id);
-      }
+    const removed = await removeUserFromRoleChannels(db, userId, oldRoleId);
+    for (const change of removed) {
+      result.removed.push(change);
+      touchedChannels.add(change.channelId);
     }
   }
 
   if (newRoleId) {
-    const newChannels = await db
-      .select({ id: chatChannels.id, name: chatChannels.name })
-      .from(chatChannelRoleLinks)
-      .innerJoin(chatChannels, eq(chatChannels.id, chatChannelRoleLinks.channelId))
-      .where(
-        and(
-          eq(chatChannelRoleLinks.roleId, newRoleId),
-          isNull(chatChannels.deletedAt),
-        ),
-      );
-
-    if (newChannels.length > 0) {
-      const channelIds = newChannels.map((c) => c.id);
-      const existing = await db
-        .select({ channelId: chatChannelMembers.channelId })
-        .from(chatChannelMembers)
-        .where(
-          and(
-            inArray(chatChannelMembers.channelId, channelIds),
-            eq(chatChannelMembers.userId, userId),
-          ),
-        );
-      const existingSet = new Set(existing.map((r) => r.channelId));
-      const toInsert = newChannels.filter((ch) => !existingSet.has(ch.id));
-
-      if (toInsert.length > 0) {
-        const now = new Date();
-        await db
-          .insert(chatChannelMembers)
-          .values(
-            toInsert.map((ch) => ({
-              id: generateId('cmb'),
-              channelId: ch.id,
-              userId,
-              memberType: 'user',
-              role: 'member',
-              addedByRoleId: newRoleId,
-              joinedAt: now,
-              createdAt: now,
-            })),
-          )
-          .onConflictDoNothing();
-
-        for (const ch of toInsert) {
-          result.added.push({ channelId: ch.id, channelName: ch.name, userIds: [userId] });
-          touchedChannels.add(ch.id);
-        }
-      }
+    const added = await addUserToRoleChannels(db, userId, newRoleId);
+    for (const change of added) {
+      result.added.push(change);
+      touchedChannels.add(change.channelId);
     }
   }
 
+  const { chatChannels, chatChannelMembers } = schema;
   const now = new Date();
   for (const channelId of touchedChannels) {
     await db
@@ -281,6 +214,97 @@ export async function applyRoleChangeToChannels(
   }
 
   return result;
+}
+
+/** Live (non-deleted) channels linked to a role. */
+async function listChannelsLinkedToRole(
+  db: Database,
+  roleId: string,
+): Promise<{ id: string; name: string }[]> {
+  const { chatChannels, chatChannelRoleLinks } = schema;
+  return db
+    .select({ id: chatChannels.id, name: chatChannels.name })
+    .from(chatChannelRoleLinks)
+    .innerJoin(chatChannels, eq(chatChannels.id, chatChannelRoleLinks.channelId))
+    .where(
+      and(
+        eq(chatChannelRoleLinks.roleId, roleId),
+        isNull(chatChannels.deletedAt),
+      ),
+    );
+}
+
+/** Drop the user's role-driven memberships in channels linked to `oldRoleId`. */
+async function removeUserFromRoleChannels(
+  db: Database,
+  userId: string,
+  oldRoleId: string,
+): Promise<ChannelChange[]> {
+  const { chatChannelMembers } = schema;
+  const removed: ChannelChange[] = [];
+
+  for (const ch of await listChannelsLinkedToRole(db, oldRoleId)) {
+    const deleted = await db
+      .delete(chatChannelMembers)
+      .where(
+        and(
+          eq(chatChannelMembers.channelId, ch.id),
+          eq(chatChannelMembers.userId, userId),
+          eq(chatChannelMembers.addedByRoleId, oldRoleId),
+        ),
+      )
+      .returning({ id: chatChannelMembers.id });
+
+    if (deleted.length > 0) {
+      removed.push({ channelId: ch.id, channelName: ch.name, userIds: [userId] });
+    }
+  }
+  return removed;
+}
+
+/** Add the user to channels linked to `newRoleId` they are not already a member of. */
+async function addUserToRoleChannels(
+  db: Database,
+  userId: string,
+  newRoleId: string,
+): Promise<ChannelChange[]> {
+  const { chatChannelMembers } = schema;
+
+  const newChannels = await listChannelsLinkedToRole(db, newRoleId);
+  if (newChannels.length === 0) return [];
+
+  const channelIds = newChannels.map((c) => c.id);
+  const existing = await db
+    .select({ channelId: chatChannelMembers.channelId })
+    .from(chatChannelMembers)
+    .where(
+      and(
+        inArray(chatChannelMembers.channelId, channelIds),
+        eq(chatChannelMembers.userId, userId),
+      ),
+    );
+  const existingSet = new Set(existing.map((r) => r.channelId));
+  const toInsert = newChannels.filter((ch) => !existingSet.has(ch.id));
+  if (toInsert.length === 0) return [];
+
+  const now = new Date();
+  await db
+    .insert(chatChannelMembers)
+    .values(
+      toInsert.map((ch) => ({
+        id: generateId('cmb'),
+        channelId: ch.id,
+        userId,
+        memberType: 'user',
+        role: 'member',
+        addedByRoleId: newRoleId,
+        joinedAt: now,
+        createdAt: now,
+      })),
+    )
+    .onConflictDoNothing();
+
+  return toInsert.map((ch) => ({ channelId: ch.id, channelName: ch.name, userIds: [userId] }));
 }
 
 /**
