@@ -67,14 +67,15 @@ async function applyRemoteCampaignState(
     .where(eq(adCampaigns.id, campaignId));
 }
 
-export async function pushPendingCampaigns(
+type AdAccountRow = typeof adAccounts.$inferSelect;
+type AdCampaignRow = typeof adCampaigns.$inferSelect;
+
+async function loadSelectedAccounts(
   db: Database,
-  env: AdSyncIndexEnv,
   connectionId: string,
-  accessToken: string,
   platformAccountId?: string,
-): Promise<{ pushed: number; failed: number }> {
-  const selectedAccounts = await db
+): Promise<AdAccountRow[]> {
+  return db
     .select()
     .from(adAccounts)
     .where(
@@ -85,6 +86,55 @@ export async function pushPendingCampaigns(
         ...(platformAccountId ? [eq(adAccounts.platformAccountId, platformAccountId)] : []),
       ),
     );
+}
+
+function buildCampaignUpdate(campaign: AdCampaignRow): UpdateMetaCampaignInput {
+  return {
+    name: campaign.name,
+    ...(campaign.objective ? { objective: campaign.objective as UpdateMetaCampaignInput['objective'] } : {}),
+    ...(campaign.status ? { status: campaign.status as 'ACTIVE' | 'PAUSED' } : {}),
+    ...(campaign.dailyBudget != null ? { dailyBudget: campaign.dailyBudget } : {}),
+    ...(campaign.lifetimeBudget != null ? { lifetimeBudget: campaign.lifetimeBudget } : {}),
+  };
+}
+
+/** Create the campaign on Meta when it has no platform id yet, otherwise update it. */
+async function pushCampaignToMeta(
+  client: MetaMarketingClient,
+  account: AdAccountRow,
+  campaign: AdCampaignRow,
+) {
+  if (campaign.platformCampaignId) {
+    return client.updateCampaign(
+      account.platformAccountId,
+      campaign.platformCampaignId,
+      buildCampaignUpdate(campaign),
+    );
+  }
+
+  if (!campaign.objective) {
+    throw new Error('Campaign objective is required before syncing');
+  }
+  if (campaign.dailyBudget == null && campaign.lifetimeBudget == null) {
+    throw new Error('Campaign budget is required before syncing');
+  }
+  return client.createCampaign(account.platformAccountId, {
+    name: campaign.name,
+    objective: campaign.objective as MetaCampaignObjective,
+    status: (campaign.status as 'ACTIVE' | 'PAUSED' | undefined) ?? 'PAUSED',
+    dailyBudget: campaign.dailyBudget ?? undefined,
+    lifetimeBudget: campaign.lifetimeBudget ?? undefined,
+  });
+}
+
+export async function pushPendingCampaigns(
+  db: Database,
+  env: AdSyncIndexEnv,
+  connectionId: string,
+  accessToken: string,
+  platformAccountId?: string,
+): Promise<{ pushed: number; failed: number }> {
+  const selectedAccounts = await loadSelectedAccounts(db, connectionId, platformAccountId);
 
   const accountIds = selectedAccounts.map((account) => account.id);
   if (accountIds.length === 0) return { pushed: 0, failed: 0 };
@@ -109,36 +159,7 @@ export async function pushPendingCampaigns(
     if (!account) continue;
 
     try {
-      let remote;
-      if (!campaign.platformCampaignId) {
-        if (!campaign.objective) {
-          throw new Error('Campaign objective is required before syncing');
-        }
-        if (campaign.dailyBudget == null && campaign.lifetimeBudget == null) {
-          throw new Error('Campaign budget is required before syncing');
-        }
-        remote = await client.createCampaign(account.platformAccountId, {
-          name: campaign.name,
-          objective: campaign.objective as MetaCampaignObjective,
-          status: (campaign.status as 'ACTIVE' | 'PAUSED' | undefined) ?? 'PAUSED',
-          dailyBudget: campaign.dailyBudget ?? undefined,
-          lifetimeBudget: campaign.lifetimeBudget ?? undefined,
-        });
-      } else {
-        const update: UpdateMetaCampaignInput = {
-          name: campaign.name,
-          ...(campaign.objective ? { objective: campaign.objective as UpdateMetaCampaignInput['objective'] } : {}),
-          ...(campaign.status ? { status: campaign.status as 'ACTIVE' | 'PAUSED' } : {}),
-          ...(campaign.dailyBudget != null ? { dailyBudget: campaign.dailyBudget } : {}),
-          ...(campaign.lifetimeBudget != null ? { lifetimeBudget: campaign.lifetimeBudget } : {}),
-        };
-        remote = await client.updateCampaign(
-          account.platformAccountId,
-          campaign.platformCampaignId,
-          update,
-        );
-      }
-
+      const remote = await pushCampaignToMeta(client, account, campaign);
       await applyRemoteCampaignState(db, campaign.id, account.currency, remote);
       pushed += 1;
     } catch (err) {
@@ -161,17 +182,7 @@ export async function pullSyncedCampaigns(
   platformAccountId?: string,
   platformCampaignId?: string,
 ): Promise<{ pulled: number }> {
-  const selectedAccounts = await db
-    .select()
-    .from(adAccounts)
-    .where(
-      and(
-        eq(adAccounts.connectionId, connectionId),
-        eq(adAccounts.isSelected, true),
-        isNull(adAccounts.deletedAt),
-        ...(platformAccountId ? [eq(adAccounts.platformAccountId, platformAccountId)] : []),
-      ),
-    );
+  const selectedAccounts = await loadSelectedAccounts(db, connectionId, platformAccountId);
 
   const accountIds = selectedAccounts.map((account) => account.id);
   if (accountIds.length === 0) return { pulled: 0 };

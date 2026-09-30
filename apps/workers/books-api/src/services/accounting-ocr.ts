@@ -105,11 +105,12 @@ export interface ProcessDocumentOcrParams {
   metering: AiMetering | null;
 }
 
-export async function processDocumentOcr(
+/** Load the stored file and validate that it is a readable, reasonably sized image. */
+async function loadOcrImageBytes(
   env: Env,
   params: ProcessDocumentOcrParams,
-): Promise<OcrResult> {
-  const mimeType = normalizeMime(params.mimeType);
+  mimeType: string,
+): Promise<Uint8Array> {
   if (!IMAGE_TYPES.has(mimeType)) {
     throw new AccountingOcrError(
       'UNSUPPORTED_TYPE',
@@ -142,17 +143,28 @@ export async function processDocumentOcr(
       'That file is not a JPEG, PNG or WebP image. Take the photo again in the app.',
     );
   }
+  return bytes;
+}
 
-  let ai;
+function createOcrAi(env: Env): ReturnType<typeof createWeldAI> {
   try {
     assertGatewayConfigured(env);
-    ai = createWeldAI(env);
+    return createWeldAI(env);
   } catch (err) {
     throw new AccountingOcrError(
       'AI_NOT_CONFIGURED',
       err instanceof Error ? err.message : 'AI gateway is not configured',
     );
   }
+}
+
+export async function processDocumentOcr(
+  env: Env,
+  params: ProcessDocumentOcrParams,
+): Promise<OcrResult> {
+  const mimeType = normalizeMime(params.mimeType);
+  const bytes = await loadOcrImageBytes(env, params, mimeType);
+  const ai = createOcrAi(env);
 
   await assertAiCredits(params.metering);
 

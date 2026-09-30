@@ -94,6 +94,197 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+type CurrencyFmt = (value: string | number) => string;
+type Branding = NonNullable<Entity['branding']>;
+type TaxIdentifiers = NonNullable<Entity['taxIdentifiers']>;
+type BankDetails = NonNullable<Entity['bankDetails']>;
+
+function buildItemRows(items: InvoiceLineItem[], fmtCurrency: CurrencyFmt): string {
+  return items
+    .map(
+      (item) => `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">${escapeHtml(item.description)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}${item.unit ? ` ${item.unit}` : ''}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${fmtCurrency(item.unitPrice)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${item.taxRate}%` : '—'}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:500;">${fmtCurrency(item.lineTotal)}</td>
+    </tr>
+  `,
+    )
+    .join('');
+}
+
+function buildTaxRows(
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+): string {
+  return taxBreakdown
+    .map(
+      (tb) => `
+    <tr>
+      <td style="padding:4px 0;">${labels.tax} ${tb.taxRate}% ${fmtCurrency(tb.taxableAmount)}</td>
+      <td style="padding:4px 0;text-align:right;">${fmtCurrency(tb.taxAmount)}</td>
+    </tr>
+  `,
+    )
+    .join('');
+}
+
+function buildBillingAddressBlock(address: InvoiceRenderData['billingAddress']): string {
+  if (!address) return '';
+  return [
+    address.street,
+    address.houseNumber,
+    [address.postalCode, address.city].filter(Boolean).join(' '),
+    address.country,
+  ]
+    .filter(Boolean)
+    .join('<br>');
+}
+
+function buildEntityAddressBlock(entityAddress: NonNullable<Entity['address']>): string {
+  return [
+    entityAddress.street,
+    [entityAddress.postalCode, entityAddress.city].filter(Boolean).join(' '),
+    entityAddress.country,
+  ]
+    .filter(Boolean)
+    .join('<br>');
+}
+
+function buildLogoHtml(branding: Branding, entityName: string, primaryColor: string): string {
+  return branding.logoUrl
+    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(entityName)}" style="max-height:60px;max-width:200px;" />`
+    : `<div style="font-size:24px;font-weight:bold;color:${primaryColor};">${escapeHtml(entityName)}</div>`;
+}
+
+function buildSellerTaxIds(taxIds: TaxIdentifiers, labels: InvoiceLabels): string {
+  const registration = taxIds.registrationNumber
+    ? `<div style="font-size:13px;color:#666;margin-top:8px;">${labels.registrationLabel}: ${escapeHtml(taxIds.registrationNumber)}</div>`
+    : '';
+  const vat = taxIds.vatNumber
+    ? `<div style="font-size:13px;color:#666;">${labels.vatNumberLabel}: ${escapeHtml(taxIds.vatNumber)}</div>`
+    : '';
+  return `${registration}\n      ${vat}`;
+}
+
+function buildBuyerDetails(
+  invoice: InvoiceRenderData,
+  addressBlock: string,
+  labels: InvoiceLabels,
+): string {
+  const address = addressBlock ? `<div style="font-size:14px;color:#555;">${addressBlock}</div>` : '';
+  const email = invoice.contactEmail
+    ? `<div style="font-size:13px;color:#666;margin-top:4px;">${escapeHtml(invoice.contactEmail)}</div>`
+    : '';
+  const vat = invoice.contactVatNumber
+    ? `<div style="font-size:13px;color:#666;">${labels.vatNumberLabel}: ${escapeHtml(invoice.contactVatNumber)}</div>`
+    : '';
+  return `${address}\n      ${email}\n      ${vat}`;
+}
+
+function buildReferenceBlock(reference: string | null | undefined): string {
+  if (!reference) return '';
+  return `<div>
+      <div style="font-size:11px;text-transform:uppercase;color:#999;">Ref.</div>
+      <div style="font-weight:500;">${escapeHtml(reference)}</div>
+    </div>`;
+}
+
+function buildDiscountRow(
+  discountTotal: string,
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+): string {
+  if (!(parseFloat(discountTotal) > 0)) return '';
+  return `
+        <tr>
+          <td style="padding:6px 0;color:#666;">${labels.discount}</td>
+          <td style="padding:6px 0;text-align:right;color:#e74c3c;">-${fmtCurrency(discountTotal)}</td>
+        </tr>`;
+}
+
+function buildPaidRows(
+  amountPaid: number,
+  balanceDue: number,
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+): string {
+  if (!(amountPaid > 0)) return '';
+  return `
+        <tr>
+          <td style="padding:4px 0;color:#666;">${labels.amountPaid}</td>
+          <td style="padding:4px 0;text-align:right;color:#27ae60;">-${fmtCurrency(amountPaid)}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;font-weight:600;">${labels.balanceDue}</td>
+          <td style="padding:4px 0;text-align:right;font-weight:600;">${fmtCurrency(balanceDue)}</td>
+        </tr>`;
+}
+
+function buildComplianceBlock(notices: string[]): string {
+  if (notices.length === 0) return '';
+  const rows = notices
+    .map((n) => `<div style="font-size:13px;font-weight:600;color:#5c4d00;">${escapeHtml(n)}</div>`)
+    .join('');
+  return `
+  <div style="margin-top:24px;padding:12px 16px;background:#fffbe6;border:1px solid #f0e6b8;border-radius:6px;">
+    ${rows}
+  </div>`;
+}
+
+function buildBankDetailsHtml(bankDetails: BankDetails): string {
+  const iban = bankDetails.iban ? `<div>IBAN: <strong>${escapeHtml(bankDetails.iban)}</strong></div>` : '';
+  const bic = bankDetails.bic ? `<div>BIC: ${escapeHtml(bankDetails.bic)}</div>` : '';
+  const account =
+    bankDetails.accountNumber && !bankDetails.iban
+      ? `<div>Account: <strong>${escapeHtml(bankDetails.accountNumber)}</strong></div>`
+      : '';
+  const routing = bankDetails.routingNumber
+    ? `<div>Routing: ${escapeHtml(bankDetails.routingNumber)}</div>`
+    : '';
+  return `${iban}\n      ${bic}\n      ${account}\n      ${routing}`;
+}
+
+function buildPaymentInstructionsNote(text: string | null | undefined): string {
+  return text
+    ? `<div style="margin-top:8px;font-size:13px;color:#666;">${escapeHtml(text)}</div>`
+    : '';
+}
+
+function buildNotesBlock(notes: string | null | undefined): string {
+  if (!notes) return '';
+  return `
+  <div style="margin-top:20px;">
+    <div style="font-weight:600;margin-bottom:4px;">Notes</div>
+    <div style="font-size:14px;color:#555;white-space:pre-wrap;">${escapeHtml(notes)}</div>
+  </div>`;
+}
+
+function buildTermsBlock(terms: string | null | undefined): string {
+  if (!terms) return '';
+  return `
+  <div style="margin-top:30px;padding-top:20px;border-top:1px solid #eee;">
+    <div style="font-size:12px;color:#666;">${escapeHtml(terms)}</div>
+  </div>`;
+}
+
+function buildRequiredFooterBlock(footer: string | null | undefined): string {
+  if (!footer) return '';
+  return `
+  <div style="margin-top:20px;font-size:11px;color:#999;">${escapeHtml(footer)}</div>`;
+}
+
+function buildFooterTextBlock(footerText: string | null | undefined): string {
+  if (!footerText) return '';
+  return `
+  <div style="margin-top:30px;text-align:center;font-size:12px;color:#999;">
+    ${escapeHtml(footerText)}
+  </div>`;
+}
+
 export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity): string {
   const locale = entity.locale || 'en-US';
   const currency = invoice.currency || entity.baseCurrency || 'EUR';
@@ -113,54 +304,11 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const taxIds = entity.taxIdentifiers ?? {};
   const bankDetails = entity.bankDetails ?? {};
 
-  const itemRows = invoice.items
-    .map(
-      (item) => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;">${escapeHtml(item.description)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}${item.unit ? ` ${item.unit}` : ''}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${fmtCurrency(item.unitPrice)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${item.taxRate}%` : '\u2014'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:500;">${fmtCurrency(item.lineTotal)}</td>
-    </tr>
-  `,
-    )
-    .join('');
-
-  const taxRows = (invoice.taxBreakdown || [])
-    .map(
-      (tb) => `
-    <tr>
-      <td style="padding:4px 0;">${labels.tax} ${tb.taxRate}% ${fmtCurrency(tb.taxableAmount)}</td>
-      <td style="padding:4px 0;text-align:right;">${fmtCurrency(tb.taxAmount)}</td>
-    </tr>
-  `,
-    )
-    .join('');
-
-  const addressBlock = invoice.billingAddress
-    ? [
-        invoice.billingAddress.street,
-        invoice.billingAddress.houseNumber,
-        [invoice.billingAddress.postalCode, invoice.billingAddress.city].filter(Boolean).join(' '),
-        invoice.billingAddress.country,
-      ]
-        .filter(Boolean)
-        .join('<br>')
-    : '';
-
-  const entityAddress = entity.address ?? {};
-  const entityAddressBlock = [
-    entityAddress.street,
-    [entityAddress.postalCode, entityAddress.city].filter(Boolean).join(' '),
-    entityAddress.country,
-  ]
-    .filter(Boolean)
-    .join('<br>');
-
-  const logoHtml = branding.logoUrl
-    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(entity.name)}" style="max-height:60px;max-width:200px;" />`
-    : `<div style="font-size:24px;font-weight:bold;color:${primaryColor};">${escapeHtml(entity.name)}</div>`;
+  const itemRows = buildItemRows(invoice.items, fmtCurrency);
+  const taxRows = buildTaxRows(invoice.taxBreakdown || [], labels, fmtCurrency);
+  const addressBlock = buildBillingAddressBlock(invoice.billingAddress);
+  const entityAddressBlock = buildEntityAddressBlock(entity.address ?? {});
+  const logoHtml = buildLogoHtml(branding, entity.name, primaryColor);
 
   const balanceDue = parseFloat(invoice.balanceDue || invoice.total);
   const amountPaid = parseFloat(invoice.amountPaid || '0');
@@ -196,15 +344,12 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${labels.billTo === 'Bill to' ? 'From' : 'Van'}</div>
       <div style="font-weight:600;">${escapeHtml(entity.legalName ?? entity.name)}</div>
       <div style="font-size:14px;color:#555;">${entityAddressBlock}</div>
-      ${taxIds.registrationNumber ? `<div style="font-size:13px;color:#666;margin-top:8px;">${labels.registrationLabel}: ${escapeHtml(taxIds.registrationNumber)}</div>` : ''}
-      ${taxIds.vatNumber ? `<div style="font-size:13px;color:#666;">${labels.vatNumberLabel}: ${escapeHtml(taxIds.vatNumber)}</div>` : ''}
+      ${buildSellerTaxIds(taxIds, labels)}
     </div>
     <div style="flex:1;text-align:right;">
       <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${labels.billTo}</div>
       <div style="font-weight:600;">${escapeHtml(invoice.contactName)}</div>
-      ${addressBlock ? `<div style="font-size:14px;color:#555;">${addressBlock}</div>` : ''}
-      ${invoice.contactEmail ? `<div style="font-size:13px;color:#666;margin-top:4px;">${escapeHtml(invoice.contactEmail)}</div>` : ''}
-      ${invoice.contactVatNumber ? `<div style="font-size:13px;color:#666;">${labels.vatNumberLabel}: ${escapeHtml(invoice.contactVatNumber)}</div>` : ''}
+      ${buildBuyerDetails(invoice, addressBlock, labels)}
     </div>
   </div>
 
@@ -217,10 +362,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div style="font-size:11px;text-transform:uppercase;color:#999;">${labels.dueDate}</div>
       <div style="font-weight:500;">${fmtDate(invoice.dueDate)}</div>
     </div>
-    ${invoice.reference ? `<div>
-      <div style="font-size:11px;text-transform:uppercase;color:#999;">Ref.</div>
-      <div style="font-weight:500;">${escapeHtml(invoice.reference)}</div>
-    </div>` : ''}
+    ${buildReferenceBlock(invoice.reference)}
   </div>
 
   <table style="margin-bottom:24px;">
@@ -245,11 +387,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
           <td style="padding:6px 0;color:#666;">${labels.subtotal}</td>
           <td style="padding:6px 0;text-align:right;">${fmtCurrency(invoice.subtotal)}</td>
         </tr>
-        ${parseFloat(invoice.discountTotal) > 0 ? `
-        <tr>
-          <td style="padding:6px 0;color:#666;">${labels.discount}</td>
-          <td style="padding:6px 0;text-align:right;color:#e74c3c;">-${fmtCurrency(invoice.discountTotal)}</td>
-        </tr>` : ''}
+        ${buildDiscountRow(invoice.discountTotal, labels, fmtCurrency)}
         ${taxRows}
         <tr>
           <td style="padding:6px 0;color:#666;">${labels.taxTotal}</td>
@@ -259,55 +397,30 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
           <td style="padding:12px 0;font-size:18px;font-weight:bold;">${labels.total}</td>
           <td style="padding:12px 0;text-align:right;font-size:18px;font-weight:bold;">${fmtCurrency(invoice.total)}</td>
         </tr>
-        ${amountPaid > 0 ? `
-        <tr>
-          <td style="padding:4px 0;color:#666;">${labels.amountPaid}</td>
-          <td style="padding:4px 0;text-align:right;color:#27ae60;">-${fmtCurrency(amountPaid)}</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 0;font-weight:600;">${labels.balanceDue}</td>
-          <td style="padding:4px 0;text-align:right;font-weight:600;">${fmtCurrency(balanceDue)}</td>
-        </tr>` : ''}
+        ${buildPaidRows(amountPaid, balanceDue, labels, fmtCurrency)}
       </table>
     </div>
   </div>
 
-  ${(invoice.complianceNotices ?? []).length > 0 ? `
-  <div style="margin-top:24px;padding:12px 16px;background:#fffbe6;border:1px solid #f0e6b8;border-radius:6px;">
-    ${(invoice.complianceNotices ?? []).map((n) => `<div style="font-size:13px;font-weight:600;color:#5c4d00;">${escapeHtml(n)}</div>`).join('')}
-  </div>` : ''}
+  ${buildComplianceBlock(invoice.complianceNotices ?? [])}
 
   <div style="margin-top:40px;padding:20px;background:#f8f9fa;border-radius:6px;border-left:4px solid ${accentColor};">
     <div style="font-weight:600;margin-bottom:8px;">${labels.paymentInstructions}</div>
     <div style="font-size:14px;color:#555;">
-      ${bankDetails.iban ? `<div>IBAN: <strong>${escapeHtml(bankDetails.iban)}</strong></div>` : ''}
-      ${bankDetails.bic ? `<div>BIC: ${escapeHtml(bankDetails.bic)}</div>` : ''}
-      ${bankDetails.accountNumber && !bankDetails.iban ? `<div>Account: <strong>${escapeHtml(bankDetails.accountNumber)}</strong></div>` : ''}
-      ${bankDetails.routingNumber ? `<div>Routing: ${escapeHtml(bankDetails.routingNumber)}</div>` : ''}
+      ${buildBankDetailsHtml(bankDetails)}
       <div>${escapeHtml(entity.name)}</div>
       <div>Ref: ${escapeHtml(invoice.invoiceNumber)}</div>
     </div>
-    ${branding.paymentInstructions ? `<div style="margin-top:8px;font-size:13px;color:#666;">${escapeHtml(branding.paymentInstructions)}</div>` : ''}
+    ${buildPaymentInstructionsNote(branding.paymentInstructions)}
   </div>
 
-  ${invoice.notes ? `
-  <div style="margin-top:20px;">
-    <div style="font-weight:600;margin-bottom:4px;">Notes</div>
-    <div style="font-size:14px;color:#555;white-space:pre-wrap;">${escapeHtml(invoice.notes)}</div>
-  </div>` : ''}
+  ${buildNotesBlock(invoice.notes)}
 
-  ${branding.termsAndConditions ? `
-  <div style="margin-top:30px;padding-top:20px;border-top:1px solid #eee;">
-    <div style="font-size:12px;color:#666;">${escapeHtml(branding.termsAndConditions)}</div>
-  </div>` : ''}
+  ${buildTermsBlock(branding.termsAndConditions)}
 
-  ${requirements.requiredFooter ? `
-  <div style="margin-top:20px;font-size:11px;color:#999;">${escapeHtml(requirements.requiredFooter)}</div>` : ''}
+  ${buildRequiredFooterBlock(requirements.requiredFooter)}
 
-  ${branding.footerText ? `
-  <div style="margin-top:30px;text-align:center;font-size:12px;color:#999;">
-    ${escapeHtml(branding.footerText)}
-  </div>` : ''}
+  ${buildFooterTextBlock(branding.footerText)}
 </div>
 </body>
 </html>`;

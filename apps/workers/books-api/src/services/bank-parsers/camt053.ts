@@ -26,53 +26,9 @@ export function parseCAMT053(content: string): BankFileParseResult {
     // Process the first statement (most common case)
     const stmt = stmtBlocks[0];
 
-    // Extract account IBAN
-    const acctBlock = extractBlock(stmt, 'Acct');
-    if (acctBlock) {
-      const iban = extractTagValue(acctBlock, 'IBAN');
-      if (iban) {
-        result.accountIban = iban;
-      }
-    }
-
-    // Extract balances
-    const balBlocks = extractAllBlocks(stmt, 'Bal');
-    for (const bal of balBlocks) {
-      const tp = extractBlock(bal, 'Tp');
-      const cdOrPrtry = tp ? extractTagValue(tp, 'Cd') || extractTagValue(tp, 'Prtry') : null;
-      const amt = extractTagValue(bal, 'Amt');
-      const cdtDbtInd = extractTagValue(bal, 'CdtDbtInd');
-
-      if (amt !== null) {
-        const amount = parseFloat(amt);
-        const signed = cdtDbtInd === 'DBIT' ? -amount : amount;
-
-        // OPBD = Opening Booked, PRCD = Previous Closing
-        if (cdOrPrtry === 'OPBD' || cdOrPrtry === 'PRCD') {
-          result.openingBalance = signed;
-        }
-        // CLBD = Closing Booked
-        if (cdOrPrtry === 'CLBD') {
-          result.closingBalance = signed;
-        }
-      }
-    }
-
-    // Extract entries (transactions)
-    const entries = extractAllBlocks(stmt, 'Ntry');
-
-    for (let i = 0; i < entries.length; i++) {
-      try {
-        const transaction = parseEntry(entries[i]);
-        if (transaction) {
-          result.transactions.push(transaction);
-        }
-      } catch (err) {
-        result.errors.push({
-          message: `Error parsing entry ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
-        });
-      }
-    }
+    applyAccountIban(result, stmt);
+    applyBalances(result, stmt);
+    collectEntries(result, stmt);
 
     // Compute date range
     if (result.transactions.length > 0) {
@@ -81,11 +37,64 @@ export function parseCAMT053(content: string): BankFileParseResult {
     }
   } catch (err) {
     result.errors.push({
-      message: `Unexpected CAMT.053 parse error: ${err instanceof Error ? err.message : String(err)}`,
+      message: `Unexpected CAMT.053 parse error: ${errorMessage(err)}`,
     });
   }
 
   return result;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Extract the statement's account IBAN. */
+function applyAccountIban(result: BankFileParseResult, stmt: string): void {
+  const acctBlock = extractBlock(stmt, 'Acct');
+  if (!acctBlock) return;
+  const iban = extractTagValue(acctBlock, 'IBAN');
+  if (iban) {
+    result.accountIban = iban;
+  }
+}
+
+/** Extract opening / closing balances. */
+function applyBalances(result: BankFileParseResult, stmt: string): void {
+  for (const bal of extractAllBlocks(stmt, 'Bal')) {
+    const tp = extractBlock(bal, 'Tp');
+    const cdOrPrtry = tp ? extractTagValue(tp, 'Cd') || extractTagValue(tp, 'Prtry') : null;
+    const amt = extractTagValue(bal, 'Amt');
+    if (amt === null) continue;
+
+    const amount = parseFloat(amt);
+    const signed = extractTagValue(bal, 'CdtDbtInd') === 'DBIT' ? -amount : amount;
+
+    // OPBD = Opening Booked, PRCD = Previous Closing
+    if (cdOrPrtry === 'OPBD' || cdOrPrtry === 'PRCD') {
+      result.openingBalance = signed;
+    }
+    // CLBD = Closing Booked
+    if (cdOrPrtry === 'CLBD') {
+      result.closingBalance = signed;
+    }
+  }
+}
+
+/** Extract entries (transactions), recording a per-entry error instead of aborting. */
+function collectEntries(result: BankFileParseResult, stmt: string): void {
+  const entries = extractAllBlocks(stmt, 'Ntry');
+  for (let i = 0; i < entries.length; i++) {
+    try {
+      const transaction = parseEntry(entries[i]);
+      if (transaction) {
+        result.transactions.push(transaction);
+      }
+    } catch (err) {
+      result.errors.push({
+        message: `Error parsing entry ${i + 1}: ${errorMessage(err)}`,
+      });
+    }
+  }
 }
 
 function parseEntry(entry: string): ParsedBankTransaction | null {
@@ -106,136 +115,145 @@ function parseEntry(entry: string): ParsedBankTransaction | null {
   const cdtDbtInd = extractTagValue(entry, 'CdtDbtInd');
   const signedAmount = cdtDbtInd === 'DBIT' ? -Math.abs(amount) : Math.abs(amount);
 
-  // Transaction code
-  const bankTxCode = extractBlock(entry, 'BkTxCd');
-  let transactionCode: string | undefined;
-  if (bankTxCode) {
-    const domn = extractBlock(bankTxCode, 'Domn');
-    if (domn) {
-      const cd = extractTagValue(domn, 'Cd');
-      const fmly = extractBlock(domn, 'Fmly');
-      const fmlyCd = fmly ? extractTagValue(fmly, 'Cd') : null;
-      const subFmlyCd = fmly ? extractTagValue(fmly, 'SubFmlyCd') : null;
-      transactionCode = [cd, fmlyCd, subFmlyCd].filter(Boolean).join('-');
-    }
-  }
+  const transactionCode = parseTransactionCode(entry);
 
   // Entry details
   const ntryDtls = extractBlock(entry, 'NtryDtls');
   const txDtls = ntryDtls ? extractBlock(ntryDtls, 'TxDtls') : null;
-
-  let description = '';
-  let counterpartyName: string | undefined;
-  let counterpartyIban: string | undefined;
-  let counterpartyBic: string | undefined;
-  let reference: string | undefined;
-  let endToEndId: string | undefined;
-  let mandateId: string | undefined;
-  let externalId: string | undefined;
-
-  if (txDtls) {
-    // References
-    const refs = extractBlock(txDtls, 'Refs');
-    if (refs) {
-      endToEndId = extractTagValue(refs, 'EndToEndId') || undefined;
-      mandateId = extractTagValue(refs, 'MndtId') || undefined;
-      externalId = extractTagValue(refs, 'AcctSvcrRef') || undefined;
-
-      const instrId = extractTagValue(refs, 'InstrId');
-      if (instrId && instrId !== 'NOTPROVIDED') {
-        reference = instrId;
-      }
-    }
-
-    // Remittance information (description)
-    const rmtInf = extractBlock(txDtls, 'RmtInf');
-    if (rmtInf) {
-      // Collect all Ustrd (unstructured) values
-      const ustrdValues = extractAllTagValues(rmtInf, 'Ustrd');
-      if (ustrdValues.length > 0) {
-        description = ustrdValues.join(' ');
-      }
-
-      // Structured remittance — try to get Ref from CdtrRefInf
-      const strd = extractBlock(rmtInf, 'Strd');
-      if (strd) {
-        const cdtrRefInf = extractBlock(strd, 'CdtrRefInf');
-        if (cdtrRefInf) {
-          const ref = extractTagValue(cdtrRefInf, 'Ref');
-          if (ref && !reference) {
-            reference = ref;
-          }
-        }
-      }
-    }
-
-    // Related parties (counterparty)
-    const rltdPties = extractBlock(txDtls, 'RltdPties');
-    if (rltdPties) {
-      // For credits, counterparty is the debtor; for debits, the creditor
-      const partyBlock = cdtDbtInd === 'DBIT'
-        ? extractBlock(rltdPties, 'Cdtr') || extractBlock(rltdPties, 'Dbtr')
-        : extractBlock(rltdPties, 'Dbtr') || extractBlock(rltdPties, 'Cdtr');
-
-      if (partyBlock) {
-        counterpartyName = extractTagValue(partyBlock, 'Nm') || undefined;
-      }
-
-      // Counterparty account
-      const acctBlock = cdtDbtInd === 'DBIT'
-        ? extractBlock(rltdPties, 'CdtrAcct') || extractBlock(rltdPties, 'DbtrAcct')
-        : extractBlock(rltdPties, 'DbtrAcct') || extractBlock(rltdPties, 'CdtrAcct');
-
-      if (acctBlock) {
-        const id = extractBlock(acctBlock, 'Id');
-        if (id) {
-          counterpartyIban = extractTagValue(id, 'IBAN') || undefined;
-        }
-      }
-    }
-
-    // Related agents (BIC)
-    const rltdAgts = extractBlock(txDtls, 'RltdAgts');
-    if (rltdAgts) {
-      const agtBlock = cdtDbtInd === 'DBIT'
-        ? extractBlock(rltdAgts, 'CdtrAgt') || extractBlock(rltdAgts, 'DbtrAgt')
-        : extractBlock(rltdAgts, 'DbtrAgt') || extractBlock(rltdAgts, 'CdtrAgt');
-
-      if (agtBlock) {
-        const finInstnId = extractBlock(agtBlock, 'FinInstnId');
-        if (finInstnId) {
-          counterpartyBic = extractTagValue(finInstnId, 'BIC') || extractTagValue(finInstnId, 'BICFI') || undefined;
-        }
-      }
-    }
-  }
+  const details = txDtls ? parseTxDetails(txDtls, cdtDbtInd === 'DBIT') : {};
 
   // Fallback: if no description from TxDtls, try AddtlNtryInf
-  if (!description) {
-    description = extractTagValue(entry, 'AddtlNtryInf') || '';
-  }
+  const description = details.description || extractTagValue(entry, 'AddtlNtryInf') || '';
 
   // Fallback external ID from entry-level AcctSvcrRef
-  if (!externalId) {
-    externalId = extractTagValue(entry, 'AcctSvcrRef') || undefined;
-  }
+  const externalId = details.externalId || extractTagValue(entry, 'AcctSvcrRef') || undefined;
 
   // Filter out NOTPROVIDED sentinels
-  if (endToEndId === 'NOTPROVIDED') endToEndId = undefined;
+  const endToEndId = details.endToEndId === 'NOTPROVIDED' ? undefined : details.endToEndId;
 
   return {
     date,
     valueDate: valueDate || undefined,
     description,
     amount: signedAmount,
-    counterpartyName,
-    counterpartyIban,
-    counterpartyBic,
-    reference,
+    counterpartyName: details.counterpartyName,
+    counterpartyIban: details.counterpartyIban,
+    counterpartyBic: details.counterpartyBic,
+    reference: details.reference,
     transactionCode,
     endToEndId,
-    mandateId,
+    mandateId: details.mandateId,
     externalId,
+  };
+}
+
+interface TxDetails {
+  description?: string;
+  counterpartyName?: string;
+  counterpartyIban?: string;
+  counterpartyBic?: string;
+  reference?: string;
+  endToEndId?: string;
+  mandateId?: string;
+  externalId?: string;
+}
+
+function parseTransactionCode(entry: string): string | undefined {
+  const bankTxCode = extractBlock(entry, 'BkTxCd');
+  const domn = bankTxCode ? extractBlock(bankTxCode, 'Domn') : null;
+  if (!domn) return undefined;
+
+  const cd = extractTagValue(domn, 'Cd');
+  const fmly = extractBlock(domn, 'Fmly');
+  const fmlyCd = fmly ? extractTagValue(fmly, 'Cd') : null;
+  const subFmlyCd = fmly ? extractTagValue(fmly, 'SubFmlyCd') : null;
+  return [cd, fmlyCd, subFmlyCd].filter(Boolean).join('-');
+}
+
+/** Pick the first non-empty block: creditor-side first for debits, debtor-side first for credits. */
+function extractCounterpartyBlock(
+  xml: string,
+  isDebit: boolean,
+  creditorTag: string,
+  debtorTag: string,
+): string | null {
+  // For credits, counterparty is the debtor; for debits, the creditor
+  return isDebit
+    ? extractBlock(xml, creditorTag) || extractBlock(xml, debtorTag)
+    : extractBlock(xml, debtorTag) || extractBlock(xml, creditorTag);
+}
+
+/** References block: end-to-end id, mandate id, external id and instruction id (as reference). */
+function parseRefs(txDtls: string): TxDetails {
+  const refs = extractBlock(txDtls, 'Refs');
+  if (!refs) return {};
+
+  const instrId = extractTagValue(refs, 'InstrId');
+  return {
+    endToEndId: extractTagValue(refs, 'EndToEndId') || undefined,
+    mandateId: extractTagValue(refs, 'MndtId') || undefined,
+    externalId: extractTagValue(refs, 'AcctSvcrRef') || undefined,
+    reference: instrId && instrId !== 'NOTPROVIDED' ? instrId : undefined,
+  };
+}
+
+/** Remittance information: unstructured description plus the structured creditor reference. */
+function parseRemittance(txDtls: string): { description?: string; structuredRef?: string } {
+  const rmtInf = extractBlock(txDtls, 'RmtInf');
+  if (!rmtInf) return {};
+
+  // Collect all Ustrd (unstructured) values
+  const ustrdValues = extractAllTagValues(rmtInf, 'Ustrd');
+  const description = ustrdValues.length > 0 ? ustrdValues.join(' ') : undefined;
+
+  // Structured remittance — try to get Ref from CdtrRefInf
+  const strd = extractBlock(rmtInf, 'Strd');
+  const cdtrRefInf = strd ? extractBlock(strd, 'CdtrRefInf') : null;
+  const structuredRef = cdtrRefInf ? extractTagValue(cdtrRefInf, 'Ref') || undefined : undefined;
+  return { description, structuredRef };
+}
+
+/** Related parties: counterparty name and IBAN. */
+function parseRelatedParties(
+  txDtls: string,
+  isDebit: boolean,
+): Pick<TxDetails, 'counterpartyName' | 'counterpartyIban'> {
+  const rltdPties = extractBlock(txDtls, 'RltdPties');
+  if (!rltdPties) return {};
+
+  const partyBlock = extractCounterpartyBlock(rltdPties, isDebit, 'Cdtr', 'Dbtr');
+  const counterpartyName = partyBlock ? extractTagValue(partyBlock, 'Nm') || undefined : undefined;
+
+  const acctBlock = extractCounterpartyBlock(rltdPties, isDebit, 'CdtrAcct', 'DbtrAcct');
+  const id = acctBlock ? extractBlock(acctBlock, 'Id') : null;
+  const counterpartyIban = id ? extractTagValue(id, 'IBAN') || undefined : undefined;
+
+  return { counterpartyName, counterpartyIban };
+}
+
+/** Related agents: counterparty BIC. */
+function parseRelatedAgentBic(txDtls: string, isDebit: boolean): string | undefined {
+  const rltdAgts = extractBlock(txDtls, 'RltdAgts');
+  if (!rltdAgts) return undefined;
+
+  const agtBlock = extractCounterpartyBlock(rltdAgts, isDebit, 'CdtrAgt', 'DbtrAgt');
+  const finInstnId = agtBlock ? extractBlock(agtBlock, 'FinInstnId') : null;
+  if (!finInstnId) return undefined;
+  return extractTagValue(finInstnId, 'BIC') || extractTagValue(finInstnId, 'BICFI') || undefined;
+}
+
+function parseTxDetails(txDtls: string, isDebit: boolean): TxDetails {
+  const refs = parseRefs(txDtls);
+  const remittance = parseRemittance(txDtls);
+  const parties = parseRelatedParties(txDtls, isDebit);
+
+  return {
+    ...refs,
+    description: remittance.description,
+    // The InstrId reference wins; the structured creditor reference is only a fallback.
+    reference: refs.reference || remittance.structuredRef,
+    ...parties,
+    counterpartyBic: parseRelatedAgentBic(txDtls, isDebit),
   };
 }
 

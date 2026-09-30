@@ -51,7 +51,7 @@ export function parseCSV(content: string): BankFileParseResult {
     }
   } catch (err) {
     result.errors.push({
-      message: `Unexpected CSV parse error: ${err instanceof Error ? err.message : String(err)}`,
+      message: `Unexpected CSV parse error: ${errorMessage(err)}`,
     });
   }
 
@@ -95,13 +95,101 @@ function detectCSVFormat(headerLine: string, dataLine: string): CSVFormat {
   return 'generic';
 }
 
+// --- Shared row helpers ---
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Lower-cased, trimmed header cells of the first line. */
+function readHeaders(headerLine: string, separator: string): string[] {
+  return parseCSVLine(headerLine, separator).map((h) => h.toLowerCase().trim());
+}
+
+/**
+ * Run `parseRow` over every non-blank line from `startIndex`. A row that throws is reported as an
+ * error (1-based line number) and skipped; a row that returns null was already reported/ignored.
+ */
+function parseDataRows(
+  lines: string[],
+  startIndex: number,
+  result: BankFileParseResult,
+  parseRow: (line: string, lineNo: number) => ParsedBankTransaction | null,
+): void {
+  for (let i = startIndex; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+
+    try {
+      const transaction = parseRow(lines[i], i + 1);
+      if (transaction) {
+        result.transactions.push(transaction);
+      }
+    } catch (err) {
+      result.errors.push({
+        line: i + 1,
+        message: `Error parsing row: ${errorMessage(err)}`,
+      });
+    }
+  }
+}
+
+/** Account IBAN from the given column of the first data row. */
+function applyAccountIbanFromFirstRow(
+  result: BankFileParseResult,
+  lines: string[],
+  separator: string,
+  column: number,
+): void {
+  if (column === -1 || lines.length <= 1) return;
+  const value = parseCSVLine(lines[1], separator)[column];
+  if (value) {
+    result.accountIban = value.replace(/\s/g, '');
+  }
+}
+
+/** Parse the date column of a row; reports an "Invalid date" error and returns null when unreadable. */
+function readRequiredDate(
+  fields: string[],
+  column: number,
+  lineNo: number,
+  result: BankFileParseResult,
+): string | null {
+  const date = parseDate(fields[column] || '');
+  if (!date) {
+    result.errors.push({ line: lineNo, message: `Invalid date: ${fields[column]}` });
+  }
+  return date;
+}
+
+/** Text of an optional column (undefined when the column is absent or the cell empty). */
+function optionalText(fields: string[], column: number): string | undefined {
+  return column !== -1 ? fields[column] || undefined : undefined;
+}
+
+/** IBAN of an optional column with whitespace removed. */
+function optionalIban(fields: string[], column: number): string | undefined {
+  return column !== -1 ? fields[column]?.replace(/\s/g, '') || undefined : undefined;
+}
+
+/** Date of an optional column. */
+function optionalDate(fields: string[], column: number): string | undefined {
+  return column !== -1 ? parseDate(fields[column] || '') || undefined : undefined;
+}
+
+/** Running balance of an optional column (only when the cell is non-empty). */
+function optionalBalance(fields: string[], column: number): number | undefined {
+  return column !== -1 && fields[column] ? parseAmount(fields[column]) : undefined;
+}
+
+/** Amount of an optional column (0 when the column is absent or empty). */
+function amountOrZero(fields: string[], column: number): number {
+  return column !== -1 ? parseAmount(fields[column] || '0') : 0;
+}
+
 // --- ING CSV Parser ---
 
-function parseINGCSV(lines: string[], result: BankFileParseResult): void {
-  const separator = detectSeparator(lines[0]);
-  const headers = parseCSVLine(lines[0], separator).map((h) => h.toLowerCase().trim());
-
-  const colIdx = {
+function ingColumns(headers: string[]) {
+  return {
     date: findColumn(headers, ['datum']),
     name: findColumn(headers, ['naam / omschrijving', 'naam/omschrijving']),
     account: findColumn(headers, ['rekening']),
@@ -112,123 +200,103 @@ function parseINGCSV(lines: string[], result: BankFileParseResult): void {
     type: findColumn(headers, ['mutatiesoort']),
     description: findColumn(headers, ['mededelingen']),
   };
+}
+
+type IngColumns = ReturnType<typeof ingColumns>;
+
+function parseINGRow(
+  fields: string[],
+  lineNo: number,
+  colIdx: IngColumns,
+  result: BankFileParseResult,
+): ParsedBankTransaction | null {
+  const date = readRequiredDate(fields, colIdx.date, lineNo, result);
+  if (!date) return null;
+
+  let amount = parseAmount(fields[colIdx.amount] || '0');
+  // ING uses "Af"/"Bij" to indicate debit/credit
+  if (colIdx.afBij !== -1) {
+    const afBij = (fields[colIdx.afBij] || '').toLowerCase().trim();
+    amount = afBij === 'af' ? -Math.abs(amount) : Math.abs(amount);
+  }
+
+  const description = optionalText(fields, colIdx.description) ?? '';
+
+  return {
+    date,
+    description,
+    amount,
+    counterpartyName: optionalText(fields, colIdx.name),
+    counterpartyIban: optionalIban(fields, colIdx.counterAccount),
+    // Try to extract reference from description
+    reference: extractReferenceFromText(description),
+    transactionCode: optionalText(fields, colIdx.code),
+    rawData: { format: 'ing', line: lineNo },
+  };
+}
+
+function parseINGCSV(lines: string[], result: BankFileParseResult): void {
+  const separator = detectSeparator(lines[0]);
+  const colIdx = ingColumns(readHeaders(lines[0], separator));
 
   if (colIdx.date === -1 || colIdx.amount === -1) {
     result.errors.push({ message: 'Could not identify required ING CSV columns' });
     return;
   }
 
-  // Account IBAN from first data row
-  if (colIdx.account !== -1 && lines.length > 1) {
-    const firstRow = parseCSVLine(lines[1], separator);
-    if (firstRow[colIdx.account]) {
-      result.accountIban = firstRow[colIdx.account].replace(/\s/g, '');
-    }
-  }
+  applyAccountIbanFromFirstRow(result, lines, separator, colIdx.account);
 
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-
-    const fields = parseCSVLine(lines[i], separator);
-    try {
-      const date = parseDate(fields[colIdx.date] || '');
-      if (!date) {
-        result.errors.push({ line: i + 1, message: `Invalid date: ${fields[colIdx.date]}` });
-        continue;
-      }
-
-      let amount = parseAmount(fields[colIdx.amount] || '0');
-      // ING uses "Af"/"Bij" to indicate debit/credit
-      if (colIdx.afBij !== -1) {
-        const afBij = (fields[colIdx.afBij] || '').toLowerCase().trim();
-        if (afBij === 'af') {
-          amount = -Math.abs(amount);
-        } else {
-          amount = Math.abs(amount);
-        }
-      }
-
-      const counterpartyName = colIdx.name !== -1 ? fields[colIdx.name] || undefined : undefined;
-      const counterpartyIban = colIdx.counterAccount !== -1 ? fields[colIdx.counterAccount]?.replace(/\s/g, '') || undefined : undefined;
-      const description = colIdx.description !== -1 ? fields[colIdx.description] || '' : '';
-      const transactionCode = colIdx.code !== -1 ? fields[colIdx.code] || undefined : undefined;
-
-      // Try to extract reference from description
-      const reference = extractReferenceFromText(description);
-
-      result.transactions.push({
-        date,
-        description,
-        amount,
-        counterpartyName: counterpartyName || undefined,
-        counterpartyIban: counterpartyIban || undefined,
-        reference,
-        transactionCode,
-        rawData: { format: 'ing', line: i + 1 },
-      });
-    } catch (err) {
-      result.errors.push({
-        line: i + 1,
-        message: `Error parsing row: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
+  parseDataRows(lines, 1, result, (line, lineNo) =>
+    parseINGRow(parseCSVLine(line, separator), lineNo, colIdx, result),
+  );
 }
 
 // --- ABN AMRO CSV Parser ---
 
+function parseABNRow(
+  line: string,
+  lineNo: number,
+  result: BankFileParseResult,
+): ParsedBankTransaction | null {
+  const fields = line.split('\t').map((f) => f.trim());
+  if (fields.length < 7) {
+    result.errors.push({ line: lineNo, message: `Expected at least 7 tab-separated fields, got ${fields.length}` });
+    return null;
+  }
+
+  const accountNumber = fields[0];
+  if (lineNo === 1 && accountNumber) {
+    result.accountIban = accountNumber.replace(/\s/g, '');
+  }
+
+  const date = parseDate(fields[2]);
+  if (!date) {
+    result.errors.push({ line: lineNo, message: `Invalid date: ${fields[2]}` });
+    return null;
+  }
+
+  const description = fields[7] || '';
+
+  // ABN AMRO description often contains structured data with counterparty info
+  const counterparty = extractCounterpartyFromABN(description);
+
+  return {
+    date,
+    valueDate: parseDate(fields[5]) || undefined,
+    description,
+    amount: parseAmount(fields[6]),
+    runningBalance: fields[4] ? parseAmount(fields[4]) : undefined,
+    counterpartyName: counterparty.name,
+    counterpartyIban: counterparty.iban,
+    reference: counterparty.reference,
+    rawData: { format: 'abn', line: lineNo },
+  };
+}
+
 function parseABNCSV(lines: string[], result: BankFileParseResult): void {
   // ABN AMRO: tab-separated, no header row
   // Fields: accountNumber, currency, date (YYYYMMDD), balanceBefore, balanceAfter, valueDate, amount, description
-
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-
-    const fields = lines[i].split('\t').map((f) => f.trim());
-    if (fields.length < 7) {
-      result.errors.push({ line: i + 1, message: `Expected at least 7 tab-separated fields, got ${fields.length}` });
-      continue;
-    }
-
-    try {
-      const accountNumber = fields[0];
-      if (i === 0 && accountNumber) {
-        result.accountIban = accountNumber.replace(/\s/g, '');
-      }
-
-      const date = parseDate(fields[2]);
-      if (!date) {
-        result.errors.push({ line: i + 1, message: `Invalid date: ${fields[2]}` });
-        continue;
-      }
-
-      const valueDate = parseDate(fields[5]) || undefined;
-      const amount = parseAmount(fields[6]);
-      const description = fields[7] || '';
-
-      // ABN AMRO description often contains structured data with counterparty info
-      const counterparty = extractCounterpartyFromABN(description);
-
-      const runningBalance = fields[4] ? parseAmount(fields[4]) : undefined;
-
-      result.transactions.push({
-        date,
-        valueDate,
-        description,
-        amount,
-        runningBalance,
-        counterpartyName: counterparty.name,
-        counterpartyIban: counterparty.iban,
-        reference: counterparty.reference,
-        rawData: { format: 'abn', line: i + 1 },
-      });
-    } catch (err) {
-      result.errors.push({
-        line: i + 1,
-        message: `Error parsing row: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
+  parseDataRows(lines, 0, result, (line, lineNo) => parseABNRow(line, lineNo, result));
 }
 
 function extractCounterpartyFromABN(description: string): {
@@ -256,11 +324,8 @@ function extractCounterpartyFromABN(description: string): {
 
 // --- Rabobank CSV Parser ---
 
-function parseRaboCSV(lines: string[], result: BankFileParseResult): void {
-  const separator = detectSeparator(lines[0]);
-  const headers = parseCSVLine(lines[0], separator).map((h) => h.toLowerCase().trim());
-
-  const colIdx = {
+function raboColumns(headers: string[]) {
+  return {
     iban: findColumn(headers, ['iban/bban', 'iban']),
     currency: findColumn(headers, ['munt', 'currency']),
     date: findColumn(headers, ['datum', 'boekdatum', 'date']),
@@ -278,82 +343,64 @@ function parseRaboCSV(lines: string[], result: BankFileParseResult): void {
     mandateId: findColumn(headers, ['machtigingsid', 'mandate id']),
     balance: findColumn(headers, ['saldo na trn', 'balance after']),
   };
+}
+
+type RaboColumns = ReturnType<typeof raboColumns>;
+
+function parseRaboRow(
+  fields: string[],
+  lineNo: number,
+  colIdx: RaboColumns,
+  result: BankFileParseResult,
+): ParsedBankTransaction | null {
+  const date = readRequiredDate(fields, colIdx.date, lineNo, result);
+  if (!date) return null;
+
+  // Build description from multiple columns
+  const description = [colIdx.description, colIdx.description2, colIdx.description3]
+    .map((column) => optionalText(fields, column))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  return {
+    date,
+    valueDate: optionalDate(fields, colIdx.valueDate),
+    description,
+    amount: parseAmount(fields[colIdx.amount] || '0'),
+    runningBalance: optionalBalance(fields, colIdx.balance),
+    counterpartyName: optionalText(fields, colIdx.counterName),
+    counterpartyIban: optionalIban(fields, colIdx.counterIban),
+    counterpartyBic: optionalText(fields, colIdx.counterBic),
+    reference: optionalText(fields, colIdx.reference),
+    transactionCode: optionalText(fields, colIdx.code),
+    endToEndId: optionalText(fields, colIdx.endToEndId),
+    mandateId: optionalText(fields, colIdx.mandateId),
+    rawData: { format: 'rabo', line: lineNo },
+  };
+}
+
+function parseRaboCSV(lines: string[], result: BankFileParseResult): void {
+  const separator = detectSeparator(lines[0]);
+  const colIdx = raboColumns(readHeaders(lines[0], separator));
 
   if (colIdx.date === -1 || colIdx.amount === -1) {
     result.errors.push({ message: 'Could not identify required Rabobank CSV columns' });
     return;
   }
 
-  // Account IBAN
-  if (colIdx.iban !== -1 && lines.length > 1) {
-    const firstRow = parseCSVLine(lines[1], separator);
-    if (firstRow[colIdx.iban]) {
-      result.accountIban = firstRow[colIdx.iban].replace(/\s/g, '');
-    }
-  }
+  applyAccountIbanFromFirstRow(result, lines, separator, colIdx.iban);
 
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-
-    const fields = parseCSVLine(lines[i], separator);
-    try {
-      const date = parseDate(fields[colIdx.date] || '');
-      if (!date) {
-        result.errors.push({ line: i + 1, message: `Invalid date: ${fields[colIdx.date]}` });
-        continue;
-      }
-
-      const valueDate = colIdx.valueDate !== -1 ? parseDate(fields[colIdx.valueDate] || '') || undefined : undefined;
-      const amount = parseAmount(fields[colIdx.amount] || '0');
-
-      // Build description from multiple columns
-      const descParts: string[] = [];
-      if (colIdx.description !== -1 && fields[colIdx.description]) descParts.push(fields[colIdx.description]);
-      if (colIdx.description2 !== -1 && fields[colIdx.description2]) descParts.push(fields[colIdx.description2]);
-      if (colIdx.description3 !== -1 && fields[colIdx.description3]) descParts.push(fields[colIdx.description3]);
-      const description = descParts.join(' ').trim();
-
-      const counterpartyName = colIdx.counterName !== -1 ? fields[colIdx.counterName] || undefined : undefined;
-      const counterpartyIban = colIdx.counterIban !== -1 ? fields[colIdx.counterIban]?.replace(/\s/g, '') || undefined : undefined;
-      const counterpartyBic = colIdx.counterBic !== -1 ? fields[colIdx.counterBic] || undefined : undefined;
-      const reference = colIdx.reference !== -1 ? fields[colIdx.reference] || undefined : undefined;
-      const endToEndId = colIdx.endToEndId !== -1 ? fields[colIdx.endToEndId] || undefined : undefined;
-      const mandateId = colIdx.mandateId !== -1 ? fields[colIdx.mandateId] || undefined : undefined;
-      const transactionCode = colIdx.code !== -1 ? fields[colIdx.code] || undefined : undefined;
-      const runningBalance = colIdx.balance !== -1 && fields[colIdx.balance] ? parseAmount(fields[colIdx.balance]) : undefined;
-
-      result.transactions.push({
-        date,
-        valueDate,
-        description,
-        amount,
-        runningBalance,
-        counterpartyName: counterpartyName || undefined,
-        counterpartyIban: counterpartyIban || undefined,
-        counterpartyBic: counterpartyBic || undefined,
-        reference: reference || undefined,
-        transactionCode,
-        endToEndId: endToEndId || undefined,
-        mandateId: mandateId || undefined,
-        rawData: { format: 'rabo', line: i + 1 },
-      });
-    } catch (err) {
-      result.errors.push({
-        line: i + 1,
-        message: `Error parsing row: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
+  parseDataRows(lines, 1, result, (line, lineNo) =>
+    parseRaboRow(parseCSVLine(line, separator), lineNo, colIdx, result),
+  );
 }
 
 // --- Generic CSV Parser ---
 
-function parseGenericCSV(lines: string[], result: BankFileParseResult): void {
-  const separator = detectSeparator(lines[0]);
-  const headers = parseCSVLine(lines[0], separator).map((h) => h.toLowerCase().trim());
-
+function genericColumns(headers: string[]) {
   // Try to find common column names
-  const colIdx = {
+  return {
     date: findColumn(headers, ['date', 'datum', 'boekdatum', 'booking date', 'transaction date']),
     valueDate: findColumn(headers, ['value date', 'rentedatum', 'valutering']),
     description: findColumn(headers, ['description', 'omschrijving', 'mededelingen', 'memo', 'narrative']),
@@ -365,6 +412,40 @@ function parseGenericCSV(lines: string[], result: BankFileParseResult): void {
     counterIban: findColumn(headers, ['counterparty iban', 'tegenrekening', 'account']),
     reference: findColumn(headers, ['reference', 'referentie', 'betalingskenmerk']),
   };
+}
+
+type GenericColumns = ReturnType<typeof genericColumns>;
+
+function parseGenericRow(
+  fields: string[],
+  lineNo: number,
+  colIdx: GenericColumns,
+  result: BankFileParseResult,
+): ParsedBankTransaction | null {
+  const date = readRequiredDate(fields, colIdx.date, lineNo, result);
+  if (!date) return null;
+
+  const amount =
+    colIdx.amount !== -1
+      ? parseAmount(fields[colIdx.amount] || '0')
+      : amountOrZero(fields, colIdx.credit) - amountOrZero(fields, colIdx.debit);
+
+  return {
+    date,
+    valueDate: optionalDate(fields, colIdx.valueDate),
+    description: optionalText(fields, colIdx.description) ?? '',
+    amount,
+    runningBalance: optionalBalance(fields, colIdx.balance),
+    counterpartyName: optionalText(fields, colIdx.counterName),
+    counterpartyIban: optionalIban(fields, colIdx.counterIban),
+    reference: optionalText(fields, colIdx.reference),
+    rawData: { format: 'generic', line: lineNo },
+  };
+}
+
+function parseGenericCSV(lines: string[], result: BankFileParseResult): void {
+  const separator = detectSeparator(lines[0]);
+  const colIdx = genericColumns(readHeaders(lines[0], separator));
 
   if (colIdx.date === -1) {
     result.errors.push({ message: 'Could not identify date column in CSV' });
@@ -376,51 +457,9 @@ function parseGenericCSV(lines: string[], result: BankFileParseResult): void {
     return;
   }
 
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-
-    const fields = parseCSVLine(lines[i], separator);
-    try {
-      const date = parseDate(fields[colIdx.date] || '');
-      if (!date) {
-        result.errors.push({ line: i + 1, message: `Invalid date: ${fields[colIdx.date]}` });
-        continue;
-      }
-
-      let amount: number;
-      if (colIdx.amount !== -1) {
-        amount = parseAmount(fields[colIdx.amount] || '0');
-      } else {
-        const credit = colIdx.credit !== -1 ? parseAmount(fields[colIdx.credit] || '0') : 0;
-        const debit = colIdx.debit !== -1 ? parseAmount(fields[colIdx.debit] || '0') : 0;
-        amount = credit - debit;
-      }
-
-      const valueDate = colIdx.valueDate !== -1 ? parseDate(fields[colIdx.valueDate] || '') || undefined : undefined;
-      const description = colIdx.description !== -1 ? fields[colIdx.description] || '' : '';
-      const counterpartyName = colIdx.counterName !== -1 ? fields[colIdx.counterName] || undefined : undefined;
-      const counterpartyIban = colIdx.counterIban !== -1 ? fields[colIdx.counterIban]?.replace(/\s/g, '') || undefined : undefined;
-      const reference = colIdx.reference !== -1 ? fields[colIdx.reference] || undefined : undefined;
-      const runningBalance = colIdx.balance !== -1 && fields[colIdx.balance] ? parseAmount(fields[colIdx.balance]) : undefined;
-
-      result.transactions.push({
-        date,
-        valueDate,
-        description,
-        amount,
-        runningBalance,
-        counterpartyName: counterpartyName || undefined,
-        counterpartyIban: counterpartyIban || undefined,
-        reference: reference || undefined,
-        rawData: { format: 'generic', line: i + 1 },
-      });
-    } catch (err) {
-      result.errors.push({
-        line: i + 1,
-        message: `Error parsing row: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
+  parseDataRows(lines, 1, result, (line, lineNo) =>
+    parseGenericRow(parseCSVLine(line, separator), lineNo, colIdx, result),
+  );
 }
 
 // --- Utility functions ---
@@ -447,33 +486,26 @@ function parseCSVLine(line: string, separator: string): string[] {
   while (i < line.length) {
     const char = line[i];
 
-    if (inQuotes) {
-      if (char === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          // Escaped quote
-          current += '"';
-          i += 2;
-        } else {
-          // End of quoted field
-          inQuotes = false;
-          i++;
-        }
+    if (inQuotes && char === '"') {
+      if (line[i + 1] === '"') {
+        // Escaped quote
+        current += '"';
+        i += 2;
       } else {
-        current += char;
+        // End of quoted field
+        inQuotes = false;
         i++;
       }
+    } else if (!inQuotes && char === '"') {
+      inQuotes = true;
+      i++;
+    } else if (!inQuotes && line.substring(i, i + separator.length) === separator) {
+      fields.push(current);
+      current = '';
+      i += separator.length;
     } else {
-      if (char === '"') {
-        inQuotes = true;
-        i++;
-      } else if (line.substring(i, i + separator.length) === separator) {
-        fields.push(current);
-        current = '';
-        i += separator.length;
-      } else {
-        current += char;
-        i++;
-      }
+      current += char;
+      i++;
     }
   }
 

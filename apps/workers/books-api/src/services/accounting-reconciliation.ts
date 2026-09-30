@@ -146,6 +146,43 @@ export async function autoReconcileBatch(
 // Matching helpers
 // ============================================================================
 
+/** Score how closely an open balance matches the transaction amount; null when it does not match. */
+function scoreAmountMatch(
+  balanceDue: number,
+  absAmount: number,
+): { confidence: number; reason: string } | null {
+  if (Math.abs(balanceDue - absAmount) < 0.01) {
+    return { confidence: 0.4, reason: 'exact amount match' };
+  }
+  if (Math.abs(balanceDue - absAmount) / absAmount < 0.02) {
+    return { confidence: 0.2, reason: 'close amount match' };
+  }
+  return null;
+}
+
+/** True when the contact's stored IBAN equals the counterparty IBAN of the transaction. */
+async function contactIbanMatches(
+  db: Database,
+  parties: any,
+  contactId: string,
+  counterpartyIban: string,
+): Promise<boolean> {
+  const [contact] = await db
+    .select({ iban: parties.iban })
+    .from(parties)
+    .where(eq(parties.id, contactId))
+    .limit(1);
+  return Boolean(contact?.iban) && contact.iban === counterpartyIban;
+}
+
+/** Case-insensitive containment check in either direction; false when either name is missing. */
+function namesOverlap(counterpartyName: string | null, contactName: string | null): boolean {
+  if (!counterpartyName || !contactName) return false;
+  const txnName = counterpartyName.toLowerCase();
+  const contact = contactName.toLowerCase();
+  return txnName.includes(contact) || contact.includes(txnName);
+}
+
 async function matchInvoices(
   db: Database,
   schema: any,
@@ -178,20 +215,13 @@ async function matchInvoices(
     .limit(100);
 
   for (const inv of openInvoices) {
-    let confidence = 0;
-    const reasons: string[] = [];
     const balanceDue = parseFloat(inv.balanceDue || '0');
 
     // Amount match
-    if (Math.abs(balanceDue - absAmount) < 0.01) {
-      confidence += 0.4;
-      reasons.push('exact amount match');
-    } else if (Math.abs(balanceDue - absAmount) / absAmount < 0.02) {
-      confidence += 0.2;
-      reasons.push('close amount match');
-    } else {
-      continue; // Skip if amount doesn't match at all
-    }
+    const amountScore = scoreAmountMatch(balanceDue, absAmount);
+    if (!amountScore) continue; // Skip if amount doesn't match at all
+    let confidence = amountScore.confidence;
+    const reasons: string[] = [amountScore.reason];
 
     // Reference / betalingskenmerk match
     const ref = transaction.reference || transaction.description || '';
@@ -205,16 +235,13 @@ async function matchInvoices(
     }
 
     // Counterparty IBAN match
-    if (transaction.counterpartyIban && inv.contactId) {
-      const [contact] = await db
-        .select({ iban: parties.iban })
-        .from(parties)
-        .where(eq(parties.id, inv.contactId))
-        .limit(1);
-      if (contact?.iban && contact.iban === transaction.counterpartyIban) {
-        confidence += 0.3;
-        reasons.push('counterparty IBAN matches contact');
-      }
+    if (
+      transaction.counterpartyIban &&
+      inv.contactId &&
+      (await contactIbanMatches(db, parties, inv.contactId, transaction.counterpartyIban))
+    ) {
+      confidence += 0.3;
+      reasons.push('counterparty IBAN matches contact');
     }
 
     if (confidence > 0) {
@@ -265,20 +292,13 @@ async function matchBills(
     .limit(100);
 
   for (const bill of openBills) {
-    let confidence = 0;
-    const reasons: string[] = [];
     const balanceDue = parseFloat(bill.balanceDue || '0');
 
     // Amount match
-    if (Math.abs(balanceDue - absAmount) < 0.01) {
-      confidence += 0.4;
-      reasons.push('exact amount match');
-    } else if (Math.abs(balanceDue - absAmount) / absAmount < 0.02) {
-      confidence += 0.2;
-      reasons.push('close amount match');
-    } else {
-      continue;
-    }
+    const amountScore = scoreAmountMatch(balanceDue, absAmount);
+    if (!amountScore) continue;
+    let confidence = amountScore.confidence;
+    const reasons: string[] = [amountScore.reason];
 
     // Reference match
     const ref = transaction.reference || transaction.description || '';
@@ -288,26 +308,19 @@ async function matchBills(
     }
 
     // Counterparty IBAN match
-    if (transaction.counterpartyIban && bill.contactId) {
-      const [contact] = await db
-        .select({ iban: parties.iban })
-        .from(parties)
-        .where(eq(parties.id, bill.contactId))
-        .limit(1);
-      if (contact?.iban && contact.iban === transaction.counterpartyIban) {
-        confidence += 0.3;
-        reasons.push('counterparty IBAN matches vendor');
-      }
+    if (
+      transaction.counterpartyIban &&
+      bill.contactId &&
+      (await contactIbanMatches(db, parties, bill.contactId, transaction.counterpartyIban))
+    ) {
+      confidence += 0.3;
+      reasons.push('counterparty IBAN matches vendor');
     }
 
     // Counterparty name match
-    if (transaction.counterpartyName && bill.contactName) {
-      const txnName = (transaction.counterpartyName || '').toLowerCase();
-      const billContact = (bill.contactName || '').toLowerCase();
-      if (txnName.includes(billContact) || billContact.includes(txnName)) {
-        confidence += 0.15;
-        reasons.push('counterparty name matches vendor');
-      }
+    if (namesOverlap(transaction.counterpartyName, bill.contactName)) {
+      confidence += 0.15;
+      reasons.push('counterparty name matches vendor');
     }
 
     if (confidence > 0) {
