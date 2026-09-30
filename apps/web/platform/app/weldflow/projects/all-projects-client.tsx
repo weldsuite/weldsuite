@@ -508,7 +508,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -546,7 +546,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Owner */}
-        <div className="w-[130px] min-w-0" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[130px] min-w-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             className="group/owner flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
@@ -580,7 +580,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -622,7 +622,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

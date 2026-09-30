@@ -687,27 +687,27 @@ const getDefaultValueForFieldType = (type: FieldType) => {
     case "checkbox": return false;
     case "text":
     case "email":
-    case "phone": return "";
+    case "phone":
+    case "formula": return "";
     case "number":
-    case "currency": return 0;
+    case "currency":
+    case "rollup": return 0;
     case "date":
     case "due-date":
     case "completed-on":
     case "last-modified-on":
     case "created-on": return new Date().toISOString().split('T')[0];
-    case "single-select": return null;
-    case "multi-select":
-    case "tags":
-    case "categories": return [];
+    case "single-select":
     case "people":
     case "assignee":
     case "created-by": return null;
+    case "multi-select":
+    case "tags":
+    case "categories":
     case "collaborators": return [];
     case "timer":
     case "time-tracking": return "00:00:00";
-    case "formula": return "";
     case "id": return `ID-${Date.now()}`;
-    case "rollup": return 0;
     case "projects": return "No project";
     default: return "";
   }

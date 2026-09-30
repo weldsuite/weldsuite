@@ -156,7 +156,7 @@ export default function WhiteboardPage() {
           <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
         </div>
 
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
