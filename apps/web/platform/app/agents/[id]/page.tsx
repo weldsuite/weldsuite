@@ -229,7 +229,7 @@ export default function AgentDetailPage() {
         systemPrompt,
         permissions,
       });
-      const data = (saved as { data?: typeof agent })?.data;
+      const data = (saved as { data?: NonNullable<typeof agent> })?.data;
       if (data) {
         lastSynced.current = toSyncedForm(data);
         setName(data.name);

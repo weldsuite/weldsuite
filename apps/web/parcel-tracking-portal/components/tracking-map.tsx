@@ -27,7 +27,7 @@ export default function TrackingMap({ selectedShipment }: Readonly<TrackingMapPr
     document.head.appendChild(link);
     
     return () => {
-      document.head.removeChild(link);
+      link.remove();
     };
   }, []);
 
