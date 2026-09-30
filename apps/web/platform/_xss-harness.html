@@ -11,10 +11,10 @@
 window.__xss = {}; // any payload that executes will set a flag here
 
 const payloads = {
-  scriptTag: '<script>window.parent.__xss.scriptTag=1<\/script>',
+  scriptTag: '<script>window.parent.__xss.scriptTag=1</' + 'script>',
   imgOnerror: '<img src="x" onerror="window.parent.__xss.imgOnerror=1">',
   svgOnload: '<svg onload="window.parent.__xss.svgOnload=1"></svg>',
-  bodyOnload: '<div>hi</div><script>0<\/script><body onload="window.parent.__xss.bodyOnload=1">',
+  bodyOnload: '<div>hi</div><script>0</' + 'script><body onload="window.parent.__xss.bodyOnload=1">',
   iframeJs: '<iframe src="javascript:window.parent.__xss.iframeJs=1"></iframe>',
   inputAutofocus: '<form><input autofocus onfocus="window.parent.__xss.inputAutofocus=1"></form>',
   detailsToggle: '<details ontoggle="window.parent.__xss.detailsToggle=1" open></details>',

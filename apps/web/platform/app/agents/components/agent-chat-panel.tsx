@@ -255,12 +255,15 @@ export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Agent
   }, [conversations, activeId]);
 
   const awaitingReply = Boolean(awaitingReplyAfterId);
+  let messagesRefetchInterval: number | false = false;
+  if (awaitingReply) messagesRefetchInterval = 1500;
+  else if (decideApproval.isPending) messagesRefetchInterval = 1000;
   const { data: messages = [], isLoading: loadingMessages } = useWeldAgentConversationMessages(
     activeId,
     100,
     // Poll while a reply is being generated, or while an approved action's
     // outcome may still be landing in the thread.
-    { refetchInterval: awaitingReply ? 1500 : decideApproval.isPending ? 1000 : false },
+    { refetchInterval: messagesRefetchInterval },
   );
 
   // Clear local pending state once the cloud reply lands in the thread.
