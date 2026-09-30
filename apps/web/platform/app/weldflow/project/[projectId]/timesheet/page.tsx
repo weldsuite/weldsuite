@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useId, useRef } from 'react';
 import { useParams } from '@/lib/router';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
@@ -192,6 +192,22 @@ function filterTasksByQuery(tasks: ProjectTask[], query: string): ProjectTask[] 
   return tasks.filter((task) => task.title.toLowerCase().includes(query.toLowerCase()));
 }
 
+/** Ref callback that focuses an element as it mounts (stable identity, runs once per mount). */
+function focusOnMount(el: HTMLElement | null) {
+  el?.focus();
+}
+
+/** onKeyDown handler that runs `action` on Enter / Space, for role="button" containers. */
+function activateOnKey(action: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      action();
+    }
+  };
+}
+
 function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
   return (
     <Popover>
@@ -258,6 +274,7 @@ function DurationPopover({
 }>) {
   const tt = getTranslations('projects').projectTimesheets;
   const derivedFromRange = minutesFromRange(startTime, endTime) !== null;
+  const idPrefix = useId();
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -276,8 +293,9 @@ function DurationPopover({
       <PopoverContent className="w-auto p-3" align="start">
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Hours</label>
+            <label htmlFor={`${idPrefix}-hours`} className="text-xs font-medium text-muted-foreground">Hours</label>
             <Input
+              id={`${idPrefix}-hours`}
               type="number"
               min="0"
               step="1"
@@ -286,12 +304,13 @@ function DurationPopover({
               onChange={(e) => onHoursChange(e.target.value)}
               className="w-20 h-8 text-sm"
               disabled={derivedFromRange}
-              autoFocus
+              ref={focusOnMount}
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Minutes</label>
+            <label htmlFor={`${idPrefix}-minutes`} className="text-xs font-medium text-muted-foreground">Minutes</label>
             <Input
+              id={`${idPrefix}-minutes`}
               type="number"
               min="0"
               max="59"
@@ -327,6 +346,7 @@ function TimeRangePopover({
 }>) {
   const tt = getTranslations('projects').projectTimesheets;
   const hasBoth = !!startTime && !!endTime;
+  const idPrefix = useId();
   const label = hasBoth ? `${startTime} – ${endTime}` : startTime || endTime || tt.startEndRange;
   return (
     <Popover>
@@ -346,8 +366,9 @@ function TimeRangePopover({
       <PopoverContent className="w-auto p-3" align="start">
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{tt.startTimeLabel}</label>
+            <label htmlFor={`${idPrefix}-start`} className="text-xs font-medium text-muted-foreground">{tt.startTimeLabel}</label>
             <Input
+              id={`${idPrefix}-start`}
               type="time"
               value={startTime}
               onChange={(e) => onStartTimeChange(e.target.value)}
@@ -355,8 +376,9 @@ function TimeRangePopover({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{tt.endTimeLabel}</label>
+            <label htmlFor={`${idPrefix}-end`} className="text-xs font-medium text-muted-foreground">{tt.endTimeLabel}</label>
             <Input
+              id={`${idPrefix}-end`}
               type="time"
               value={endTime}
               onChange={(e) => onEndTimeChange(e.target.value)}
@@ -441,19 +463,23 @@ function TimesheetSearchBox({
 
 function DeleteEntryDescription({ entry }: Readonly<{ entry: TimeEntry }>) {
   const st = useTranslations();
+  let deleteTargetLabel: React.ReactNode = null;
+  if (entry.task?.title) {
+    deleteTargetLabel = (
+      <>
+        {' '}{st('sweep.weldflow.timesheetPage.onConnector')} <span className="font-medium">{entry.task.title}</span>
+      </>
+    );
+  } else if (entry.description) {
+    deleteTargetLabel = <> — <span className="font-medium">{entry.description}</span></>;
+  }
   return (
     <>
       {st('sweep.weldflow.timesheetPage.deleteTimeEntryWillRemove')}{' '}
       <span className="font-medium">
         {(entry.duration / 60).toFixed(2)}h
       </span>
-      {entry.task?.title ? (
-        <>
-          {' '}{st('sweep.weldflow.timesheetPage.onConnector')} <span className="font-medium">{entry.task.title}</span>
-        </>
-      ) : entry.description ? (
-        <> — <span className="font-medium">{entry.description}</span></>
-      ) : null}
+      {deleteTargetLabel}
       {' '}({format(entry.date, 'EEE, MMM d')}). {st('sweep.weldflow.timesheetPage.actionCannotBeUndone')}
     </>
   );
@@ -471,6 +497,13 @@ function renderCellContent(hours: number, isHovered: boolean) {
     return <Plus className="h-4 w-4 text-[#bbb] dark:text-[#555]" />;
   }
   return null;
+}
+
+function monthDayNumberClass(isToday: boolean, isCurrentMonth: boolean): string {
+  if (isToday) {
+    return "text-white bg-blue-600 dark:bg-blue-500 w-6 h-6 rounded-full flex items-center justify-center";
+  }
+  return isCurrentMonth ? "text-[#111] dark:text-[#eee]" : "text-[#bbb] dark:text-[#555]";
 }
 
 type OpenAddDialogForCell = (taskId: string, taskName: string, date: Date) => void;
@@ -604,13 +637,14 @@ function TimesheetWeekView({
               return (
                 <Popover key={day.date.getTime()}>
                   <PopoverTrigger asChild>
-                    <div
+                    <button
+                      type="button"
                       className={cellClass}
                       onMouseEnter={() => setHoveredCell({ task: task.id, day: dayIndex })}
                       onMouseLeave={() => setHoveredCell(null)}
                     >
                       {cellContent}
-                    </div>
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent align="center" className="w-80 p-0">
                     <div className="px-3 py-2 border-b border-border flex items-center justify-between">
@@ -760,7 +794,7 @@ function TimesheetMonthView({
       <div className="hidden md:flex flex-1 flex-col bg-white dark:bg-[#111]">
         {monthWeeks.map((week, weekIndex) => (
           <div
-            key={week[0]?.date.getTime() ?? weekIndex}
+            key={week[0].date.getTime()}
             className={cn(
               "grid grid-cols-7 flex-1",
               weekIndex > 0 && "border-t border-[#e5e5e5] dark:border-[#222]"
@@ -788,18 +822,14 @@ function TimesheetMonthView({
                     day.isWeekend && isCurrentMonth && !day.isToday && "bg-[#fcfcfc] dark:bg-[#0d0d0d]",
                     "hover:bg-[#f5f5f5] dark:hover:bg-[#1a1a1a]"
                   )}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openAddDialogForDate(day.date)}
+                  onKeyDown={activateOnKey(() => openAddDialogForDate(day.date))}
                 >
                   {/* Day Number */}
                   <div className="flex items-center justify-between mb-2">
-                    <span className={cn(
-                      "text-[13px] font-medium",
-                      day.isToday
-                        ? "text-white bg-blue-600 dark:bg-blue-500 w-6 h-6 rounded-full flex items-center justify-center"
-                        : isCurrentMonth
-                          ? "text-[#111] dark:text-[#eee]"
-                          : "text-[#bbb] dark:text-[#555]"
-                    )}>
+                    <span className={cn("text-[13px] font-medium", monthDayNumberClass(day.isToday, isCurrentMonth))}>
                       {day.dayNumber}
                     </span>
                     {totalHours > 0 && (
@@ -871,7 +901,10 @@ function TimesheetMonthView({
                 day.isWeekend && !day.isToday && "bg-[#fafafa] dark:bg-[#0a0a0a]",
                 "active:bg-[#f0f0f0] dark:active:bg-[#1a1a1a]"
               )}
+              role="button"
+              tabIndex={0}
               onClick={() => openAddDialogForDate(day.date)}
+              onKeyDown={activateOnKey(() => openAddDialogForDate(day.date))}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1158,7 +1191,7 @@ function AddEntryDialog({
             placeholder={st('sweep.weldflow.timesheetPage.addDescriptionPlaceholder')}
             className="w-full pl-0 pr-4 py-0 m-0 text-sm font-medium border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] min-h-[20px] leading-5 align-top block break-words [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
             rows={1}
-            autoFocus
+            ref={focusOnMount}
           />
         </div>
 
@@ -1203,7 +1236,8 @@ function AddEntryDialog({
                   <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
                 ) : (
                   filteredTasks.map((task) => (
-                    <div
+                    <button
+                      type="button"
                       key={task.id}
                       onClick={() => {
                         setNewEntryTaskId(task.id);
@@ -1212,7 +1246,7 @@ function AddEntryDialog({
                         setTaskSearchQuery('');
                       }}
                       className={cn(
-                        'relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground',
+                        'relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent',
                         newEntryTaskId === task.id && 'bg-accent text-accent-foreground',
                       )}
                     >
@@ -1220,7 +1254,7 @@ function AddEntryDialog({
                       {newEntryTaskId === task.id && (
                         <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                       )}
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -1436,7 +1470,7 @@ function StartTimerDialog({
             placeholder={st('sweep.weldflow.timesheetPage.addDescriptionPlaceholder')}
             className="w-full text-sm text-gray-600 dark:text-muted-foreground border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
             rows={2}
-            autoFocus
+            ref={focusOnMount}
           />
         </div>
 
@@ -1478,7 +1512,8 @@ function StartTimerDialog({
                     <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
                   ) : (
                     filteredTimerTasks.map((task) => (
-                      <div
+                      <button
+                        type="button"
                         key={task.id}
                         onClick={() => {
                           setTimerTaskId(task.id);
@@ -1487,7 +1522,7 @@ function StartTimerDialog({
                           setTimerTaskSearchQuery('');
                         }}
                         className={cn(
-                          "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                          "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent",
                           timerTaskId === task.id && "bg-accent text-accent-foreground"
                         )}
                       >
@@ -1495,7 +1530,7 @@ function StartTimerDialog({
                         {timerTaskId === task.id && (
                           <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                         )}
-                      </div>
+                      </button>
                     ))
                   )}
                 </div>
