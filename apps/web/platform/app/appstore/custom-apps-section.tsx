@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -25,8 +25,9 @@ function CustomAppIcon({ icon, className = 'h-5 w-5' }: Readonly<{ icon?: string
   if (icon && (/^https?:\/\//i.test(icon) || icon.startsWith('/') || icon.startsWith('data:image/'))) {
     return <img src={icon} alt="" className={cn(className, 'object-contain')} />;
   }
-  if (!icon) return <Puzzle className={className} />;
-  return <LucideDynamicIcon name={icon} className={className} fallback={() => <Puzzle className={className} />} />;
+  const fallbackIcon = <Puzzle className={className} />;
+  if (!icon) return fallbackIcon;
+  return <LucideDynamicIcon name={icon} className={className} fallback={() => fallbackIcon} />;
 }
 
 function isInstalled(app: StoreUserApp): boolean {
@@ -325,48 +326,55 @@ function UserAppStoreGrid({
     }
   };
 
+  let gridBody: ReactNode = null;
+  if (isLoading) {
+    gridBody = (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[0, 1].map((i) => (
+          <div key={i} className="bg-card border border-border rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="w-10 h-10 rounded-[0.625rem] shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-2/3" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (apps.length > 0) {
+    gridBody = (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {apps.map((app) => (
+          <UserAppCard
+            key={app.code}
+            app={app}
+            isBusy={loadingCode === app.code}
+            canManage={canManageWeldApps}
+            onInstall={setInstallTarget}
+            onApproveUpdate={setUpdateTarget}
+            onUninstall={setUninstallTarget}
+          />
+        ))}
+      </div>
+    );
+  } else if (emptyTitle) {
+    gridBody = (
+      <div className="bg-card border border-dashed border-border rounded-xl p-6 text-center">
+        <p className="text-sm font-medium text-foreground mb-1">{emptyTitle}</p>
+        {emptyDescription ? <p className="text-xs text-muted-foreground">{emptyDescription}</p> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="scroll-mt-6">
       <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
         {heading}
       </h2>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[0, 1].map((i) => (
-            <div key={i} className="bg-card border border-border rounded-xl p-4">
-              <div className="flex items-start gap-3">
-                <Skeleton className="w-10 h-10 rounded-[0.625rem] shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-1/3" />
-                  <Skeleton className="h-3 w-2/3" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : apps.length === 0 ? (
-        emptyTitle ? (
-          <div className="bg-card border border-dashed border-border rounded-xl p-6 text-center">
-            <p className="text-sm font-medium text-foreground mb-1">{emptyTitle}</p>
-            {emptyDescription ? <p className="text-xs text-muted-foreground">{emptyDescription}</p> : null}
-          </div>
-        ) : null
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {apps.map((app) => (
-            <UserAppCard
-              key={app.code}
-              app={app}
-              isBusy={loadingCode === app.code}
-              canManage={canManageWeldApps}
-              onInstall={setInstallTarget}
-              onApproveUpdate={setUpdateTarget}
-              onUninstall={setUninstallTarget}
-            />
-          ))}
-        </div>
-      )}
+      {gridBody}
 
       {installTarget && (
         <UserAppConsentDialog

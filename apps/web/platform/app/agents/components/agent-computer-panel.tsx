@@ -23,6 +23,9 @@ export function AgentComputerPanel({ agentId }: Readonly<AgentComputerPanelProps
   const [message, setMessage] = useState<string | null>(null);
 
   const enabled = Boolean(status && 'enabled' in status && status.enabled);
+  let statusLabel = t.statusOff;
+  if (isLoading) statusLabel = t.statusLoading;
+  else if (enabled) statusLabel = t.statusReady;
 
   return (
     <div className="space-y-4 rounded-xl border border-border/60 bg-muted/20 p-4">
@@ -37,7 +40,7 @@ export function AgentComputerPanel({ agentId }: Readonly<AgentComputerPanelProps
           </div>
         </div>
         <Badge variant={enabled ? 'default' : 'secondary'}>
-          {isLoading ? t.statusLoading : enabled ? t.statusReady : t.statusOff}
+          {statusLabel}
         </Badge>
       </div>
 
