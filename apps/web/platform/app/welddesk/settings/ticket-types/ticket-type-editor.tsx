@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type KeyboardEvent } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -126,6 +126,40 @@ interface TicketTypeEditorProps {
   onOpenChange: (open: boolean) => void;
   editingType: TicketTypeConfig | null;
   onSave: (type: TicketTypeConfig) => void;
+}
+
+/**
+ * Keyboard handler for non-native interactive containers: activates on
+ * Enter/Space, but only when the container itself has focus (not a nested control).
+ */
+function activateOnKey(handler: () => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  };
+}
+
+// Options and conditions have no persisted id, so give each row object a stable
+// render key that survives immutable updates (see carryRowKey).
+const rowKeys = new WeakMap<object, string>();
+let rowKeySeq = 0;
+
+function getRowKey(row: object): string {
+  let key = rowKeys.get(row);
+  if (!key) {
+    rowKeySeq += 1;
+    key = `row-${rowKeySeq}`;
+    rowKeys.set(row, key);
+  }
+  return key;
+}
+
+function carryRowKey<T extends object>(previous: object | undefined, next: T): T {
+  if (previous) rowKeys.set(next, getRowKey(previous));
+  return next;
 }
 
 function generateFieldKey(label: string): string {
@@ -265,10 +299,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
     setFields(fields.map((f, i) => {
       if (i !== fieldIndex) return f;
       const options = [...(f.options || [])];
-      options[optionIndex] = {
+      options[optionIndex] = carryRowKey(options[optionIndex], {
         label,
         value: label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
-      };
+      });
       return { ...f, options };
     }));
   };
@@ -293,7 +327,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
     setFields(fields.map((f, i) => {
       if (i !== fieldIndex) return f;
       const conditions = [...(f.conditions || [])];
-      conditions[condIndex] = { ...conditions[condIndex], ...updates };
+      conditions[condIndex] = carryRowKey(conditions[condIndex], { ...conditions[condIndex], ...updates });
       return { ...f, conditions };
     }));
   };
@@ -354,6 +388,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
 
   const totalStates = states.reduce((sum, g) => sum + g.states.length, 0);
   const totalAttributes = fields.length;
+
+  let categoryHint = tte.categoryCustomer;
+  if (category === 'back-office') categoryHint = tte.categoryBack;
+  else if (category === 'tracker') categoryHint = tte.categoryTracker;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -426,11 +464,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                 {/* Ticket sharing */}
                 <div className="rounded-lg bg-muted/50 p-3">
                   <p className="text-sm text-muted-foreground">
-                    {category === 'back-office'
-                      ? tte.categoryBack
-                      : category === 'tracker'
-                        ? tte.categoryTracker
-                        : tte.categoryCustomer}
+                    {categoryHint}
                   </p>
                 </div>
 
@@ -481,7 +515,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                                 ? 'border-primary bg-primary/5'
                                 : 'hover:border-foreground/30'
                             )}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => setEditingState({ groupIndex, stateIndex })}
+                            onKeyDown={activateOnKey(() => setEditingState({ groupIndex, stateIndex }))}
                           >
                             <span className="text-xs font-medium">{state.label || tte.untitledState}</span>
                             <span className="text-muted-foreground text-xs">&bull;</span>
@@ -636,7 +673,11 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                       {/* Collapsed summary row */}
                       <div
                         className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
                         onClick={() => setExpandedFieldIndex(isExpanded ? null : index)}
+                        onKeyDown={activateOnKey(() => setExpandedFieldIndex(isExpanded ? null : index))}
                       >
                         <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab shrink-0" />
                         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -727,7 +768,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                               <Label className="text-xs">{tte.options}</Label>
                               <div className="space-y-1.5">
                                 {(field.options || []).map((option, optIndex) => (
-                                  <div key={optIndex} className="flex items-center gap-2">
+                                  <div key={getRowKey(option)} className="flex items-center gap-2">
                                     <div className="w-5 text-center">
                                       <span className="text-[10px] text-muted-foreground">{optIndex + 1}</span>
                                     </div>
@@ -792,7 +833,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                             ) : (
                               <div className="space-y-1.5">
                                 {(field.conditions || []).map((condition, condIndex) => (
-                                  <div key={condIndex} className="flex items-center gap-2">
+                                  <div key={getRowKey(condition)} className="flex items-center gap-2">
                                     {condIndex > 0 && (
                                       <span className="text-[10px] font-medium text-muted-foreground uppercase w-6 text-center shrink-0">{st('sweep.welddesk.ticketTypeEditor.conditionAnd')}</span>
                                     )}

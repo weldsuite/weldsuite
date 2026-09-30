@@ -131,6 +131,9 @@ export function SavedReplyEditor({ open, onOpenChange, editingItem }: Readonly<S
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
+  const pendingLabel = isEditing ? sre.updating : sre.creating;
+  const idleLabel = isEditing ? sre.update : sre.create;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -219,10 +222,10 @@ export function SavedReplyEditor({ open, onOpenChange, editingItem }: Readonly<S
               {isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                  {isEditing ? sre.updating : sre.creating}
+                  {pendingLabel}
                 </>
               ) : (
-                isEditing ? sre.update : sre.create
+                idleLabel
               )}
             </Button>
           </DialogFooter>
