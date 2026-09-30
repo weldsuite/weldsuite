@@ -149,9 +149,9 @@ function htmlToContent(html: string): string {
 
   // Replace entity-mention badges with `<@type:id|Label>` tokens FIRST so
   // they are not picked up by the user-mention selector below.
-  div.querySelectorAll('.entity-mention-badge').forEach((badge) => {
-    const entity = badge.getAttribute('data-entity'); // "type:id"
-    const label = badge.getAttribute('data-label') || badge.textContent || '';
+  div.querySelectorAll<HTMLElement>('.entity-mention-badge').forEach((badge) => {
+    const entity = badge.dataset.entity; // "type:id"
+    const label = badge.dataset.label || badge.textContent || '';
     if (entity) {
       const colonIdx = entity.indexOf(':');
       if (colonIdx > 0) {
@@ -166,8 +166,8 @@ function htmlToContent(html: string): string {
   });
 
   // Replace user-mention badges with `<@userId>` tokens
-  div.querySelectorAll('.mention-badge').forEach((badge) => {
-    const userId = badge.getAttribute('data-userid');
+  div.querySelectorAll<HTMLElement>('.mention-badge').forEach((badge) => {
+    const userId = badge.dataset.userid;
     if (userId) badge.replaceWith(`<@${userId}>`);
   });
 
