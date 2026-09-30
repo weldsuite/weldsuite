@@ -24,7 +24,8 @@ function SuppliersPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldstash/suppliers${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldstash/suppliers${query}`);
     },
     [router, searchParams],
   );
