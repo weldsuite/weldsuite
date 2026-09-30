@@ -156,6 +156,15 @@ export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }
     });
   };
 
+  let addButtonIcon;
+  if (createEvent.isPending) {
+    addButtonIcon = <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />;
+  } else if (added) {
+    addButtonIcon = <Check className="mr-1.5 h-3.5 w-3.5" />;
+  } else {
+    addButtonIcon = <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />;
+  }
+
   return (
     <div
       className={cn(
@@ -211,13 +220,7 @@ export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }
             disabled={added || createEvent.isPending}
             className="h-8"
           >
-            {createEvent.isPending ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : added ? (
-              <Check className="mr-1.5 h-3.5 w-3.5" />
-            ) : (
-              <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />
-            )}
+            {addButtonIcon}
             {added
               ? t.mail.messageDetail.calendarInviteAddedButton
               : t.mail.messageDetail.calendarInviteAddButton}
