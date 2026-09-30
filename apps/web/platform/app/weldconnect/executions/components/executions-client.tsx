@@ -43,6 +43,12 @@ interface Execution {
   completedAt: Date | null;
 }
 
+const progressBarColorByStatus: Record<string, string> = {
+  failed: 'bg-red-500',
+  completed: 'bg-green-500',
+  running: 'bg-blue-500',
+};
+
 interface ExecutionsClientProps {
   initialExecutions: Execution[];
 }
@@ -261,7 +267,14 @@ export function ExecutionsClient({ initialExecutions }: Readonly<ExecutionsClien
     return (
       <div
         key={execution.id}
+        role="link"
+        tabIndex={0}
         onClick={() => router.push(`/weldconnect/executions/${execution.id}`)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target === e.currentTarget) {
+            router.push(`/weldconnect/executions/${execution.id}`);
+          }
+        }}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Workflow */}
@@ -295,13 +308,7 @@ export function ExecutionsClient({ initialExecutions }: Readonly<ExecutionsClien
             <div
               className={cn(
                 'h-full transition-all',
-                execution.status === 'failed'
-                  ? 'bg-red-500'
-                  : execution.status === 'completed'
-                    ? 'bg-green-500'
-                    : execution.status === 'running'
-                      ? 'bg-blue-500'
-                      : 'bg-gray-400'
+                progressBarColorByStatus[execution.status] ?? 'bg-gray-400'
               )}
               style={{ width: `${progress}%` }}
             />
@@ -319,7 +326,7 @@ export function ExecutionsClient({ initialExecutions }: Readonly<ExecutionsClien
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

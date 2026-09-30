@@ -179,7 +179,7 @@ function IntegrationCard({
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <CardTitle className="text-base leading-snug">{def.label}</CardTitle>
-              {isConnected ? (
+              {isConnected && (
                 hasError ? (
                   <Badge
                     variant="outline"
@@ -197,7 +197,7 @@ function IntegrationCard({
                     {ti.connected}
                   </Badge>
                 )
-              ) : null}
+              )}
             </div>
             <Badge
               variant="outline"
