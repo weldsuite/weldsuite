@@ -473,11 +473,14 @@ async function sweepTenant(
 
   // Parity: every migratable pair must end up stored (already there or inserted).
   const stored = counts.alreadyPresent + counts.inserted;
-  const parity = options.execute
-    ? stored === counts.migratable
-      ? 'PARITY OK'
-      : `PARITY MISMATCH (${counts.migratable - stored} unstored)`
-    : `${counts.migratable - counts.alreadyPresent} to insert`;
+  let parity: string;
+  if (!options.execute) {
+    parity = `${counts.migratable - counts.alreadyPresent} to insert`;
+  } else if (stored === counts.migratable) {
+    parity = 'PARITY OK';
+  } else {
+    parity = `PARITY MISMATCH (${counts.migratable - stored} unstored)`;
+  }
 
   console.log(
     `  ${label}: rows=${counts.rows} values=${counts.blobValues} migratable=${counts.migratable} ` +
@@ -598,7 +601,9 @@ async function main() {
   process.exit(clean ? 0 : 1);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Backfill failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

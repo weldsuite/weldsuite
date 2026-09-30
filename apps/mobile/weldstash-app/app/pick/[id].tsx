@@ -27,6 +27,16 @@ import { hideAppSplash } from '@/utils/splash';
 
 const TERMINAL = new Set(['picked', 'partial', 'short', 'skipped']);
 
+function getScanPhase(
+  hasCurrent: boolean,
+  needsLocation: boolean,
+  hasScannedLocation: boolean,
+): 'location' | 'product' | 'done' {
+  if (!hasCurrent) return 'done';
+  if (needsLocation && !hasScannedLocation) return 'location';
+  return 'product';
+}
+
 interface SendcloudSender {
   id: number;
   name: string;
@@ -221,8 +231,7 @@ export default function PickDetailScreen() {
     [items],
   );
   const needsLocation = Boolean(current?.locationId);
-  const scanPhase: 'location' | 'product' | 'done' =
-    !current ? 'done' : needsLocation && !scannedLocation ? 'location' : 'product';
+  const scanPhase = getScanPhase(Boolean(current), needsLocation, Boolean(scannedLocation));
 
   useEffect(() => {
     if (!current) return;
