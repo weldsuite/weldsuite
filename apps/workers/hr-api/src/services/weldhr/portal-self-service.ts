@@ -245,6 +245,13 @@ export async function employeePerformance(db: Database, employeeId: string) {
 // Client support requests → WeldDesk ticket
 // ---------------------------------------------------------------------------
 
+/** `length` random base36 characters from the Web Crypto RNG. */
+function randomBase36(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 /**
  * A client's message from the portal becomes a WeldDesk ticket linked to the
  * CRM person, so the account team answers it where they already work.
@@ -254,7 +261,7 @@ export async function createClientRequest(
   input: { personId: string | null; companyName: string | null; email: string; displayName: string | null; subject: string; message: string },
 ) {
   const id = generateId('tkt');
-  const ticketNumber = `TKT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const ticketNumber = `TKT-${Date.now().toString(36).toUpperCase()}-${randomBase36(4).toUpperCase()}`;
   const now = new Date();
   const customerName = input.displayName?.trim() || input.email.split('@')[0] || 'Client';
   const description = input.companyName ? `${input.message}\n\n— Sent from the client portal (${input.companyName})` : input.message;

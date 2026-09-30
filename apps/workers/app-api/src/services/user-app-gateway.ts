@@ -257,7 +257,15 @@ export async function forwardToExternalApi(
 ): Promise<Response> {
   const headers = new Headers(params.headers);
   headers.set('Authorization', `Bearer ${params.token}`);
-  const request = new Request(`${externalApiBase(env)}${params.pathAndQuery}`, {
+  const base = new URL(externalApiBase(env));
+  const basePath = base.pathname.replace(/\/+$/, '');
+  const target = new URL(`${base.origin}${basePath}${params.pathAndQuery}`);
+  // Defence in depth: the gateway route already normalises the path, but never
+  // let a forwarded request leave the external-api origin or its /v1/ surface.
+  if (target.origin !== base.origin || !target.pathname.startsWith(`${basePath}/v1/`)) {
+    throw new Error('Gateway target escapes the external API');
+  }
+  const request = new Request(target.toString(), {
     method: params.method,
     headers,
     body: params.body,

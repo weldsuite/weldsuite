@@ -69,8 +69,15 @@ function shouldResetMonthly(lastReset: Date): boolean {
     || now.getUTCMonth() > lastReset.getUTCMonth();
 }
 
+/** `length` random base36 characters from the Web Crypto RNG. */
+function randomBase36(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function generateUsageId(): string {
-  return `wsu_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+  return `wsu_${Date.now().toString(36)}_${randomBase36(7)}`;
 }
 
 async function resolveInternalWorkspaceId(env: ExecuteSequenceEnv, clerkOrgId: string): Promise<string> {
