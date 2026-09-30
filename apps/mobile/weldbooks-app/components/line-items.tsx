@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import { randomUUID } from 'expo-crypto';
 import { View, Text, StyleSheet } from 'react-native';
 import { Plus, Trash2 } from 'lucide-react-native';
 
@@ -30,7 +31,7 @@ export interface LineItemDraft {
 
 export function createEmptyLineItem(): LineItemDraft {
   return {
-    key: `li_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    key: `li_${randomUUID()}`,
     description: '',
     quantity: '1',
     unitPrice: '',

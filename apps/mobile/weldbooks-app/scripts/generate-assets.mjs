@@ -8,9 +8,21 @@
 import sharp from 'sharp';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT = process.argv[2];
-if (!OUT) throw new Error('usage: node gen-weldbooks-assets.mjs <outDir>');
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+// The output directory comes from the command line (and so, potentially, from an
+// automated caller): resolve it and refuse anything outside this app's folder so
+// a stray `../..` can never make the script write elsewhere on disk.
+const APP_ROOT = path.resolve(here, '..');
+const outArg = process.argv[2];
+if (!outArg) throw new Error('usage: node generate-assets.mjs <outDir>');
+const OUT = path.resolve(process.cwd(), outArg);
+const outRelative = path.relative(APP_ROOT, OUT);
+if (outRelative.startsWith('..') || path.isAbsolute(outRelative)) {
+  throw new Error(`Output directory must be inside ${APP_ROOT}, got ${OUT}`);
+}
 
 const EMERALD = '#10B981';
 const VB_W = 520;

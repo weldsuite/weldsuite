@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { Archive, ArrowUp, AtSign, AudioLines, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Paperclip, Pencil, Phone, PhoneMissed, Plus, Reply, X } from 'lucide-react-native';
 import { VideoCameraIcon } from '@/components/icons/VideoCameraIcon';
 import * as Haptics from 'expo-haptics';
+import { getRandomBytes, randomUUID } from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { BlurView } from 'expo-blur';
@@ -202,6 +203,11 @@ function isCompactMessage(item: Message, prev: Message | undefined): boolean {
   );
 }
 
+/** Uniform random number in [0, 1) from the platform CSPRNG. */
+function randomUnit(): number {
+  return getRandomBytes(1)[0] / 256;
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -262,7 +268,7 @@ function Waveform({ active, color, level }: Readonly<{ active: boolean; color: s
         const norm = Math.max(0, Math.min(1, (db + 60) / 60));
         // Add a touch of jitter so the newest bar still feels alive, but only
         // proportional to the current level (so silence stays flat).
-        const jitter = (Math.random() - 0.5) * 0.15 * norm;
+        const jitter = (randomUnit() - 0.5) * 0.15 * norm;
         const next = Math.max(0, Math.min(1, norm + jitter));
         return [...prev.slice(1), next];
       });
@@ -1855,7 +1861,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     clearDraft();
     onSend();
 
-    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempId = `pending-${randomUUID()}`;
     const ownLast = messages.find((m) => m.authorId === userId && !m.pending);
     const optimistic: Message = {
       id: tempId,
