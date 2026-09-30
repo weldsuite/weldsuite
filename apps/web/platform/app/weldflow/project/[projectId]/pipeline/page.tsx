@@ -1209,8 +1209,8 @@ const PipelinePage = () => {
                   )}
                   {activeDeal.tags && activeDeal.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {activeDeal.tags.slice(0, 3).map((tag, index) => (
-                        <Badge key={index} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
+                      {activeDeal.tags.slice(0, 3).map((tag) => (
+                        <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
                           {tag.name}
                         </Badge>
                       ))}
