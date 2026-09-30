@@ -33,14 +33,10 @@ async function forward(req: NextRequest, slug: string, path: string) {
   return new NextResponse(body, { status: res.status, headers: outHeaders });
 }
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+async function handler(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params;
   const slug = req.nextUrl.searchParams.get('slug') || '';
   return forward(req, slug, `/${path.join('/')}`);
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
-  const { path } = await ctx.params;
-  const slug = req.nextUrl.searchParams.get('slug') || '';
-  return forward(req, slug, `/${path.join('/')}`);
-}
+export { handler as GET, handler as POST };

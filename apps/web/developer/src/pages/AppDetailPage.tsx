@@ -265,6 +265,32 @@ function MetadataSection({ app, setMessage, setError }: Readonly<MetadataSection
   );
 }
 
+function ListingLinks({ app }: Readonly<{ app: UserApp }>) {
+  return (
+    <ul className="space-y-1 text-sm text-muted-foreground">
+      {app.websiteUrl ? (
+        <li>
+          Website:{' '}
+          <a className="text-primary hover:underline" href={app.websiteUrl} target="_blank" rel="noreferrer">
+            {app.websiteUrl}
+          </a>
+        </li>
+      ) : null}
+      {app.privacyUrl ? (
+        <li>
+          Privacy:{' '}
+          <a className="text-primary hover:underline" href={app.privacyUrl} target="_blank" rel="noreferrer">
+            {app.privacyUrl}
+          </a>
+        </li>
+      ) : null}
+      {app.screenshots?.length ? (
+        <li>Screenshots: {app.screenshots.length}</li>
+      ) : null}
+    </ul>
+  );
+}
+
 function ListingSection({ app }: Readonly<{ app: UserApp }>) {
   const { t } = useDeveloperI18n();
   const hasListing = !!app.websiteUrl || !!app.privacyUrl || !!app.screenshots?.length;
@@ -273,29 +299,7 @@ function ListingSection({ app }: Readonly<{ app: UserApp }>) {
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         {t.detail.listingTitle}
       </h2>
-      {hasListing ? (
-        <ul className="space-y-1 text-sm text-muted-foreground">
-          {app.websiteUrl ? (
-            <li>
-              Website:{' '}
-              <a className="text-primary hover:underline" href={app.websiteUrl} target="_blank" rel="noreferrer">
-                {app.websiteUrl}
-              </a>
-            </li>
-          ) : null}
-          {app.privacyUrl ? (
-            <li>
-              Privacy:{' '}
-              <a className="text-primary hover:underline" href={app.privacyUrl} target="_blank" rel="noreferrer">
-                {app.privacyUrl}
-              </a>
-            </li>
-          ) : null}
-          {app.screenshots?.length ? (
-            <li>Screenshots: {app.screenshots.length}</li>
-          ) : null}
-        </ul>
-      ) : (
+      {hasListing ? <ListingLinks app={app} /> : (
         <p className="text-sm text-muted-foreground">{t.detail.listingEmpty}</p>
       )}
     </section>
