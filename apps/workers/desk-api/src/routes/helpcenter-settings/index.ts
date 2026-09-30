@@ -6,7 +6,7 @@
  * Permissions: settings:read | settings:create | settings:update | settings:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, isNull } from 'drizzle-orm';
@@ -285,10 +285,136 @@ app.get('/host-domains', requirePermission('settings:read'), async (c) => {
 //   Manual:            { domain }                    → pending until DNS verifies
 // ============================================================================
 
+type HelpcenterCtx = Context<{ Bindings: Env; Variables: Variables }>;
+type Guarded<T> = ({ fail?: undefined } & T) | { fail: Response };
+
+/** Load the WeldHost domain + its Cloudflare zone, or an error response when it cannot be used. */
+async function resolveHostZone(
+  c: HelpcenterCtx,
+  hostDomainId: string,
+): Promise<Guarded<{ host: { id: string; fullDomain: string }; zoneId: string }>> {
+  const db = c.get('tenantDb');
+  const { hostDomains, hostDnsZones } = schema;
+  const [host] = await db
+    .select({
+      id: hostDomains.id,
+      fullDomain: hostDomains.fullDomain,
+      status: hostDomains.status,
+      zoneId: hostDnsZones.externalZoneId,
+      zoneProvider: hostDnsZones.provider,
+    })
+    .from(hostDomains)
+    .leftJoin(hostDnsZones, eq(hostDnsZones.domainId, hostDomains.id))
+    .where(and(eq(hostDomains.id, hostDomainId), isNull(hostDomains.deletedAt)))
+    .limit(1);
+  if (!host) return { fail: error.notFound(c, 'WeldHost domain', hostDomainId) };
+  if (host.status !== 'active') return { fail: c.json({ error: { code: 'BAD_REQUEST', message: 'Domain is not active yet' } }, 400) };
+  if (host.zoneProvider !== 'cloudflare' || !host.zoneId) {
+    return { fail: c.json({ error: { code: 'BAD_REQUEST', message: 'This domain has no Cloudflare DNS zone WeldSuite can manage' } }, 400) };
+  }
+  return { host, zoneId: host.zoneId };
+}
+
+/** Register the hostname on Vercel (routing + TLS), then create the CNAME in the WeldHost zone. */
+async function provisionHostname(
+  c: HelpcenterCtx,
+  apiToken: string,
+  zoneId: string,
+  domain: string,
+): Promise<Guarded<{ provisioned: boolean; cfRecordId: string | null }>> {
+  try {
+    await addHelpcenterDomain(c.env, domain);
+  } catch (vErr) {
+    const msg = vErr instanceof VercelError ? vErr.message : 'Failed to register domain with the help center host';
+    console.error('[app-api/helpcenter-settings] Vercel add-domain failed:', vErr);
+    return { fail: c.json({ error: { code: 'HOST_PROVISION_FAILED', message: msg } }, 502) };
+  }
+
+  try {
+    const result = await createDnsRecordInZone(apiToken, zoneId, {
+      type: 'CNAME',
+      name: domain,
+      content: HELPCENTER_CNAME_TARGET,
+      comment: 'WeldDesk help center',
+    });
+    return { provisioned: result.created || result.duplicate, cfRecordId: result.record?.id ?? null };
+  } catch (cfErr) {
+    // Roll back the Vercel registration so a retry starts clean.
+    await removeHelpcenterDomain(c.env, domain).catch(() => {});
+    const msg = cfErr instanceof CloudflareZoneError ? cfErr.message : 'Failed to create DNS record';
+    console.error('[app-api/helpcenter-settings] CNAME provisioning failed:', cfErr);
+    return { fail: c.json({ error: { code: 'DNS_PROVISION_FAILED', message: msg } }, 502) };
+  }
+}
+
+interface CustomDomainInput {
+  workspaceId: string;
+  settingsId: string;
+  domain: string;
+  subdomainLabel: string;
+  rootDomain: string;
+  zoneId: string;
+  provisioned: boolean;
+  cfRecordId: string | null;
+}
+
+/** Persist the tenant + master domain rows for a freshly provisioned domain; returns the tenant row id. */
+async function persistCustomDomain(
+  c: HelpcenterCtx,
+  masterDb: ReturnType<typeof getMasterDb>,
+  input: CustomDomainInput,
+): Promise<string> {
+  const db = c.get('tenantDb');
+  const { helpcenterDomains, helpcenterSettings } = schema;
+  const { domain, provisioned, settingsId, zoneId } = input;
+  const verificationToken = `welddesk-verify-${generateId('')}`;
+  const domainId = generateId('hcd');
+  const now = new Date();
+
+  await db.insert(helpcenterDomains).values({
+    id: domainId,
+    helpcenterSettingsId: settingsId,
+    domain,
+    subdomain: input.subdomainLabel,
+    rootDomain: input.rootDomain,
+    domainType: 'custom',
+    isPrimary: 0,
+    // When we created the record ourselves it's immediately wired up; manual
+    // domains stay unverified until the customer points DNS at us.
+    isVerified: provisioned ? 1 : 0,
+    isActive: provisioned ? 1 : 0,
+    verificationMethod: 'dns_cname',
+    verificationToken,
+    verifiedAt: provisioned ? now : null,
+    dnsConfig: [
+      { type: 'CNAME', name: domain, value: HELPCENTER_CNAME_TARGET, zoneId, recordId: input.cfRecordId ?? undefined },
+    ],
+    dnsStatus: provisioned ? 'active' : 'pending',
+    sslStatus: provisioned ? 'provisioning' : 'pending',
+  } as unknown as typeof helpcenterDomains.$inferInsert);
+
+  await masterDb.insert(masterSchema.helpcenterDomainRegistry).values({
+    id: generateId('hcreg'),
+    domain,
+    domainType: 'custom',
+    workspaceId: input.workspaceId,
+    isVerified: provisioned ? 1 : 0,
+    isActive: provisioned ? 1 : 0,
+    verificationToken,
+    verifiedAt: provisioned ? now : null,
+  } as unknown as typeof masterSchema.helpcenterDomainRegistry.$inferInsert);
+
+  if (provisioned) {
+    await db.update(helpcenterSettings).set({ customDomain: domain, updatedAt: now }).where(eq(helpcenterSettings.id, settingsId));
+    publishEntityEvent({ c, entityType: 'helpcenter_settings', entityId: settingsId, action: 'updated', data: { id: settingsId, customDomain: domain } });
+  }
+  return domainId;
+}
+
 app.post('/domains', requirePermission('settings:create'), zValidator('json', addDomainSchema), async (c) => {
   const db = c.get('tenantDb');
   const orgId = c.get('orgId');
-  const { helpcenterDomains, helpcenterSettings, hostDomains, hostDnsZones } = schema;
+  const { helpcenterDomains, helpcenterSettings } = schema;
   const input = c.req.valid('json');
   try {
     const masterDb = getMasterDb(c.env);
@@ -303,27 +429,12 @@ app.post('/domains', requirePermission('settings:create'), zValidator('json', ad
     if (!settings) return c.json({ error: { code: 'BAD_REQUEST', message: 'Help center must be enabled first' } }, 400);
 
     // ── Resolve the WeldHost domain + the Cloudflare zone to write the CNAME into ──
-    const [host] = await db
-      .select({
-        id: hostDomains.id,
-        fullDomain: hostDomains.fullDomain,
-        status: hostDomains.status,
-        zoneId: hostDnsZones.externalZoneId,
-        zoneProvider: hostDnsZones.provider,
-      })
-      .from(hostDomains)
-      .leftJoin(hostDnsZones, eq(hostDnsZones.domainId, hostDomains.id))
-      .where(and(eq(hostDomains.id, input.hostDomainId), isNull(hostDomains.deletedAt)))
-      .limit(1);
-    if (!host) return error.notFound(c, 'WeldHost domain', input.hostDomainId);
-    if (host.status !== 'active') return c.json({ error: { code: 'BAD_REQUEST', message: 'Domain is not active yet' } }, 400);
-    if (host.zoneProvider !== 'cloudflare' || !host.zoneId) {
-      return c.json({ error: { code: 'BAD_REQUEST', message: 'This domain has no Cloudflare DNS zone WeldSuite can manage' } }, 400);
-    }
+    const hostLookup = await resolveHostZone(c, input.hostDomainId);
+    if (hostLookup.fail) return hostLookup.fail;
+    const { host, zoneId } = hostLookup;
     const subdomainLabel = (input.subdomain ?? 'help').toLowerCase();
     const rootDomain = host.fullDomain;
     const domain = `${subdomainLabel}.${host.fullDomain}`;
-    const zoneId = host.zoneId;
 
     const [existingMaster] = await masterDb
       .select({ id: masterSchema.helpcenterDomainRegistry.id })
@@ -336,76 +447,21 @@ app.post('/domains', requirePermission('settings:create'), zValidator('json', ad
     if (!apiToken) return error.internal(c, 'Cloudflare is not configured');
     if (!isVercelConfigured(c.env)) return error.internal(c, 'Help center hosting (Vercel) is not configured');
 
-    // ── 1. Register the hostname on the Vercel project (so it routes + gets TLS) ──
-    try {
-      await addHelpcenterDomain(c.env, domain);
-    } catch (vErr) {
-      const msg = vErr instanceof VercelError ? vErr.message : 'Failed to register domain with the help center host';
-      console.error('[app-api/helpcenter-settings] Vercel add-domain failed:', vErr);
-      return c.json({ error: { code: 'HOST_PROVISION_FAILED', message: msg } }, 502);
-    }
+    // ── 1 + 2. Register the hostname on Vercel, then create the CNAME in the zone ──
+    const provision = await provisionHostname(c, apiToken, zoneId, domain);
+    if (provision.fail) return provision.fail;
+    const { provisioned, cfRecordId } = provision;
 
-    // ── 2. Create the CNAME in the WeldHost Cloudflare zone → Vercel edge ──
-    let provisioned = false;
-    let cfRecordId: string | null = null;
-    try {
-      const result = await createDnsRecordInZone(apiToken, zoneId, {
-        type: 'CNAME',
-        name: domain,
-        content: HELPCENTER_CNAME_TARGET,
-        comment: 'WeldDesk help center',
-      });
-      provisioned = result.created || result.duplicate;
-      cfRecordId = result.record?.id ?? null;
-    } catch (cfErr) {
-      // Roll back the Vercel registration so a retry starts clean.
-      await removeHelpcenterDomain(c.env, domain).catch(() => {});
-      const msg = cfErr instanceof CloudflareZoneError ? cfErr.message : 'Failed to create DNS record';
-      console.error('[app-api/helpcenter-settings] CNAME provisioning failed:', cfErr);
-      return c.json({ error: { code: 'DNS_PROVISION_FAILED', message: msg } }, 502);
-    }
-
-    const verificationToken = `welddesk-verify-${generateId('')}`;
-    const domainId = generateId('hcd');
-    const now = new Date();
-
-    await db.insert(helpcenterDomains).values({
-      id: domainId,
-      helpcenterSettingsId: settings.id,
-      domain,
-      subdomain: subdomainLabel,
-      rootDomain,
-      domainType: 'custom',
-      isPrimary: 0,
-      // When we created the record ourselves it's immediately wired up; manual
-      // domains stay unverified until the customer points DNS at us.
-      isVerified: provisioned ? 1 : 0,
-      isActive: provisioned ? 1 : 0,
-      verificationMethod: 'dns_cname',
-      verificationToken,
-      verifiedAt: provisioned ? now : null,
-      dnsConfig: [
-        { type: 'CNAME', name: domain, value: HELPCENTER_CNAME_TARGET, zoneId: zoneId ?? undefined, recordId: cfRecordId ?? undefined },
-      ],
-      dnsStatus: provisioned ? 'active' : 'pending',
-      sslStatus: provisioned ? 'provisioning' : 'pending',
-    } as unknown as typeof helpcenterDomains.$inferInsert);
-
-    await masterDb.insert(masterSchema.helpcenterDomainRegistry).values({
-      id: generateId('hcreg'),
-      domain,
-      domainType: 'custom',
+    const domainId = await persistCustomDomain(c, masterDb, {
       workspaceId: workspace.id,
-      isVerified: provisioned ? 1 : 0,
-      isActive: provisioned ? 1 : 0,
-      verificationToken,
-      verifiedAt: provisioned ? now : null,
-    } as unknown as typeof masterSchema.helpcenterDomainRegistry.$inferInsert);
-
-    if (provisioned) {
-      await db.update(helpcenterSettings).set({ customDomain: domain, updatedAt: now }).where(eq(helpcenterSettings.id, settings.id));
-      publishEntityEvent({ c, entityType: 'helpcenter_settings', entityId: settings.id, action: 'updated', data: { id: settings.id, customDomain: domain } });
-    }
+      settingsId: settings.id,
+      domain,
+      subdomainLabel,
+      rootDomain,
+      zoneId,
+      provisioned,
+      cfRecordId,
+    });
 
     const [created] = await db.select().from(helpcenterDomains).where(eq(helpcenterDomains.id, domainId)).limit(1);
     return success(c, created, 201);
