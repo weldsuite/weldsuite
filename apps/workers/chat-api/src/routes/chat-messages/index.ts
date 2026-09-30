@@ -19,8 +19,10 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -31,6 +33,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { addReaction, removeReaction } from '../../services/chat/reactions';
 import { pinMessage, unpinMessage, listPinnedMessages } from '../../services/chat/pins';
 import { uploadChatFile } from '../../services/chat/upload';
@@ -93,6 +96,27 @@ async function looksLikeDangerousBytes(file: File): Promise<boolean> {
   return false;
 }
 
+type ChatContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** Filters shared by the list query and its total count (everything but the cursor). */
+function listFilterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt), eq(t.channelId, q.channelId)];
+  if (q.authorId) conditions.push(eq(t.authorId, q.authorId));
+  // Thread support: when `parentId` is provided return only the replies to
+  // that message; otherwise return top-level messages (parentId IS NULL).
+  conditions.push(q.parentId ? eq(t.parentId, q.parentId) : isNull(t.parentId));
+  return conditions;
+}
+
+/** Keyset condition selecting messages older than the cursor message, if it exists. */
+async function cursorCondition(db: Database, cursorId: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -103,36 +127,17 @@ app.get('/', requirePermission('channels:read'), async (c) => {
   // the caller may actually see (public, or one they're a member of). A
   // channelId is required so we never fan a query across every channel, and a
   // non-member of a private channel gets a 403 rather than its message bodies.
-  if (q.channelId === undefined || q.channelId === '') {
+  if (!q.channelId) {
     return error.badRequest(c, 'channelId query parameter is required');
   }
   if (!(await canAccessChannel(db, q.channelId, userId))) {
     return error.forbidden(c, 'You do not have access to this channel');
   }
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  conditions.push(eq(t.channelId, q.channelId));
-  if (q.authorId !== undefined && q.authorId !== '') conditions.push(eq(t.authorId, q.authorId));
-  // Thread support: when `parentId` is provided return only the replies to
-  // that message; otherwise return top-level messages (parentId IS NULL).
-  if (q.parentId !== undefined && q.parentId !== '') {
-    conditions.push(eq(t.parentId, q.parentId));
-  } else {
-    conditions.push(isNull(t.parentId));
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = listFilterConditions(q);
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCond);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -192,6 +197,44 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
   }
 });
 
+/** Wraps `waitUntil` so a missing execution context degrades to fire-and-forget. */
+function safeWaitUntil(c: ChatContext): (p: Promise<unknown>) => void {
+  return (p) => {
+    try {
+      c.executionCtx.waitUntil(p);
+    } catch {
+      void p.catch(() => undefined);
+    }
+  };
+}
+
+/**
+ * Maps a create-message body to the shared send pipeline's input. `body`
+ * (mobile) and `content` (platform/tests) are both accepted for the text.
+ */
+function messageInputFromBody(data: Record<string, unknown>) {
+  const content =
+    typeof data.body === 'string' ? data.body : typeof data.content === 'string' ? data.content : '';
+  return {
+    content,
+    htmlContent: typeof data.htmlContent === 'string' ? data.htmlContent : undefined,
+    parentId: typeof data.parentId === 'string' ? data.parentId : null,
+    attachments: Array.isArray(data.attachments)
+      ? (data.attachments as Array<Record<string, unknown>>)
+      : undefined,
+    mentions: Array.isArray(data.mentions) ? (data.mentions as string[]) : undefined,
+    metadata: data.metadata as Record<string, unknown> | undefined,
+    replyToId: typeof data.replyToId === 'string' ? data.replyToId : null,
+    replyMention: typeof data.replyMention === 'boolean' ? data.replyMention : undefined,
+  };
+}
+
+/** Maps a send-pipeline feature error to its HTTP response. */
+function chatFeatureErrorResponse(c: ChatContext, err: ChatFeatureError, channelId: string) {
+  if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+  return error.badRequest(c, err.message);
+}
+
 app.post('/', requirePermission('channels:create'), zValidator('json', createChatMessageSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -218,9 +261,6 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     // (NOT NULL), parses @mentions, bumps thread/unread counts, broadcasts over
     // the ChatRoom DO, and fires mention / thread-reply / DM notifications. The
     // author is always the authenticated caller (no body-supplied authorId).
-    // `body` (mobile) and `content` (platform/tests) are both accepted.
-    const content =
-      typeof data.body === 'string' ? data.body : typeof data.content === 'string' ? data.content : '';
     const message = await postChatMessage(
       {
         db,
@@ -228,26 +268,9 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
         orgId,
         channelId,
         authorUserId: userId,
-        waitUntil: (p) => {
-          try {
-            c.executionCtx.waitUntil(p);
-          } catch {
-            void p.catch(() => undefined);
-          }
-        },
+        waitUntil: safeWaitUntil(c),
       },
-      {
-        content,
-        htmlContent: typeof data.htmlContent === 'string' ? data.htmlContent : undefined,
-        parentId: typeof data.parentId === 'string' ? data.parentId : null,
-        attachments: Array.isArray(data.attachments)
-          ? (data.attachments as Array<Record<string, unknown>>)
-          : undefined,
-        mentions: Array.isArray(data.mentions) ? (data.mentions as string[]) : undefined,
-        metadata: data.metadata as Record<string, unknown> | undefined,
-        replyToId: typeof data.replyToId === 'string' ? data.replyToId : null,
-        replyMention: typeof data.replyMention === 'boolean' ? data.replyMention : undefined,
-      },
+      messageInputFromBody(data),
     );
     publishEntityEvent({
       c,
@@ -258,10 +281,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     });
     return success(c, { id: message.id }, 201);
   } catch (err) {
-    if (err instanceof ChatFeatureError) {
-      if (err.status === 404) return error.notFound(c, 'Channel', channelId);
-      return error.badRequest(c, err.message);
-    }
+    if (err instanceof ChatFeatureError) return chatFeatureErrorResponse(c, err, channelId);
     console.error('[app-api/chat-messages] create failed:', err);
     return error.internal(c, 'Failed to create chat message');
   }
@@ -549,6 +569,47 @@ app.delete('/:id/pin', requirePermission('messages:update'), async (c) => {
 // File upload — multipart/form-data → R2 STORAGE bucket.
 // ============================================================================
 
+/** Checks an upload's size, storage config and (active-content) type; yields the public URL or a rejection. */
+async function validateUpload(
+  c: ChatContext,
+  file: File,
+): Promise<{ r2PublicUrl: string } | { rejection: Response }> {
+  // Size cap — reject oversized uploads before buffering them into memory.
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return { rejection: error.badRequest(c, `File exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB limit`) };
+  }
+
+  const r2PublicUrl = c.env.R2_PUBLIC_URL;
+  if (!r2PublicUrl) {
+    return { rejection: error.internal(c, 'File storage is not configured for this environment') };
+  }
+
+  // Block active-content types: files are served from a public R2 URL, so an
+  // HTML/SVG/XML/JS attachment would be a stored-XSS vector on the storage
+  // domain. Everything else (images, audio, video, pdf, docs) is allowed.
+  if (isDangerousUploadType(file.type) || (await looksLikeDangerousBytes(file))) {
+    return { rejection: error.badRequest(c, 'This file type is not allowed') };
+  }
+  return { r2PublicUrl };
+}
+
+/** Rejection when the caller may not attach files to the channel, else null. */
+async function attachmentChannelRejection(
+  c: ChatContext,
+  channelId: string,
+  userId: string,
+): Promise<Response | null> {
+  // Membership boundary: only post attachments to a channel you can access.
+  if (!(await canAccessChannel(c.get('tenantDb'), channelId, userId))) {
+    return error.forbidden(c, 'You do not have access to this channel');
+  }
+  const flags = await getChannelFeatureFlags(c.get('tenantDb'), channelId);
+  if (flags && !flags.attachmentsEnabled) {
+    return error.badRequest(c, 'Attachments are disabled in this channel');
+  }
+  return null;
+}
+
 /**
  * POST /upload — multipart upload of a chat attachment. Fields: `file`
  * (required), `channelId` (optional, used for the storage key namespace).
@@ -570,39 +631,18 @@ app.post('/upload', requirePermission('messages:create'), async (c) => {
       return error.badRequest(c, 'No file provided');
     }
 
-    // Size cap — reject oversized uploads before buffering them into memory.
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return error.badRequest(c, `File exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB limit`);
-    }
+    const validated = await validateUpload(c, file);
+    if ('rejection' in validated) return validated.rejection;
 
-    if (!c.env.R2_PUBLIC_URL) {
-      return error.internal(c, 'File storage is not configured for this environment');
-    }
-
-    // Block active-content types: files are served from a public R2 URL, so an
-    // HTML/SVG/XML/JS attachment would be a stored-XSS vector on the storage
-    // domain. Everything else (images, audio, video, pdf, docs) is allowed.
-    if (isDangerousUploadType(file.type) || (await looksLikeDangerousBytes(file))) {
-      return error.badRequest(c, 'This file type is not allowed');
-    }
-
-    // Membership boundary: only post attachments to a channel you can access.
-    if (channelId && !(await canAccessChannel(c.get('tenantDb'), channelId, userId))) {
-      return error.forbidden(c, 'You do not have access to this channel');
-    }
-    if (channelId) {
-      const flags = await getChannelFeatureFlags(c.get('tenantDb'), channelId);
-      if (flags && !flags.attachmentsEnabled) {
-        return error.badRequest(c, 'Attachments are disabled in this channel');
-      }
-    }
+    const channelRejection = channelId ? await attachmentChannelRejection(c, channelId, userId) : null;
+    if (channelRejection) return channelRejection;
 
     const rl = await consumeChatRateLimit(c.env, `upload:${workspaceId}:${userId}`, 30);
     if (!rl.ok) return error.badRequest(c, 'Too many uploads — slow down and try again');
 
     const result = await uploadChatFile({
       storage: c.env.STORAGE,
-      r2PublicUrl: c.env.R2_PUBLIC_URL,
+      r2PublicUrl: validated.r2PublicUrl,
       workspaceId,
       channelId,
       file,

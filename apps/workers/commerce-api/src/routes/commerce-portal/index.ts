@@ -15,7 +15,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { error, list, success, cursorPagination } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
+import { getMasterDb, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   commercePortalOrigin,
   consumeRateLimit,
@@ -61,6 +61,53 @@ function settingsPayload(
   };
 }
 
+type PortalSettingsRow = typeof schema.commercePortalSettings.$inferSelect;
+type PortalSettingsBody = ReturnType<typeof updateCommercePortalSettingsSchema.parse>;
+
+/** Text columns a settings PATCH may overwrite (undefined = leave untouched). */
+const PATCHABLE_TEXT_FIELDS = ['displayName', 'logo', 'primaryColor', 'accentColor'] as const;
+
+async function findPortalSettingsById(db: Database, id: string): Promise<PortalSettingsRow | undefined> {
+  const table = schema.commercePortalSettings;
+  const [row] = await db.select().from(table).where(eq(table.id, id)).limit(1);
+  return row;
+}
+
+function portalSettingsPatch(body: PortalSettingsBody, now: Date): Record<string, unknown> {
+  const patch: Record<string, unknown> = { updatedAt: now };
+  if (body.isEnabled !== undefined) patch.isEnabled = body.isEnabled ? 1 : 0;
+  for (const field of PATCHABLE_TEXT_FIELDS) {
+    if (body[field] !== undefined) patch[field] = body[field];
+  }
+  return patch;
+}
+
+/** Creates the workspace's portal settings row, or patches the existing one. */
+async function upsertPortalSettings(
+  db: Database,
+  existing: PortalSettingsRow | null,
+  body: PortalSettingsBody,
+  now: Date,
+): Promise<PortalSettingsRow | undefined> {
+  const table = schema.commercePortalSettings;
+  if (existing) {
+    await db.update(table).set(portalSettingsPatch(body, now)).where(eq(table.id, existing.id));
+    return findPortalSettingsById(db, existing.id);
+  }
+  const id = generateId('cps');
+  await db.insert(table).values({
+    id,
+    createdAt: now,
+    updatedAt: now,
+    isEnabled: body.isEnabled ? 1 : 0,
+    displayName: body.displayName ?? undefined,
+    logo: body.logo ?? undefined,
+    primaryColor: body.primaryColor ?? undefined,
+    accentColor: body.accentColor ?? undefined,
+  });
+  return findPortalSettingsById(db, id);
+}
+
 app.get('/settings', requirePermission('companies:read'), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId');
@@ -81,30 +128,7 @@ app.patch('/settings', requirePermission('companies:update'), zValidator('json',
   const body = c.req.valid('json');
   const now = new Date();
   try {
-    let row = await loadPortalSettings(db);
-    if (!row) {
-      const id = generateId('cps');
-      await db.insert(schema.commercePortalSettings).values({
-        id,
-        createdAt: now,
-        updatedAt: now,
-        isEnabled: body.isEnabled === undefined ? 0 : body.isEnabled ? 1 : 0,
-        displayName: body.displayName ?? undefined,
-        logo: body.logo ?? undefined,
-        primaryColor: body.primaryColor ?? undefined,
-        accentColor: body.accentColor ?? undefined,
-      });
-      [row] = await db.select().from(schema.commercePortalSettings).where(eq(schema.commercePortalSettings.id, id)).limit(1);
-    } else {
-      const patch: Record<string, unknown> = { updatedAt: now };
-      if (body.isEnabled !== undefined) patch.isEnabled = body.isEnabled ? 1 : 0;
-      if (body.displayName !== undefined) patch.displayName = body.displayName;
-      if (body.logo !== undefined) patch.logo = body.logo;
-      if (body.primaryColor !== undefined) patch.primaryColor = body.primaryColor;
-      if (body.accentColor !== undefined) patch.accentColor = body.accentColor;
-      await db.update(schema.commercePortalSettings).set(patch).where(eq(schema.commercePortalSettings.id, row.id));
-      [row] = await db.select().from(schema.commercePortalSettings).where(eq(schema.commercePortalSettings.id, row.id)).limit(1);
-    }
+    const row = await upsertPortalSettings(db, await loadPortalSettings(db), body, now);
     const slug = workspaceId ? await workspaceSlug(c.env, workspaceId) : null;
     const portalUrl = slug ? `${commercePortalOrigin(c.env)}/${encodeURIComponent(slug)}` : null;
     return success(c, settingsPayload(row ?? null, { portalUrl, workspaceSlug: slug }));

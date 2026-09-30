@@ -12,6 +12,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createFiscalPeriodSchema, updateFiscalPeriodSchema } from '@weldsuite/core-api-client/schemas/fiscal-periods';
@@ -19,35 +20,39 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.fiscalPeriods;
+
+/** Filters shared by the list query and its total count (everything but the cursor). */
+function listFilterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.entityId) conditions.push(eq(t.entityId, q.entityId));
+  if (q.status) conditions.push(eq(t.status, q.status));
+  if (q.search) conditions.push(like(t.name, `%${q.search}%`));
+  return conditions;
+}
+
+/** Keyset condition selecting periods older than the cursor row, if it exists. */
+async function cursorCondition(db: Database, cursorId: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
 
 app.get('/', requirePermission('reports:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.entityId !== undefined && q.entityId !== '') conditions.push(eq(t.entityId, q.entityId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = listFilterConditions(q);
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCond);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([

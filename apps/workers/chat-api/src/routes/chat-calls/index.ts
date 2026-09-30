@@ -25,6 +25,7 @@ import { sendMissedCallNotification, sendIncomingCallNotification } from '@welds
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { Env, Variables } from '../../types';
 import { schema } from '@weldsuite/worker-kit/db';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error } from '@weldsuite/worker-kit/response';
 import {
@@ -54,6 +55,182 @@ const startCallSchema = z.object({
   channelId: z.string().min(1),
   callType: z.enum(['voice', 'video']).default('voice'),
 });
+
+type CallType = z.infer<typeof startCallSchema>['callType'];
+type ChatCallRow = typeof schema.chatCalls.$inferSelect;
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Message for a call type the channel has switched off, or null when allowed. */
+function disabledCallMessage(
+  callType: CallType,
+  channel: { voiceCallsEnabled: boolean; videoCallsEnabled: boolean } | undefined,
+): string | null {
+  if (!channel) return null;
+  if (callType === 'voice' && !channel.voiceCallsEnabled) return 'Voice calls are disabled in this channel';
+  if (callType === 'video' && !channel.videoCallsEnabled) return 'Video calls are disabled in this channel';
+  return null;
+}
+
+/**
+ * Ends a stale call so a new one can start. Best effort: failures are swallowed.
+ * No missed-call push: the new call is about to ring the same people.
+ */
+async function endStaleCall(db: Database, env: Env, orgId: string, call: ChatCallRow): Promise<void> {
+  try {
+    await endChatCall(db, env, orgId, call.id, call, call.initiatorId, {
+      sendMissedIfUnanswered: false,
+    });
+  } catch { /* best effort */ }
+}
+
+interface IncomingCallParams {
+  db: Database;
+  env: Env;
+  orgId: string;
+  userId: string;
+  channelId: string;
+  callType: CallType;
+  callId: string;
+  initiatorName: string;
+  initiatorPicture: string | undefined;
+}
+
+/** Realtime ring plus (non-blocking) push for one DM member. */
+async function ringDmMember(p: IncomingCallParams, memberUserId: string): Promise<void> {
+  await publishChatCallIncoming(p.env, p.orgId, memberUserId, {
+    callId: p.callId,
+    channelId: p.channelId,
+    callType: p.callType,
+    callerName: p.initiatorName,
+    callerAvatar: p.initiatorPicture,
+  });
+  // Push notification (non-blocking) — never block the response.
+  try {
+    await sendIncomingCallNotification({
+      db: p.db,
+      env: p.env,
+      workspaceId: p.orgId,
+      recipientUserId: memberUserId,
+      callerUserId: p.userId,
+      callerName: p.initiatorName,
+      callerAvatar: p.initiatorPicture,
+      channelId: p.channelId,
+      callId: p.callId,
+      callType: p.callType,
+    });
+  } catch (e) {
+    console.error('[Chat:Calls] Incoming-call notification failed:', e);
+  }
+}
+
+/**
+ * Publishes the call-started events and, for DM channels (incl. group DMs),
+ * rings every other member. Never throws: realtime is best effort.
+ */
+async function publishCallStarted(
+  p: IncomingCallParams,
+  waitUntil: (promise: Promise<unknown>) => void,
+): Promise<void> {
+  try {
+    await publishChatCallStarted(p.env, p.channelId, {
+      callId: p.callId,
+      callType: p.callType,
+      initiatorId: p.userId,
+      initiatorName: p.initiatorName,
+    });
+    await broadcastChatCallToMembers(p.env, p.db, p.orgId, p.channelId, 'started', {
+      callId: p.callId,
+      callType: p.callType,
+    });
+
+    const { chatChannels, chatChannelMembers } = schema;
+    const [channel] = await p.db
+      .select({ type: chatChannels.type })
+      .from(chatChannels)
+      .where(eq(chatChannels.id, p.channelId))
+      .limit(1);
+
+    if (channel?.type !== 'dm') return;
+
+    const members = await p.db
+      .select({ userId: chatChannelMembers.userId })
+      .from(chatChannelMembers)
+      .where(eq(chatChannelMembers.channelId, p.channelId));
+
+    for (const member of members.filter((m) => m.userId !== p.userId)) {
+      await ringDmMember(p, member.userId);
+    }
+    scheduleRingTimeout(waitUntil, p.db, p.env, p.orgId, p.callId);
+  } catch (e) {
+    console.error('[Chat:Calls] Realtime publish failed:', e);
+  }
+}
+
+interface JoinExistingCallParams {
+  db: Database;
+  env: Env;
+  orgId: string;
+  userId: string;
+  channelId: string;
+  call: ChatCallRow;
+  cfAppId: string;
+  joiner: { name: string | null; picture: string | null } | undefined;
+  waitUntil: (promise: Promise<unknown>) => void;
+}
+
+/**
+ * Joins the call already live in a channel (start-and-join on an active call).
+ * The requested callType is ignored: you join the call that exists.
+ */
+async function joinExistingCall(p: JoinExistingCallParams) {
+  const { db, env, call, cfAppId, userId } = p;
+  const joinName = p.joiner?.name ?? 'Unknown';
+  const joinAvatar = p.joiner?.picture ?? undefined;
+  const rtkParticipant = await addParticipant(env, cfAppId, {
+    name: joinName,
+    customParticipantId: userId,
+    picture: joinAvatar,
+  });
+  const joinParticipant: ChatCallParticipant = {
+    userId,
+    userName: joinName,
+    userAvatar: joinAvatar,
+    joinedAt: new Date().toISOString(),
+    cfSessionId: rtkParticipant.id,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+  };
+  // Idempotent on userId; surfaces stale sessions to evict.
+  const { next: merged, staleSessionIds } = upsertParticipant(call.participants, joinParticipant);
+  p.waitUntil(
+    Promise.all([
+      db.update(schema.chatCalls).set({
+        participants: merged,
+        maxParticipants: Math.max(call.maxParticipants ?? 0, merged.filter((m) => !m.leftAt).length),
+        updatedAt: new Date(),
+      }).where(eq(schema.chatCalls.id, call.id)),
+      evictRtkSessions(env, cfAppId, staleSessionIds),
+      leaveOtherActiveCalls(db, env, p.orgId, userId, call.id),
+      publishChatCallParticipantJoined(env, p.channelId, {
+        callId: call.id,
+        userId,
+        userName: joinName,
+        userAvatar: joinAvatar,
+        cfSessionId: rtkParticipant.id,
+      }).catch(() => {}),
+    ]).catch((e) => console.error('[Chat:Calls] Background join-existing tasks failed:', e)),
+  );
+  return {
+    callId: call.id,
+    authToken: rtkParticipant.token,
+    participants: merged,
+    callType: call.callType,
+  };
+}
 
 // ============================================================================
 // Routes
@@ -102,12 +279,8 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
       .where(eq(chatChannels.id, data.channelId))
       .limit(1);
 
-    if (data.callType === 'voice' && channel && !channel.voiceCallsEnabled) {
-      return error.forbidden(c, 'Voice calls are disabled in this channel');
-    }
-    if (data.callType === 'video' && channel && !channel.videoCallsEnabled) {
-      return error.forbidden(c, 'Video calls are disabled in this channel');
-    }
+    const disabledMessage = disabledCallMessage(data.callType, channel);
+    if (disabledMessage) return error.forbidden(c, disabledMessage);
 
     // Check no active call in this channel
     const [activeCall] = await db
@@ -129,22 +302,11 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
         .where(eq(chatCalls.id, activeCall.id))
         .limit(1);
 
-      if (fullCall) {
-        const isStale = isAbandonedCall(fullCall, { isDm: channel?.type === 'dm', requesterId: userId });
-
-        if (isStale) {
-          // No missed-call push: the new call is about to ring the same people.
-          try {
-            await endChatCall(c.get('tenantDb'), c.env, orgId, fullCall.id, fullCall, fullCall.initiatorId, {
-              sendMissedIfUnanswered: false,
-            });
-          } catch { /* best effort */ }
-        } else {
-          return error.conflict(c, 'A call is already active in this channel');
-        }
-      } else {
+      // A live call blocks the new one; a stale one is ended so it can start.
+      if (!fullCall || !isAbandonedCall(fullCall, { isDm: channel?.type === 'dm', requesterId: userId })) {
         return error.conflict(c, 'A call is already active in this channel');
       }
+      await endStaleCall(db, c.env, orgId, fullCall);
     }
 
     // Get initiator info
@@ -201,65 +363,20 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
     await db.update(chatCalls).set({ startMessageId: msgId }).where(eq(chatCalls.id, callId));
 
     // Publish realtime events (non-blocking)
-    try {
-      await publishChatCallStarted(c.env, data.channelId, {
-        callId,
+    await publishCallStarted(
+      {
+        db,
+        env: c.env,
+        orgId,
+        userId,
+        channelId: data.channelId,
         callType: data.callType,
-        initiatorId: userId,
+        callId,
         initiatorName,
-      });
-      await broadcastChatCallToMembers(c.env, db, orgId, data.channelId, 'started', {
-        callId,
-        callType: data.callType,
-      });
-
-      // For DM channels (incl. group DMs), send incoming call notification to
-      // every other member.
-      const [channel] = await db
-        .select({ type: chatChannels.type })
-        .from(chatChannels)
-        .where(eq(chatChannels.id, data.channelId))
-        .limit(1);
-
-      if (channel?.type === 'dm') {
-        const members = await db
-          .select({ userId: chatChannelMembers.userId })
-          .from(chatChannelMembers)
-          .where(eq(chatChannelMembers.channelId, data.channelId));
-
-        for (const member of members) {
-          if (member.userId !== userId) {
-            await publishChatCallIncoming(c.env, orgId, member.userId, {
-              callId,
-              channelId: data.channelId,
-              callType: data.callType,
-              callerName: initiatorName,
-              callerAvatar: author?.picture ?? undefined,
-            });
-            // Push notification (non-blocking) — never block the response.
-            try {
-              await sendIncomingCallNotification({
-                db,
-                env: c.env,
-                workspaceId: orgId,
-                recipientUserId: member.userId,
-                callerUserId: userId,
-                callerName: initiatorName,
-                callerAvatar: author?.picture ?? undefined,
-                channelId: data.channelId,
-                callId,
-                callType: data.callType,
-              });
-            } catch (e) {
-              console.error('[Chat:Calls] Incoming-call notification failed:', e);
-            }
-          }
-        }
-        scheduleRingTimeout(c.executionCtx.waitUntil.bind(c.executionCtx), db, c.env, orgId, callId);
-      }
-    } catch (e) {
-      console.error('[Chat:Calls] Realtime publish failed:', e);
-    }
+        initiatorPicture: author?.picture ?? undefined,
+      },
+      c.executionCtx.waitUntil.bind(c.executionCtx),
+    );
 
     return success(c, { callId, status: 'ringing', meetingId: rtkMeeting.id }, 201);
   } catch (err) {
@@ -315,71 +432,30 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     }
 
     const channel = channelResult[0];
-    if (data.callType === 'voice' && channel && !channel.voiceCallsEnabled) {
-      return error.forbidden(c, 'Voice calls are disabled in this channel');
-    }
-    if (data.callType === 'video' && channel && !channel.videoCallsEnabled) {
-      return error.forbidden(c, 'Video calls are disabled in this channel');
-    }
+    const disabledMessage = disabledCallMessage(data.callType, channel);
+    if (disabledMessage) return error.forbidden(c, disabledMessage);
 
     const existingCall = activeCallResult[0];
     if (existingCall) {
       const isStale = isAbandonedCall(existingCall, { isDm: channel?.type === 'dm', requesterId: userId });
 
       if (isStale) {
-        // No missed-call push: the new call is about to ring the same people.
-        try {
-          await endChatCall(db, c.env, orgId, existingCall.id, existingCall, existingCall.initiatorId, {
-            sendMissedIfUnanswered: false,
-          });
-        } catch { /* best effort */ }
+        await endStaleCall(db, c.env, orgId, existingCall);
       } else if (existingCall.cfAppId) {
         // A call is already active in this channel — JOIN it instead of
-        // erroring, so the caller "just joins" the ongoing call. The
-        // requested callType is ignored: you join the call that exists.
-        const joinAuthor = authorResult[0];
-        const joinName = joinAuthor?.name ?? 'Unknown';
-        const rtkParticipant = await addParticipant(c.env, existingCall.cfAppId, {
-          name: joinName,
-          customParticipantId: userId,
-          picture: joinAuthor?.picture ?? undefined,
-        });
-        const joinParticipant: ChatCallParticipant = {
+        // erroring, so the caller "just joins" the ongoing call.
+        const joined = await joinExistingCall({
+          db,
+          env: c.env,
+          orgId,
           userId,
-          userName: joinName,
-          userAvatar: joinAuthor?.picture ?? undefined,
-          joinedAt: new Date().toISOString(),
-          cfSessionId: rtkParticipant.id,
-          hasAudio: false,
-          hasVideo: false,
-          hasScreenShare: false,
-        };
-        // Idempotent on userId; surfaces stale sessions to evict.
-        const { next: merged, staleSessionIds } = upsertParticipant(existingCall.participants, joinParticipant);
-        c.executionCtx.waitUntil(
-          Promise.all([
-            db.update(chatCalls).set({
-              participants: merged,
-              maxParticipants: Math.max(existingCall.maxParticipants ?? 0, merged.filter((p) => !p.leftAt).length),
-              updatedAt: new Date(),
-            }).where(eq(chatCalls.id, existingCall.id)),
-            evictRtkSessions(c.env, existingCall.cfAppId, staleSessionIds),
-            leaveOtherActiveCalls(db, c.env, orgId, userId, existingCall.id),
-            publishChatCallParticipantJoined(c.env, data.channelId, {
-              callId: existingCall.id,
-              userId,
-              userName: joinName,
-              userAvatar: joinAuthor?.picture ?? undefined,
-              cfSessionId: rtkParticipant.id,
-            }).catch(() => {}),
-          ]).catch((e) => console.error('[Chat:Calls] Background join-existing tasks failed:', e)),
-        );
-        return success(c, {
-          callId: existingCall.id,
-          authToken: rtkParticipant.token,
-          participants: merged,
-          callType: existingCall.callType,
-        }, 200);
+          channelId: data.channelId,
+          call: existingCall,
+          cfAppId: existingCall.cfAppId,
+          joiner: authorResult[0],
+          waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+        });
+        return success(c, joined, 200);
       } else {
         return error.conflict(c, 'A call is already active in this channel');
       }

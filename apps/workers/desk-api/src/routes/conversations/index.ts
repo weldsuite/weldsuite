@@ -19,6 +19,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { MessageBlock } from '@weldsuite/db/schema';
 import { createConversationSchema, updateConversationSchema } from '@weldsuite/core-api-client/schemas/conversations';
@@ -193,71 +194,91 @@ async function loadConversation(
 // List
 // ===========================================================================
 
+/** Equality filters taken straight from same-named query params. */
+function fieldFilters(q: Record<string, string>): Array<SQL | undefined> {
+  return [
+    q.status ? eq(t.status, q.status) : undefined,
+    q.excludeStatus ? ne(t.status, q.excludeStatus) : undefined,
+    q.priority ? eq(t.priority, q.priority) : undefined,
+    q.channel ? eq(t.channel, q.channel) : undefined,
+    q.departmentId ? eq(t.departmentId, q.departmentId) : undefined,
+    q.contactId ? eq(t.contactId, q.contactId) : undefined,
+    q.customerEmail ? eq(t.customerEmail, q.customerEmail) : undefined,
+  ];
+}
+
+/**
+ * Assignment filters are mutually exclusive and ordered, matching legacy:
+ * `unassigned` wins over `myConversations`, which wins over `assigneeId`.
+ */
+function assignmentFilter(q: Record<string, string>, userId: string): SQL | undefined {
+  if (q.unassigned === 'true') return isNull(t.assigneeId);
+  if (q.myConversations === 'true') return or(isNull(t.assigneeId), eq(t.assigneeId, userId));
+  if (q.assigneeId) return eq(t.assigneeId, q.assigneeId);
+  return undefined;
+}
+
+/** `true` / `false` query flag as a boolean-column filter; anything else is ignored. */
+function flagFilter(
+  column: typeof t.isRead | typeof t.isStarred | typeof t.isArchived,
+  value: string | undefined,
+): SQL | undefined {
+  if (value !== 'true' && value !== 'false') return undefined;
+  return eq(column, value === 'true');
+}
+
+function searchFilter(search: string | undefined): SQL | undefined {
+  if (!search) return undefined;
+  const term = `%${search}%`;
+  return or(
+    like(t.subject, term),
+    like(t.customerEmail, term),
+    like(t.customerName, term),
+    like(t.conversationNumber, term),
+    like(people.fullName, term),
+    like(people.email, term),
+  );
+}
+
+/** Every list filter (everything but the cursor), shared by the page query and its count. */
+function listFilterConditions(q: Record<string, string>, userId: string): SQL[] {
+  const conditions = [
+    isNull(t.deletedAt),
+    // Hide chat conversations until the customer has actually said something —
+    // an automated workflow greeting alone must not surface in an agent inbox.
+    or(ne(t.channel, 'chat'), isNotNull(t.lastCustomerMessageAt)),
+    // Hide conversations whose multi-step workflow (choices, forms) is still
+    // running; they are not actionable by an agent until it completes.
+    eq(t.hasActiveWorkflow, false),
+    ...fieldFilters(q),
+    assignmentFilter(q, userId),
+    flagFilter(t.isRead, q.isRead),
+    flagFilter(t.isStarred, q.isStarred),
+    flagFilter(t.isArchived, q.isArchived),
+    searchFilter(q.search),
+  ];
+  return conditions.filter((condition): condition is SQL => condition !== undefined);
+}
+
+/** Keyset condition selecting conversations older than the cursor row, if it exists. */
+async function cursorCondition(db: Variables['tenantDb'], cursorId: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('conversations:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [
-    isNull(t.deletedAt),
-    // Hide chat conversations until the customer has actually said something —
-    // an automated workflow greeting alone must not surface in an agent inbox.
-    or(ne(t.channel, 'chat'), isNotNull(t.lastCustomerMessageAt))!,
-    // Hide conversations whose multi-step workflow (choices, forms) is still
-    // running; they are not actionable by an agent until it completes.
-    eq(t.hasActiveWorkflow, false),
-  ];
-
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.excludeStatus !== undefined && q.excludeStatus !== '') conditions.push(ne(t.status, q.excludeStatus));
-  if (q.priority !== undefined && q.priority !== '') conditions.push(eq(t.priority, q.priority));
-  if (q.channel !== undefined && q.channel !== '') conditions.push(eq(t.channel, q.channel));
-  if (q.departmentId !== undefined && q.departmentId !== '') conditions.push(eq(t.departmentId, q.departmentId));
-  if (q.contactId !== undefined && q.contactId !== '') conditions.push(eq(t.contactId, q.contactId));
-  if (q.customerEmail !== undefined && q.customerEmail !== '') conditions.push(eq(t.customerEmail, q.customerEmail));
-
-  // Assignment filters are mutually exclusive and ordered, matching legacy:
-  // `unassigned` wins over `myConversations`, which wins over `assigneeId`.
-  if (q.unassigned === 'true') {
-    conditions.push(isNull(t.assigneeId));
-  } else if (q.myConversations === 'true') {
-    conditions.push(or(isNull(t.assigneeId), eq(t.assigneeId, userId))!);
-  } else if (q.assigneeId !== undefined && q.assigneeId !== '') {
-    conditions.push(eq(t.assigneeId, q.assigneeId));
-  }
-
-  if (q.isRead === 'true' || q.isRead === 'false') conditions.push(eq(t.isRead, q.isRead === 'true'));
-  if (q.isStarred === 'true' || q.isStarred === 'false') conditions.push(eq(t.isStarred, q.isStarred === 'true'));
-  if (q.isArchived === 'true' || q.isArchived === 'false') conditions.push(eq(t.isArchived, q.isArchived === 'true'));
-
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(
-      or(
-        like(t.subject, term),
-        like(t.customerEmail, term),
-        like(t.customerName, term),
-        like(t.conversationNumber, term),
-        like(people.fullName, term),
-        like(people.email, term),
-      )!,
-    );
-  }
-
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = listFilterConditions(q, userId);
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCond);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([
