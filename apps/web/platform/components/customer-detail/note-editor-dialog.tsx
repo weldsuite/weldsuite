@@ -65,6 +65,75 @@ function getCompanyIcon(name?: string) {
   return <Building className="h-3 w-3 text-muted-foreground" />;
 }
 
+type ActiveFormats = {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  unorderedList: boolean;
+  orderedList: boolean;
+};
+
+const DIALOG_SHADOW = '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)';
+
+function getDialogPlacementClass(isMinimized: boolean, isPinned: boolean): string {
+  if (isMinimized || isPinned) {
+    return 'bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0';
+  }
+  return 'top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]';
+}
+
+function getDialogStyle(isMinimized: boolean, isPinned: boolean): React.CSSProperties {
+  if (isMinimized) return { width: '320px', height: '56px', boxShadow: DIALOG_SHADOW };
+  if (isPinned) return { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: DIALOG_SHADOW };
+  return { width: '860px', maxWidth: '90vw', height: '882px', maxHeight: '90vh', boxShadow: DIALOG_SHADOW };
+}
+
+function FormatToolbar({
+  className,
+  activeFormats,
+  onBold,
+  onItalic,
+  onUnderline,
+  onUnorderedList,
+  onOrderedList,
+  onLink,
+}: Readonly<{
+  className: string;
+  activeFormats: ActiveFormats;
+  onBold: (e: React.MouseEvent) => void;
+  onItalic: (e: React.MouseEvent) => void;
+  onUnderline: (e: React.MouseEvent) => void;
+  onUnorderedList: (e: React.MouseEvent) => void;
+  onOrderedList: (e: React.MouseEvent) => void;
+  onLink: (e: React.MouseEvent) => void;
+}>) {
+  const t = useTranslations();
+  return (
+    <div className={className}>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={onBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
+        <Bold className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={onItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
+        <Italic className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={onUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
+        <Underline className="h-3.5 w-3.5" />
+      </Button>
+      <div className="w-px h-4 bg-border mx-1" />
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={onUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
+        <ListIcon className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={onOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
+        <ListOrdered className="h-3.5 w-3.5" />
+      </Button>
+      <div className="w-px h-4 bg-border mx-1" />
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={onLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
+        <LinkIcon className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 export function NoteEditorDialog({
   note,
   open,
@@ -231,18 +300,9 @@ export function NoteEditorDialog({
           onInteractOutside={(e) => isPinned && e.preventDefault()}
           className={cn(
             "bg-background fixed z-50 rounded-lg p-0 flex flex-col gap-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 transition-all duration-200",
-            isMinimized
-              ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-              : isPinned
-                ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-                : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]"
+            getDialogPlacementClass(isMinimized, isPinned),
           )}
-          style={isMinimized
-            ? { width: '320px', height: '56px', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-            : isPinned
-              ? { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-              : { width: '860px', maxWidth: '90vw', height: '882px', maxHeight: '90vh', boxShadow: '0 0 60px rgba(0, 0, 0, 0.12), 0 20px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.03)' }
-          }
+          style={getDialogStyle(isMinimized, isPinned)}
         >
         {isMinimized ? (
           <div className="flex items-center h-full px-4">
@@ -276,28 +336,16 @@ export function NoteEditorDialog({
             </DialogHeader>
 
             {!isPinned && (
-              <div className="px-4 py-2 border-b flex items-center gap-1">
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={handleBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-                  <Bold className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={handleItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-                  <Italic className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={handleUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-                  <Underline className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={handleUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-                  <ListIcon className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={handleOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-                  <ListOrdered className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={handleLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-                  <LinkIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+              <FormatToolbar
+                className="px-4 py-2 border-b flex items-center gap-1"
+                activeFormats={activeFormats}
+                onBold={handleBold}
+                onItalic={handleItalic}
+                onUnderline={handleUnderline}
+                onUnorderedList={handleUnorderedList}
+                onOrderedList={handleOrderedList}
+                onLink={handleLink}
+              />
             )}
 
             <div className="flex-1 overflow-auto p-6">
@@ -320,28 +368,16 @@ export function NoteEditorDialog({
             </div>
 
             {isPinned && (
-              <div className="px-4 py-2 border-t flex items-center gap-1">
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={handleBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-                  <Bold className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={handleItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-                  <Italic className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={handleUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-                  <Underline className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={handleUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-                  <ListIcon className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={handleOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-                  <ListOrdered className="h-3.5 w-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={handleLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-                  <LinkIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+              <FormatToolbar
+                className="px-4 py-2 border-t flex items-center gap-1"
+                activeFormats={activeFormats}
+                onBold={handleBold}
+                onItalic={handleItalic}
+                onUnderline={handleUnderline}
+                onUnorderedList={handleUnorderedList}
+                onOrderedList={handleOrderedList}
+                onLink={handleLink}
+              />
             )}
           </>
         )}

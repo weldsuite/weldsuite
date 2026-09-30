@@ -61,6 +61,46 @@ interface PersonDetailRow {
   isTechnicalContact?: boolean;
 }
 
+/** Adapts a CRM person record to the shared customer-detail data shape. */
+function personToCustomerDetailData(person: PersonDetailRow): CustomerDetailData {
+  const fullName = person.displayName || person.fullName || `${person.firstName || ''} ${person.lastName || ''}`.trim();
+  return {
+    customer: {
+      id: person.id, type: 'b2c' as const, email: person.email, firstName: person.firstName,
+      lastName: person.lastName, fullName, phone: person.directPhone, mobile: person.mobilePhone,
+      status: person.status ?? 'active', notes: person.notes, tags: [], createdAt: person.createdAt,
+      updatedAt: person.updatedAt, avatarUrl: person.avatarUrl,
+      customFields: {
+        _entityType: 'contact', title: person.title, department: person.department,
+        role: person.role, extension: person.extension,
+        preferredContactMethod: person.preferredContactMethod,
+        preferredLanguage: person.preferredLanguage, linkedinUrl: person.linkedinUrl,
+        twitterHandle: person.twitterHandle, influenceLevel: person.influenceLevel,
+        isPrimary: person.isPrimary, isDecisionMaker: person.isDecisionMaker,
+        isBillingContact: person.isBillingContact, isTechnicalContact: person.isTechnicalContact,
+      },
+    },
+    contacts: [], activities: [], opportunities: [], orders: [], invoices: [], lists: [],
+    counts: { contacts: 0, activities: 0, opportunities: 0, orders: 0, invoices: 0, notes: 0, tasks: 0 },
+    lastActivity: null,
+  } as CustomerDetailData;
+}
+
+/** Prefer explicitly supplied navigation, else the navigation endpoint payload. */
+function resolveNavigation(
+  initialNavigation: CustomerNavigationData | undefined,
+  rawNav: { data?: unknown } | null | undefined,
+): CustomerNavigationData | null {
+  if (initialNavigation) return initialNavigation;
+  if (!rawNav?.data) return null;
+  return rawNav.data as unknown as CustomerNavigationData;
+}
+
+function describeQueryError(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  return error instanceof Error ? error.message : fallback;
+}
+
 const CustomerDetailContext = createContext<CustomerDetailContextValue | null>(null);
 
 export function useCustomerDetailContext() {
@@ -138,45 +178,17 @@ export function CustomerDetailProvider({
 
   // Derive detail data from queries
   const queryData = isContact
-    ? (personDetailQuery.data?.data ? (() => {
-        const person = personDetailQuery.data!.data as unknown as PersonDetailRow;
-        const fullName = person.displayName || person.fullName || `${person.firstName || ''} ${person.lastName || ''}`.trim();
-        return {
-          customer: {
-            id: person.id, type: 'b2c' as const, email: person.email, firstName: person.firstName,
-            lastName: person.lastName, fullName, phone: person.directPhone, mobile: person.mobilePhone,
-            status: person.status ?? 'active', notes: person.notes, tags: [], createdAt: person.createdAt,
-            updatedAt: person.updatedAt, avatarUrl: person.avatarUrl,
-            customFields: {
-              _entityType: 'contact', title: person.title, department: person.department,
-              role: person.role, extension: person.extension,
-              preferredContactMethod: person.preferredContactMethod,
-              preferredLanguage: person.preferredLanguage, linkedinUrl: person.linkedinUrl,
-              twitterHandle: person.twitterHandle, influenceLevel: person.influenceLevel,
-              isPrimary: person.isPrimary, isDecisionMaker: person.isDecisionMaker,
-              isBillingContact: person.isBillingContact, isTechnicalContact: person.isTechnicalContact,
-            },
-          },
-          contacts: [], activities: [], opportunities: [], orders: [], invoices: [], lists: [],
-          counts: { contacts: 0, activities: 0, opportunities: 0, orders: 0, invoices: 0, notes: 0, tasks: 0 },
-          lastActivity: null,
-        } as CustomerDetailData;
-      })() : null)
+    ? (personDetailQuery.data?.data ? personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow) : null)
     : (companyDetailQuery.data?.data as CustomerDetailData | null ?? null);
 
   const data = initialData ?? queryData;
 
   // Derive navigation data from queries.
   // Both company and person navigation endpoints return the same shape.
-  const navigation: CustomerNavigationData | null = (() => {
-    if (initialNavigation) return initialNavigation;
-    const rawNav = isContact ? personNavQuery.data : companyNavQuery.data;
-    if (!rawNav?.data) return null;
-    return rawNav.data as unknown as CustomerNavigationData;
-  })();
+  const navigation = resolveNavigation(initialNavigation, isContact ? personNavQuery.data : companyNavQuery.data);
 
   const isLoading = detailQuery.isLoading;
-  const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : t('sweep.weldcrm.customerDetailProvider.errorOccurred')) : null;
+  const error = describeQueryError(detailQuery.error, t('sweep.weldcrm.customerDetailProvider.errorOccurred'));
 
   const [activeTab, setActiveTab] = useState<CustomerDetailTab>(defaultTab);
   const [sidebarTab, setSidebarTab] = useState<CustomerDetailSidebarTab>('details');
