@@ -84,7 +84,7 @@ export function FilesSection(_props: Readonly<FilesSectionProps>) {
     if (!uploadedFiles) return;
 
     const newFiles: FileItem[] = Array.from(uploadedFiles).map(file => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: `${Date.now()}-${crypto.randomUUID()}`,
       name: file.name,
       size: file.size,
       type: file.type,
