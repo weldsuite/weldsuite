@@ -36,7 +36,7 @@ export function resolveWeldAgentDeepLink(
   const safeConversation = onlyValidId(
     pickId(data, 'conversationId', /\/weldagent\/chat\/([^/?#]+)/),
   );
-  const safeAgent = onlyValidId(pickId(data, 'agentId', /\/weldagent\/agent\/([^/?#/]+)/));
+  const safeAgent = onlyValidId(pickId(data, 'agentId', /\/weldagent\/agent\/([^/?#]+)/));
   const safeRun = onlyValidId(pickId(data, 'runId', /\/run\/([^/?#]+)/));
 
   if (!safeConversation && !safeAgent) return null;
