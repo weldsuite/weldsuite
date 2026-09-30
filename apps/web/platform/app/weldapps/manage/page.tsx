@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Lock, Plus } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -68,6 +68,61 @@ export default function WeldAppsManagePage() {
   if (permissionsLoading) return <PageLoader fullScreen={false} />;
   if (!canDevelop) return <ManageAppsNoAccess title={wa.manage.title} />;
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = <PageLoader fullScreen={false} />;
+  } else if (!apps || apps.length === 0) {
+    body = (
+      <div className="rounded-lg border border-dashed border-border p-10 text-center max-w-md mx-auto">
+        <p className="text-sm font-medium text-foreground mb-1">{wa.manage.empty}</p>
+        <p className="text-xs text-muted-foreground mb-4">{wa.manage.emptyDescription}</p>
+        <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4" />
+          {wa.manage.createApp}
+        </Button>
+      </div>
+    );
+  } else {
+    body = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{wa.manage.columnName}</TableHead>
+            <TableHead>{wa.manage.columnCode}</TableHead>
+            <TableHead>{wa.manage.columnVisibility}</TableHead>
+            <TableHead>{wa.manage.columnStatus}</TableHead>
+            <TableHead>{wa.manage.columnInstalls}</TableHead>
+            <TableHead>{wa.manage.columnVersion}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {apps.map((app) => (
+            <TableRow
+              key={app.id}
+              className="cursor-pointer"
+              onClick={() => setSelectedAppId(app.id)}
+            >
+              <TableCell className="font-medium">{app.name}</TableCell>
+              <TableCell className="text-muted-foreground font-mono text-xs">{app.code}</TableCell>
+              <TableCell>
+                <Badge variant="outline">{visibilityLabel(app, wa)}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={app.reviewStatus === 'rejected' ? 'destructive' : 'secondary'}>
+                  {reviewStatusLabel(app, wa)}
+                </Badge>
+              </TableCell>
+              <TableCell>{app.installCount}</TableCell>
+              <TableCell className="text-muted-foreground text-xs">
+                {app.currentVersionId ? app.currentVersionId : wa.manage.noVersion}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
   return (
     <div className="w-full h-full bg-background flex flex-col overflow-hidden">
       <BreadcrumbHeader
@@ -81,55 +136,7 @@ export default function WeldAppsManagePage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
-          <PageLoader fullScreen={false} />
-        ) : !apps || apps.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-10 text-center max-w-md mx-auto">
-            <p className="text-sm font-medium text-foreground mb-1">{wa.manage.empty}</p>
-            <p className="text-xs text-muted-foreground mb-4">{wa.manage.emptyDescription}</p>
-            <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              {wa.manage.createApp}
-            </Button>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{wa.manage.columnName}</TableHead>
-                <TableHead>{wa.manage.columnCode}</TableHead>
-                <TableHead>{wa.manage.columnVisibility}</TableHead>
-                <TableHead>{wa.manage.columnStatus}</TableHead>
-                <TableHead>{wa.manage.columnInstalls}</TableHead>
-                <TableHead>{wa.manage.columnVersion}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {apps.map((app) => (
-                <TableRow
-                  key={app.id}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedAppId(app.id)}
-                >
-                  <TableCell className="font-medium">{app.name}</TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">{app.code}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{visibilityLabel(app, wa)}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={app.reviewStatus === 'rejected' ? 'destructive' : 'secondary'}>
-                      {reviewStatusLabel(app, wa)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{app.installCount}</TableCell>
-                  <TableCell className="text-muted-foreground text-xs">
-                    {app.currentVersionId ? app.currentVersionId : wa.manage.noVersion}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        {body}
       </div>
 
       <CreateAppDialog
