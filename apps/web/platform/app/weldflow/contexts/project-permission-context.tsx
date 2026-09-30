@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -90,7 +90,7 @@ export function ProjectPermissionProvider({ projectId, children }: Readonly<Proj
     fetchPermissions();
   }, [fetchPermissions]);
 
-  const value: ProjectPermissionContextType = {
+  const value = useMemo<ProjectPermissionContextType>(() => ({
     permissions,
     isLoading,
     error,
@@ -102,7 +102,7 @@ export function ProjectPermissionProvider({ projectId, children }: Readonly<Proj
     isAdmin: isLoading ? true : (permissions?.isAdmin ?? false),
     isViewer: !isLoading && permissions?.role === 'viewer',
     role: permissions?.role ?? null,
-  };
+  }), [permissions, isLoading, error, fetchPermissions]);
 
   return (
     <ProjectPermissionContext.Provider value={value}>
