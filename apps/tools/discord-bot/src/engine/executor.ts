@@ -69,6 +69,13 @@ type WorkflowEventType =
   | 'conversation_assigned'
   | 'conversation_closed';
 
+/** Button colour for a CSAT rating: low is red, neutral is grey, high is green. */
+function csatButtonStyle(rating: number): ButtonStyle {
+  if (rating <= 2) return ButtonStyle.Danger;
+  if (rating === 3) return ButtonStyle.Secondary;
+  return ButtonStyle.Success;
+}
+
 /** Whether a workflow trigger config fires for the given conversation event. */
 function triggerMatchesEvent(t: WorkflowTrigger, eventType: WorkflowEventType): boolean {
   if (t.isEnabled === false) return false;
@@ -469,7 +476,7 @@ async function stepTriggerCsat(
       new ButtonBuilder()
         .setCustomId(`wf_csat:${ctx.conversationId}:${stepId}:${rating}`)
         .setLabel(`${rating}`)
-        .setStyle(rating <= 2 ? ButtonStyle.Danger : rating === 3 ? ButtonStyle.Secondary : ButtonStyle.Success),
+        .setStyle(csatButtonStyle(rating)),
     ),
   );
 

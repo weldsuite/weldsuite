@@ -256,12 +256,14 @@ function planMappedKey(
   }
 }
 
+const SQL_CASTS: Partial<Record<string, string>> = { bool: '::boolean', ts: '::timestamp' };
+
 /** Write one row's plan: fill the NULL columns and strip the moved keys. */
 async function applyRowPlan(sql: postgres.Sql, table: string, rowId: string, plan: RowPlan): Promise<void> {
   const params: unknown[] = [];
   const setClauses = plan.setCols.map((s) => {
     params.push(s.val);
-    const cast = s.type === 'bool' ? '::boolean' : s.type === 'ts' ? '::timestamp' : '::text';
+    const cast = SQL_CASTS[s.type] ?? '::text';
     return `"${s.col}" = $${params.length}${cast}`;
   });
   params.push(plan.stripKeys);
@@ -431,10 +433,11 @@ function printTotals(total: Counts, options: CliOptions) {
     );
   }
   if (!options.execute) {
+    const conflictNote = total.conflicts > 0 ? `, ${total.conflicts} conflict(s) left for review` : '';
     console.log(
       `\nDry-run only. ${total.keysStripped} key(s) across ${total.rows} row(s) would be stripped ` +
         `(${total.columnsSet} column(s) filled, ${total.alreadySet} already set` +
-        `${total.conflicts > 0 ? `, ${total.conflicts} conflict(s) left for review` : ''}). Re-run with --execute to write.`,
+        `${conflictNote}). Re-run with --execute to write.`,
     );
     return;
   }

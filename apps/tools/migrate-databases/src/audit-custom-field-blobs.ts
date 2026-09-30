@@ -262,16 +262,18 @@ async function main() {
   const mappedList = [...mapped.values()].sort((a, b) => b.rows - a.rows);
   printMapped(mappedList);
 
-  console.log(
-    `\nVERDICT: ${unmappedList.length === 0
+  const verdict =
+    unmappedList.length === 0
       ? 'no unmapped keys found — the drop would not lose data in this environment.'
-      : `${unmappedList.length} unmapped key(s) MUST be migrated elsewhere before Phase 4.`}`,
-  );
+      : `${unmappedList.length} unmapped key(s) MUST be migrated elsewhere before Phase 4.`;
+  console.log(`\nVERDICT: ${verdict}`);
   if (failed > 0) console.log(`WARNING: ${failed} tenant(s) could not be audited — result is incomplete.`);
   process.exit(failed > 0 || unmappedList.length > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Audit failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}
