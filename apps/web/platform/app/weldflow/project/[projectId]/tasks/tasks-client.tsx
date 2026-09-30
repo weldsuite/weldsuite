@@ -338,6 +338,13 @@ function findTaskWithParent(
   return { task: undefined, subtaskParentId: null };
 }
 
+// Assignee ids for a task: the multi-assignee list when present, otherwise the
+// single legacy assignee.
+function getTaskAssigneeIds(task: Task): string[] {
+  if (task.assigneeIds && task.assigneeIds.length > 0) return task.assigneeIds;
+  return task.assigneeId ? [task.assigneeId] : [];
+}
+
 // Commit a synchronous state update inside a View Transition when the browser
 // supports it, otherwise run it directly.
 function runInViewTransition(commit: () => void): void {
@@ -1293,24 +1300,14 @@ export function TasksClient({
               <AvatarFallback className="rounded-[5.5px] text-[8px] font-medium">{initials || '?'}</AvatarFallback>
             </Avatar>
           ),
-          filter: (t: Task) => {
-            const ids = t.assigneeIds && t.assigneeIds.length > 0
-              ? t.assigneeIds
-              : (t.assigneeId ? [t.assigneeId] : []);
-            return ids.includes(m.userId);
-          },
+          filter: (t: Task) => getTaskAssigneeIds(t).includes(m.userId),
         };
       });
       memberGroups.push({
         id: 'unassigned',
         label: t.projects.tasks.groupUnassigned,
         sortOrder: projectMembers.length + 1,
-        filter: (t) => {
-          const ids = t.assigneeIds && t.assigneeIds.length > 0
-            ? t.assigneeIds
-            : (t.assigneeId ? [t.assigneeId] : []);
-          return ids.length === 0;
-        },
+        filter: (t) => getTaskAssigneeIds(t).length === 0,
       });
       return memberGroups;
     }
@@ -1494,7 +1491,7 @@ export function TasksClient({
         style={{ paddingLeft: isSubtask ? 48 + depth * 32 : 16, paddingRight: 16 }}
       >
         {/* Checkbox */}
-        <div className="flex-shrink-0 translate-y-[1px]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-shrink-0 translate-y-[1px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={isVisuallyDone || isCompleting}
             onCheckedChange={() => handleCheckboxToggle(task.id, task.status)}
@@ -1571,7 +1568,7 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1612,7 +1609,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1636,7 +1633,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1671,7 +1668,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1746,7 +1743,7 @@ export function TasksClient({
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
