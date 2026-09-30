@@ -252,13 +252,17 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
  *  input → all bars collapse to a flat baseline. */
 function Waveform({ active, color, level }: Readonly<{ active: boolean; color: string; level: number }>) {
   const BAR_COUNT = 56;
-  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
+  // Each bar carries a stable id so React keeps the same element as bars shift left.
+  const nextBarId = useRef(BAR_COUNT);
+  const [bars, setBars] = useState<{ id: number; value: number }[]>(() =>
+    Array.from({ length: BAR_COUNT }, (_, id) => ({ id, value: 0 })),
+  );
   const levelRef = useRef(level);
   useEffect(() => { levelRef.current = level; }, [level]);
 
   useEffect(() => {
     if (!active) {
-      setBars(Array(BAR_COUNT).fill(0));
+      setBars((prev) => prev.map((bar) => ({ id: bar.id, value: 0 })));
       return;
     }
     const id = setInterval(() => {
@@ -270,7 +274,7 @@ function Waveform({ active, color, level }: Readonly<{ active: boolean; color: s
         // proportional to the current level (so silence stays flat).
         const jitter = (randomUnit() - 0.5) * 0.15 * norm;
         const next = Math.max(0, Math.min(1, norm + jitter));
-        return [...prev.slice(1), next];
+        return [...prev.slice(1), { id: nextBarId.current++, value: next }];
       });
     }, 60);
     return () => clearInterval(id);
@@ -278,12 +282,12 @@ function Waveform({ active, color, level }: Readonly<{ active: boolean; color: s
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 32, paddingHorizontal: 4 }}>
-      {bars.map((v, i) => (
+      {bars.map(({ id, value }) => (
         <View
-          key={i}
+          key={id}
           style={{
             width: 2,
-            height: Math.max(2, v * 26),
+            height: Math.max(2, value * 26),
             borderRadius: 1,
             backgroundColor: color,
             opacity: 0.75,
@@ -1018,7 +1022,7 @@ function PendingFiles({
   return (
     <View style={styles.pendingFiles}>
       {files.map((f, i) => (
-        <View key={i} style={styles.pendingFile}>
+        <View key={f.uri} style={styles.pendingFile}>
           <Paperclip size={12} color={colors.muted} />
           <Text style={styles.pendingFileName} numberOfLines={1}>{f.name}</Text>
           <TouchableOpacity onPress={() => onRemove(i)}>

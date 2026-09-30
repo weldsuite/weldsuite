@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -30,24 +30,25 @@ function formatDuration(ms: number): string {
 
 /** Deterministic pseudo-random bar heights seeded by URI hash so the
  *  same voice message renders the same waveform every time. */
-function generateBars(seed: number, count: number): number[] {
+function generateBars(seed: number, count: number): { key: string; height: number }[] {
   let s = seed >>> 0 || 1;
-  const out: number[] = [];
+  const out: { key: string; height: number }[] = [];
   for (let i = 0; i < count; i++) {
     s ^= s << 13;
     s ^= s >>> 17;
     s ^= s << 5;
     const v = ((s >>> 0) % 1000) / 1000;
     const env = 0.5 + 0.5 * Math.sin((i / count) * Math.PI);
-    out.push(0.25 + 0.75 * v * env);
+    out.push({ key: `bar-${i}`, height: 0.25 + 0.75 * v * env });
   }
   return out;
 }
 
 function hashString(s: string): number {
   let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return h;
+  // 31 * h + charCode, wrapped to int32 (Math.imul wraps its operands; same result as `| 0`).
+  for (let i = 0; i < s.length; i++) h = Math.imul(h, 31) + s.charCodeAt(i);
+  return Math.imul(h, 1);
 }
 
 const BAR_COUNT = 33;
@@ -177,6 +178,15 @@ export function AudioPlayer({ uri }: Readonly<AudioPlayerProps>) {
   const progress = durationMs > 0 ? smoothPositionMs / durationMs : 0;
   const displayMs = isPlaying || smoothPositionMs > 0 ? smoothPositionMs : durationMs;
 
+  let playIcon: ReactNode;
+  if (isLoading) {
+    playIcon = <ActivityIndicator size="small" color={colors.text} />;
+  } else if (isPlaying) {
+    playIcon = <Pause size={20} color={colors.text} fill={colors.text} />;
+  } else {
+    playIcon = <Play size={20} color={colors.text} fill={colors.text} />;
+  }
+
   return (
     <View style={[styles.container, { borderColor: colors.border, backgroundColor: colors.background }]}>
       <TouchableOpacity
@@ -185,13 +195,7 @@ export function AudioPlayer({ uri }: Readonly<AudioPlayerProps>) {
         disabled={isLoading}
         activeOpacity={0.7}
       >
-        {isLoading ? (
-          <ActivityIndicator size="small" color={colors.text} />
-        ) : isPlaying ? (
-          <Pause size={20} color={colors.text} fill={colors.text} />
-        ) : (
-          <Play size={20} color={colors.text} fill={colors.text} />
-        )}
+        {playIcon}
       </TouchableOpacity>
 
       <View style={styles.middle}>
@@ -203,14 +207,14 @@ export function AudioPlayer({ uri }: Readonly<AudioPlayerProps>) {
             waveformLayout.current = { x: e.nativeEvent.layout.x, width: e.nativeEvent.layout.width };
           }}
         >
-          {bars.map((h, i) => {
+          {bars.map(({ key, height }, i) => {
             const filled = (i + 0.5) / BAR_COUNT <= progress;
             return (
               <View
-                key={i}
+                key={key}
                 style={{
                   width: 2.5,
-                  height: Math.max(3, h * 22),
+                  height: Math.max(3, height * 22),
                   borderRadius: 1.5,
                   backgroundColor: filled ? BRAND : colors.secondary,
                 }}
