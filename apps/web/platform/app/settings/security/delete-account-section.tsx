@@ -75,6 +75,64 @@ export function DeleteAccountSection() {
     status?.canDelete === true &&
     confirmText === DELETE_ACCOUNT_CONFIRMATION;
 
+  const renderStatusBody = () => {
+    if (isLoadingStatus) {
+      return (
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (!status) return null;
+    if (!status.canDelete) {
+      return (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+          <p className="font-medium flex items-center gap-2">
+            <TriangleAlert className="h-4 w-4 text-destructive shrink-0" />
+            {td.blockedTitle}
+          </p>
+          <p className="text-muted-foreground mt-1">{td.blockedDescription}</p>
+          <ul className="mt-2 list-disc pl-5 space-y-1">
+            {status.blockers.map((blocker) => (
+              <li key={blocker.workspaceId}>
+                <span className="font-medium">{blocker.name}</span>{' '}
+                <span className="text-muted-foreground">
+                  ({td.blockedMembers.replace('{count}', String(blocker.otherMemberCount))})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        {status.workspacesToDelete.length > 0 && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <p className="text-muted-foreground">{td.workspacesToDelete}</p>
+            <ul className="mt-2 list-disc pl-5 space-y-1">
+              {status.workspacesToDelete.map((ws) => (
+                <li key={ws.workspaceId} className="font-medium">
+                  {ws.name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{td.confirmLabel}</p>
+          <Input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={DELETE_ACCOUNT_CONFIRMATION}
+            autoComplete="off"
+            disabled={isDeleting}
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <h3 className="text-base font-medium mb-3 text-destructive">{td.sectionTitle}</h3>
@@ -95,54 +153,7 @@ export function DeleteAccountSection() {
             <DialogDescription>{td.dialogDescription}</DialogDescription>
           </DialogHeader>
 
-          {isLoadingStatus ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : status && !status.canDelete ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-              <p className="font-medium flex items-center gap-2">
-                <TriangleAlert className="h-4 w-4 text-destructive shrink-0" />
-                {td.blockedTitle}
-              </p>
-              <p className="text-muted-foreground mt-1">{td.blockedDescription}</p>
-              <ul className="mt-2 list-disc pl-5 space-y-1">
-                {status.blockers.map((blocker) => (
-                  <li key={blocker.workspaceId}>
-                    <span className="font-medium">{blocker.name}</span>{' '}
-                    <span className="text-muted-foreground">
-                      ({td.blockedMembers.replace('{count}', String(blocker.otherMemberCount))})
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : status ? (
-            <div className="space-y-4">
-              {status.workspacesToDelete.length > 0 && (
-                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                  <p className="text-muted-foreground">{td.workspacesToDelete}</p>
-                  <ul className="mt-2 list-disc pl-5 space-y-1">
-                    {status.workspacesToDelete.map((ws) => (
-                      <li key={ws.workspaceId} className="font-medium">
-                        {ws.name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="space-y-2">
-                <p className="text-sm font-medium">{td.confirmLabel}</p>
-                <Input
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder={DELETE_ACCOUNT_CONFIRMATION}
-                  autoComplete="off"
-                  disabled={isDeleting}
-                />
-              </div>
-            </div>
-          ) : null}
+          {renderStatusBody()}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isDeleting}>
