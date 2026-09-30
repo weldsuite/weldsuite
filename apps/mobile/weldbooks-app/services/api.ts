@@ -977,8 +977,9 @@ class WeldBooksApi {
     type?: string;
   }): Promise<Contact[]> {
     // Legacy "vendor" naming → app-api accounting role "supplier".
-    const role =
-      params?.type === 'vendor' ? 'supplier' : params?.type === 'customer' ? 'customer' : undefined;
+    let role: 'supplier' | 'customer' | undefined;
+    if (params?.type === 'vendor') role = 'supplier';
+    else if (params?.type === 'customer') role = 'customer';
 
     const res = await client.get<ListEnvelope<Json>>(
       `/accounting-contacts?${qs({

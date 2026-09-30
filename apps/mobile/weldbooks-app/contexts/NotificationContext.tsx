@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
@@ -70,8 +70,13 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     registerForPushNotifications();
   }, [registerForPushNotifications]);
 
+  const value = useMemo(
+    () => ({ badgeCount, setBadgeCount, registerForPushNotifications }),
+    [badgeCount, registerForPushNotifications],
+  );
+
   return (
-    <NotificationContext.Provider value={{ badgeCount, setBadgeCount, registerForPushNotifications }}>
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   );

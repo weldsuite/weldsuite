@@ -1,5 +1,7 @@
+import type { ComponentProps } from 'react';
 import { Tabs } from 'expo-router';
 import { CalendarDays, CalendarRange, LayoutGrid, MoreHorizontal } from 'lucide-react-native';
+import type { ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -10,6 +12,29 @@ import {
 } from '@/components/floating-tab-bar';
 import { useI18n } from '@/lib/i18n';
 
+type TabBarRenderer = NonNullable<ComponentProps<typeof Tabs>['tabBar']>;
+type TabIconProps = { color: ColorValue; size: number };
+
+const renderTabBar: TabBarRenderer = (props) => (
+  <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />
+);
+
+function AgendaIcon({ color, size }: Readonly<TabIconProps>) {
+  return <CalendarRange size={size} color={color} strokeWidth={2.2} />;
+}
+
+function MonthIcon({ color, size }: Readonly<TabIconProps>) {
+  return <LayoutGrid size={size} color={color} strokeWidth={2.2} />;
+}
+
+function CalendarsIcon({ color, size }: Readonly<TabIconProps>) {
+  return <CalendarDays size={size} color={color} strokeWidth={2.2} />;
+}
+
+function MoreIcon({ color, size }: Readonly<TabIconProps>) {
+  return <MoreHorizontal size={size} color={color} strokeWidth={2.2} />;
+}
+
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const tabBarInset = floatingTabBarBottomInset(insets.bottom);
@@ -17,7 +42,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
+      tabBar={renderTabBar}
       screenOptions={{
         ...floatingTabBarScreenOptions,
         headerShown: false,
@@ -31,36 +56,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t.tabs.agenda,
-          tabBarIcon: ({ color, size }) => (
-            <CalendarRange size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: AgendaIcon,
         }}
       />
       <Tabs.Screen
         name="month"
         options={{
           title: t.tabs.month,
-          tabBarIcon: ({ color, size }) => (
-            <LayoutGrid size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: MonthIcon,
         }}
       />
       <Tabs.Screen
         name="calendars"
         options={{
           title: t.tabs.calendars,
-          tabBarIcon: ({ color, size }) => (
-            <CalendarDays size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: CalendarsIcon,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: t.tabs.more,
-          tabBarIcon: ({ color, size }) => (
-            <MoreHorizontal size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: MoreIcon,
         }}
       />
     </Tabs>
