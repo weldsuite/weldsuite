@@ -204,6 +204,26 @@ const ENTITY_LABEL_KEYS = new Map<string, EntityLabelKey>([
   ['bank_transaction', 'bankTransactions'],
 ]);
 
+// Rows have no natural id (the same field pair may appear twice), so each
+// mapping object gets a stable React key that survives edits to that row.
+const rowKeys = new WeakMap<EditableMapping, string>();
+let rowKeyCounter = 0;
+
+function rowKey(mapping: EditableMapping): string {
+  let key = rowKeys.get(mapping);
+  if (!key) {
+    rowKeyCounter += 1;
+    key = `mapping-${rowKeyCounter}`;
+    rowKeys.set(mapping, key);
+  }
+  return key;
+}
+
+function editedRow(prev: EditableMapping, next: EditableMapping): EditableMapping {
+  rowKeys.set(next, rowKey(prev));
+  return next;
+}
+
 type MappingDirection = EditableMapping['direction'];
 
 const DIRECTION_ORDER: MappingDirection[] = ['bidirectional', 'inbound', 'outbound'];
@@ -367,7 +387,7 @@ export function ConnectorFieldMappingEditor({
     setIsDirty(true);
   };
   const patchMapping = (index: number, patch: (m: EditableMapping) => EditableMapping) =>
-    editMappings((prev) => prev.map((m, i) => (i === index ? patch(m) : m)));
+    editMappings((prev) => prev.map((m, i) => (i === index ? editedRow(m, patch(m)) : m)));
 
   const directionLabels = {
     inbound: tc.settings.directionInbound,
@@ -451,7 +471,7 @@ export function ConnectorFieldMappingEditor({
         <div className="divide-y rounded-lg border">
           {localMappings.map((mapping, index) => (
             <MappingRow
-              key={index}
+              key={rowKey(mapping)}
               mapping={mapping}
               externalFields={EXTERNAL_FIELDS[activeEntityType] ?? []}
               internalFields={INTERNAL_FIELDS[activeEntityType] ?? []}
