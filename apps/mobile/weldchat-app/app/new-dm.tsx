@@ -29,6 +29,15 @@ interface WorkspaceMember {
   role: string | null;
 }
 
+function MemberListSeparator() {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.secondary, marginLeft: 68 }}
+    />
+  );
+}
+
 export default function NewDmScreen() {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [search, setSearch] = useState('');
@@ -174,9 +183,7 @@ export default function NewDmScreen() {
                 {search.trim() ? 'No people match your search' : 'No other members in this workspace'}
               </Text>
             }
-            ItemSeparatorComponent={() => (
-              <View style={styles.separator} />
-            )}
+            ItemSeparatorComponent={MemberListSeparator}
           />
         )}
       </View>
@@ -247,6 +254,5 @@ const makeStyles = (c: ThemeColors, _bottomInset: number) =>
     memberInfo: { flex: 1 },
     memberName: { fontSize: 16, fontWeight: '500', color: c.text },
     memberEmail: { fontSize: 13, color: c.muted, marginTop: 1 },
-    separator: { height: StyleSheet.hairlineWidth, backgroundColor: c.secondary, marginLeft: 68 },
     emptyText: { fontSize: 15, color: c.muted, textAlign: 'center' },
   });
