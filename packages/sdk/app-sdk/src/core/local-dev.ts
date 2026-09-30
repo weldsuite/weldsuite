@@ -1,3 +1,4 @@
+import { randomIdSuffix } from './random-id';
 import type {
   AppRecord,
   CreateProductInput,
@@ -133,11 +134,11 @@ function matchesFilter(data: Record<string, unknown>, filter: Record<string, unk
 }
 
 function generateLocalId(): string {
-  return `rec_local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `rec_local_${Date.now().toString(36)}_${randomIdSuffix(8)}`;
 }
 
 function generateLocalProductId(): string {
-  return `prod_local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `prod_local_${Date.now().toString(36)}_${randomIdSuffix(8)}`;
 }
 
 /**

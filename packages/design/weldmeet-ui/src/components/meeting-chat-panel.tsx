@@ -52,6 +52,7 @@ import { EmptyStateIllustration } from './entity-list';
 import { EmojiPicker } from './emoji-picker';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import { sanitizeRichText, hasRichFormatting } from '../lib/sanitize-rich-text';
+import { randomIdSuffix } from '../lib/random-id';
 
 // ============================================================================
 // Shared types
@@ -930,7 +931,7 @@ function MessageInput({
         // Optimistic placeholder so the user sees the file immediately with a
         // spinner; replaced with the real attachment (shareable URL) once the
         // upload resolves, or removed on failure.
-        const tempId = `uploading_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const tempId = `uploading_${Date.now()}_${randomIdSuffix(6)}`;
         const placeholder: ChatMessageAttachment = {
           id: tempId,
           fileName: file.name,

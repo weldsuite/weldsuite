@@ -56,17 +56,21 @@ def _json_str(s: str) -> str:
 
 
 def mux_voice_only(mp3: Path, out_mp4: Path) -> None:
+    # Absolute paths can never be parsed by ffmpeg as an option (they start
+    # with "/"), so caller-supplied file names cannot inject extra arguments.
+    src = mp3.resolve()
+    dst = out_mp4.resolve()
     subprocess.run(
         [
             "ffmpeg",
             "-y",
             "-i",
-            str(mp3),
+            str(src),
             "-c:a",
             "aac",
             "-b:a",
             "160k",
-            str(out_mp4),
+            str(dst),
         ],
         check=True,
     )

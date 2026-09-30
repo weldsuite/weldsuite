@@ -7,6 +7,7 @@ import {
   type WeldAppBridgeOptions,
 } from './local-dev';
 import { applyDesignTokens, applyTheme } from './appearance';
+import { randomIdSuffix } from './random-id';
 import type {
   AppMessage,
   BridgeEventName,
@@ -254,7 +255,7 @@ export class WeldAppBridge {
       return this.handleLocalRequest<TResult>(method, payload);
     }
 
-    const id = `req_${++this.requestCounter}_${Math.random().toString(36).slice(2, 10)}`;
+    const id = `req_${++this.requestCounter}_${randomIdSuffix(8)}`;
     const timeoutMs = options.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : options.timeoutMs;
 
     return new Promise<TResult>((resolve, reject) => {
