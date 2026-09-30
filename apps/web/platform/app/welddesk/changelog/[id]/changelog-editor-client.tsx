@@ -545,6 +545,9 @@ export function ChangelogEditorClient(_props: ChangelogEditorClientProps) {
           suppressContentEditableWarning
           onInput={handleTitleInput}
           onKeyDown={handleTitleKeyDown}
+          role="textbox"
+          aria-multiline="false"
+          aria-label={tc.untitled}
           dir="ltr"
           className={cn(
             "text-4xl font-bold outline-none mb-2 leading-[1.2]",
@@ -568,6 +571,9 @@ export function ChangelogEditorClient(_props: ChangelogEditorClientProps) {
             suppressContentEditableWarning
             onInput={handleContentInput}
             onKeyDown={handleContentKeyDown}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={tc.pressForCommands}
             dir="ltr"
             className={cn(
               "text-base outline-none min-h-[400px] leading-relaxed",
@@ -597,23 +603,24 @@ export function ChangelogEditorClient(_props: ChangelogEditorClientProps) {
               <div className="overflow-hidden p-1">
                 <div className="overflow-y-auto max-h-[300px] overflow-x-hidden">
                   {filteredCommands.map((command, index) => (
-                    <div
+                    <button
+                      type="button"
                       key={command.id}
+                      tabIndex={-1}
                       onClick={() => command.action()}
                       className={cn(
-                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                        "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
                         index === selectedCommandIndex
                           ? "bg-accent text-accent-foreground"
                           : "hover:bg-accent hover:text-accent-foreground"
                       )}
-                      role="option"
-                      aria-selected={index === selectedCommandIndex}
+                      aria-current={index === selectedCommandIndex}
                     >
-                      <div className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
+                      <span className="mr-0.5 block h-4 w-4 shrink-0 opacity-70">
                         {command.icon}
-                      </div>
+                      </span>
                       <span className="flex-1 truncate">{command.label}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
