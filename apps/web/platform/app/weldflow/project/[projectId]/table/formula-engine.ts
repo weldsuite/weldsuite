@@ -248,7 +248,7 @@ type ASTNode =
 // ---------- Parser (recursive descent) ----------
 
 class Parser {
-  private tokens: Token[];
+  private readonly tokens: Token[];
   private pos = 0;
 
   constructor(tokens: Token[]) {
