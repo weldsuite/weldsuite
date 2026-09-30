@@ -237,7 +237,8 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
       (key) => params.delete(key),
     );
     const qs = params.toString();
-    window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+    const search = qs ? `?${qs}` : '';
+    window.history.replaceState({}, '', `${window.location.pathname}${search}`);
 
     void (async () => {
       const stripe = stripePromise ? await stripePromise : null;
@@ -324,6 +325,105 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
     }
   };
 
+  const renderRows = () => {
+    if (isLoading) {
+      return (
+        <TableRow>
+          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin inline" />
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    if (methods.length === 0) {
+      return (
+        <TableRow>
+          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+            {ts.empty}
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    return methods.map((method) => {
+      const expiry = formatExpiry(method);
+      const expired = isExpired(method);
+      return (
+        <TableRow key={method.id}>
+          <TableCell className="h-[42px] py-0 px-3">
+            <div className="flex items-center gap-2">
+              {method.type === 'sepa_debit' ? (
+                <Landmark className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              ) : (
+                <CreditCard className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              )}
+              <span className="font-medium text-sm">
+                {formatBrand(method, ts.sepaDebit)}
+              </span>
+              {method.last4 && (
+                <span className="font-mono text-sm text-muted-foreground">
+                  •••• {method.last4}
+                </span>
+              )}
+              {method.isDefault && (
+                <Badge variant="secondary" className="rounded-sm text-xs">
+                  {ts.primary}
+                </Badge>
+              )}
+            </div>
+          </TableCell>
+          <TableCell className="h-[42px] py-0 px-3">
+            {expiry ? (
+              <span
+                className={`text-sm ${expired ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
+                {expiry}
+                {expired && ` · ${ts.expired}`}
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">—</span>
+            )}
+          </TableCell>
+          <TableCell className="h-[42px] py-0 px-3">
+            <span className="text-sm text-muted-foreground">
+              {method.createdAt
+                ? format(new Date(method.createdAt), 'MMM d, yyyy')
+                : '—'}
+            </span>
+          </TableCell>
+          <TableCell className="h-[42px] py-0 px-3">
+            {canManage && (
+              <div className="flex justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">{ts.rowActions}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {!method.isDefault && (
+                      <DropdownMenuItem onClick={() => handleSetDefault(method.id)}>
+                        {ts.setPrimary}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => handleRemove(method)}
+                    >
+                      {t.common.actions.remove}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </TableCell>
+        </TableRow>
+      );
+    });
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -362,96 +462,7 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin inline" />
-                </TableCell>
-              </TableRow>
-            ) : methods.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                  {ts.empty}
-                </TableCell>
-              </TableRow>
-            ) : (
-              methods.map((method) => {
-                const expiry = formatExpiry(method);
-                const expired = isExpired(method);
-                return (
-                  <TableRow key={method.id}>
-                    <TableCell className="h-[42px] py-0 px-3">
-                      <div className="flex items-center gap-2">
-                        {method.type === 'sepa_debit' ? (
-                          <Landmark className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        ) : (
-                          <CreditCard className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        )}
-                        <span className="font-medium text-sm">
-                          {formatBrand(method, ts.sepaDebit)}
-                        </span>
-                        {method.last4 && (
-                          <span className="font-mono text-sm text-muted-foreground">
-                            •••• {method.last4}
-                          </span>
-                        )}
-                        {method.isDefault && (
-                          <Badge variant="secondary" className="rounded-sm text-xs">
-                            {ts.primary}
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="h-[42px] py-0 px-3">
-                      {expiry ? (
-                        <span
-                          className={`text-sm ${expired ? 'text-destructive' : 'text-muted-foreground'}`}
-                        >
-                          {expiry}
-                          {expired && ` · ${ts.expired}`}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="h-[42px] py-0 px-3">
-                      <span className="text-sm text-muted-foreground">
-                        {method.createdAt
-                          ? format(new Date(method.createdAt), 'MMM d, yyyy')
-                          : '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell className="h-[42px] py-0 px-3">
-                      {canManage && (
-                        <div className="flex justify-end">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">{ts.rowActions}</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {!method.isDefault && (
-                                <DropdownMenuItem onClick={() => handleSetDefault(method.id)}>
-                                  {ts.setPrimary}
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => handleRemove(method)}
-                              >
-                                {t.common.actions.remove}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
+            {renderRows()}
           </TableBody>
         </Table>
       </div>
