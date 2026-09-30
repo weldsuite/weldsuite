@@ -335,11 +335,11 @@
 
     const status = () => `<div class="status"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
 
-    function mail(initial, cls, from, when, whenCls, subj, prev, opts = {}) {
+    function mail(initial, cls, from, when, subj, prev, opts = {}) {
       return `<div class="mail${opts.unread ? ' unread' : ''}">
         <div class="av ${cls}">${initial}</div>
         <div class="mail-main">
-          <div class="mail-top"><span class="from">${from}</span><span class="when ${whenCls||''}">${when}</span></div>
+          <div class="mail-top"><span class="from">${from}</span><span class="when ${opts.whenCls||''}">${when}</span></div>
           <div class="subj">${subj}</div>
           <div class="prev">${prev}</div>
           <div class="mail-meta">
@@ -353,13 +353,13 @@
 
     const inboxList = `
       <div class="sec">Today</div>
-      ${mail('A','c1','Anna Vermeer','9:18','un','Q4 launch checklist','Can you confirm the App Store assets are ready…',{unread:true,star:true})}
-      ${mail('N','c2','Nordhaven BV','8:42','un','Invoice INV-1042','Please find attached our purchase order for…',{unread:true,attach:true})}
+      ${mail('A','c1','Anna Vermeer','9:18','Q4 launch checklist','Can you confirm the App Store assets are ready…',{whenCls:'un',unread:true,star:true})}
+      ${mail('N','c2','Nordhaven BV','8:42','Invoice INV-1042','Please find attached our purchase order for…',{whenCls:'un',unread:true,attach:true})}
       <div class="sec">Yesterday</div>
-      ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still outstanding…',{star:true})}
-      ${mail('S','c4','Sofia Lind','Yesterday','','Design review','Hero layout looks good — one note on CTA…',{})}
-      ${mail('M','c5','Maya Chen','Yesterday','','Patch shipped','Tokens are live on preview; please smoke-test…',{attach:true})}
-      ${mail('T','c1','Tom Bakker','Mon','','Customer update draft','First pass attached — tone check welcome.',{attach:true})}`;
+      ${mail('J','c3','Jules Hart','Yesterday','Standup notes','Android listing screenshots still outstanding…',{star:true})}
+      ${mail('S','c4','Sofia Lind','Yesterday','Design review','Hero layout looks good — one note on CTA…',{})}
+      ${mail('M','c5','Maya Chen','Yesterday','Patch shipped','Tokens are live on preview; please smoke-test…',{attach:true})}
+      ${mail('T','c1','Tom Bakker','Mon','Customer update draft','First pass attached — tone check welcome.',{attach:true})}`;
 
     const inboxChrome = (title = 'Inbox') => `
       ${status()}
@@ -499,9 +499,9 @@
         </div>
         <div class="scroll">
           <div class="sec">Recent</div>
-          ${mail('A','c1','Anna Vermeer','9:18','','Q4 launch checklist','Can you confirm the App Store assets…',{unread:true})}
-          ${mail('N','c2','Nordhaven BV','8:42','','Invoice INV-1042','Please find attached our purchase order…',{attach:true})}
-          ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still…',{})}
+          ${mail('A','c1','Anna Vermeer','9:18','Q4 launch checklist','Can you confirm the App Store assets…',{unread:true})}
+          ${mail('N','c2','Nordhaven BV','8:42','Invoice INV-1042','Please find attached our purchase order…',{attach:true})}
+          ${mail('J','c3','Jules Hart','Yesterday','Standup notes','Android listing screenshots still…',{})}
         </div>
         <div class="home-bar"></div>`,
       feature: () => `

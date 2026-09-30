@@ -217,10 +217,8 @@ function excludeNewestPerRegion(deletableRows: PoolRow[], keepPerRegion: number)
     byRegion.set(r.region, list);
   }
   for (const [, list] of byRegion) {
-    list
-      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
-      .slice(0, keepPerRegion)
-      .forEach((r) => keepIds.add(r.id));
+    list.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+    list.slice(0, keepPerRegion).forEach((r) => keepIds.add(r.id));
   }
   return deletableRows.filter((r) => !keepIds.has(r.id));
 }
@@ -425,7 +423,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('\nFatal:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

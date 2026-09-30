@@ -227,17 +227,22 @@ async function insertDefinition(
  * and the value it would carry is counted migratable without a pending insert
  * (there is no real definition id to key it on yet).
  */
+interface DefinitionContext {
+  sql: postgres.Sql;
+  cache: Map<string, DefinitionRow | null>;
+  bySlug: Map<string, DefinitionRow>; // scoped defs for this ticket type
+  globalBySlug: Map<string, DefinitionRow>; // ticket_type_id NULL defs
+  entityType: string;
+  execute: boolean;
+  autoCreated: { count: number; samples: Set<string> };
+}
+
 async function resolveDefinition(
-  sql: postgres.Sql,
-  cache: Map<string, DefinitionRow | null>,
-  bySlug: Map<string, DefinitionRow>,       // scoped defs for this ticket type
-  globalBySlug: Map<string, DefinitionRow>, // ticket_type_id NULL defs
-  entityType: string,
+  ctx: DefinitionContext,
   slug: string,
   ticketTypeId: string | null,
-  execute: boolean,
-  autoCreated: { count: number; samples: Set<string> },
 ): Promise<DefinitionRow | null> {
+  const { sql, cache, bySlug, globalBySlug, entityType, execute, autoCreated } = ctx;
   const key = `${ticketTypeId ?? ''}:${slug}`;
   if (cache.has(key)) return cache.get(key)!;
 
@@ -283,7 +288,10 @@ function groupScopedDefinitions(defs: DefinitionRow[]): Map<string, Map<string, 
   for (const d of defs) {
     if (d.ticket_type_id === null) continue;
     let m = scopedByType.get(d.ticket_type_id);
-    if (!m) scopedByType.set(d.ticket_type_id, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      scopedByType.set(d.ticket_type_id, m);
+    }
     m.set(d.slug, d);
   }
   return scopedByType;
@@ -311,7 +319,17 @@ async function classifyBlobValue(
   }
 
   const def = await resolveDefinition(
-    sql, state.defCache, scopedBySlug, state.globalBySlug, state.entityType, slug, ticketTypeId, state.execute, state.autoCreated,
+    {
+      sql,
+      cache: state.defCache,
+      bySlug: scopedBySlug,
+      globalBySlug: state.globalBySlug,
+      entityType: state.entityType,
+      execute: state.execute,
+      autoCreated: state.autoCreated,
+    },
+    slug,
+    ticketTypeId,
   );
 
   // Dry-run auto-create: no real definition, but the value WOULD migrate.
@@ -474,11 +492,14 @@ async function sweepTenant(label: string, databaseUrl: string, options: CliOptio
   }
 
   const stored = counts.alreadyPresent + counts.inserted;
-  const parity = options.execute
-    ? stored === counts.migratable
-      ? 'PARITY OK'
-      : `PARITY MISMATCH (${counts.migratable - stored} unstored)`
-    : `${counts.migratable - counts.alreadyPresent} to insert`;
+  let parity: string;
+  if (!options.execute) {
+    parity = `${counts.migratable - counts.alreadyPresent} to insert`;
+  } else if (stored === counts.migratable) {
+    parity = 'PARITY OK';
+  } else {
+    parity = `PARITY MISMATCH (${counts.migratable - stored} unstored)`;
+  }
   console.log(
     `  ${label}: rows=${counts.rows} values=${counts.blobValues} migratable=${counts.migratable} ` +
       `present=${counts.alreadyPresent} inserted=${counts.inserted} ` +
@@ -590,7 +611,9 @@ async function main() {
   process.exit(clean ? 0 : 1);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Pile B backfill failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

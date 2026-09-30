@@ -239,8 +239,8 @@ function listKind(type: string | undefined): 'ul' | 'ol' | null {
 }
 
 function listItemHtml(b: BlockLike): string {
-  const prefix =
-    b.type === 'checkListItem' ? (b.props?.checked ? '☑ ' : '☐ ') : '';
+  let prefix = '';
+  if (b.type === 'checkListItem') prefix = b.props?.checked ? '☑ ' : '☐ ';
   const inline = inlineToHtml(asInline(b.content));
   const childHtml = b.children && b.children.length ? blocksToHtml(b.children) : '';
   return `${prefix}${inline}${childHtml}`;

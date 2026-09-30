@@ -434,7 +434,9 @@ async function main() {
   process.exit(total.tenantsSkipped > 0 || total.missingColumns > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Extraction failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

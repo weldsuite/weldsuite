@@ -368,8 +368,10 @@ async function main(): Promise<void> {
 }
 
 // Run main function
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   console.error('Fatal error:', sanitizeMessage(message));
   process.exit(1);
-});
+}
