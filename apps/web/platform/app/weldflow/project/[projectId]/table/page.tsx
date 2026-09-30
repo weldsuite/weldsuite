@@ -163,15 +163,18 @@ export default function ProjectTablePage() {
     return (
       <div
         key={item.id}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => openTable(item.id)}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
-        <div className="flex-1 min-w-[300px] flex items-center gap-2">
+        <button
+          type="button"
+          className="flex-1 min-w-[300px] flex items-center gap-2 text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-primary/50"
+          onClick={() => openTable(item.id)}
+        >
           <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
-          <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+          <span className="block text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {item.name || t.projects.table.untitled}
-          </p>
-        </div>
+          </span>
+        </button>
 
         <div className="w-[140px]">
           <span className="text-sm text-gray-500">{formatDate(item.updatedAt)}</span>
@@ -181,7 +184,7 @@ export default function ProjectTablePage() {
           <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
         </div>
 
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
