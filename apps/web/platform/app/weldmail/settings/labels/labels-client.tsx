@@ -244,6 +244,15 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
     );
   };
 
+  let labelsSummary: string;
+  if (labels.length === 0) {
+    labelsSummary = t.mail.settingsLabels.noLabelsFound;
+  } else if (labels.length === 1) {
+    labelsSummary = t.mail.settingsLabels.youHaveLabels.replace('{count}', String(labels.length));
+  } else {
+    labelsSummary = t.mail.settingsLabels.youHaveLabelsPlural.replace('{count}', String(labels.length));
+  }
+
   const handleStartEdit = (label: Mail.Label) => {
     setEditingLabel(label.name);
     setEditValue(label.name);
@@ -341,11 +350,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
             <div>
               <CardTitle>{t.mail.settingsLabels.yourLabels}</CardTitle>
               <CardDescription>
-                {labels.length === 0
-                  ? t.mail.settingsLabels.noLabelsFound
-                  : labels.length === 1
-                    ? t.mail.settingsLabels.youHaveLabels.replace('{count}', String(labels.length))
-                    : t.mail.settingsLabels.youHaveLabelsPlural.replace('{count}', String(labels.length))}
+                {labelsSummary}
               </CardDescription>
             </div>
             <Button data-testid="labels-create-btn" onClick={() => setIsCreateDialogOpen(true)}>
@@ -410,7 +415,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         {label.aiEnabled && (
                           <Badge variant="secondary" className="text-xs flex items-center gap-1">
                             <img src="/assets/images/weldagent/logo-light.png" alt="AI" width={12} height={12} />
-                            AI
+                            <span>AI</span>
                           </Badge>
                         )}
                         {label.count > 0 && (

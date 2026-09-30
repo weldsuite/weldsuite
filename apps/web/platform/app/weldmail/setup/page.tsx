@@ -102,6 +102,39 @@ function ChooseMethodContent({
   );
 }
 
+function AvailabilityStatus({
+  checking,
+  result,
+}: Readonly<{ checking: boolean; result: { available: boolean; message?: string } | null }>) {
+  const { t } = useI18n();
+
+  if (checking) {
+    return (
+      <>
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        <span className="text-muted-foreground">{t.mail.setupPage.checkingAvailability}</span>
+      </>
+    );
+  }
+  if (!result) return null;
+  if (result.available) {
+    return (
+      <>
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+        <span className="text-green-600">{t.mail.setupPage.addressAvailable}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+      <span className="text-red-600">
+        {result.message || t.mail.setupPage.addressNotAvailable}
+      </span>
+    </>
+  );
+}
+
 function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -202,26 +235,7 @@ function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
 
         {address.length >= 3 && (
           <div className="flex items-center gap-2 text-sm">
-            {checkingAvailability ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                <span className="text-muted-foreground">{t.mail.setupPage.checkingAvailability}</span>
-              </>
-            ) : availabilityResult ? (
-              availabilityResult.available ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                  <span className="text-green-600">{t.mail.setupPage.addressAvailable}</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                  <span className="text-red-600">
-                    {availabilityResult.message || t.mail.setupPage.addressNotAvailable}
-                  </span>
-                </>
-              )
-            ) : null}
+            <AvailabilityStatus checking={checkingAvailability} result={availabilityResult} />
           </div>
         )}
 

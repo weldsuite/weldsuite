@@ -523,11 +523,11 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
         {/* Custom Domain Form */}
         {accountType === 'resend' && (
           <form onSubmit={handleCustomDomainSubmit} className="space-y-4">
-            {loadingDomains ? (
-              <LoadingRow />
-            ) : availableDomains.length === 0 ? (
+            {loadingDomains && <LoadingRow />}
+            {!loadingDomains && availableDomains.length === 0 && (
               <NoActiveDomains loading={weldhostLoading} installed={weldhostInstalled} t={t} />
-            ) : (
+            )}
+            {!loadingDomains && availableDomains.length > 0 && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="domain">{t.mail.addAccount.selectDomain}</Label>
