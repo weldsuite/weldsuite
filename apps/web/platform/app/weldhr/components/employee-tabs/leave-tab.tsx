@@ -1,6 +1,6 @@
 /** Employee detail — leave tab: this year's balances, request history, and a new request. */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
@@ -27,6 +27,88 @@ export function EmployeeLeaveTab({ employeeId }: Readonly<{ employeeId: string }
   const [creating, setCreating] = useState(false);
   const [review, setReview] = useState<{ request: HrLeaveRequest; decision: 'approved' | 'rejected' } | null>(null);
 
+  let balancesContent: ReactNode;
+  if (balancesLoading) {
+    balancesContent = (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!balances || balances.length === 0) {
+    balancesContent = <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>;
+  } else {
+    balancesContent = (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {balances.map((balance) => (
+          <div key={balance.leaveTypeId} className="rounded-lg border p-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
+              {balance.name}
+            </div>
+            <p className="mt-1 text-lg font-semibold tabular-nums">
+              {balance.remaining ?? t('weldhr.leave.balances.unlimited')}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {balance.used} {t('weldhr.leave.balances.table.used').toLowerCase()}
+              {balance.pending > 0 ? ` · ${balance.pending} ${t('weldhr.leave.balances.table.pending').toLowerCase()}` : ''}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  let historyContent: ReactNode;
+  if (requestsLoading) {
+    historyContent = (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!requests || requests.length === 0) {
+    historyContent = <EmptyText>{t('weldhr.leave.balances.noHistory')}</EmptyText>;
+  } else {
+    historyContent = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('weldhr.leave.requests.table.type')}</TableHead>
+            <TableHead>{t('weldhr.leave.requests.table.dates')}</TableHead>
+            <TableHead>{t('weldhr.leave.requests.table.days')}</TableHead>
+            <TableHead>{t('weldhr.leave.requests.table.status')}</TableHead>
+            <TableHead />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {requests.map((request) => (
+            <TableRow key={request.id}>
+              <TableCell>{request.leaveTypeName ?? '—'}</TableCell>
+              <TableCell>
+                {formatDate(request.startDate)} – {formatDate(request.endDate)}
+              </TableCell>
+              <TableCell>{request.days}</TableCell>
+              <TableCell>
+                <StatusBadge group="leave" status={request.status} />
+              </TableCell>
+              <TableCell>
+                {canApprove && request.status === 'pending' && (
+                  <div className="flex justify-end gap-1.5">
+                    <Button size="sm" variant="outline" onClick={() => setReview({ request, decision: 'approved' })}>
+                      {t('weldhr.leave.requests.approve')}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setReview({ request, decision: 'rejected' })}>
+                      {t('weldhr.leave.requests.reject')}
+                    </Button>
+                  </div>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <SectionCard
@@ -40,81 +122,13 @@ export function EmployeeLeaveTab({ employeeId }: Readonly<{ employeeId: string }
       >
         <ErrorBanner error={balancesError ? errorMessage(balancesError, t('weldhr.leave.balances.loadFailed')) : null} />
 
-        {balancesLoading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : !balances || balances.length === 0 ? (
-          <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {balances.map((balance) => (
-              <div key={balance.leaveTypeId} className="rounded-lg border p-3">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
-                  {balance.name}
-                </div>
-                <p className="mt-1 text-lg font-semibold tabular-nums">
-                  {balance.remaining ?? t('weldhr.leave.balances.unlimited')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {balance.used} {t('weldhr.leave.balances.table.used').toLowerCase()}
-                  {balance.pending > 0 ? ` · ${balance.pending} ${t('weldhr.leave.balances.table.pending').toLowerCase()}` : ''}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+        {balancesContent}
       </SectionCard>
 
       <SectionCard title={t('weldhr.leave.balances.history')} contentClassName="p-0">
         <ErrorBanner error={requestsError ? errorMessage(requestsError, t('weldhr.leave.requests.loadFailed')) : null} />
 
-        {requestsLoading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : !requests || requests.length === 0 ? (
-          <EmptyText>{t('weldhr.leave.balances.noHistory')}</EmptyText>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.leave.requests.table.type')}</TableHead>
-                <TableHead>{t('weldhr.leave.requests.table.dates')}</TableHead>
-                <TableHead>{t('weldhr.leave.requests.table.days')}</TableHead>
-                <TableHead>{t('weldhr.leave.requests.table.status')}</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {requests.map((request) => (
-                <TableRow key={request.id}>
-                  <TableCell>{request.leaveTypeName ?? '—'}</TableCell>
-                  <TableCell>
-                    {formatDate(request.startDate)} – {formatDate(request.endDate)}
-                  </TableCell>
-                  <TableCell>{request.days}</TableCell>
-                  <TableCell>
-                    <StatusBadge group="leave" status={request.status} />
-                  </TableCell>
-                  <TableCell>
-                    {canApprove && request.status === 'pending' && (
-                      <div className="flex justify-end gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => setReview({ request, decision: 'approved' })}>
-                          {t('weldhr.leave.requests.approve')}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setReview({ request, decision: 'rejected' })}>
-                          {t('weldhr.leave.requests.reject')}
-                        </Button>
-                      </div>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        {historyContent}
       </SectionCard>
 
       {creating && (

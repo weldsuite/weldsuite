@@ -1,6 +1,6 @@
 /** Coaching timeline for a single employee's profile. */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CheckCircle2, Loader2, Plus } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -20,6 +20,25 @@ export function EmployeeCoachingTab({ employeeId }: Readonly<{ employeeId: strin
   const { data: logs, isLoading, error } = useHrCoaching({ employeeId });
   const [creating, setCreating] = useState(false);
 
+  let logsContent: ReactNode;
+  if (isLoading) {
+    logsContent = (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!logs || logs.length === 0) {
+    logsContent = <EmptyText>{t('weldhr.coaching.tab.empty')}</EmptyText>;
+  } else {
+    logsContent = (
+      <div className="space-y-3">
+        {logs.map((log) => (
+          <TimelineEntry key={log.id} log={log} />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <SectionCard
       title={t('weldhr.coaching.tab.title')}
@@ -34,19 +53,7 @@ export function EmployeeCoachingTab({ employeeId }: Readonly<{ employeeId: strin
     >
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
 
-      {isLoading ? (
-        <div className="flex justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : !logs || logs.length === 0 ? (
-        <EmptyText>{t('weldhr.coaching.tab.empty')}</EmptyText>
-      ) : (
-        <div className="space-y-3">
-          {logs.map((log) => (
-            <TimelineEntry key={log.id} log={log} />
-          ))}
-        </div>
-      )}
+      {logsContent}
 
       {creating && <CoachingDialog employeeId={employeeId} onClose={() => setCreating(false)} />}
     </SectionCard>
