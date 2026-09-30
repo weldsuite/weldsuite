@@ -199,6 +199,40 @@ const LABEL_COLORS = [
 
 type LabelColorValue = (typeof LABEL_COLORS)[number]['value'];
 
+// Known static mail routes (not accountIds)
+const STATIC_MAIL_ROUTES = new Set([
+  'inbox', 'search', 'scheduled', 'snoozed', 'settings', 'setup',
+  'domains', 'ai', 'unified', 'stats', 'subscriptions',
+]);
+
+/**
+ * Resolve the account the sidebar is scoped to: the accountId in the pathname
+ * (absent in unified mode or on static routes), else the default/first account.
+ */
+function resolveMailAccountId(
+  pathname: string | null | undefined,
+  isUnified: boolean,
+  accounts: MailAccountRow[],
+): string | undefined {
+  const accountIdMatch = !isUnified ? pathname?.match(/^\/weldmail\/([^/]+)/) : null;
+  const rawAccountId = accountIdMatch?.[1];
+  const accountId = rawAccountId && !STATIC_MAIL_ROUTES.has(rawAccountId)
+    ? rawAccountId
+    : undefined;
+  if (accountId) return accountId;
+  if (accounts.length === 0) return undefined;
+  return accounts.find((a) => a.isDefault)?.id || accounts[0]?.id;
+}
+
+function toSidebarEmailAccount(account: MailAccountRow | undefined): EmailAccount | null {
+  if (!account) return null;
+  return {
+    id: account.id,
+    email: account.email,
+    displayName: account.displayName ?? undefined,
+  };
+}
+
 export function useMailSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -270,23 +304,8 @@ export function useMailSidebarItems(isActive: boolean): {
   // Detect unified mode
   const isUnified = pathname?.startsWith('/weldmail/unified') ?? false;
 
-  // Known static mail routes (not accountIds)
-  const STATIC_MAIL_ROUTES = new Set([
-    'inbox', 'search', 'scheduled', 'snoozed', 'settings', 'setup',
-    'domains', 'ai', 'unified', 'stats', 'subscriptions',
-  ]);
-
-  // Extract accountId from pathname (not present in unified mode or static routes)
-  const accountIdMatch = !isUnified ? pathname?.match(/^\/weldmail\/([^/]+)/) : null;
-  const rawAccountId = accountIdMatch?.[1];
-  const accountId = rawAccountId && !STATIC_MAIL_ROUTES.has(rawAccountId)
-    ? rawAccountId
-    : undefined;
-
   // For static routes like /weldmail/inbox, resolve the default/first account
-  const resolvedAccountId = accountId || (localEmailAccounts.length > 0
-    ? (localEmailAccounts.find((a) => a.isDefault)?.id || localEmailAccounts[0]?.id)
-    : undefined);
+  const resolvedAccountId = resolveMailAccountId(pathname, isUnified, localEmailAccounts);
 
   const { mailAccounts, mailLabels } = useAppApi();
 
@@ -633,6 +652,9 @@ export function useMailSidebarItems(isActive: boolean): {
   ];
 
 
+  const MoreToggleIcon = showMore ? ChevronUp : ChevronDown;
+  const moreToggleLabel = showMore ? t.mail.sidebar.less : t.mail.sidebar.more;
+
   const mailboxGroup: MenuGroupProps = {
     group: t.mail.sidebar.mailboxes,
     customContent: (
@@ -685,12 +707,8 @@ export function useMailSidebarItems(isActive: boolean): {
               })}
             <SidebarMenuItem>
               <SidebarMenuButton onClick={() => setShowMore(!showMore)}>
-                {showMore ? (
-                  <ChevronUp className="h-4 w-4 text-gray-500" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-gray-500" />
-                )}
-                <span>{showMore ? t.mail.sidebar.less : t.mail.sidebar.more}</span>
+                <MoreToggleIcon className="h-4 w-4 text-gray-500" />
+                <span>{moreToggleLabel}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -827,13 +845,7 @@ export function useMailSidebarItems(isActive: boolean): {
 
   const currentUserMenuAccount: EmailAccount | null = isUnified
     ? allAccountsEntry
-    : currentAccount
-      ? {
-          id: currentAccount.id,
-          email: currentAccount.email,
-          displayName: currentAccount.displayName ?? undefined,
-        }
-      : null;
+    : toSidebarEmailAccount(currentAccount);
 
   const dialogs = (
     <>

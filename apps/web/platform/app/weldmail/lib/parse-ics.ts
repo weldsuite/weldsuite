@@ -226,6 +226,55 @@ function parsePerson(prop: RawProp): { email?: string; name?: string } {
   return { email, name };
 }
 
+/** True for a `BEGIN:VEVENT` / `END:VEVENT` marker line. */
+function isVeventMarker(prop: RawProp, name: 'BEGIN' | 'END'): boolean {
+  return prop.name === name && prop.value.toUpperCase() === 'VEVENT';
+}
+
+/** Apply a single VEVENT property to the event being built. */
+function applyEventProp(event: ParsedIcsEvent, prop: RawProp): void {
+  switch (prop.name) {
+    case 'UID':
+      event.uid = prop.value.trim();
+      break;
+    case 'SUMMARY':
+      event.summary = unescapeText(prop.value);
+      break;
+    case 'DESCRIPTION':
+      event.description = unescapeText(prop.value);
+      break;
+    case 'LOCATION':
+      event.location = unescapeText(prop.value);
+      break;
+    case 'URL':
+      event.url = prop.value.trim();
+      break;
+    case 'RRULE':
+      event.rrule = prop.value.trim();
+      break;
+    case 'STATUS':
+      event.status = prop.value.trim().toUpperCase();
+      break;
+    case 'DTSTART': {
+      const { iso, allDay } = parseIcsDate(prop);
+      event.start = iso;
+      if (allDay) event.allDay = true;
+      break;
+    }
+    case 'DTEND':
+      event.end = parseIcsDate(prop).iso;
+      break;
+    case 'ORGANIZER':
+      event.organizer = parsePerson(prop);
+      break;
+    case 'ATTENDEE':
+      event.attendees.push(parsePerson(prop));
+      break;
+    default:
+      break;
+  }
+}
+
 /**
  * Parse the first VEVENT from an iCalendar payload. Returns `null` when the
  * text isn't a calendar object or contains no VEVENT.
@@ -243,62 +292,18 @@ export function parseIcs(raw: string): ParsedIcsEvent | null {
     const prop = parseProp(line);
     if (!prop) continue;
 
-    if (prop.name === 'METHOD' && !inEvent) {
-      method = prop.value.trim().toUpperCase();
-      continue;
-    }
-    if (prop.name === 'BEGIN' && prop.value.toUpperCase() === 'VEVENT') {
+    if (isVeventMarker(prop, 'END')) break; // Only the first VEVENT is needed.
+    if (isVeventMarker(prop, 'BEGIN')) {
       inEvent = true;
       foundEvent = true;
       continue;
     }
-    if (prop.name === 'END' && prop.value.toUpperCase() === 'VEVENT') {
-      break; // Only the first VEVENT is needed.
+    if (!inEvent) {
+      if (prop.name === 'METHOD') method = prop.value.trim().toUpperCase();
+      continue;
     }
-    if (!inEvent) continue;
 
-    switch (prop.name) {
-      case 'UID':
-        event.uid = prop.value.trim();
-        break;
-      case 'SUMMARY':
-        event.summary = unescapeText(prop.value);
-        break;
-      case 'DESCRIPTION':
-        event.description = unescapeText(prop.value);
-        break;
-      case 'LOCATION':
-        event.location = unescapeText(prop.value);
-        break;
-      case 'URL':
-        event.url = prop.value.trim();
-        break;
-      case 'RRULE':
-        event.rrule = prop.value.trim();
-        break;
-      case 'STATUS':
-        event.status = prop.value.trim().toUpperCase();
-        break;
-      case 'DTSTART': {
-        const { iso, allDay } = parseIcsDate(prop);
-        event.start = iso;
-        if (allDay) event.allDay = true;
-        break;
-      }
-      case 'DTEND': {
-        const { iso } = parseIcsDate(prop);
-        event.end = iso;
-        break;
-      }
-      case 'ORGANIZER':
-        event.organizer = parsePerson(prop);
-        break;
-      case 'ATTENDEE':
-        event.attendees.push(parsePerson(prop));
-        break;
-      default:
-        break;
-    }
+    applyEventProp(event, prop);
   }
 
   if (!foundEvent) return null;
