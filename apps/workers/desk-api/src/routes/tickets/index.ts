@@ -7,7 +7,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createTicketSchema, ticketPriority, updateTicketSchema } from '@weldsuite/app-api-client/schemas/tickets';
 import type { Env, Variables } from '../../types';
@@ -82,37 +82,49 @@ const ticketReplySchema = z.object({
   isInternal: z.boolean().optional().default(false),
 });
 
+/** Push `column = value` when the caller supplied a non-empty filter value. */
+function pushEqFilter(conditions: SQL[], column: AnyColumn, value: string | undefined): void {
+  if (value !== undefined && value !== '') conditions.push(eq(column, value));
+}
+
+/** List filters from the query string (always excludes soft-deleted rows). */
+function buildFilterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  pushEqFilter(conditions, t.status, q.status);
+  pushEqFilter(conditions, t.priority, q.priority);
+  pushEqFilter(conditions, t.assigneeId, q.assigneeId);
+  pushEqFilter(conditions, t.departmentId, q.departmentId);
+  // Parity with api-worker's `/helpdesk/tickets`, which filtered on this.
+  // `helpdesk_tickets.contactId` is indexed; without it a contact-scoped
+  // caller silently receives the workspace's whole first page instead.
+  pushEqFilter(conditions, t.contactId, q.contactId);
+  pushEqFilter(conditions, t.channel, q.channel);
+  pushEqFilter(conditions, t.category, q.category);
+  pushEqFilter(conditions, t.ticketTypeId, q.ticketTypeId);
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.subject, term), like(t.customerEmail, term), like(t.customerName, term), like(t.ticketNumber, term))!);
+  }
+  return conditions;
+}
+
+/** Keyset condition for "rows after this cursor row"; null when the cursor row is gone. */
+async function buildCursorCondition(db: Database, cursor: string): Promise<SQL | null> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('tickets:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.priority !== undefined && q.priority !== '') conditions.push(eq(t.priority, q.priority));
-  if (q.assigneeId !== undefined && q.assigneeId !== '') conditions.push(eq(t.assigneeId, q.assigneeId));
-  if (q.departmentId !== undefined && q.departmentId !== '') conditions.push(eq(t.departmentId, q.departmentId));
-  // Parity with api-worker's `/helpdesk/tickets`, which filtered on this.
-  // `helpdesk_tickets.contactId` is indexed; without it a contact-scoped
-  // caller silently receives the workspace's whole first page instead.
-  if (q.contactId !== undefined && q.contactId !== '') conditions.push(eq(t.contactId, q.contactId));
-  if (q.channel !== undefined && q.channel !== '') conditions.push(eq(t.channel, q.channel));
-  if (q.category !== undefined && q.category !== '') conditions.push(eq(t.category, q.category));
-  if (q.ticketTypeId !== undefined && q.ticketTypeId !== '') conditions.push(eq(t.ticketTypeId, q.ticketTypeId));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.subject, term), like(t.customerEmail, term), like(t.customerName, term), like(t.ticketNumber, term))!);
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const conditions = buildFilterConditions(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : null;
+  if (cursorCondition) conditions.push(cursorCondition);
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
