@@ -80,6 +80,21 @@ export interface UseMailRealtimeReturn {
   resetNewEmailCount: () => void;
 }
 
+type MailTranslate = ReturnType<typeof useTranslations>;
+
+/** Toast shown when a new email arrives in real time. */
+function showNewEmailToast(email: NewEmailEvent, t: MailTranslate): void {
+  toast.info(
+    t('sweep.weldmail.realtime.newEmailFrom', {
+      sender: email.from.name || email.from.email,
+    }),
+    {
+      description: email.subject,
+      duration: 5000,
+    }
+  );
+}
+
 /**
  * Hook for real-time mail updates via @weldsuite/realtime WorkspaceHub.
  *
@@ -171,77 +186,40 @@ export function useMailRealtime(options: UseMailRealtimeOptions = {}): UseMailRe
     const topic = topics.mail(userId);
 
     const unsub = client.on(topic, (event: WorkspaceEvent) => {
-      const eventType = event.event;
       const data = event.data as Record<string, unknown>;
+      // Every mail event carries the owning account; drop other accounts' events.
+      if (accountId && data.accountId !== accountId) return;
 
-      switch (eventType) {
+      const callbacks = callbacksRef.current;
+      const emailId = data.emailId as string;
+      const eventAccountId = data.accountId as string;
+
+      switch (event.event) {
         case 'mail:new': {
           const email = data as unknown as NewEmailEvent;
-          if (accountId && email.accountId !== accountId) return;
-
           setNewEmailCount((prev) => prev + 1);
-
-          if (showToasts) {
-            toast.info(
-              tRef.current('sweep.weldmail.realtime.newEmailFrom', {
-                sender: email.from.name || email.from.email,
-              }),
-              {
-                description: email.subject,
-                duration: 5000,
-              }
-            );
-          }
-
-          callbacksRef.current.onNewEmail?.(email);
+          if (showToasts) showNewEmailToast(email, tRef.current);
+          callbacks.onNewEmail?.(email);
           break;
         }
-
-        case 'mail:sync': {
-          const status = data as unknown as EmailSyncEvent;
-          if (accountId && status.accountId !== accountId) return;
-          callbacksRef.current.onSyncStatus?.(status);
+        case 'mail:sync':
+          callbacks.onSyncStatus?.(data as unknown as EmailSyncEvent);
           break;
-        }
-
-        case 'mail:read': {
-          const readEvent = data as unknown as EmailReadEvent;
-          if (accountId && readEvent.accountId !== accountId) return;
-          callbacksRef.current.onReadStatusChange?.(readEvent);
+        case 'mail:read':
+          callbacks.onReadStatusChange?.(data as unknown as EmailReadEvent);
           break;
-        }
-
-        case 'mail:unread_count': {
-          const countEvent = data as unknown as UnreadCountEvent;
-          if (accountId && countEvent.accountId !== accountId) return;
-          callbacksRef.current.onUnreadCountUpdate?.(countEvent);
+        case 'mail:unread_count':
+          callbacks.onUnreadCountUpdate?.(data as unknown as UnreadCountEvent);
           break;
-        }
-
-        case 'mail:deleted': {
-          const emailId = data.emailId as string;
-          const eventAccountId = data.accountId as string;
-          if (accountId && eventAccountId !== accountId) return;
-          callbacksRef.current.onEmailDeleted?.(emailId, eventAccountId);
+        case 'mail:deleted':
+          callbacks.onEmailDeleted?.(emailId, eventAccountId);
           break;
-        }
-
-        case 'mail:archived': {
-          const emailId = data.emailId as string;
-          const eventAccountId = data.accountId as string;
-          if (accountId && eventAccountId !== accountId) return;
-          callbacksRef.current.onEmailArchived?.(emailId, eventAccountId);
+        case 'mail:archived':
+          callbacks.onEmailArchived?.(emailId, eventAccountId);
           break;
-        }
-
-        case 'mail:starred': {
-          const emailId = data.emailId as string;
-          const eventAccountId = data.accountId as string;
-          const isStarred = data.isStarred as boolean;
-          if (accountId && eventAccountId !== accountId) return;
-          callbacksRef.current.onEmailStarred?.(emailId, eventAccountId, isStarred);
+        case 'mail:starred':
+          callbacks.onEmailStarred?.(emailId, eventAccountId, data.isStarred as boolean);
           break;
-        }
       }
     });
 

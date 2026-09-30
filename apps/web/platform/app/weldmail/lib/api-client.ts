@@ -53,6 +53,23 @@ interface AppApiError {
   error: { code: string; message: string; details?: unknown };
 }
 
+/** Map a non-2xx response body onto the legacy `ApiResponse<T>` error shape. */
+function errorResponse<T>(body: unknown): ApiResponse<T> {
+  const raw = (body as AppApiError | { error?: string } | null)?.error;
+  if (raw && typeof raw === 'object') {
+    return {
+      success: false,
+      error: raw.message ?? 'Request failed',
+      errorCode: typeof raw.code === 'string' ? raw.code : undefined,
+      errorDetails: 'details' in raw ? raw.details : undefined,
+    };
+  }
+  return {
+    success: false,
+    error: typeof raw === 'string' ? raw : (body as { message?: string })?.message ?? 'Request failed',
+  };
+}
+
 /**
  * Core request helper. `unwrap` strips the app-api `{ data }` envelope so
  * the legacy `ApiResponse<T>` shape stays unchanged; pass `unwrap: false`
@@ -85,21 +102,7 @@ async function request<T>(
     // HTML error page doesn't take the whole hook down.
     const body = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      const raw = (body as AppApiError | { error?: string } | null)?.error;
-      if (raw && typeof raw === 'object') {
-        return {
-          success: false,
-          error: raw.message ?? 'Request failed',
-          errorCode: typeof raw.code === 'string' ? raw.code : undefined,
-          errorDetails: 'details' in raw ? raw.details : undefined,
-        };
-      }
-      return {
-        success: false,
-        error: typeof raw === 'string' ? raw : (body as { message?: string })?.message ?? 'Request failed',
-      };
-    }
+    if (!response.ok) return errorResponse<T>(body);
 
     if (!body) return { success: true, data: undefined as unknown as T };
 
