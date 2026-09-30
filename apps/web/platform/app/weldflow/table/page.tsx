@@ -407,6 +407,278 @@ const getAvatarColor = (name: string) => {
   return avatarColors[Math.abs(hash) % avatarColors.length];
 };
 
+type CellValue = Row['data'][string];
+type CellRenderer = (field: Field, value: CellValue) => React.ReactNode;
+
+const MONO_CELL_STYLE: React.CSSProperties = { fontSize: '14px', fontFamily: 'monospace' };
+const LINK_CELL_STYLE: React.CSSProperties = { fontSize: '14px', color: '#3b82f6', textDecoration: 'none' };
+
+const renderDurationCell: CellRenderer = (_field, value) => (
+  <span style={MONO_CELL_STYLE}>{value || "00:00:00"}</span>
+);
+
+const renderCompanyCell = (value: CellValue) => (
+  <>
+    <div style={{
+      width: '16px',
+      height: '16px',
+      borderRadius: '4px',
+      backgroundColor: value.color,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '8px',
+      color: 'white',
+      fontWeight: '600',
+      flexShrink: 0
+    }}>
+      {value.initials}
+    </div>
+    <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
+  </>
+);
+
+const renderTextCell: CellRenderer = (field, value) => {
+  if (value) {
+    if (field.id === "company") return renderCompanyCell(value);
+    if (field.id === "twitter") return <span style={{ fontSize: '14px', color: '#3b82f6' }}>{value}</span>;
+    if (field.id === "description") return <span style={{ fontSize: '14px', color: '#6b7280' }}>{value}</span>;
+  }
+  return <span style={{ fontSize: '14px' }}>{value || ""}</span>;
+};
+
+const renderCategoriesCell: CellRenderer = (_field, value) => {
+  if (!value || value.length === 0) return "";
+  const displayedCategories = value.slice(0, 2);
+  const remainingCount = value.length - 2;
+  return (
+    <>
+      {displayedCategories.map((category: string) => (
+        <span
+          key={category}
+          className={cn(getCategoryStyle(category))}
+          style={{
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: '500',
+            flexShrink: 0,
+            maxHeight: '20px',
+            display: 'inline-flex',
+            alignItems: 'center'
+          }}
+        >
+          {category}
+        </span>
+      ))}
+      {remainingCount > 0 && (
+        <span style={{ fontSize: '11px', color: '#6b7280', flexShrink: 0 }}>
+          +{remainingCount}
+        </span>
+      )}
+    </>
+  );
+};
+
+const renderExternalLink = (href: string, value: CellValue) => (
+  <a
+    href={href}
+    style={LINK_CELL_STYLE}
+    target="_blank"
+    rel="noopener noreferrer"
+    onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+    onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+  >
+    {value}
+  </a>
+);
+
+const renderLinkedinCell: CellRenderer = (_field, value) =>
+  value ? renderExternalLink(`https://linkedin.com/company/${value}`, value) : "";
+
+const renderDomainCell: CellRenderer = (_field, value) =>
+  value ? renderExternalLink(`https://${value}`, value) : "";
+
+const renderInteractionCell: CellRenderer = (_field, value) => {
+  if (!value) return "";
+  return (
+    <span style={{
+      fontSize: '14px',
+      color: value === "No contact" ? '#9ca3af' : '#374151'
+    }}>
+      {value}
+    </span>
+  );
+};
+
+const renderStatusCell: CellRenderer = (_field, value) => {
+  if (!value) return "";
+  if (value === "No communication") {
+    return (
+      <>
+        <span style={{
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: '#d1d5db',
+          border: '1px solid #9ca3af',
+          flexShrink: 0
+        }} />
+        <span style={{ fontSize: '14px', color: '#9ca3af' }}>No communication</span>
+      </>
+    );
+  }
+  if (value === "Very weak") {
+    return (
+      <>
+        <span style={{
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: '#ef4444',
+          flexShrink: 0
+        }} />
+        <span style={{ fontSize: '14px', color: '#ef4444' }}>Very weak</span>
+      </>
+    );
+  }
+  return value;
+};
+
+const renderNumberCell: CellRenderer = (_field, value) => {
+  if (!value && value !== 0) return "";
+  return <span style={MONO_CELL_STYLE}>{value.toLocaleString('en-US')}</span>;
+};
+
+const renderCurrencyCell: CellRenderer = (_field, value) => {
+  if (!value && value !== 0) return "";
+  return <span style={MONO_CELL_STYLE}>${value.toLocaleString('en-US')}</span>;
+};
+
+const renderDateCell: CellRenderer = (_field, value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return <span style={MONO_CELL_STYLE}>{date.toLocaleDateString()}</span>;
+};
+
+const renderSingleSelectCell: CellRenderer = (_field, value) =>
+  value ? <TagLabel tag={value} /> : "";
+
+const renderTagsCell: CellRenderer = (_field, value) => {
+  if (!value || value.length === 0) return "";
+  const displayedItems = value.slice(0, 2);
+  const remainingItemsCount = value.length - 2;
+  return (
+    <>
+      {displayedItems.map((item: string, index: number) => (
+        <TagLabel key={index} tag={item} className="flex-shrink-0" />
+      ))}
+      {remainingItemsCount > 0 && (
+        <span style={{ fontSize: '12px', color: '#6b7280', flexShrink: 0 }}>
+          +{remainingItemsCount}
+        </span>
+      )}
+    </>
+  );
+};
+
+const renderPersonCell: CellRenderer = (_field, value) => {
+  if (!value || !value.name) return "";
+  return (
+    <>
+      <div style={{
+        width: '16px',
+        height: '16px',
+        borderRadius: '4px',
+        backgroundColor: getAvatarColor(value.name),
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '8px',
+        color: 'white',
+        fontWeight: '600',
+        flexShrink: 0
+      }}>
+        {value.name?.charAt(0).toUpperCase() || "?"}
+      </div>
+      <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
+    </>
+  );
+};
+
+const renderCollaboratorAvatar = (person: string | { name?: string }, index: number) => {
+  const personName = typeof person === 'string' ? person : (person.name || '');
+  return (
+    <div
+      key={index}
+      style={{
+        width: '20px',
+        height: '20px',
+        borderRadius: '6px',
+        border: '2px solid white',
+        backgroundColor: getAvatarColor(personName),
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '9px',
+        color: 'white',
+        fontWeight: '600',
+        marginLeft: index > 0 ? '-4px' : '0',
+        zIndex: 3 - index
+      }}
+    >
+      {personName.charAt(0).toUpperCase() || "?"}
+    </div>
+  );
+};
+
+const renderCollaboratorsCell: CellRenderer = (_field, value) => {
+  if (!value || value.length === 0) return "";
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <div style={{ display: 'flex', marginLeft: '-2px' }}>
+        {value.slice(0, 3).map(renderCollaboratorAvatar)}
+      </div>
+      {value.length > 3 && (
+        <span style={{ marginLeft: '4px', fontSize: '12px', color: '#6b7280' }}>
+          +{value.length - 3}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const renderDefaultCell: CellRenderer = (_field, value) => (
+  <span style={{ fontSize: '14px' }}>{value || ""}</span>
+);
+
+// Renderers for field types that need nothing but the field and its value
+// (formula and rollup depend on component state and are handled in the page).
+const CELL_RENDERERS: Partial<Record<FieldType, CellRenderer>> = {
+  timer: renderDurationCell,
+  "time-tracking": renderDurationCell,
+  text: renderTextCell,
+  categories: renderCategoriesCell,
+  linkedin: renderLinkedinCell,
+  interaction: renderInteractionCell,
+  status: renderStatusCell,
+  domain: renderDomainCell,
+  number: renderNumberCell,
+  currency: renderCurrencyCell,
+  date: renderDateCell,
+  "due-date": renderDateCell,
+  "completed-on": renderDateCell,
+  "last-modified-on": renderDateCell,
+  "created-on": renderDateCell,
+  "single-select": renderSingleSelectCell,
+  "multi-select": renderTagsCell,
+  tags: renderTagsCell,
+  people: renderPersonCell,
+  assignee: renderPersonCell,
+  "created-by": renderPersonCell,
+  collaborators: renderCollaboratorsCell,
+};
+
 // Every field type starts at the same column width.
 const DEFAULT_FIELD_WIDTH = 200;
 
@@ -1006,285 +1278,791 @@ export default function TablePage() {
   };
 
   const renderCellContent = (field: Field, value: Row['data'][string], rowData?: Row['data']) => {
-    switch (field.type) {
-      case "formula": {
-        if (!value) return "";
-        const result = evaluateFormula(value, rowData);
-        return (
-          <span style={{ fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
-            {typeof result === 'number' ? result.toLocaleString('en-US') : result}
-          </span>
-        );
-      }
+    if (field.type === "formula") {
+      if (!value) return "";
+      const result = evaluateFormula(value, rowData);
+      return (
+        <span style={{ fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
+          {typeof result === 'number' ? result.toLocaleString('en-US') : result}
+        </span>
+      );
+    }
 
-      case "rollup": {
-        const rollupResult = calculateRollup(field, rowData);
-        return (
-          <span style={{ fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
-            {typeof rollupResult === 'number' ? rollupResult.toLocaleString('en-US') : rollupResult}
-          </span>
-        );
-      }
+    if (field.type === "rollup") {
+      const rollupResult = calculateRollup(field, rowData);
+      return (
+        <span style={{ fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
+          {typeof rollupResult === 'number' ? rollupResult.toLocaleString('en-US') : rollupResult}
+        </span>
+      );
+    }
 
-      case "timer":
-        return (
-          <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
-            {value || "00:00:00"}
-          </span>
-        );
+    return (CELL_RENDERERS[field.type] ?? renderDefaultCell)(field, value);
+  };
 
-      case "time-tracking":
-        return (
-          <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
-            {value || "00:00:00"}
-          </span>
-        );
+  const updateRowValue = (rowId: string, fieldId: string, value: unknown) => {
+    setRows(rows.map(r =>
+      r.id === rowId
+        ? { ...r, data: { ...r.data, [fieldId]: value } }
+        : r
+    ));
+  };
 
-      case "text":
-        if (field.id === "company" && value) {
-          return (
-            <>
-              <div style={{
-                width: '16px',
-                height: '16px',
-                borderRadius: '4px',
-                backgroundColor: value.color,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '8px',
-                color: 'white',
-                fontWeight: '600',
-                flexShrink: 0
-              }}>
-                {value.initials}
-              </div>
-              <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
-            </>
-          );
+  const renderEditableCell = (row: Row, field: Field) => {
+    if (editingCell?.rowId === row.id && editingCell?.fieldId === field.id) {
+      return (
+        <CellWrapper>
+          <input
+            style={{
+              width: '100%',
+              height: '28px',
+              padding: '0 8px',
+              fontSize: '14px',
+              border: '2px solid #3b82f6',
+              borderRadius: '4px',
+              outline: 'none'
+            }}
+            type={field.type === "number" || field.type === "currency" ? "number" : field.type === "email" ? "email" : "text"}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={saveCellEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveCellEdit();
+              if (e.key === "Escape") {
+                setEditingCell(null);
+                setEditValue("");
+              }
+            }}
+            autoFocus
+          />
+        </CellWrapper>
+      );
+    }
+    return (
+      <CellWrapper onClick={() => handleCellEdit(row.id, field.id, row.data[field.id])}>
+        {renderCellContent(field, row.data[field.id], row.data)}
+      </CellWrapper>
+    );
+  };
+
+  const renderCheckboxCell = (row: Row, field: Field) => (
+    <CellWrapper
+      onClick={(e) => {
+        // Don't open dialog when clicking the checkbox itself
+        if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
+          return;
         }
-        if (field.id === "twitter" && value) {
-          return <span style={{ fontSize: '14px', color: '#3b82f6' }}>{value}</span>;
-        }
-        if (field.id === "description" && value) {
-          return <span style={{ fontSize: '14px', color: '#6b7280' }}>{value}</span>;
-        }
-        return <span style={{ fontSize: '14px' }}>{value || ""}</span>;
+        setCheckboxLabelDialog({
+          open: true,
+          fieldId: field.id,
+          checkedLabel: field.checkedLabel || "Checked",
+          uncheckedLabel: field.uncheckedLabel || "Unchecked",
+        });
+      }}
+      style={{ cursor: 'pointer' }}
+    >
+      <Checkbox
+        checked={row.data[field.id] === true}
+        onCheckedChange={(checked) => updateRowValue(row.id, field.id, checked)}
+        className="mr-2"
+      />
+      <span style={{ fontSize: '14px', color: '#6b7280' }}>
+        {row.data[field.id] === true
+          ? (field.checkedLabel || "Checked")
+          : (field.uncheckedLabel || "Unchecked")}
+      </span>
+    </CellWrapper>
+  );
 
-      case "categories": {
-        if (!value || value.length === 0) return "";
-        const displayedCategories = value.slice(0, 2);
-        const remainingCount = value.length - 2;
-        return (
-          <>
-            {displayedCategories.map((category: string) => (
-              <span
-                key={category}
-                className={cn(getCategoryStyle(category))}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: '500',
-                  flexShrink: 0,
-                  maxHeight: '20px',
-                  display: 'inline-flex',
-                  alignItems: 'center'
+  const renderDatePickerCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
+              {row.data[field.id] ? new Date(row.data[field.id]).toLocaleDateString() : ""}
+            </span>
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <CalendarComponent
+          mode="single"
+          selected={row.data[field.id] ? new Date(row.data[field.id]) : undefined}
+          onSelect={(date) => {
+            if (date) {
+              updateRowValue(row.id, field.id, date.toISOString().split('T')[0]);
+            }
+          }}
+          className="rounded-md border"
+          captionLayout="dropdown"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+
+  const renderSingleSelectCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[250px] p-0">
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              {(field.options || selectOptions).map((option) => (
+                <CommandItem
+                  key={option}
+                  onSelect={() => updateRowValue(row.id, field.id, option)}
+                  className="justify-between"
+                >
+                  <TagLabel tag={option} />
+                  {row.data[field.id] === option && (
+                    <div className="ml-2 h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            <CommandSeparator />
+            <CommandGroup>
+              <CommandItem
+                onSelect={() => {
+                  setCreateOptionDialog({
+                    open: true,
+                    fieldId: field.id,
+                    rowId: row.id,
+                    optionName: "",
+                    optionColor: "#3b82f6",
+                  });
                 }}
               >
-                {category}
-              </span>
-            ))}
-            {remainingCount > 0 && (
-              <span style={{ fontSize: '11px', color: '#6b7280', flexShrink: 0 }}>
-                +{remainingCount}
-              </span>
-            )}
-          </>
-        );
-      }
+                <Plus className="mr-0.5 h-4 w-4" />
+                {st('sweep.weldflow.tablePage.createNewOptionAction')}
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 
-      case "linkedin":
-        if (!value) return "";
-        return (
-          <a
-            href={`https://linkedin.com/company/${value}`}
-            style={{ fontSize: '14px', color: '#3b82f6', textDecoration: 'none' }}
-            target="_blank"
-            rel="noopener noreferrer"
-            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
-            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
-          >
-            {value}
-          </a>
-        );
+  const renderMultiSelectCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[250px] p-0" align="start">
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              {(field.type === "tags" ?
+                ["bug", "feature", "enhancement", "documentation"] :
+                ["Option A", "Option B", "Option C", "Option D"]
+              ).map((option) => (
+                <CommandItem
+                  key={option}
+                  onSelect={() => {
+                    const currentValues = row.data[field.id] || [];
+                    const newValues = currentValues.includes(option)
+                      ? currentValues.filter((v: string) => v !== option)
+                      : [...currentValues, option];
+                    updateRowValue(row.id, field.id, newValues);
+                  }}
+                  className="justify-between"
+                >
+                  <TagLabel tag={option} />
+                  {(row.data[field.id] || []).includes(option) && (
+                    <div className="ml-2 h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            <CommandSeparator />
+            <CommandGroup>
+              <CommandItem
+                onSelect={() => {
+                  setCreateTagDialog({
+                    open: true,
+                    rowId: row.id,
+                    fieldId: field.id,
+                    tagName: "",
+                    tagColor: "#3b82f6"
+                  });
+                }}
+              >
+                <Plus className="mr-0.5 h-4 w-4" />
+                {st('sweep.weldflow.tablePage.createNewTagAction')}
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 
-      case "interaction":
-        if (!value) return "";
-        return (
-          <span style={{
-            fontSize: '14px',
-            color: value === "No contact" ? '#9ca3af' : '#374151'
-          }}>
-            {value}
-          </span>
-        );
+  const renderPeopleCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[250px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder={st('sweep.weldflow.tablePage.searchTeamMembersPlaceholder')} />
+          <CommandList>
+            <CommandGroup>
+              {teamMembers.map((member) => (
+                <CommandItem
+                  key={member.id}
+                  onSelect={() => updateRowValue(row.id, field.id, member)}
+                  className="justify-between"
+                >
+                  <div className="flex items-center">
+                    <div
+                      className="w-4 h-4 rounded mr-2"
+                      style={{
+                        backgroundColor: getAvatarColor(member.name),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '8px',
+                        color: 'white',
+                        fontWeight: '600',
+                        paddingTop: '1px'
+                      }}
+                    >
+                      {member.name[0]}
+                    </div>
+                    {member.name}
+                  </div>
+                  {row.data[field.id]?.id === member.id && (
+                    <div className="h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 
-      case "status":
-        if (!value) return "";
-        if (value === "No communication") {
-          return (
-            <>
-              <span style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: '#d1d5db',
-                border: '1px solid #9ca3af',
-                flexShrink: 0
-              }} />
-              <span style={{ fontSize: '14px', color: '#9ca3af' }}>No communication</span>
-            </>
-          );
-        }
-        if (value === "Very weak") {
-          return (
-            <>
-              <span style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: '#ef4444',
-                flexShrink: 0
-              }} />
-              <span style={{ fontSize: '14px', color: '#ef4444' }}>Very weak</span>
-            </>
-          );
-        }
-        return value;
-
-      case "domain":
-        if (!value) return "";
-        return (
-          <a
-            href={`https://${value}`}
-            style={{ fontSize: '14px', color: '#3b82f6', textDecoration: 'none' }}
-            target="_blank"
-            rel="noopener noreferrer"
-            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
-            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
-          >
-            {value}
-          </a>
-        );
-
-      case "number":
-        if (!value && value !== 0) return "";
-        return <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>{value.toLocaleString('en-US')}</span>;
-
-      case "currency":
-        if (!value && value !== 0) return "";
-        return <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>${value.toLocaleString('en-US')}</span>;
-
-      case "date":
-      case "due-date":
-      case "completed-on":
-      case "last-modified-on":
-      case "created-on": {
-        if (!value) return "";
-        const date = new Date(value);
-        return <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>{date.toLocaleDateString()}</span>;
-      }
-
-      case "single-select":
-        if (!value) return "";
-        return <TagLabel tag={value} />;
-
-      case "multi-select":
-      case "tags": {
-        if (!value || value.length === 0) return "";
-        const displayedItems = value.slice(0, 2);
-        const remainingItemsCount = value.length - 2;
-        return (
-          <>
-            {displayedItems.map((item: string, index: number) => (
-              <TagLabel key={index} tag={item} className="flex-shrink-0" />
-            ))}
-            {remainingItemsCount > 0 && (
-              <span style={{ fontSize: '12px', color: '#6b7280', flexShrink: 0 }}>
-                +{remainingItemsCount}
-              </span>
-            )}
-          </>
-        );
-      }
-
-      case "people":
-      case "assignee":
-      case "created-by":
-        if (!value || !value.name) return "";
-        return (
-          <>
-            <div style={{
-              width: '16px',
-              height: '16px',
-              borderRadius: '4px',
-              backgroundColor: getAvatarColor(value.name),
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '8px',
-              color: 'white',
-              fontWeight: '600',
-              flexShrink: 0
-            }}>
-              {value.name?.charAt(0).toUpperCase() || "?"}
+  const renderFormulaCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[400px] p-4" align="start">
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>{st('sweep.weldflow.tablePage.formulaExpression')}</Label>
+            <Input
+              value={row.data[field.id] || ""}
+              onChange={(e) => updateRowValue(row.id, field.id, e.target.value)}
+              placeholder={st('sweep.weldflow.tablePage.formulaExpressionPlaceholder')}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500">
+              {st('sweep.weldflow.tablePage.formulaExpressionHelp')}
+            </p>
+          </div>
+          {row.data[field.id] && (
+            <div className="pt-3 border-t">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{st('sweep.weldflow.tablePage.result')}</span>
+                <span className="text-sm font-semibold font-mono">
+                  {evaluateFormula(row.data[field.id], row.data)}
+                </span>
+              </div>
             </div>
-            <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
-          </>
-        );
+          )}
+          {row.data[field.id] && (
+            <div className="pt-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  const currentFormula = row.data[field.id];
+                  setRows(rows.map(r => ({
+                    ...r,
+                    data: { ...r.data, [field.id]: currentFormula }
+                  })));
+                  toast.success(st('sweep.weldflow.tablePage.formulaAppliedToAllRows'));
+                }}
+              >
+                {st('sweep.weldflow.tablePage.applyFormulaToAllRows')}
+              </Button>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 
-      case "collaborators":
-        if (!value || value.length === 0) return "";
-        return (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', marginLeft: '-2px' }}>
-              {value.slice(0, 3).map((person: string | { name?: string }, index: number) => {
-                const personName = typeof person === 'string' ? person : (person.name || '');
-                return (
+  const renderCollaboratorsPopoverContent = (row: Row, field: Field) => (
+    <PopoverContent className="w-[250px] p-0" align="start">
+      <Command>
+        <CommandInput placeholder={st('sweep.weldflow.tablePage.searchCollaboratorsPlaceholder')} />
+        <CommandList>
+          <CommandGroup>
+            {["John Doe", "Jane Smith", "Bob Johnson", "Alice Williams", "Tom Davis", "Sarah Miller"].map((person) => (
+              <CommandItem
+                key={person}
+                onSelect={() => {
+                  const currentCollaborators = row.data[field.id] || [];
+                  const newCollaborators = currentCollaborators.includes(person)
+                    ? currentCollaborators.filter((p: string) => p !== person)
+                    : [...currentCollaborators, person];
+                  updateRowValue(row.id, field.id, newCollaborators);
+                }}
+                className="justify-between"
+              >
+                <div className="flex items-center">
                   <div
-                    key={index}
+                    className="w-4 h-4 rounded mr-2"
                     style={{
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '6px',
-                      border: '2px solid white',
-                      backgroundColor: getAvatarColor(personName),
+                      backgroundColor: getAvatarColor(person),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '9px',
+                      fontSize: '8px',
                       color: 'white',
                       fontWeight: '600',
-                      marginLeft: index > 0 ? '-4px' : '0',
-                      zIndex: 3 - index
+                      paddingTop: '1px'
                     }}
                   >
-                    {personName.charAt(0).toUpperCase() || "?"}
+                    {person[0]}
                   </div>
+                  {person}
+                </div>
+                {(row.data[field.id] || []).includes(person) && (
+                  <div className="h-2 w-2 rounded-full bg-primary" />
+                )}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
+    </PopoverContent>
+  );
+
+  const renderCollaboratorsCellField = (row: Row, field: Field) => {
+    if (!row.data[field.id] || row.data[field.id].length === 0) {
+      return (
+        <Popover>
+          <PopoverTrigger asChild>
+            <div>
+              <CellWrapper>
+                {renderCellContent(field, row.data[field.id], row.data)}
+              </CellWrapper>
+            </div>
+          </PopoverTrigger>
+          {renderCollaboratorsPopoverContent(row, field)}
+        </Popover>
+      );
+    }
+    return (
+      <TooltipProvider>
+        <Tooltip delayDuration={300}>
+          <Popover>
+            <PopoverTrigger asChild>
+              <TooltipTrigger asChild>
+                <div>
+                  <CellWrapper>
+                    {renderCellContent(field, row.data[field.id], row.data)}
+                  </CellWrapper>
+                </div>
+              </TooltipTrigger>
+            </PopoverTrigger>
+            {renderCollaboratorsPopoverContent(row, field)}
+          </Popover>
+          <TooltipContent side="top" align="start">
+            <div className="flex flex-col gap-1">
+              {(row.data[field.id] || []).map((person: string | { name?: string }, index: number) => {
+                const personName = typeof person === 'string' ? person : (person.name || '');
+                return (
+                  <div key={index} className="text-sm">{personName}</div>
                 );
               })}
             </div>
-            {value.length > 3 && (
-              <span style={{ marginLeft: '4px', fontSize: '12px', color: '#6b7280' }}>
-                +{value.length - 3}
-              </span>
-            )}
-          </div>
-        );
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
 
+  const renderProjectsCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[200px] p-0">
+        <Command>
+          <CommandInput placeholder={st('sweep.weldflow.tablePage.searchProjectsPlaceholder')} />
+          <CommandList>
+            <CommandGroup>
+              {projectsList.map((project) => (
+                <CommandItem
+                  key={project}
+                  onSelect={() => updateRowValue(row.id, field.id, project)}
+                >
+                  {project}
+                  {row.data[field.id] === project && (
+                    <Check className="ml-auto h-4 w-4" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+
+  const stopRunningTimer = (timerKey: string) => {
+    setRunningTimers(prev => {
+      const newTimers = { ...prev };
+      delete newTimers[timerKey];
+      return newTimers;
+    });
+  };
+
+  const toggleCountdownTimer = (row: Row, field: Field) => {
+    const timerKey = `${row.id}-${field.id}`;
+    const currentTimer = runningTimers[timerKey];
+
+    if (currentTimer) {
+      // Stop countdown
+      const remaining = currentTimer.elapsed - (Date.now() - currentTimer.startTime);
+      const totalSeconds = Math.max(0, Math.floor(remaining / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+      updateRowValue(row.id, field.id, timeString);
+      stopRunningTimer(timerKey);
+    } else {
+      // Start countdown
+      const currentValue = row.data[field.id] || "00:00:00";
+      const [hours, minutes, seconds] = currentValue.split(':').map(Number);
+      const totalMs = (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
+
+      if (totalMs > 0) {
+        setRunningTimers(prev => ({
+          ...prev,
+          [timerKey]: { startTime: Date.now(), elapsed: totalMs }
+        }));
+      }
+    }
+  };
+
+  const toggleCountUpTimer = (row: Row, field: Field) => {
+    const timerKey = `${row.id}-${field.id}`;
+    const currentTimer = runningTimers[timerKey];
+
+    if (currentTimer) {
+      // Stop tracking
+      const elapsed = currentTimer.elapsed + (Date.now() - currentTimer.startTime);
+      const hours = Math.floor(elapsed / 3600000);
+      const minutes = Math.floor((elapsed % 3600000) / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+      updateRowValue(row.id, field.id, timeString);
+      stopRunningTimer(timerKey);
+    } else {
+      // Start tracking
+      const currentValue = row.data[field.id] || "00:00:00";
+      const [hours, minutes, seconds] = currentValue.split(':').map(Number);
+      const elapsed = (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
+
+      setRunningTimers(prev => ({
+        ...prev,
+        [timerKey]: { startTime: Date.now(), elapsed }
+      }));
+    }
+  };
+
+  const renderTimerToggleButton = (row: Row, field: Field, onToggle: () => void) => (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="bg-gray-100 dark:bg-secondary rounded p-1 hover:bg-gray-200 dark:hover:bg-accent transition-colors"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      {runningTimers[`${row.id}-${field.id}`] ? (
+        <Square className="h-3.5 w-3.5 text-red-600 fill-red-600" />
+      ) : (
+        <Play className="h-3.5 w-3.5 text-black dark:text-white" />
+      )}
+    </Button>
+  );
+
+  const renderTimerCell = (row: Row, field: Field) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div>
+          <CellWrapper>
+            <div className="flex items-center justify-between gap-2 w-full">
+              <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
+                {row.data[field.id] || "00:00:00"}
+              </span>
+              {renderTimerToggleButton(row, field, () => toggleCountdownTimer(row, field))}
+            </div>
+          </CellWrapper>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[300px] p-4">
+        <div className="space-y-4">
+          <Label>{st('sweep.weldflow.tablePage.setTimerDuration')}</Label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <Input
+                type="number"
+                placeholder={st('sweep.weldflow.tablePage.hoursAbbreviation')}
+                min="0"
+                max="99"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const hours = Number.parseInt((e.target as HTMLInputElement).value) || 0;
+                    const minutes = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || '0') || 0;
+                    const seconds = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(3)') as HTMLInputElement)?.value || '0') || 0;
+                    const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    updateRowValue(row.id, field.id, timeString);
+                  }
+                }}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                type="number"
+                placeholder={st('sweep.weldflow.tablePage.minutesAbbreviation')}
+                min="0"
+                max="59"
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                type="number"
+                placeholder={st('sweep.weldflow.tablePage.secondsAbbreviation')}
+                min="0"
+                max="59"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                const inputs = document.querySelectorAll(`input[type="number"]`);
+                const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
+                const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
+                const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
+                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                setRows(rows.map(r => ({
+                  ...r,
+                  data: { ...r.data, [field.id]: timeString }
+                })));
+                toast.success(st('sweep.weldflow.tablePage.timerSetForAllRows'));
+              }}
+            >
+              {st('sweep.weldflow.tablePage.setForAllRows')}
+            </Button>
+            <Button
+              className="w-full"
+              onClick={() => {
+                const inputs = document.querySelectorAll(`input[type="number"]`);
+                const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
+                const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
+                const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
+                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                updateRowValue(row.id, field.id, timeString);
+                toast.success(st('sweep.weldflow.tablePage.timerSet'));
+              }}
+            >
+              {st('sweep.weldflow.tablePage.setTimer')}
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+
+  const renderTimeTrackingCell = (row: Row, field: Field) => (
+    <CellWrapper>
+      <div className="flex items-center justify-between gap-2 w-full">
+        <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
+          {row.data[field.id] || "00:00:00"}
+        </span>
+        {renderTimerToggleButton(row, field, () => toggleCountUpTimer(row, field))}
+      </div>
+    </CellWrapper>
+  );
+
+  const updateRollupConfig = (field: Field, patch: Partial<NonNullable<Field['rollupConfig']>>) => {
+    setFields(fields.map(field2 =>
+      field2.id === field.id
+        ? {
+            ...field2,
+            rollupConfig: {
+              relationField: field2.rollupConfig?.relationField || '',
+              targetField: field2.rollupConfig?.targetField || '',
+              aggregation: field2.rollupConfig?.aggregation || 'sum',
+              ...patch
+            }
+          }
+        : field2
+    ));
+  };
+
+  const renderRollupConfigItem = (
+    key: string,
+    label: React.ReactNode,
+    isSelected: boolean,
+    onSelect: () => void,
+  ) => (
+    <CommandItem key={key} onSelect={onSelect} className="cursor-pointer">
+      <div className="flex items-center justify-between w-full">
+        {label}
+        {isSelected && (
+          <div className="h-2 w-2 rounded-full bg-primary" />
+        )}
+      </div>
+    </CommandItem>
+  );
+
+  const renderRollupCell = (row: Row, field: Field) => (
+    <CellWrapper>
+      <Popover>
+        <PopoverTrigger asChild>
+          <div className="flex items-center justify-center w-full h-full cursor-pointer hover:bg-muted/50">
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </div>
+        </PopoverTrigger>
+        <PopoverContent className="w-80" align="start">
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2">Relation Field</Label>
+              <Command className="rounded-lg border">
+                <CommandList>
+                  <CommandGroup>
+                    {visibleFields.map((f) => renderRollupConfigItem(
+                      f.id,
+                      <span>{f.name}</span>,
+                      field.rollupConfig?.relationField === f.id,
+                      () => updateRollupConfig(field, { relationField: f.id }),
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2">Target Field</Label>
+              <Command className="rounded-lg border">
+                <CommandList>
+                  <CommandGroup>
+                    {visibleFields.filter(f => f.type === 'number' || f.type === 'currency').map((f) => renderRollupConfigItem(
+                      f.id,
+                      <span>{f.name}</span>,
+                      field.rollupConfig?.targetField === f.id,
+                      () => updateRollupConfig(field, { targetField: f.id }),
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2">Aggregation</Label>
+              <Command className="rounded-lg border">
+                <CommandList>
+                  <CommandGroup>
+                    {(['sum', 'average', 'count', 'min', 'max'] as const).map((agg) => renderRollupConfigItem(
+                      agg,
+                      <span className="capitalize">{agg}</span>,
+                      field.rollupConfig?.aggregation === agg,
+                      () => updateRollupConfig(field, { aggregation: agg }),
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </CellWrapper>
+  );
+
+  const renderBodyCell = (row: Row, field: Field) => {
+    switch (field.type) {
+      case "text":
+      case "number":
+      case "email":
+      case "phone":
+      case "currency":
+        return renderEditableCell(row, field);
+      case "checkbox":
+        return renderCheckboxCell(row, field);
+      case "date":
+      case "due-date":
+      case "completed-on":
+      case "created-on":
+      case "last-modified-on":
+        return renderDatePickerCell(row, field);
+      case "single-select":
+        return renderSingleSelectCell(row, field);
+      case "multi-select":
+      case "tags":
+        return renderMultiSelectCell(row, field);
+      case "people":
+      case "assignee":
+      case "created-by":
+        return renderPeopleCell(row, field);
+      case "formula":
+        return renderFormulaCell(row, field);
+      case "collaborators":
+        return renderCollaboratorsCellField(row, field);
+      case "projects":
+        return renderProjectsCell(row, field);
+      case "timer":
+        return renderTimerCell(row, field);
+      case "time-tracking":
+        return renderTimeTrackingCell(row, field);
+      case "rollup":
+        return renderRollupCell(row, field);
       default:
-        return <span style={{ fontSize: '14px' }}>{value || ""}</span>;
+        // All other field types - read only for now
+        return (
+          <CellWrapper>
+            {renderCellContent(field, row.data[field.id], row.data)}
+          </CellWrapper>
+        );
     }
   };
 
@@ -1734,867 +2512,7 @@ export default function TablePage() {
                       overflow: 'hidden'
                     }}
                   >
-                    {/* Text/Number/Email/Phone/Currency fields - editable */}
-                    {(field.type === "text" || field.type === "number" || field.type === "email" || field.type === "phone" || field.type === "currency") && (
-                      editingCell?.rowId === row.id && editingCell?.fieldId === field.id ? (
-                        <CellWrapper>
-                          <input
-                            style={{
-                              width: '100%',
-                              height: '28px',
-                              padding: '0 8px',
-                              fontSize: '14px',
-                              border: '2px solid #3b82f6',
-                              borderRadius: '4px',
-                              outline: 'none'
-                            }}
-                            type={field.type === "number" || field.type === "currency" ? "number" : field.type === "email" ? "email" : "text"}
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={saveCellEdit}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveCellEdit();
-                              if (e.key === "Escape") {
-                                setEditingCell(null);
-                                setEditValue("");
-                              }
-                            }}
-                            autoFocus
-                          />
-                        </CellWrapper>
-                      ) : (
-                        <CellWrapper onClick={() => handleCellEdit(row.id, field.id, row.data[field.id])}>
-                          {renderCellContent(field, row.data[field.id], row.data)}
-                        </CellWrapper>
-                      )
-                    )}
-
-                    {/* Checkbox field */}
-                    {field.type === "checkbox" && (
-                      <CellWrapper
-                        onClick={(e) => {
-                          // Don't open dialog when clicking the checkbox itself
-                          if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
-                            return;
-                          }
-                          setCheckboxLabelDialog({
-                            open: true,
-                            fieldId: field.id,
-                            checkedLabel: field.checkedLabel || "Checked",
-                            uncheckedLabel: field.uncheckedLabel || "Unchecked",
-                          });
-                        }}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <Checkbox
-                          checked={row.data[field.id] === true}
-                          onCheckedChange={(checked) => {
-                            setRows(rows.map(r =>
-                              r.id === row.id
-                                ? { ...r, data: { ...r.data, [field.id]: checked } }
-                                : r
-                            ));
-                          }}
-                          className="mr-2"
-                        />
-                        <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                          {row.data[field.id] === true
-                            ? (field.checkedLabel || "Checked")
-                            : (field.uncheckedLabel || "Unchecked")}
-                        </span>
-                      </CellWrapper>
-                    )}
-
-                    {/* Date fields */}
-                    {(field.type === "date" || field.type === "due-date" || field.type === "completed-on" || field.type === "created-on" || field.type === "last-modified-on") && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
-                                {row.data[field.id] ? new Date(row.data[field.id]).toLocaleDateString() : ""}
-                              </span>
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={row.data[field.id] ? new Date(row.data[field.id]) : undefined}
-                            onSelect={(date) => {
-                              if (date) {
-                                setRows(rows.map(r =>
-                                  r.id === row.id
-                                    ? { ...r, data: { ...r.data, [field.id]: date.toISOString().split('T')[0] } }
-                                    : r
-                                ));
-                              }
-                            }}
-                            className="rounded-md border"
-                            captionLayout="dropdown"
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Single Select */}
-                    {field.type === "single-select" && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[250px] p-0">
-                          <Command>
-                            <CommandList>
-                              <CommandGroup>
-                                {(field.options || selectOptions).map((option) => (
-                                  <CommandItem
-                                    key={option}
-                                    onSelect={() => {
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: option } }
-                                          : r
-                                      ));
-                                    }}
-                                    className="justify-between"
-                                  >
-                                    <TagLabel tag={option} />
-                                    {row.data[field.id] === option && (
-                                      <div className="ml-2 h-2 w-2 rounded-full bg-primary" />
-                                    )}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                              <CommandSeparator />
-                              <CommandGroup>
-                                <CommandItem
-                                  onSelect={() => {
-                                    setCreateOptionDialog({
-                                      open: true,
-                                      fieldId: field.id,
-                                      rowId: row.id,
-                                      optionName: "",
-                                      optionColor: "#3b82f6",
-                                    });
-                                  }}
-                                >
-                                  <Plus className="mr-0.5 h-4 w-4" />
-                                  {st('sweep.weldflow.tablePage.createNewOptionAction')}
-                                </CommandItem>
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Multi Select / Tags */}
-                    {(field.type === "multi-select" || field.type === "tags") && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[250px] p-0" align="start">
-                          <Command>
-                            <CommandList>
-                              <CommandGroup>
-                                {(field.type === "tags" ?
-                                  ["bug", "feature", "enhancement", "documentation"] :
-                                  ["Option A", "Option B", "Option C", "Option D"]
-                                ).map((option) => (
-                                  <CommandItem
-                                    key={option}
-                                    onSelect={() => {
-                                      const currentValues = row.data[field.id] || [];
-                                      const newValues = currentValues.includes(option)
-                                        ? currentValues.filter((v: string) => v !== option)
-                                        : [...currentValues, option];
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: newValues } }
-                                          : r
-                                      ));
-                                    }}
-                                    className="justify-between"
-                                  >
-                                    <TagLabel tag={option} />
-                                    {(row.data[field.id] || []).includes(option) && (
-                                      <div className="ml-2 h-2 w-2 rounded-full bg-primary" />
-                                    )}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                              <CommandSeparator />
-                              <CommandGroup>
-                                <CommandItem
-                                  onSelect={() => {
-                                    setCreateTagDialog({
-                                      open: true,
-                                      rowId: row.id,
-                                      fieldId: field.id,
-                                      tagName: "",
-                                      tagColor: "#3b82f6"
-                                    });
-                                  }}
-                                >
-                                  <Plus className="mr-0.5 h-4 w-4" />
-                                  {st('sweep.weldflow.tablePage.createNewTagAction')}
-                                </CommandItem>
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* People/Assignee */}
-                    {(field.type === "people" || field.type === "assignee" || field.type === "created-by") && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[250px] p-0" align="start">
-                          <Command>
-                            <CommandInput placeholder={st('sweep.weldflow.tablePage.searchTeamMembersPlaceholder')} />
-                            <CommandList>
-                              <CommandGroup>
-                                {teamMembers.map((member) => (
-                                  <CommandItem
-                                    key={member.id}
-                                    onSelect={() => {
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: member } }
-                                          : r
-                                      ));
-                                    }}
-                                    className="justify-between"
-                                  >
-                                    <div className="flex items-center">
-                                      <div
-                                        className="w-4 h-4 rounded mr-2"
-                                        style={{
-                                          backgroundColor: getAvatarColor(member.name),
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          fontSize: '8px',
-                                          color: 'white',
-                                          fontWeight: '600',
-                                          paddingTop: '1px'
-                                        }}
-                                      >
-                                        {member.name[0]}
-                                      </div>
-                                      {member.name}
-                                    </div>
-                                    {row.data[field.id]?.id === member.id && (
-                                      <div className="h-2 w-2 rounded-full bg-primary" />
-                                    )}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Formula field */}
-                    {field.type === "formula" && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[400px] p-4" align="start">
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <Label>{st('sweep.weldflow.tablePage.formulaExpression')}</Label>
-                              <Input
-                                value={row.data[field.id] || ""}
-                                onChange={(e) => {
-                                  setRows(rows.map(r =>
-                                    r.id === row.id
-                                      ? { ...r, data: { ...r.data, [field.id]: e.target.value } }
-                                      : r
-                                  ));
-                                }}
-                                placeholder={st('sweep.weldflow.tablePage.formulaExpressionPlaceholder')}
-                                className="font-mono text-sm"
-                              />
-                              <p className="text-xs text-gray-500">
-                                {st('sweep.weldflow.tablePage.formulaExpressionHelp')}
-                              </p>
-                            </div>
-                            {row.data[field.id] && (
-                              <div className="pt-3 border-t">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm text-gray-600">{st('sweep.weldflow.tablePage.result')}</span>
-                                  <span className="text-sm font-semibold font-mono">
-                                    {evaluateFormula(row.data[field.id], row.data)}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                            {row.data[field.id] && (
-                              <div className="pt-1">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="w-full"
-                                  onClick={() => {
-                                    const currentFormula = row.data[field.id];
-                                    setRows(rows.map(r => ({
-                                      ...r,
-                                      data: { ...r.data, [field.id]: currentFormula }
-                                    })));
-                                    toast.success(st('sweep.weldflow.tablePage.formulaAppliedToAllRows'));
-                                  }}
-                                >
-                                  {st('sweep.weldflow.tablePage.applyFormulaToAllRows')}
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Collaborators field */}
-                    {field.type === "collaborators" && (
-                      <>
-                        {(!row.data[field.id] || row.data[field.id].length === 0) ? (
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <div>
-                                <CellWrapper>
-                                  {renderCellContent(field, row.data[field.id], row.data)}
-                                </CellWrapper>
-                              </div>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[250px] p-0" align="start">
-                              <Command>
-                                <CommandInput placeholder={st('sweep.weldflow.tablePage.searchCollaboratorsPlaceholder')} />
-                                <CommandList>
-                                  <CommandGroup>
-                                    {["John Doe", "Jane Smith", "Bob Johnson", "Alice Williams", "Tom Davis", "Sarah Miller"].map((person) => (
-                                      <CommandItem
-                                        key={person}
-                                        onSelect={() => {
-                                          const currentCollaborators = row.data[field.id] || [];
-                                          const newCollaborators = currentCollaborators.includes(person)
-                                            ? currentCollaborators.filter((p: string) => p !== person)
-                                            : [...currentCollaborators, person];
-                                          setRows(rows.map(r =>
-                                            r.id === row.id
-                                              ? { ...r, data: { ...r.data, [field.id]: newCollaborators } }
-                                              : r
-                                          ));
-                                        }}
-                                        className="justify-between"
-                                      >
-                                        <div className="flex items-center">
-                                          <div
-                                            className="w-4 h-4 rounded mr-2"
-                                            style={{
-                                              backgroundColor: getAvatarColor(person),
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                              fontSize: '8px',
-                                              color: 'white',
-                                              fontWeight: '600',
-                                              paddingTop: '1px'
-                                            }}
-                                          >
-                                            {person[0]}
-                                          </div>
-                                          {person}
-                                        </div>
-                                        {(row.data[field.id] || []).includes(person) && (
-                                          <div className="h-2 w-2 rounded-full bg-primary" />
-                                        )}
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                        ) : (
-                          <TooltipProvider>
-                            <Tooltip delayDuration={300}>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <TooltipTrigger asChild>
-                                    <div>
-                                      <CellWrapper>
-                                        {renderCellContent(field, row.data[field.id], row.data)}
-                                      </CellWrapper>
-                                    </div>
-                                  </TooltipTrigger>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[250px] p-0" align="start">
-                                  <Command>
-                                    <CommandInput placeholder={st('sweep.weldflow.tablePage.searchCollaboratorsPlaceholder')} />
-                                    <CommandList>
-                                      <CommandGroup>
-                                        {["John Doe", "Jane Smith", "Bob Johnson", "Alice Williams", "Tom Davis", "Sarah Miller"].map((person) => (
-                                          <CommandItem
-                                            key={person}
-                                            onSelect={() => {
-                                              const currentCollaborators = row.data[field.id] || [];
-                                              const newCollaborators = currentCollaborators.includes(person)
-                                                ? currentCollaborators.filter((p: string) => p !== person)
-                                                : [...currentCollaborators, person];
-                                              setRows(rows.map(r =>
-                                                r.id === row.id
-                                                  ? { ...r, data: { ...r.data, [field.id]: newCollaborators } }
-                                                  : r
-                                              ));
-                                            }}
-                                            className="justify-between"
-                                          >
-                                            <div className="flex items-center">
-                                              <div
-                                                className="w-4 h-4 rounded mr-2"
-                                                style={{
-                                                  backgroundColor: getAvatarColor(person),
-                                                  display: 'flex',
-                                                  alignItems: 'center',
-                                                  justifyContent: 'center',
-                                                  fontSize: '8px',
-                                                  color: 'white',
-                                                  fontWeight: '600',
-                                                  paddingTop: '1px'
-                                                }}
-                                              >
-                                                {person[0]}
-                                              </div>
-                                              {person}
-                                            </div>
-                                            {(row.data[field.id] || []).includes(person) && (
-                                              <div className="h-2 w-2 rounded-full bg-primary" />
-                                            )}
-                                          </CommandItem>
-                                        ))}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                </PopoverContent>
-                              </Popover>
-                              <TooltipContent side="top" align="start">
-                                <div className="flex flex-col gap-1">
-                                  {(row.data[field.id] || []).map((person: string | { name?: string }, index: number) => {
-                                    const personName = typeof person === 'string' ? person : (person.name || '');
-                                    return (
-                                      <div key={index} className="text-sm">{personName}</div>
-                                    );
-                                  })}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </>
-                    )}
-
-                    {/* Projects field */}
-                    {field.type === "projects" && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[200px] p-0">
-                          <Command>
-                            <CommandInput placeholder={st('sweep.weldflow.tablePage.searchProjectsPlaceholder')} />
-                            <CommandList>
-                              <CommandGroup>
-                                {projectsList.map((project) => (
-                                  <CommandItem
-                                    key={project}
-                                    onSelect={() => {
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: project } }
-                                          : r
-                                      ));
-                                    }}
-                                  >
-                                    {project}
-                                    {row.data[field.id] === project && (
-                                      <Check className="ml-auto h-4 w-4" />
-                                    )}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Timer field (countdown) */}
-                    {field.type === "timer" && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <div>
-                            <CellWrapper>
-                              <div className="flex items-center justify-between gap-2 w-full">
-                                <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
-                                  {row.data[field.id] || "00:00:00"}
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="bg-gray-100 dark:bg-secondary rounded p-1 hover:bg-gray-200 dark:hover:bg-accent transition-colors"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const timerKey = `${row.id}-${field.id}`;
-                                    const currentTimer = runningTimers[timerKey];
-
-                                    if (currentTimer) {
-                                      // Stop countdown
-                                      const remaining = currentTimer.elapsed - (Date.now() - currentTimer.startTime);
-                                      const totalSeconds = Math.max(0, Math.floor(remaining / 1000));
-                                      const hours = Math.floor(totalSeconds / 3600);
-                                      const minutes = Math.floor((totalSeconds % 3600) / 60);
-                                      const seconds = totalSeconds % 60;
-                                      const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: timeString } }
-                                          : r
-                                      ));
-
-                                      setRunningTimers(prev => {
-                                        const newTimers = { ...prev };
-                                        delete newTimers[timerKey];
-                                        return newTimers;
-                                      });
-                                    } else {
-                                      // Start countdown
-                                      const currentValue = row.data[field.id] || "00:00:00";
-                                      const [hours, minutes, seconds] = currentValue.split(':').map(Number);
-                                      const totalMs = (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
-
-                                      if (totalMs > 0) {
-                                        setRunningTimers(prev => ({
-                                          ...prev,
-                                          [timerKey]: { startTime: Date.now(), elapsed: totalMs }
-                                        }));
-                                      }
-                                    }
-                                  }}
-                                >
-                                  {runningTimers[`${row.id}-${field.id}`] ? (
-                                    <Square className="h-3.5 w-3.5 text-red-600 fill-red-600" />
-                                  ) : (
-                                    <Play className="h-3.5 w-3.5 text-black dark:text-white" />
-                                  )}
-                                </Button>
-                              </div>
-                            </CellWrapper>
-                          </div>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[300px] p-4">
-                          <div className="space-y-4">
-                            <Label>{st('sweep.weldflow.tablePage.setTimerDuration')}</Label>
-                            <div className="flex gap-2">
-                              <div className="flex-1">
-                                <Input
-                                  type="number"
-                                  placeholder={st('sweep.weldflow.tablePage.hoursAbbreviation')}
-                                  min="0"
-                                  max="99"
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      const hours = Number.parseInt((e.target as HTMLInputElement).value) || 0;
-                                      const minutes = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || '0') || 0;
-                                      const seconds = Number.parseInt(((e.target as HTMLInputElement).parentElement?.querySelector('input:nth-child(3)') as HTMLInputElement)?.value || '0') || 0;
-                                      const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                                      setRows(rows.map(r =>
-                                        r.id === row.id
-                                          ? { ...r, data: { ...r.data, [field.id]: timeString } }
-                                          : r
-                                      ));
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <Input
-                                  type="number"
-                                  placeholder={st('sweep.weldflow.tablePage.minutesAbbreviation')}
-                                  min="0"
-                                  max="59"
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <Input
-                                  type="number"
-                                  placeholder={st('sweep.weldflow.tablePage.secondsAbbreviation')}
-                                  min="0"
-                                  max="59"
-                                />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <Button
-                                variant="outline"
-                                className="w-full"
-                                onClick={() => {
-                                  const inputs = document.querySelectorAll(`input[type="number"]`);
-                                  const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
-                                  const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
-                                  const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
-                                  const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                                  setRows(rows.map(r => ({
-                                    ...r,
-                                    data: { ...r.data, [field.id]: timeString }
-                                  })));
-                                  toast.success(st('sweep.weldflow.tablePage.timerSetForAllRows'));
-                                }}
-                              >
-                                {st('sweep.weldflow.tablePage.setForAllRows')}
-                              </Button>
-                              <Button
-                                className="w-full"
-                                onClick={() => {
-                                  const inputs = document.querySelectorAll(`input[type="number"]`);
-                                  const hours = Number.parseInt((inputs[0] as HTMLInputElement).value) || 0;
-                                  const minutes = Number.parseInt((inputs[1] as HTMLInputElement).value) || 0;
-                                  const seconds = Number.parseInt((inputs[2] as HTMLInputElement).value) || 0;
-                                  const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                                  setRows(rows.map(r =>
-                                    r.id === row.id
-                                      ? { ...r, data: { ...r.data, [field.id]: timeString } }
-                                      : r
-                                  ));
-                                  toast.success(st('sweep.weldflow.tablePage.timerSet'));
-                                }}
-                              >
-                                {st('sweep.weldflow.tablePage.setTimer')}
-                              </Button>
-                            </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-
-                    {/* Time tracking field (count up) */}
-                    {field.type === "time-tracking" && (
-                      <CellWrapper>
-                        <div className="flex items-center justify-between gap-2 w-full">
-                          <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>
-                            {row.data[field.id] || "00:00:00"}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="bg-gray-100 dark:bg-secondary rounded p-1 hover:bg-gray-200 dark:hover:bg-accent transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const timerKey = `${row.id}-${field.id}`;
-                              const currentTimer = runningTimers[timerKey];
-
-                              if (currentTimer) {
-                                // Stop tracking
-                                const elapsed = currentTimer.elapsed + (Date.now() - currentTimer.startTime);
-                                const hours = Math.floor(elapsed / 3600000);
-                                const minutes = Math.floor((elapsed % 3600000) / 60000);
-                                const seconds = Math.floor((elapsed % 60000) / 1000);
-                                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-                                setRows(rows.map(r =>
-                                  r.id === row.id
-                                    ? { ...r, data: { ...r.data, [field.id]: timeString } }
-                                    : r
-                                ));
-
-                                setRunningTimers(prev => {
-                                  const newTimers = { ...prev };
-                                  delete newTimers[timerKey];
-                                  return newTimers;
-                                });
-                              } else {
-                                // Start tracking
-                                const currentValue = row.data[field.id] || "00:00:00";
-                                const [hours, minutes, seconds] = currentValue.split(':').map(Number);
-                                const elapsed = (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
-
-                                setRunningTimers(prev => ({
-                                  ...prev,
-                                  [timerKey]: { startTime: Date.now(), elapsed }
-                                }));
-                              }
-                            }}
-                          >
-                            {runningTimers[`${row.id}-${field.id}`] ? (
-                              <Square className="h-3.5 w-3.5 text-red-600 fill-red-600" />
-                            ) : (
-                              <Play className="h-3.5 w-3.5 text-black dark:text-white" />
-                            )}
-                          </Button>
-                        </div>
-                      </CellWrapper>
-                    )}
-
-                    {/* Rollup field */}
-                    {field.type === "rollup" && (
-                      <CellWrapper>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <div className="flex items-center justify-center w-full h-full cursor-pointer hover:bg-muted/50">
-                              {renderCellContent(field, row.data[field.id], row.data)}
-                            </div>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-80" align="start">
-                            <div className="space-y-4">
-                              <div>
-                                <Label className="text-xs text-muted-foreground mb-2">Relation Field</Label>
-                                <Command className="rounded-lg border">
-                                  <CommandList>
-                                    <CommandGroup>
-                                      {visibleFields.map((f) => (
-                                        <CommandItem
-                                          key={f.id}
-                                          onSelect={() => {
-                                            setFields(fields.map(field2 =>
-                                              field2.id === field.id
-                                                ? {
-                                                    ...field2,
-                                                    rollupConfig: {
-                                                      relationField: f.id,
-                                                      targetField: field2.rollupConfig?.targetField || '',
-                                                      aggregation: field2.rollupConfig?.aggregation || 'sum'
-                                                    }
-                                                  }
-                                                : field2
-                                            ));
-                                          }}
-                                          className="cursor-pointer"
-                                        >
-                                          <div className="flex items-center justify-between w-full">
-                                            <span>{f.name}</span>
-                                            {field.rollupConfig?.relationField === f.id && (
-                                              <div className="h-2 w-2 rounded-full bg-primary" />
-                                            )}
-                                          </div>
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                  </CommandList>
-                                </Command>
-                              </div>
-
-                              <div>
-                                <Label className="text-xs text-muted-foreground mb-2">Target Field</Label>
-                                <Command className="rounded-lg border">
-                                  <CommandList>
-                                    <CommandGroup>
-                                      {visibleFields.filter(f => f.type === 'number' || f.type === 'currency').map((f) => (
-                                        <CommandItem
-                                          key={f.id}
-                                          onSelect={() => {
-                                            setFields(fields.map(field2 =>
-                                              field2.id === field.id
-                                                ? {
-                                                    ...field2,
-                                                    rollupConfig: {
-                                                      relationField: field2.rollupConfig?.relationField || '',
-                                                      targetField: f.id,
-                                                      aggregation: field2.rollupConfig?.aggregation || 'sum'
-                                                    }
-                                                  }
-                                                : field2
-                                            ));
-                                          }}
-                                          className="cursor-pointer"
-                                        >
-                                          <div className="flex items-center justify-between w-full">
-                                            <span>{f.name}</span>
-                                            {field.rollupConfig?.targetField === f.id && (
-                                              <div className="h-2 w-2 rounded-full bg-primary" />
-                                            )}
-                                          </div>
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                  </CommandList>
-                                </Command>
-                              </div>
-
-                              <div>
-                                <Label className="text-xs text-muted-foreground mb-2">Aggregation</Label>
-                                <Command className="rounded-lg border">
-                                  <CommandList>
-                                    <CommandGroup>
-                                      {(['sum', 'average', 'count', 'min', 'max'] as const).map((agg) => (
-                                        <CommandItem
-                                          key={agg}
-                                          onSelect={() => {
-                                            setFields(fields.map(field2 =>
-                                              field2.id === field.id
-                                                ? {
-                                                    ...field2,
-                                                    rollupConfig: {
-                                                      relationField: field2.rollupConfig?.relationField || '',
-                                                      targetField: field2.rollupConfig?.targetField || '',
-                                                      aggregation: agg
-                                                    }
-                                                  }
-                                                : field2
-                                            ));
-                                          }}
-                                          className="cursor-pointer"
-                                        >
-                                          <div className="flex items-center justify-between w-full">
-                                            <span className="capitalize">{agg}</span>
-                                            {field.rollupConfig?.aggregation === agg && (
-                                              <div className="h-2 w-2 rounded-full bg-primary" />
-                                            )}
-                                          </div>
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                  </CommandList>
-                                </Command>
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </CellWrapper>
-                    )}
-
-                    {/* All other field types - read only for now */}
-                    {!["text", "number", "email", "phone", "currency", "checkbox", "date", "due-date", "completed-on", "created-on", "last-modified-on", "single-select", "multi-select", "tags", "people", "assignee", "created-by", "formula", "collaborators", "projects", "timer", "time-tracking", "rollup"].includes(field.type) && (
-                      <CellWrapper>
-                        {renderCellContent(field, row.data[field.id], row.data)}
-                      </CellWrapper>
-                    )}
+                    {renderBodyCell(row, field)}
                   </td>
                 ))}
                 <td style={{ height: '40px', padding: 0 }}></td>
