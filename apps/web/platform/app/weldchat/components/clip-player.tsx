@@ -46,15 +46,36 @@ const PLAYBACK_RATES = [1, 1.5, 2];
 const WAVEFORM_BAR_COUNT = 48;
 const WAVEFORM_MAX_H = 28;
 
+/** Wrap a number to a signed 32-bit integer (same result as `n | 0`). */
+const toInt32 = (n: number): number => Math.imul(n, 1);
+
+const SEEK_STEP_SECONDS = 5;
+
+/** Keyboard support for click-to-seek bars: arrow keys move the playhead by a few seconds. */
+function seekWithKeyboard(
+  e: React.KeyboardEvent,
+  media: HTMLMediaElement | null,
+  duration: number,
+): void {
+  if (!media || !duration) return;
+  let delta = 0;
+  if (e.key === 'ArrowRight') delta = SEEK_STEP_SECONDS;
+  else if (e.key === 'ArrowLeft') delta = -SEEK_STEP_SECONDS;
+  if (delta === 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  media.currentTime = Math.max(0, Math.min(duration, media.currentTime + delta));
+}
+
 /** Generate a deterministic waveform pattern from the attachment id */
 function generateWaveform(seed: string, count: number): number[] {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+    hash = toInt32((hash << 5) - hash + seed.charCodeAt(i));
   }
   const bars: number[] = [];
   for (let i = 0; i < count; i++) {
-    hash = ((hash << 5) - hash + i * 7) | 0;
+    hash = toInt32((hash << 5) - hash + i * 7);
     const val = ((hash >>> 0) % 100) / 100;
     bars.push(0.12 + val * 0.88);
   }
@@ -75,7 +96,12 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
   const { mutate: triggerTranscribe, isPending: isTranscribing } = useTranscribeClip();
 
   const waveform = useMemo(
-    () => generateWaveform(attachment.id || attachment.fileName, WAVEFORM_BAR_COUNT),
+    () =>
+      generateWaveform(attachment.id || attachment.fileName, WAVEFORM_BAR_COUNT).map((level, position) => ({
+        id: `bar-${position}`,
+        position,
+        level,
+      })),
     [attachment.id, attachment.fileName],
   );
 
@@ -134,6 +160,10 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
 
   const progress = duration > 0 ? currentTime / duration : 0;
 
+  let transcriptTitle = t.weldchat.clipPlayer.generateTranscript;
+  if (attachment.transcript) transcriptTitle = t.weldchat.clipPlayer.transcriptGenerated;
+  else if (isTranscribing) transcriptTitle = t.weldchat.clipPlayer.generatingTranscript;
+
   return (
     <div className="max-w-[420px]">
       <audio ref={audioRef} src={attachment.url} preload="metadata" />
@@ -156,22 +186,29 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
         <div
           className="relative cursor-pointer select-none flex-1 min-w-0 overflow-hidden"
           style={{ height: WAVEFORM_MAX_H }}
+          role="slider"
+          tabIndex={0}
+          aria-label={t.weldchat.clipPlayer.seek}
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(currentTime)}
           onClick={handleWaveformSeek}
+          onKeyDown={(e) => seekWithKeyboard(e, audioRef.current, duration)}
         >
           <svg
             viewBox={`0 0 ${WAVEFORM_BAR_COUNT * 4} ${WAVEFORM_MAX_H}`}
             preserveAspectRatio="none"
             className="w-full h-full"
           >
-            {waveform.map((level, i) => {
-              const barProgress = i / waveform.length;
+            {waveform.map(({ id, position, level }) => {
+              const barProgress = position / waveform.length;
               const isPlayed = barProgress < progress;
               const barH = Math.max(3, Math.round(level * WAVEFORM_MAX_H));
-              const x = i * 4;
+              const x = position * 4;
               const y = (WAVEFORM_MAX_H - barH) / 2;
               return (
                 <rect
-                  key={i}
+                  key={id}
                   x={x}
                   y={y}
                   width={2.5}
@@ -201,7 +238,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
             }}
             disabled={isTranscribing || !!attachment.transcript}
             className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/10 transition-colors flex items-center justify-center disabled:opacity-40"
-            title={attachment.transcript ? t.weldchat.clipPlayer.transcriptGenerated : isTranscribing ? t.weldchat.clipPlayer.generatingTranscript : t.weldchat.clipPlayer.generateTranscript}
+            title={transcriptTitle}
           >
             {isTranscribing || attachment.transcript?.status === 'pending' || attachment.transcript?.status === 'processing'
               ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -362,7 +399,17 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
       {/* Video */}
       <div
         className="relative rounded-lg overflow-hidden bg-black cursor-pointer group/video"
+        role="button"
+        tabIndex={0}
+        aria-label={t.weldchat.clipPlayer.playPause}
         onClick={togglePlay}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            togglePlay();
+          }
+        }}
       >
         <video
           ref={videoRef}
@@ -417,7 +464,14 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
           {/* Seek bar */}
           <div
             className="w-full h-1 bg-white/25 rounded-full cursor-pointer mb-2 group/seek hover:h-1.5 transition-all"
+            role="slider"
+            tabIndex={0}
+            aria-label={t.weldchat.clipPlayer.seek}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(currentTime)}
             onClick={(e) => { e.stopPropagation(); handleSeek(e); }}
+            onKeyDown={(e) => seekWithKeyboard(e, videoRef.current, duration)}
           >
             <div
               className="h-full bg-white rounded-full transition-all duration-100"
@@ -576,12 +630,14 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in-0 duration-200"
+      role="presentation"
       onClick={onClose}
       onMouseMove={resetHideTimer}
     >
       {/* Video wrapper — controls are positioned relative to this */}
       <div
         className="relative max-w-[90vw] max-h-[90vh] rounded-lg overflow-hidden"
+        role="presentation"
         onClick={(e) => e.stopPropagation()}
       >
         <video
@@ -640,7 +696,14 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
           {/* Seek bar */}
           <div
             className="w-full h-1 bg-white/25 rounded-full cursor-pointer mb-2.5 group/seek hover:h-1.5 transition-all"
+            role="slider"
+            tabIndex={0}
+            aria-label={t.weldchat.clipPlayer.seek}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(currentTime)}
             onClick={(e) => { e.stopPropagation(); handleSeek(e); }}
+            onKeyDown={(e) => seekWithKeyboard(e, videoRef.current, duration)}
           >
             <div
               className="h-full bg-white rounded-full transition-all duration-100 relative"

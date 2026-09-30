@@ -768,6 +768,8 @@ export const weldchat = {
       generatingTranscriptBadge: 'Generating transcript...',
       viewFullscreen: 'View fullscreen',
       close: 'Close',
+      seek: 'Seek',
+      playPause: 'Play or pause',
     },
     typingIndicator: {
       someone: 'Someone',
