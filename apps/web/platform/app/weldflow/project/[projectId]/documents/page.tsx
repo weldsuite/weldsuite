@@ -181,6 +181,7 @@ export default function ProjectDocumentsPage() {
     return (
       <div
         key={item.id}
+        role="presentation"
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         onClick={() => openDocument(item.id)}
       >
@@ -202,7 +203,7 @@ export default function ProjectDocumentsPage() {
           <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
         </div>
 
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

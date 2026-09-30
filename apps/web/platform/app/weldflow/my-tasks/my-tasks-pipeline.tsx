@@ -324,6 +324,8 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}

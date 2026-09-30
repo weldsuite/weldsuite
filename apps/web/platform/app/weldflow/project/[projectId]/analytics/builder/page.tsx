@@ -70,6 +70,18 @@ const mixedBarChartData = [
   { browser: "other", visitors: 90, fill: "var(--chart-5)" },
 ]
 
+// Centre label for the donut preview. Recharts clones this element and injects `viewBox`.
+function DonutTotalLabel({ viewBox, totalLabel }: Readonly<{ viewBox?: { cx?: number; cy?: number }; totalLabel: string }>) {
+  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+  const total = mixedBarChartData.reduce((a, c) => a + c.visitors, 0);
+  return (
+    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">{total}</tspan>
+      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{totalLabel}</tspan>
+    </text>
+  );
+}
+
 const chartTypes = [
   { id: 'area-chart', name: 'Area Chart', icon: AreaChartIcon },
   { id: 'area-linear', name: 'Area Chart - Linear', icon: AreaChartIcon },
@@ -265,12 +277,7 @@ export default function ProjectAnalyticsBuilderPage() {
                       <RechartsPieChart>
                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                         <Pie data={mixedBarChartData} dataKey="visitors" nameKey="browser" innerRadius={60} strokeWidth={5}>
-                          <RechartsLabel content={({ viewBox }) => {
-                            if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                              const total = mixedBarChartData.reduce((a, c) => a + c.visitors, 0);
-                              return (<text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle"><tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">{total}</tspan><tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{t.projects.analyticsBuilder.total}</tspan></text>);
-                            }
-                          }} />
+                          <RechartsLabel content={<DonutTotalLabel totalLabel={t.projects.analyticsBuilder.total} />} />
                         </Pie>
                       </RechartsPieChart>
                     )}

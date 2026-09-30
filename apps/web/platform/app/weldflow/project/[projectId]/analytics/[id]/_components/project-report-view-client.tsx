@@ -137,6 +137,16 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
   const [pageDescription, setPageDescription] = useState(report.description || '');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const descriptionInputRef = useRef<HTMLInputElement>(null);
+
+  // Move focus into the inline inputs when they open (replaces the autoFocus attribute).
+  useEffect(() => {
+    if (isEditMode && isEditingTitle) titleInputRef.current?.focus();
+  }, [isEditMode, isEditingTitle]);
+  useEffect(() => {
+    if (isEditMode && isEditingDescription) descriptionInputRef.current?.focus();
+  }, [isEditMode, isEditingDescription]);
 
   const STANDARD_CHART_HEIGHT = 8;
 
@@ -406,7 +416,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
               nameKey="label"
             >
               {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.fill || CHART_COLORS[index % CHART_COLORS.length]} />
+                <Cell key={entry.label} fill={entry.fill || CHART_COLORS[index % CHART_COLORS.length]} />
               ))}
             </Pie>
             <Tooltip />
@@ -495,7 +505,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
                   }}
                   onBlur={() => setIsEditingTitle(false)}
                   onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-                  autoFocus
+                  ref={titleInputRef}
                   className="absolute inset-0 text-2xl font-bold tracking-tight bg-transparent border-b border-primary focus:outline-none"
                   placeholder={t.projects.analyticsReports.titlePlaceholderEdit}
                 />
@@ -528,7 +538,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
                   }}
                   onBlur={() => setIsEditingDescription(false)}
                   onKeyDown={(e) => e.key === 'Enter' && setIsEditingDescription(false)}
-                  autoFocus
+                  ref={descriptionInputRef}
                   className="absolute inset-0 text-muted-foreground bg-transparent border-b border-primary focus:outline-none"
                   placeholder={t.projects.analyticsReports.descriptionPlaceholderEdit}
                 />
