@@ -69,6 +69,55 @@ function overlapTail(chunk: string): string {
   return boundary === -1 ? tail : tail.slice(boundary + 1);
 }
 
+interface ChunkState {
+  chunks: string[];
+  current: string;
+}
+
+/** Flush the chunk being packed into the output list. */
+function flushChunk(state: ChunkState): void {
+  const trimmed = state.current.trim();
+  if (trimmed) state.chunks.push(trimmed);
+  state.current = '';
+}
+
+/**
+ * Hard-split a paragraph longer than the target into overlapping windows.
+ * Returns true once the per-entity chunk cap has been reached.
+ */
+function hardSplitParagraph(paragraph: string, chunks: string[]): boolean {
+  for (let i = 0; i < paragraph.length; i += CHUNK_CHARS - CHUNK_OVERLAP_CHARS) {
+    chunks.push(paragraph.slice(i, i + CHUNK_CHARS));
+    if (chunks.length >= MAX_CHUNKS_PER_ENTITY) return true;
+  }
+  return false;
+}
+
+/**
+ * Add one paragraph to the chunk being packed, flushing (and carrying an
+ * overlap) when it would not fit. Returns true once the per-entity chunk cap
+ * has been reached and packing should stop.
+ */
+function packParagraph(state: ChunkState, paragraph: string): boolean {
+  if (paragraph.length > CHUNK_CHARS) {
+    flushChunk(state);
+    return hardSplitParagraph(paragraph, state.chunks);
+  }
+
+  if (state.current.length + paragraph.length + 1 > CHUNK_CHARS) {
+    const carried = overlapTail(state.current);
+    flushChunk(state);
+    if (state.chunks.length >= MAX_CHUNKS_PER_ENTITY) return true;
+    // Seed the next chunk with the tail of the previous one. Skipped when the
+    // carry-over would leave no room for the paragraph itself.
+    if (carried && carried.length + paragraph.length + 1 <= CHUNK_CHARS) {
+      state.current = carried;
+    }
+  }
+  state.current = state.current ? `${state.current}\n${paragraph}` : paragraph;
+  return false;
+}
+
 /**
  * Split text on paragraph boundaries, packing up to {@link CHUNK_CHARS} and
  * carrying a small overlap so a sentence spanning a boundary still matches.
@@ -85,39 +134,14 @@ export function chunkText(text: string): string[] {
   if (clean.length <= CHUNK_CHARS) return [clean];
 
   const paragraphs = clean.split(/\n{2,}|\n/).map((p) => p.trim()).filter(Boolean);
-  const chunks: string[] = [];
-  let current = '';
-
-  const push = () => {
-    if (current.trim()) chunks.push(current.trim());
-    current = '';
-  };
+  const state: ChunkState = { chunks: [], current: '' };
 
   for (const paragraph of paragraphs) {
-    if (paragraph.length > CHUNK_CHARS) {
-      push();
-      for (let i = 0; i < paragraph.length; i += CHUNK_CHARS - CHUNK_OVERLAP_CHARS) {
-        chunks.push(paragraph.slice(i, i + CHUNK_CHARS));
-        if (chunks.length >= MAX_CHUNKS_PER_ENTITY) return chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
-      }
-      continue;
-    }
-
-    if (current.length + paragraph.length + 1 > CHUNK_CHARS) {
-      const carried = overlapTail(current);
-      push();
-      if (chunks.length >= MAX_CHUNKS_PER_ENTITY) return chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
-      // Seed the next chunk with the tail of the previous one. Skipped when the
-      // carry-over would leave no room for the paragraph itself.
-      if (carried && carried.length + paragraph.length + 1 <= CHUNK_CHARS) {
-        current = carried;
-      }
-    }
-    current = current ? `${current}\n${paragraph}` : paragraph;
+    if (packParagraph(state, paragraph)) return state.chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
   }
-  push();
+  flushChunk(state);
 
-  return chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
+  return state.chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
 }
 
 /** SHA-256 hex of a chunk — the skip-if-unchanged key. */

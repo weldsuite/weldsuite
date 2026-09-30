@@ -159,28 +159,9 @@ async function suggestBucket(
   return row ?? null;
 }
 
-export async function generatePickList(
-  db: Database,
-  params: {
-    orderId: string;
-    warehouseId?: string;
-    assignedTo?: string;
-    assignedToName?: string;
-    priority?: string;
-    createdBy?: string;
-  },
-) {
-  const [order] = await db
-    .select()
-    .from(orders)
-    .where(and(eq(orders.id, params.orderId), isNull(orders.deletedAt)))
-    .limit(1);
-  if (!order) throw new PickListError(`Order ${params.orderId} not found`, 'ORDER_NOT_FOUND');
-  if (order.fulfillmentStatus === 'fulfilled') {
-    throw new PickListError('Order is already fulfilled', 'ALREADY_PICKING');
-  }
-
-  let warehouseId = params.warehouseId;
+/** Requested warehouse, else the default one, else any live warehouse. */
+async function resolveWarehouseId(db: Database, requested: string | undefined): Promise<string> {
+  let warehouseId = requested;
   if (!warehouseId) {
     const [def] = await db
       .select({ id: warehouses.id })
@@ -205,6 +186,31 @@ export async function generatePickList(
     .where(and(eq(warehouses.id, warehouseId), isNull(warehouses.deletedAt)))
     .limit(1);
   if (!wh) throw new PickListError(`Warehouse ${warehouseId} not found`, 'WAREHOUSE_NOT_FOUND');
+  return warehouseId;
+}
+
+export async function generatePickList(
+  db: Database,
+  params: {
+    orderId: string;
+    warehouseId?: string;
+    assignedTo?: string;
+    assignedToName?: string;
+    priority?: string;
+    createdBy?: string;
+  },
+) {
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, params.orderId), isNull(orders.deletedAt)))
+    .limit(1);
+  if (!order) throw new PickListError(`Order ${params.orderId} not found`, 'ORDER_NOT_FOUND');
+  if (order.fulfillmentStatus === 'fulfilled') {
+    throw new PickListError('Order is already fulfilled', 'ALREADY_PICKING');
+  }
+
+  const warehouseId = await resolveWarehouseId(db, params.warehouseId);
 
   const existing = await db
     .select({ id: pickLists.id, status: pickLists.status })
@@ -412,6 +418,23 @@ async function barcodesForItem(
   return { location, product };
 }
 
+/** Throw SCAN_MISMATCH unless the scanned product (and location, when the line has one) match. */
+async function assertScansMatch(
+  db: Database,
+  item: typeof pickListItems.$inferSelect,
+  scans: { productBarcode: string; locationBarcode?: string },
+): Promise<void> {
+  const expected = await barcodesForItem(db, item);
+  if (!expected.product.includes(normalizeScan(scans.productBarcode))) {
+    throw new PickListError('Scanned product does not match this pick line', 'SCAN_MISMATCH');
+  }
+  if (!item.locationId) return;
+  const scannedLocation = scans.locationBarcode ? normalizeScan(scans.locationBarcode) : '';
+  if (!scannedLocation || !expected.location.includes(scannedLocation)) {
+    throw new PickListError('Scanned location does not match this pick line', 'SCAN_MISMATCH');
+  }
+}
+
 export async function confirmPickItem(
   db: Database,
   params: {
@@ -443,23 +466,13 @@ export async function confirmPickItem(
     );
   }
 
-  const expected = await barcodesForItem(db, item);
-  const scannedProduct = normalizeScan(params.productBarcode);
-  if (!expected.product.includes(scannedProduct)) {
-    throw new PickListError('Scanned product does not match this pick line', 'SCAN_MISMATCH');
-  }
-  if (item.locationId) {
-    const scannedLocation = params.locationBarcode ? normalizeScan(params.locationBarcode) : '';
-    if (!scannedLocation || !expected.location.includes(scannedLocation)) {
-      throw new PickListError('Scanned location does not match this pick line', 'SCAN_MISMATCH');
-    }
-  }
+  await assertScansMatch(db, item, params);
 
   const required = item.quantityRequired ?? 0;
   const qty = Math.min(params.quantity, required);
   const isShort = params.short || qty < required;
   const now = new Date();
-  const nextStatus = qty <= 0 ? 'short' : isShort ? (qty > 0 ? 'partial' : 'short') : 'picked';
+  const nextStatus = qty <= 0 ? 'short' : isShort ? 'partial' : 'picked';
   const quantityShort = Math.max(required - qty, 0);
 
   await db
@@ -638,6 +651,61 @@ export interface ShipPickListResult {
   shippingOptionCode?: string | null;
 }
 
+/** Issue a shipped line's picked stock from the ledger and bump its order line's fulfilled quantity. */
+async function issuePickedLine(
+  db: Database,
+  list: NonNullable<Awaited<ReturnType<typeof loadPickList>>>,
+  item: typeof pickListItems.$inferSelect,
+  userId: string | undefined,
+): Promise<void> {
+  const qty = item.quantityPicked ?? 0;
+  if (qty <= 0) return;
+  if (item.inventoryId) {
+    await issueAllocatedStock(db, {
+      inventoryId: item.inventoryId,
+      quantity: qty,
+      sourceType: 'pick_list',
+      sourceId: list.id,
+      sourceNumber: list.pickListNumber,
+      reason: `Shipped from ${list.pickListNumber}`,
+      performedBy: userId ?? null,
+    });
+  }
+  if (item.orderItemId) {
+    await db
+      .update(orderItems)
+      .set({
+        fulfilledQuantity: sql`COALESCE(${orderItems.fulfilledQuantity}, 0) + ${qty}`,
+      })
+      .where(eq(orderItems.id, item.orderItemId));
+  }
+}
+
+/** Flip the order to partial/fulfilled after a shipment, carrying over the carrier details. */
+async function markOrderShipped(
+  db: Database,
+  orderId: string,
+  order: typeof orders.$inferSelect | undefined,
+  carrier: { trackingNumber: string | null; trackingUrl: string | null; carrierName: string | null },
+  now: Date,
+): Promise<void> {
+  const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  const remaining = lines.some(
+    (line) => (line.quantity ?? 0) - (line.fulfilledQuantity ?? 0) > 0,
+  );
+  await db
+    .update(orders)
+    .set({
+      fulfillmentStatus: remaining ? 'partial' : 'fulfilled',
+      trackingNumber: carrier.trackingNumber ?? order?.trackingNumber,
+      trackingUrl: carrier.trackingUrl ?? order?.trackingUrl,
+      shippingCarrier: carrier.carrierName ?? order?.shippingCarrier,
+      shippedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(orders.id, orderId));
+}
+
 export async function shipPickList(
   db: Database,
   id: string,
@@ -728,44 +796,11 @@ export async function shipPickList(
   }
 
   for (const item of items) {
-    const qty = item.quantityPicked ?? 0;
-    if (qty > 0 && item.inventoryId) {
-      await issueAllocatedStock(db, {
-        inventoryId: item.inventoryId,
-        quantity: qty,
-        sourceType: 'pick_list',
-        sourceId: list.id,
-        sourceNumber: list.pickListNumber,
-        reason: `Shipped from ${list.pickListNumber}`,
-        performedBy: userId ?? null,
-      });
-    }
-    if (item.orderItemId && qty > 0) {
-      await db
-        .update(orderItems)
-        .set({
-          fulfilledQuantity: sql`COALESCE(${orderItems.fulfilledQuantity}, 0) + ${qty}`,
-        })
-        .where(eq(orderItems.id, item.orderItemId));
-    }
+    await issuePickedLine(db, list, item, userId);
   }
 
   if (orderId) {
-    const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-    const remaining = lines.some(
-      (line) => (line.quantity ?? 0) - (line.fulfilledQuantity ?? 0) > 0,
-    );
-    await db
-      .update(orders)
-      .set({
-        fulfillmentStatus: remaining ? 'partial' : 'fulfilled',
-        trackingNumber: trackingNumber ?? order?.trackingNumber,
-        trackingUrl: trackingUrl ?? order?.trackingUrl,
-        shippingCarrier: carrierName ?? order?.shippingCarrier,
-        shippedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(orders.id, orderId));
+    await markOrderShipped(db, orderId, order, { trackingNumber, trackingUrl, carrierName }, now);
   }
 
   await db
@@ -794,6 +829,55 @@ export async function shipPickList(
   };
 }
 
+/**
+ * Sendcloud client for this workspace (explicit client wins over stored keys).
+ * When workspace settings are loaded, the chosen sender and parcel type must be enabled.
+ */
+async function resolveSendcloudClient(
+  db: Database,
+  options: ShipPickListOptions,
+  senderId: number,
+  shippingOptionCode: string,
+): Promise<SendcloudClient> {
+  let client = options.sendcloud ?? null;
+  const stored = options.workspaceId
+    ? await getSendcloudSettings(db, options.workspaceId)
+    : null;
+  if (!client) {
+    const secret = stored ? await decryptSecret(stored.secretKey, options.keyring ?? {}) : null;
+    if (!stored?.publicKey || !secret) {
+      throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
+    }
+    client = createSendcloudClient({ publicKey: stored.publicKey, secretKey: secret });
+  }
+  const sender = stored?.senders.find((row) => row.id === senderId);
+  const method = stored?.methods.find((row) => row.code === shippingOptionCode);
+  if (stored && (!sender?.enabled || !method?.enabled)) {
+    throw new PickListError(
+      'Selected sender or parcel type is not enabled',
+      'SHIPPING_NOT_CONFIGURED',
+    );
+  }
+  return client;
+}
+
+/** Recipient address for the announcement; an incomplete one surfaces as MISSING_ADDRESS. */
+function buildToAddress(order: typeof orders.$inferSelect | undefined) {
+  try {
+    return toSendcloudToAddress({
+      address: order?.shippingAddress,
+      name: order?.customerName,
+      email: order?.customerEmail,
+      phone: order?.customerPhone,
+    });
+  } catch (err) {
+    throw new PickListError(
+      err instanceof Error ? err.message : 'Recipient address is incomplete',
+      'MISSING_ADDRESS',
+    );
+  }
+}
+
 async function announceSendcloudParcel(
   db: Database,
   params: {
@@ -813,40 +897,8 @@ async function announceSendcloudParcel(
     throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
   }
 
-  let client = options.sendcloud ?? null;
-  let stored = options.workspaceId
-    ? await getSendcloudSettings(db, options.workspaceId)
-    : null;
-  if (!client) {
-    const secret = stored ? await decryptSecret(stored.secretKey, options.keyring ?? {}) : null;
-    if (!stored?.publicKey || !secret) {
-      throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
-    }
-    client = createSendcloudClient({ publicKey: stored.publicKey, secretKey: secret });
-  }
-  const sender = stored?.senders.find((row) => row.id === options.senderId);
-  const method = stored?.methods.find((row) => row.code === options.shippingOptionCode);
-  if (stored && (!sender?.enabled || !method?.enabled)) {
-    throw new PickListError(
-      'Selected sender or parcel type is not enabled',
-      'SHIPPING_NOT_CONFIGURED',
-    );
-  }
-
-  let toAddress;
-  try {
-    toAddress = toSendcloudToAddress({
-      address: order?.shippingAddress,
-      name: order?.customerName,
-      email: order?.customerEmail,
-      phone: order?.customerPhone,
-    });
-  } catch (err) {
-    throw new PickListError(
-      err instanceof Error ? err.message : 'Recipient address is incomplete',
-      'MISSING_ADDRESS',
-    );
-  }
+  const client = await resolveSendcloudClient(db, options, options.senderId, options.shippingOptionCode);
+  const toAddress = buildToAddress(order);
 
   try {
     const announced = await client.announceShipment({
@@ -879,6 +931,27 @@ async function announceSendcloudParcel(
   }
 }
 
+/**
+ * Give back the stock a cancelled line still holds. Pending lines still hold
+ * the full required qty; picked/partial/short lines hold whatever was actually
+ * picked (shorts already released).
+ */
+async function releaseLineAllocation(
+  db: Database,
+  item: typeof pickListItems.$inferSelect,
+): Promise<void> {
+  const hold =
+    item.status === 'pending' || item.status === 'skipped'
+      ? item.quantityRequired ?? 0
+      : item.quantityPicked ?? 0;
+  if (!item.inventoryId || hold <= 0) return;
+  try {
+    await releaseAllocation(db, { inventoryId: item.inventoryId, quantity: hold });
+  } catch (err) {
+    if (!(err instanceof StockLedgerError && err.code === 'INSUFFICIENT_ALLOCATION')) throw err;
+  }
+}
+
 export async function cancelPickList(db: Database, id: string) {
   const list = await loadPickList(db, id);
   if (!list) return null;
@@ -887,19 +960,7 @@ export async function cancelPickList(db: Database, id: string) {
   }
   const items = await loadItems(db, id);
   for (const item of items) {
-    // Pending lines still hold the full required qty. Picked/partial/short
-    // lines hold whatever was actually picked (shorts already released).
-    const hold =
-      item.status === 'pending' || item.status === 'skipped'
-        ? item.quantityRequired ?? 0
-        : item.quantityPicked ?? 0;
-    if (item.inventoryId && hold > 0) {
-      try {
-        await releaseAllocation(db, { inventoryId: item.inventoryId, quantity: hold });
-      } catch (err) {
-        if (!(err instanceof StockLedgerError && err.code === 'INSUFFICIENT_ALLOCATION')) throw err;
-      }
-    }
+    await releaseLineAllocation(db, item);
   }
   const now = new Date();
   await db
