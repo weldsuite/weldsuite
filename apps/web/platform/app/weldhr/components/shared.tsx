@@ -160,18 +160,18 @@ export function StatusBadge({ group, status }: Readonly<{ group: string; status:
   return <Badge variant={STATUS_TONE[status] ?? 'secondary'}>{label.startsWith('weldhr.') ? status : label}</Badge>;
 }
 
+/** Colour band classes for an evaluation score. */
+function scoreTone(score: number): string {
+  if (score >= 85) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300';
+  if (score >= 70) return 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300';
+  if (score >= 55) return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300';
+  return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
+}
+
 /** Evaluation score 0–100 with a colour band. */
 export function ScoreBadge({ score }: Readonly<{ score: number | null | undefined }>) {
   if (score === null || score === undefined) return <span className="text-muted-foreground">—</span>;
-  const tone =
-    score >= 85
-      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-      : score >= 70
-        ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
-        : score >= 55
-          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-          : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
-  return <span className={cn('inline-flex rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums', tone)}>{score.toFixed(1)}</span>;
+  return <span className={cn('inline-flex rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums', scoreTone(score))}>{score.toFixed(1)}</span>;
 }
 
 export function EmployeeAvatar({ name, src, className }: Readonly<{ name: string; src?: string | null; className?: string }>) {

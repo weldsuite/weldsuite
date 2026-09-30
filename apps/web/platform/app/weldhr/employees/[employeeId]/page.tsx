@@ -1,6 +1,6 @@
 /** WeldHR employee detail: header, actions, and tabs (overview, clients, personal, lifecycle, attendance, leave, coaching, evaluations, performance). */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Loader2, MoreHorizontal, Plus } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -277,6 +277,88 @@ function ClientsTab({ employeeId, canUpdate }: Readonly<{ employeeId: string; ca
   const [dialog, setDialog] = useState<{ kind: 'create' } | { kind: 'edit'; assignment: HrAssignment } | { kind: 'delete'; assignment: HrAssignment } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!assignments || assignments.length === 0) {
+    body = (
+      <EmptyText>{t('weldhr.employees.detail.clientsTab.empty')}</EmptyText>
+    );
+  } else {
+    body = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('weldhr.employees.detail.clientsTab.table.company')}</TableHead>
+            <TableHead>{t('weldhr.employees.detail.clientsTab.table.role')}</TableHead>
+            <TableHead>{t('weldhr.employees.detail.clientsTab.table.allocation')}</TableHead>
+            <TableHead>{t('weldhr.employees.detail.clientsTab.table.dates')}</TableHead>
+            <TableHead>{t('weldhr.employees.detail.clientsTab.table.status')}</TableHead>
+            {canUpdate && <TableHead className="w-px" />}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {assignments.map((a) => (
+            <TableRow key={a.id}>
+              <TableCell>
+                <Link to="/weldhr/clients/$companyId" params={{ companyId: a.companyId }} className="hover:underline">
+                  {a.companyName ?? a.companyId}
+                </Link>
+                {a.isPrimary && (
+                  <Badge variant="outline" className="ml-2">
+                    {t('weldhr.employees.detail.clientsTab.table.primary')}
+                  </Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-muted-foreground">{a.role ?? '—'}</TableCell>
+              <TableCell className="text-muted-foreground">{a.allocationPercent}%</TableCell>
+              <TableCell className="text-muted-foreground">
+                {formatDate(a.startDate)} – {a.endDate ? formatDate(a.endDate) : t('weldhr.common.none')}
+              </TableCell>
+              <TableCell>
+                <Badge variant={a.isActive ? 'default' : 'secondary'}>
+                  {a.isActive ? t('weldhr.common.yes') : t('weldhr.common.no')}
+                </Badge>
+              </TableCell>
+              {canUpdate && (
+                <TableCell>
+                  <div className="flex justify-end gap-1">
+                    {a.isActive && !a.endDate && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          setFailure(null);
+                          try {
+                            await updateAssignment.mutateAsync({ id: a.id, endDate: new Date().toISOString().slice(0, 10) });
+                          } catch (err) {
+                            setFailure(errorMessage(err, t('weldhr.common.saveFailed')));
+                          }
+                        }}
+                      >
+                        {t('weldhr.employees.detail.clientsTab.endAssignment')}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'edit', assignment: a })}>
+                      {t('weldhr.common.edit')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'delete', assignment: a })}>
+                      {t('weldhr.common.delete')}
+                    </Button>
+                  </div>
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
   return (
     <SectionCard
       title={t('weldhr.employees.detail.clientsTab.title')}
@@ -291,80 +373,7 @@ function ClientsTab({ employeeId, canUpdate }: Readonly<{ employeeId: string; ca
     >
       <ErrorBanner error={failure ?? (error ? errorMessage(error, t('weldhr.common.loadFailed')) : null)} onDismiss={() => setFailure(null)} />
 
-      {isLoading ? (
-        <div className="flex justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : !assignments || assignments.length === 0 ? (
-        <EmptyText>{t('weldhr.employees.detail.clientsTab.empty')}</EmptyText>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('weldhr.employees.detail.clientsTab.table.company')}</TableHead>
-              <TableHead>{t('weldhr.employees.detail.clientsTab.table.role')}</TableHead>
-              <TableHead>{t('weldhr.employees.detail.clientsTab.table.allocation')}</TableHead>
-              <TableHead>{t('weldhr.employees.detail.clientsTab.table.dates')}</TableHead>
-              <TableHead>{t('weldhr.employees.detail.clientsTab.table.status')}</TableHead>
-              {canUpdate && <TableHead className="w-px" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {assignments.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell>
-                  <Link to="/weldhr/clients/$companyId" params={{ companyId: a.companyId }} className="hover:underline">
-                    {a.companyName ?? a.companyId}
-                  </Link>
-                  {a.isPrimary && (
-                    <Badge variant="outline" className="ml-2">
-                      {t('weldhr.employees.detail.clientsTab.table.primary')}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{a.role ?? '—'}</TableCell>
-                <TableCell className="text-muted-foreground">{a.allocationPercent}%</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {formatDate(a.startDate)} – {a.endDate ? formatDate(a.endDate) : t('weldhr.common.none')}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={a.isActive ? 'default' : 'secondary'}>
-                    {a.isActive ? t('weldhr.common.yes') : t('weldhr.common.no')}
-                  </Badge>
-                </TableCell>
-                {canUpdate && (
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      {a.isActive && !a.endDate && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            setFailure(null);
-                            try {
-                              await updateAssignment.mutateAsync({ id: a.id, endDate: new Date().toISOString().slice(0, 10) });
-                            } catch (err) {
-                              setFailure(errorMessage(err, t('weldhr.common.saveFailed')));
-                            }
-                          }}
-                        >
-                          {t('weldhr.employees.detail.clientsTab.endAssignment')}
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'edit', assignment: a })}>
-                        {t('weldhr.common.edit')}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'delete', assignment: a })}>
-                        {t('weldhr.common.delete')}
-                      </Button>
-                    </div>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      {body}
 
       {dialog?.kind === 'create' && <AssignmentDialog employeeId={employeeId} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'edit' && <AssignmentDialog employeeId={employeeId} assignment={dialog.assignment} onClose={() => setDialog(null)} />}
