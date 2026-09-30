@@ -47,6 +47,37 @@ interface UseAiStreamOptions {
   onComplete?: (fullResponse: string) => void
 }
 
+const DEFAULT_ERROR_MESSAGE = "An error occurred"
+
+/** Applies one stream frame to the message state and the caller's callbacks. */
+function handleStreamChunk(
+  chunk: StreamChunk,
+  setCurrentMessage: (update: string | ((prev: string) => string)) => void,
+  options: UseAiStreamOptions | undefined,
+  currentMessage: string
+): void {
+  switch (chunk.type) {
+    case "chunk":
+      setCurrentMessage(prev => prev + chunk.content)
+      break
+
+    case "action":
+      if (options?.onAction && chunk.action) {
+        options.onAction(chunk.action)
+      }
+      break
+
+    case "done":
+      options?.onComplete?.(chunk.fullResponse || currentMessage)
+      break
+
+    case "error":
+      setCurrentMessage(chunk.content || DEFAULT_ERROR_MESSAGE)
+      options?.onError?.(chunk.content || DEFAULT_ERROR_MESSAGE)
+      break
+  }
+}
+
 export function useAiStream(options?: UseAiStreamOptions) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentMessage, setCurrentMessage] = useState("")
@@ -63,37 +94,12 @@ export function useAiStream(options?: UseAiStreamOptions) {
       const stream = sendMessage(message, context)
       
       for await (const chunk of stream) {
-        switch (chunk.type) {
-          case "chunk":
-            setCurrentMessage(prev => prev + chunk.content)
-            break
-            
-          case "action":
-            if (options?.onAction && chunk.action) {
-              options.onAction(chunk.action)
-            }
-            break
-            
-          case "done":
-            if (options?.onComplete) {
-              options.onComplete(chunk.fullResponse || currentMessage)
-            }
-            break
-            
-          case "error":
-            setCurrentMessage(chunk.content || "An error occurred")
-            if (options?.onError) {
-              options.onError(chunk.content || "An error occurred")
-            }
-            break
-        }
+        handleStreamChunk(chunk, setCurrentMessage, options, currentMessage)
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An error occurred"
+      const errorMessage = error instanceof Error ? error.message : DEFAULT_ERROR_MESSAGE
       setCurrentMessage(errorMessage)
-      if (options?.onError) {
-        options.onError(errorMessage)
-      }
+      options?.onError?.(errorMessage)
     } finally {
       setIsStreaming(false)
     }

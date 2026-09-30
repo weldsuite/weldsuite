@@ -134,31 +134,9 @@ export function PeoplePanel({
             </p>
           </div>
           <div className="px-4">
-            {waitlisted.map((p) => {
-              const seed = String(p.customParticipantId ?? p.userId ?? p.id ?? p.name ?? '');
-              return (
-              <div key={p.id} className="flex items-center gap-3 py-2">
-                <Avatar className="h-7 w-7 !rounded-[8px]">
-                  {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
-                  <AvatarFallback
-                    className="text-[10px] font-medium !rounded-[8px] text-white"
-                    style={{ backgroundColor: getAvatarColor(seed) }}
-                  >
-                    {getInitials(p.name ?? '?')}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="flex-1 text-[13px] font-medium truncate">{p.name ?? 'Guest'}</span>
-                <div className="flex items-center gap-1.5">
-                  <Button variant="outline" size="sm" className="text-muted-foreground" onClick={() => handleReject(p.id)}>
-                    Deny
-                  </Button>
-                  <Button size="sm" onClick={() => handleAdmit(p.id)}>
-                    Admit
-                  </Button>
-                </div>
-              </div>
-              );
-            })}
+            {waitlisted.map((p) => (
+              <WaitlistedRow key={p.id} peer={p} onAdmit={handleAdmit} onReject={handleReject} />
+            ))}
             {waitlisted.length > 1 && (
               <Button variant="secondary" size="sm" className="w-full mt-1" onClick={handleAdmitAll}>
                 Admit all ({waitlisted.length})
@@ -173,54 +151,132 @@ export function PeoplePanel({
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">In this call ({participants.length})</p>
       </div>
       <div className="px-4">
-        {participants.map((p, i) => {
-          const isSelf = i === 0;
-          const initials = (p.name ?? '?').charAt(0).toUpperCase();
-          const clickable = !!onClickDetails;
-          return (
-            <div
-              key={p.id}
-              className={cn(
-                'flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md',
-                clickable && 'cursor-pointer hover:bg-muted/50 transition-colors',
-              )}
-              onClick={clickable ? () => onClickDetails!(p) : undefined}
-              role={clickable ? 'button' : undefined}
-              tabIndex={clickable ? 0 : undefined}
-              onKeyDown={clickable ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onClickDetails!(p);
-                }
-              } : undefined}
-            >
-              <div className="relative">
-                <Avatar className="h-7 w-7 !rounded-[8px]">
-                  {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
-                  <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">{initials}</AvatarFallback>
-                </Avatar>
-                <div className={cn(
-                  'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
-                  p.audioEnabled && p.videoEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/40',
-                )} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium leading-tight truncate">
-                  {isSelf ? 'You' : p.name ?? 'Participant'}
-                  {isSelf && selfIsHost && <span className="text-muted-foreground font-normal"> (Host)</span>}
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className={cn('flex h-7 w-7 items-center justify-center rounded-[8px]', p.audioEnabled ? 'bg-muted text-muted-foreground' : 'bg-red-500/10 text-red-400')}>
-                  {p.audioEnabled ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
-                </div>
-                <div className={cn('flex h-7 w-7 items-center justify-center rounded-[8px]', p.videoEnabled ? 'bg-muted text-muted-foreground' : 'bg-red-500/10 text-red-400')}>
-                  {p.videoEnabled ? <VideoIcon className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {participants.map((p, i) => (
+          <ParticipantRow
+            key={p.id}
+            participant={p}
+            isSelf={i === 0}
+            selfIsHost={selfIsHost}
+            onClickDetails={onClickDetails}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WaitlistedRow({
+  peer,
+  onAdmit,
+  onReject,
+}: {
+  peer: WaitlistedPeer;
+  onAdmit: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  const seed = String(peer.customParticipantId ?? peer.userId ?? peer.id ?? peer.name ?? '');
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <Avatar className="h-7 w-7 !rounded-[8px]">
+        {peer.picture && <AvatarImage src={peer.picture} className="!rounded-[8px]" />}
+        <AvatarFallback
+          className="text-[10px] font-medium !rounded-[8px] text-white"
+          style={{ backgroundColor: getAvatarColor(seed) }}
+        >
+          {getInitials(peer.name ?? '?')}
+        </AvatarFallback>
+      </Avatar>
+      <span className="flex-1 text-[13px] font-medium truncate">{peer.name ?? 'Guest'}</span>
+      <div className="flex items-center gap-1.5">
+        <Button variant="outline" size="sm" className="text-muted-foreground" onClick={() => onReject(peer.id)}>
+          Deny
+        </Button>
+        <Button size="sm" onClick={() => onAdmit(peer.id)}>
+          Admit
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Mic / camera state badge shown on the right of a participant row. */
+function MediaStateBadge({
+  enabled,
+  onIcon,
+  offIcon,
+}: {
+  enabled?: boolean;
+  onIcon: ReactNode;
+  offIcon: ReactNode;
+}) {
+  return (
+    <div className={cn('flex h-7 w-7 items-center justify-center rounded-[8px]', enabled ? 'bg-muted text-muted-foreground' : 'bg-red-500/10 text-red-400')}>
+      {enabled ? onIcon : offIcon}
+    </div>
+  );
+}
+
+function participantDisplayName(participant: MeetingPeer, isSelf: boolean): string {
+  if (isSelf) return 'You';
+  return participant.name ?? 'Participant';
+}
+
+function ParticipantRow({
+  participant: p,
+  isSelf,
+  selfIsHost,
+  onClickDetails,
+}: {
+  participant: MeetingPeer;
+  isSelf: boolean;
+  selfIsHost: boolean;
+  onClickDetails?: (participant: MeetingPeer) => void;
+}) {
+  const initials = (p.name ?? '?').charAt(0).toUpperCase();
+  const clickable = !!onClickDetails;
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md',
+        clickable && 'cursor-pointer hover:bg-muted/50 transition-colors',
+      )}
+      onClick={clickable ? () => onClickDetails(p) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClickDetails(p);
+        }
+      } : undefined}
+    >
+      <div className="relative">
+        <Avatar className="h-7 w-7 !rounded-[8px]">
+          {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
+          <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">{initials}</AvatarFallback>
+        </Avatar>
+        <div className={cn(
+          'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
+          p.audioEnabled && p.videoEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+        )} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium leading-tight truncate">
+          {participantDisplayName(p, isSelf)}
+          {isSelf && selfIsHost && <span className="text-muted-foreground font-normal"> (Host)</span>}
+        </p>
+      </div>
+      <div className="flex items-center gap-1">
+        <MediaStateBadge
+          enabled={p.audioEnabled}
+          onIcon={<Mic className="h-3.5 w-3.5" />}
+          offIcon={<MicOff className="h-3.5 w-3.5" />}
+        />
+        <MediaStateBadge
+          enabled={p.videoEnabled}
+          onIcon={<VideoIcon className="h-3.5 w-3.5" />}
+          offIcon={<VideoOff className="h-3.5 w-3.5" />}
+        />
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { MeetingHeader } from './meeting-header';
 import { MeetingRightPanel, type RightPanelKind } from './meeting-right-panel';
 import { ShareLinkCard } from './share-link-card';
 import { AdmitGuestsPill } from './admit-guests-pill';
-import type { MeetingRoomViewProps } from '../types';
+import type { MeetingRoomViewProps, ViewMode } from '../types';
 import type { MeetingPeer } from '../types';
 
 /**
@@ -34,6 +34,532 @@ function RemoteParticipantAudio({ participant }: { participant: MeetingPeer }) {
     }
   }, [participant.audioEnabled, participant.audioTrack]);
   return <audio ref={ref} autoPlay />;
+}
+
+// ─── Shared layout helpers ───────────────────────────────────────────────────
+
+/** A participant plus whether it is the local peer (always first in the list). */
+interface Entry {
+  p: MeetingPeer;
+  isSelf: boolean;
+}
+
+/** Everything a tile needs from the room, bundled so layouts stay small. */
+interface TileContext {
+  meeting: MeetingRoomViewProps['meeting'];
+  handRaised: boolean;
+  handRaisedParticipants: Set<string> | undefined;
+  onTogglePin: (id: string) => void;
+  onClickParticipantDetails: MeetingRoomViewProps['onClickParticipantDetails'];
+  selfColorSeed: string | undefined;
+  isOrganizer: boolean;
+}
+
+/** A camera tile wired to the room's pin / details / hand-raise state. */
+function CameraTile({ ctx, entry, pinned }: { ctx: TileContext; entry: Entry; pinned?: boolean }) {
+  const { p, isSelf } = entry;
+  return (
+    <ParticipantTile
+      participant={p}
+      isSelf={isSelf}
+      isHandRaised={isSelf ? ctx.handRaised : ctx.handRaisedParticipants?.has(p.id)}
+      meeting={ctx.meeting}
+      pinned={pinned}
+      onTogglePin={ctx.onTogglePin}
+      onClickDetails={ctx.onClickParticipantDetails}
+      colorSeed={isSelf ? ctx.selfColorSeed : undefined}
+      canManageParticipants={ctx.isOrganizer}
+    />
+  );
+}
+
+/** A screen-share tile; `interactive` tiles toggle focus (`<id>-screen`) on click. */
+function ScreenTile({
+  ctx,
+  entry,
+  interactive = false,
+  focused,
+}: {
+  ctx: TileContext;
+  entry: Entry;
+  interactive?: boolean;
+  focused?: boolean;
+}) {
+  const { p, isSelf } = entry;
+  return (
+    <ScreenShareTile
+      participant={p}
+      isSelf={isSelf}
+      meeting={ctx.meeting}
+      focused={focused}
+      onClick={interactive ? () => ctx.onTogglePin(`${p.id}-screen`) : undefined}
+    />
+  );
+}
+
+function gridColsClass(totalTiles: number): string {
+  if (totalTiles <= 1) return 'grid-cols-1';
+  if (totalTiles <= 4) return 'grid-cols-2';
+  return 'grid-cols-3';
+}
+
+/**
+ * Resolve effective gating: when host management is on AND the viewer is not
+ * the organizer, the policy hides / disables specific controls.
+ */
+function resolveGates(hostControls: MeetingRoomViewProps['hostControls'], isOrganizer: boolean) {
+  const enforce = !!hostControls?.hostManagement && !isOrganizer;
+  return {
+    screenShare: !enforce || hostControls?.allowScreenShare !== false,
+    micToggle: !enforce || hostControls?.allowMicrophone !== false,
+    videoToggle: !enforce || hostControls?.allowVideo !== false,
+    handRaise: !enforce || hostControls?.allowHandRaise !== false,
+    virtualBackgrounds: !enforce || hostControls?.allowVirtualBackgrounds !== false,
+    record: isOrganizer || hostControls?.allowParticipantRecord === true,
+  };
+}
+
+/**
+ * Manual focus — clicking any tile (camera OR screen) promotes it to the main
+ * stage; clicking it again returns to the grid. `pinnedId` holds either a
+ * participant id or a screen-share id (`<id>-screen`).
+ */
+function resolvePinTargets(pinnedId: string | null, screenShareEntries: Entry[], allParticipants: Entry[]) {
+  if (!pinnedId) return { focusedScreen: null, pinnedParticipant: null };
+  const focusedScreen = screenShareEntries.find(({ p }) => `${p.id}-screen` === pinnedId) ?? null;
+  if (focusedScreen) return { focusedScreen, pinnedParticipant: null };
+  const pinnedParticipant = allParticipants.find(({ p }) => p.id === pinnedId) ?? null;
+  return { focusedScreen: null, pinnedParticipant };
+}
+
+interface FocusInputs {
+  focusedScreen: Entry | null;
+  pinnedParticipant: Entry | null;
+  allParticipants: Entry[];
+  viewMode: ViewMode;
+  activeSpeakerId: string | null;
+}
+
+/**
+ * Camera focus = an explicit pin OR an auto-focus driven by the view mode.
+ * A focused screen always takes the stage, so suppress camera focus while a
+ * screen is focused.
+ *   • spotlight / sidebar — statically focus the first remote participant.
+ *   • speaker — dynamically follow the active speaker, falling back to the
+ *     first remote until anyone has spoken (or if the active speaker has
+ *     left and isn't in the current participant list).
+ */
+function resolveFocusedParticipant({
+  focusedScreen,
+  pinnedParticipant,
+  allParticipants,
+  viewMode,
+  activeSpeakerId,
+}: FocusInputs): Entry | null {
+  if (focusedScreen) return null;
+  if (pinnedParticipant) return pinnedParticipant;
+  // The host app always hands us the local peer first, remotes after it.
+  const firstRemote = allParticipants[1]?.p;
+  if (allParticipants.length <= 1 || !firstRemote) return null;
+  if (viewMode === 'speaker') {
+    const active = activeSpeakerId
+      ? allParticipants.find(({ p }) => p.id === activeSpeakerId)
+      : null;
+    return active ?? { p: firstRemote, isSelf: false };
+  }
+  if (viewMode === 'spotlight' || viewMode === 'sidebar') {
+    return { p: firstRemote, isSelf: false };
+  }
+  return null;
+}
+
+// ─── Stage layouts ───────────────────────────────────────────────────────────
+
+interface LayoutProps {
+  ctx: TileContext;
+  allParticipants: Entry[];
+  screenShareEntries: Entry[];
+}
+
+/**
+ * ── Focused screen (explicit click) ───────────────────────────────
+ * The clicked screen fills the main area; every camera tile and any
+ * other shared screen drop into a strip below. Clicking the big
+ * screen (or its strip thumbnail) toggles focus back off.
+ */
+function FocusedScreenLayout({
+  ctx,
+  focusedScreen,
+  screenShareEntries,
+  allParticipants,
+}: LayoutProps & { focusedScreen: Entry }) {
+  const otherScreens = screenShareEntries.filter(({ p }) => p.id !== focusedScreen.p.id);
+  return (
+    <div className="flex flex-col gap-2 p-4 h-full">
+      <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
+        <ScreenTile ctx={ctx} entry={focusedScreen} interactive focused />
+      </div>
+      <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
+        {otherScreens.map((entry) => (
+          <div key={`${entry.p.id}-screen`} className="w-[240px] flex-shrink-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
+            <ScreenTile ctx={ctx} entry={entry} interactive />
+          </div>
+        ))}
+        {allParticipants.map((entry) => (
+          <div key={entry.p.id} className="w-[240px] flex-shrink-0">
+            <CameraTile ctx={ctx} entry={entry} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Camera-focus layout — one big tile plus a strip of everyone else. Used both
+ * for an explicit pin and the spotlight/sidebar viewMode auto-focus, so the
+ * markup lives in one place.
+ */
+function CameraFocusLayout({
+  ctx,
+  focused,
+  allParticipants,
+  viewMode,
+  pinnedParticipantId,
+}: {
+  ctx: TileContext;
+  focused: Entry;
+  allParticipants: Entry[];
+  viewMode: ViewMode;
+  pinnedParticipantId: string | undefined;
+}) {
+  const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
+  const mainTile = (
+    <CameraTile ctx={ctx} entry={focused} pinned={pinnedParticipantId === focused.p.id} />
+  );
+
+  if (viewMode === 'sidebar') {
+    return (
+      <div className="flex gap-2 p-4 h-full">
+        <div className="flex-1 min-w-0">{mainTile}</div>
+        {others.length > 0 && (
+          <div className="flex flex-col gap-2 w-[240px] flex-shrink-0 overflow-y-auto overflow-x-hidden p-1">
+            {others.map((entry) => (
+              <div key={entry.p.id} className="h-[140px] flex-shrink-0">
+                <CameraTile ctx={ctx} entry={entry} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 p-4 h-full">
+      <div className="flex-1 min-h-0">{mainTile}</div>
+      {others.length > 0 && (
+        <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
+          {others.map((entry) => (
+            <div key={entry.p.id} className="w-[240px] flex-shrink-0">
+              <CameraTile ctx={ctx} entry={entry} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ── Solo presenter layout ─────────────────────────────────────────
+ * Mirrors Google Meet's "you are the only one in this call" presenter
+ * view: the shared screen fills the entire main area and the local
+ * camera floats as a small PiP in the bottom-right corner.
+ *
+ * This layout is chosen BEFORE the viewMode layouts so it overrides
+ * Auto / Sidebar / Spotlight / Tiled when alone + sharing.
+ * The PiP is hidden when the local camera is off (isVideoOff).
+ */
+function SoloPresenterLayout({
+  ctx,
+  selfPeer,
+  isVideoOff,
+}: {
+  ctx: TileContext;
+  selfPeer: MeetingPeer;
+  isVideoOff: boolean;
+}) {
+  return (
+    <div className="relative h-full w-full p-3">
+      {/* Shared screen — full area (inside the p-3 wrapper so it
+          matches the inset of every other layout). */}
+      <div className="relative h-full w-full rounded-xl overflow-hidden bg-[#1a1a1a]">
+        <ScreenTile ctx={ctx} entry={{ p: selfPeer, isSelf: true }} />
+
+        {/* Local camera PiP — bottom-right, hidden when video is off */}
+        {!isVideoOff && (
+          <div className="absolute bottom-4 right-4 z-10 w-[300px] h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
+            <ParticipantTile
+              participant={selfPeer}
+              isSelf
+              isHandRaised={ctx.handRaised}
+              meeting={ctx.meeting}
+              colorSeed={ctx.selfColorSeed}
+              canManageParticipants={ctx.isOrganizer}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ── Presenter layout (Sidebar / Speaker) ─────────────────────────
+ * Mirrors Google Meet's default / sidebar presenter view:
+ *   • Wide (≥ 768px): shared content fills the main area; participant
+ *     cameras sit in a vertical strip on the right (180px, scrollable).
+ *   • Narrow (< 768px): participant strip moves to the top as a
+ *     horizontal scrolling row; shared content takes the rest.
+ *
+ * Active when viewMode is 'sidebar' OR 'speaker' AND a share is live
+ * (during a share the speaker stays visible in the strip alongside
+ * the shared content). Grid falls into the normal grid; Spotlight
+ * renders the share full-bleed below.
+ */
+function PresenterLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+  return (
+    <div className="flex max-md:flex-col-reverse gap-2 p-3 h-full">
+      {/* Main share area */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
+        {screenShareEntries.map((entry) => (
+          <div key={`${entry.p.id}-screen`} className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
+            <ScreenTile ctx={ctx} entry={entry} />
+          </div>
+        ))}
+      </div>
+
+      {/* Participant strip — vertical on wide, horizontal on narrow */}
+      <div
+        className={[
+          'flex-shrink-0 overflow-auto p-1',
+          // Wide: vertical strip on the right
+          'md:flex-col md:w-[180px] md:max-h-full md:overflow-y-auto md:overflow-x-hidden',
+          // Narrow: horizontal row on top
+          'max-md:flex-row max-md:h-[120px] max-md:w-full max-md:overflow-x-auto max-md:overflow-y-hidden',
+          'flex gap-2',
+        ].join(' ')}
+      >
+        {allParticipants.map((entry) => (
+          <div
+            key={entry.p.id}
+            className="flex-shrink-0 md:h-[120px] md:w-full max-md:h-full max-md:w-[160px]"
+          >
+            <CameraTile ctx={ctx} entry={entry} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ── Spotlight + share: full-area share only ───────────────────────
+ * Mirrors Google Meet's spotlight behaviour: when the user has chosen
+ * Spotlight and someone is sharing, only the share tile(s) are shown
+ * — participant cameras are hidden entirely. If multiple people share
+ * simultaneously each share tile stacks vertically.
+ */
+function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+  return (
+    <div className="flex flex-col gap-2 p-3 h-full">
+      {screenShareEntries.map((entry) => (
+        <div key={`${entry.p.id}-screen`} className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
+          <ScreenTile ctx={ctx} entry={entry} />
+        </div>
+      ))}
+      {/* This layout hides every camera tile, which would unmount each
+          participant's <audio>. Keep remote audio alive with a hidden
+          sink so the user still hears everyone while watching a screen. */}
+      <div className="sr-only" aria-hidden>
+        {allParticipants
+          .filter(({ isSelf }) => !isSelf)
+          .map(({ p }) => (
+            <RemoteParticipantAudio key={p.id} participant={p} />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mobile in-call grid — mirrors the Google Meet phone layout:
+ *   • 1–4 tiles  → single stacked column (one under another)
+ *   • 5–8 tiles  → 2 columns (max 4 rows)
+ *   • > 8 tiles  → only the first 8 are shown; the 8th carries an "N others"
+ *                  badge so the user knows more participants are present.
+ */
+const MOBILE_MAX_TILES = 8;
+function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+  const tiles: Array<{ key: string; node: ReactNode }> = [
+    ...screenShareEntries.map((entry) => ({
+      key: `${entry.p.id}-screen`,
+      node: (
+        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] h-full w-full">
+          <ScreenTile ctx={ctx} entry={entry} interactive />
+        </div>
+      ),
+    })),
+    ...allParticipants.map((entry) => ({
+      key: entry.p.id,
+      node: <CameraTile ctx={ctx} entry={entry} />,
+    })),
+  ];
+
+  const overflow = tiles.length - MOBILE_MAX_TILES;
+  const shown = overflow > 0 ? tiles.slice(0, MOBILE_MAX_TILES) : tiles;
+  const cols = shown.length <= 4 ? 'grid-cols-1' : 'grid-cols-2';
+
+  return (
+    <div className={`grid ${cols} gap-2 p-4 h-full auto-rows-fr`}>
+      {shown.map((t, i) => {
+        const showBadge = overflow > 0 && i === shown.length - 1;
+        return (
+          <div key={t.key} className="relative min-h-0 h-full w-full">
+            {t.node}
+            {showBadge && (
+              <div className="absolute top-2 right-2 z-10 rounded-[7px] bg-black/70 px-3 py-1 text-[13px] font-medium text-white backdrop-blur pointer-events-none">
+                {overflow} {overflow === 1 ? 'other' : 'others'}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Plain tiled grid: screen shares first, then every camera tile. */
+function TiledGridLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+  // Total grid cells = normal participant tiles + screen-share tiles.
+  const gridCols = gridColsClass(allParticipants.length + screenShareEntries.length);
+  return (
+    <div className={`grid ${gridCols} gap-2 p-4 h-full auto-rows-fr`}>
+      {screenShareEntries.map((entry) => (
+        <div key={`${entry.p.id}-screen`} className="rounded-xl overflow-hidden bg-[#1a1a1a]">
+          <ScreenTile ctx={ctx} entry={entry} interactive />
+        </div>
+      ))}
+      {allParticipants.map((entry) => (
+        <CameraTile key={entry.p.id} ctx={ctx} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
+interface StageLayoutProps extends LayoutProps {
+  focusedScreen: Entry | null;
+  pinnedParticipant: Entry | null;
+  focusedParticipant: Entry | null;
+  viewMode: ViewMode;
+  isMobile: boolean;
+  isVideoOff: boolean;
+}
+
+/** Layouts used while somebody is sharing their screen and nothing is pinned. */
+function resolveScreenShareStage(props: StageLayoutProps): ReactNode | null {
+  const { ctx, allParticipants, screenShareEntries, viewMode, isVideoOff } = props;
+  // The host app always hands us the local peer first, remotes after it.
+  const selfPeer = allParticipants[0]?.p;
+  if (allParticipants.length === 1 && selfPeer) {
+    return <SoloPresenterLayout ctx={ctx} selfPeer={selfPeer} isVideoOff={isVideoOff} />;
+  }
+  if (viewMode === 'sidebar' || viewMode === 'speaker') {
+    return <PresenterLayout ctx={ctx} allParticipants={allParticipants} screenShareEntries={screenShareEntries} />;
+  }
+  if (viewMode === 'spotlight') {
+    return <SpotlightShareLayout ctx={ctx} allParticipants={allParticipants} screenShareEntries={screenShareEntries} />;
+  }
+  return null;
+}
+
+/**
+ * Picks the stage layout. When anyone is sharing their screen, a Google-Meet-
+ * style presenter layout is forced regardless of the user's selected viewMode
+ * (the shared screen fills the main area; camera tiles move into a compact
+ * strip). This is a temporary override — when sharing stops, the user's
+ * viewMode is restored automatically.
+ */
+function StageLayout(props: StageLayoutProps) {
+  const { ctx, allParticipants, screenShareEntries, focusedScreen, pinnedParticipant, focusedParticipant, viewMode, isMobile } = props;
+  if (focusedScreen) {
+    return (
+      <FocusedScreenLayout
+        ctx={ctx}
+        focusedScreen={focusedScreen}
+        screenShareEntries={screenShareEntries}
+        allParticipants={allParticipants}
+      />
+    );
+  }
+  const cameraFocus = (focused: Entry) => (
+    <CameraFocusLayout
+      ctx={ctx}
+      focused={focused}
+      allParticipants={allParticipants}
+      viewMode={viewMode}
+      pinnedParticipantId={pinnedParticipant?.p.id}
+    />
+  );
+  // An explicit camera pin wins over the auto screen-share presenter.
+  if (pinnedParticipant) return cameraFocus(pinnedParticipant);
+
+  const screenShareStage = screenShareEntries.length > 0 ? resolveScreenShareStage(props) : null;
+  if (screenShareStage) return screenShareStage;
+
+  if (focusedParticipant) return cameraFocus(focusedParticipant);
+  if (isMobile) {
+    return <MobileGridLayout ctx={ctx} allParticipants={allParticipants} screenShareEntries={screenShareEntries} />;
+  }
+  return <TiledGridLayout ctx={ctx} allParticipants={allParticipants} screenShareEntries={screenShareEntries} />;
+}
+
+/** Live captions overlay (last two lines). */
+function CaptionsOverlay({ captions }: { captions: NonNullable<MeetingRoomViewProps['captions']> }) {
+  return (
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[80%] pointer-events-none">
+      <div className="rounded-2xl bg-black/70 px-4 py-2 text-white backdrop-blur shadow-lg ring-1 ring-white/10">
+        {captions.slice(-2).map((c) => (
+          <div key={c.id} className="text-[13px] leading-snug">
+            <span className="text-white/60 mr-2">{c.speakerName}:</span>
+            <span className={c.isPartial ? 'opacity-80' : ''}>{c.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Wraps the room in a fixed full-screen overlay when fullscreen is on. */
+function FullscreenFrame({
+  isFullscreen,
+  rightReservation,
+  children,
+}: {
+  isFullscreen?: boolean;
+  rightReservation: number;
+  children: ReactNode;
+}) {
+  if (!isFullscreen) return <>{children}</>;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex bg-background transition-[right] duration-200"
+      style={rightReservation > 0 ? { right: `${rightReservation}px` } : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -107,17 +633,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   const showCaptions = !!hostControls?.enableCaptions && (captions?.length ?? 0) > 0;
   const isMobile = useIsMobile();
 
-  // Resolve effective gating: when host management is on AND the viewer is
-  // not the organizer, the policy hides / disables specific controls.
-  const enforce = !!hostControls?.hostManagement && !isOrganizer;
-  const gate = {
-    screenShare: !enforce || hostControls?.allowScreenShare !== false,
-    micToggle: !enforce || hostControls?.allowMicrophone !== false,
-    videoToggle: !enforce || hostControls?.allowVideo !== false,
-    handRaise: !enforce || hostControls?.allowHandRaise !== false,
-    virtualBackgrounds: !enforce || hostControls?.allowVirtualBackgrounds !== false,
-    record: isOrganizer || hostControls?.allowParticipantRecord === true,
-  };
+  const gate = resolveGates(hostControls, isOrganizer);
 
   // Mid-call enforcement: when the host flips a permission OFF while a
   // non-organizer is using it, immediately stop the offending activity on
@@ -212,9 +728,6 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   }, [onTogglePinProp]);
 
   const allParticipants = participants.map((p, i) => ({ p, isSelf: i === 0 }));
-  // The host app always hands us the local peer first, remotes after it.
-  const selfPeer = participants[0];
-  const firstRemote = participants[1];
 
   // Derive screen-share pseudo-tiles from any participant (self or remote)
   // that currently has an active screen-share track.  RTK exposes
@@ -225,161 +738,41 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     ({ p }) => p?.screenShareEnabled && p?.screenShareTracks?.video,
   );
 
-  // When anyone is sharing their screen, force a Google-Meet-style presenter
-  // layout regardless of the user's selected viewMode. The shared screen fills
-  // the main area; all participant camera tiles move into a compact strip.
-  // This is a temporary override — when sharing stops, the user's viewMode
-  // is restored automatically because this derived value returns false.
-  const isScreenShareActive = screenShareEntries.length > 0;
+  const { focusedScreen, pinnedParticipant } = resolvePinTargets(pinnedId, screenShareEntries, allParticipants);
+  const focusedParticipant = resolveFocusedParticipant({
+    focusedScreen,
+    pinnedParticipant,
+    allParticipants,
+    viewMode,
+    activeSpeakerId,
+  });
 
-  // Total grid cells = normal participant tiles + screen-share tiles.
-  // (Only used in the plain tiled layout — not in the share-focused layout.)
-  const totalTiles = participants.length + screenShareEntries.length;
-  const gridCols =
-    totalTiles <= 1 ? 'grid-cols-1' :
-    totalTiles <= 2 ? 'grid-cols-2' :
-    totalTiles <= 4 ? 'grid-cols-2' :
-    'grid-cols-3';
-
-  // Manual focus — clicking any tile (camera OR screen) promotes it to the main
-  // stage; clicking it again returns to the grid. `pinnedId` holds either a
-  // participant id or a screen-share id (`<id>-screen`).
-  const focusedScreen = pinnedId
-    ? screenShareEntries.find(({ p }) => `${p.id}-screen` === pinnedId) ?? null
-    : null;
-  const pinnedParticipant = pinnedId && !focusedScreen
-    ? allParticipants.find(({ p }) => p.id === pinnedId) ?? null
-    : null;
-
-  // Camera focus = an explicit pin OR an auto-focus driven by the view mode.
-  // A focused screen always takes the stage, so suppress camera focus while a
-  // screen is focused.
-  //   • spotlight / sidebar — statically focus the first remote participant.
-  //   • speaker — dynamically follow the active speaker, falling back to the
-  //     first remote until anyone has spoken (or if the active speaker has
-  //     left and isn't in the current participant list).
-  const focusedParticipant = (() => {
-    if (focusedScreen) return null;
-    if (pinnedParticipant) return pinnedParticipant;
-    if (participants.length <= 1 || !firstRemote) return null;
-    if (viewMode === 'speaker') {
-      const active = activeSpeakerId
-        ? allParticipants.find(({ p }) => p.id === activeSpeakerId)
-        : null;
-      return active ?? { p: firstRemote, isSelf: false };
-    }
-    if (viewMode === 'spotlight' || viewMode === 'sidebar') {
-      return { p: firstRemote, isSelf: false };
-    }
-    return null;
-  })();
-
-  const otherScreens = focusedScreen
-    ? screenShareEntries.filter(({ p }) => p.id !== focusedScreen.p.id)
-    : [];
-
-  const useFocusedLayout = !!focusedParticipant;
   const showChatButton = showChatButtonProp ?? !!chatPanelSlot;
 
-  // Shared renderer for the camera-focus layout — one big tile plus a strip of
-  // everyone else. Used both for an explicit pin and the spotlight/sidebar
-  // viewMode auto-focus, so the markup lives in one place.
-  const renderCameraFocus = (focused: { p: MeetingPeer; isSelf: boolean }) => {
-    const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
-    const isPinned = pinnedParticipant?.p.id === focused.p.id;
-    const mainTile = (
-      <ParticipantTile
-        participant={focused.p}
-        isSelf={focused.isSelf}
-        isHandRaised={focused.isSelf ? handRaised : handRaisedParticipants?.has(focused.p.id)}
-        meeting={meeting}
-        pinned={isPinned}
-        onTogglePin={handleTogglePin}
-        onClickDetails={onClickParticipantDetails}
-        colorSeed={focused.isSelf ? selfColorSeed : undefined}
-        canManageParticipants={isOrganizer}
-      />
-    );
-
-    if (viewMode === 'sidebar') {
-      return (
-        <div className="flex gap-2 p-4 h-full">
-          <div className="flex-1 min-w-0">{mainTile}</div>
-          {others.length > 0 && (
-            <div className="flex flex-col gap-2 w-[240px] flex-shrink-0 overflow-y-auto overflow-x-hidden p-1">
-              {others.map(({ p, isSelf: s }) => (
-                <div key={p.id} className="h-[140px] flex-shrink-0">
-                  <ParticipantTile participant={p} isSelf={s} isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)} meeting={meeting} onTogglePin={handleTogglePin} onClickDetails={onClickParticipantDetails} colorSeed={s ? selfColorSeed : undefined} canManageParticipants={isOrganizer} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col gap-2 p-4 h-full">
-        <div className="flex-1 min-h-0">{mainTile}</div>
-        {others.length > 0 && (
-          <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
-            {others.map(({ p, isSelf: s }) => (
-              <div key={p.id} className="w-[240px] flex-shrink-0">
-                <ParticipantTile participant={p} isSelf={s} isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)} meeting={meeting} onTogglePin={handleTogglePin} onClickDetails={onClickParticipantDetails} colorSeed={s ? selfColorSeed : undefined} canManageParticipants={isOrganizer} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+  const tileContext: TileContext = {
+    meeting,
+    handRaised,
+    handRaisedParticipants,
+    onTogglePin: handleTogglePin,
+    onClickParticipantDetails,
+    selfColorSeed,
+    isOrganizer,
   };
 
-  // Mobile in-call grid — mirrors the Google Meet phone layout:
-  //   • 1–4 tiles  → single stacked column (one under another)
-  //   • 5–8 tiles  → 2 columns (max 4 rows)
-  //   • > 8 tiles  → only the first 8 are shown; the 8th carries an "N others"
-  //                  badge so the user knows more participants are present.
-  const MOBILE_MAX_TILES = 8;
-  const renderMobileGrid = () => {
-    const tiles: Array<{ key: string; node: ReactNode }> = [
-      ...screenShareEntries.map(({ p, isSelf: s }) => ({
-        key: `${p.id}-screen`,
-        node: (
-          <div className="rounded-xl overflow-hidden bg-[#1a1a1a] h-full w-full">
-            <ScreenShareTile participant={p} isSelf={s} meeting={meeting} onClick={() => handleTogglePin(`${p.id}-screen`)} />
-          </div>
-        ),
-      })),
-      ...allParticipants.map(({ p, isSelf: s }) => ({
-        key: p.id,
-        node: (
-          <ParticipantTile participant={p} isSelf={s} isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)} meeting={meeting} onTogglePin={handleTogglePin} onClickDetails={onClickParticipantDetails} colorSeed={s ? selfColorSeed : undefined} canManageParticipants={isOrganizer} />
-        ),
-      })),
-    ];
-
-    const overflow = tiles.length - MOBILE_MAX_TILES;
-    const shown = overflow > 0 ? tiles.slice(0, MOBILE_MAX_TILES) : tiles;
-    const cols = shown.length <= 4 ? 'grid-cols-1' : 'grid-cols-2';
-
-    return (
-      <div className={`grid ${cols} gap-2 p-4 h-full auto-rows-fr`}>
-        {shown.map((t, i) => {
-          const showBadge = overflow > 0 && i === shown.length - 1;
-          return (
-            <div key={t.key} className="relative min-h-0 h-full w-full">
-              {t.node}
-              {showBadge && (
-                <div className="absolute top-2 right-2 z-10 rounded-[7px] bg-black/70 px-3 py-1 text-[13px] font-medium text-white backdrop-blur pointer-events-none">
-                  {overflow} {overflow === 1 ? 'other' : 'others'}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
+  const handleToggleChat = () => {
+    const willOpen = !showChat;
+    const isSwitching = !!rightPanel || externalPanelOpen;
+    if (isSwitching) setSkipTransition(true);
+    setShowChat(v => !v);
+    setRightPanel(null);
+    if (willOpen && externalPanelOpen) onActivatePanel?.();
+    if (isSwitching) requestAnimationFrame(() => setSkipTransition(false));
   };
+
+  const controlBarRecording = gate.record && showControlBarRecording
+    ? { startRecording, stopRecording, pauseRecording, resumeRecording }
+    : {};
+  const rightPanelRecording = isOrganizer ? { startRecording, stopRecording } : {};
 
   const content = (
     <div className="relative flex-1 flex min-h-0 bg-background">
@@ -394,15 +787,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           rightPanel={rightPanel}
           showChat={showChat}
           onToggleRightPanel={toggleRightPanel}
-          onToggleChat={() => {
-            const willOpen = !showChat;
-            const isSwitching = !!rightPanel || externalPanelOpen;
-            if (isSwitching) setSkipTransition(true);
-            setShowChat(v => !v);
-            setRightPanel(null);
-            if (willOpen && externalPanelOpen) onActivatePanel?.();
-            if (isSwitching) requestAnimationFrame(() => setSkipTransition(false));
-          }}
+          onToggleChat={handleToggleChat}
           onRenameMeeting={onRenameMeeting}
           showInfoButton={showInfoButton}
           showPeopleButton={showPeopleButton}
@@ -412,183 +797,17 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         />
 
         <div className="flex-1 min-h-0 overflow-hidden relative">
-          {focusedScreen ? (
-            /*
-             * ── Focused screen (explicit click) ───────────────────────────────
-             * The clicked screen fills the main area; every camera tile and any
-             * other shared screen drop into a strip below. Clicking the big
-             * screen (or its strip thumbnail) toggles focus back off.
-             */
-            <div className="flex flex-col gap-2 p-4 h-full">
-              <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
-                <ScreenShareTile
-                  participant={focusedScreen.p}
-                  isSelf={focusedScreen.isSelf}
-                  meeting={meeting}
-                  focused
-                  onClick={() => handleTogglePin(`${focusedScreen.p.id}-screen`)}
-                />
-              </div>
-              <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
-                {otherScreens.map(({ p, isSelf: s }) => (
-                  <div key={`${p.id}-screen`} className="w-[240px] flex-shrink-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
-                    <ScreenShareTile participant={p} isSelf={s} meeting={meeting} onClick={() => handleTogglePin(`${p.id}-screen`)} />
-                  </div>
-                ))}
-                {allParticipants.map(({ p, isSelf: s }) => (
-                  <div key={p.id} className="w-[240px] flex-shrink-0">
-                    <ParticipantTile participant={p} isSelf={s} isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)} meeting={meeting} onTogglePin={handleTogglePin} onClickDetails={onClickParticipantDetails} colorSeed={s ? selfColorSeed : undefined} canManageParticipants={isOrganizer} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : pinnedParticipant ? (
-            /* An explicit camera pin wins over the auto screen-share presenter. */
-            renderCameraFocus(pinnedParticipant)
-          ) : participants.length === 1 && isScreenShareActive && selfPeer ? (
-            /*
-             * ── Solo presenter layout ─────────────────────────────────────────
-             * Mirrors Google Meet's "you are the only one in this call" presenter
-             * view: the shared screen fills the entire main area and the local
-             * camera floats as a small PiP in the bottom-right corner.
-             *
-             * This branch fires BEFORE the viewMode branches so it overrides
-             * Auto / Sidebar / Spotlight / Tiled when alone + sharing.
-             * The PiP is hidden when the local camera is off (isVideoOff).
-             */
-            <div className="relative h-full w-full p-3">
-              {/* Shared screen — full area (inside the p-3 wrapper so it
-                  matches the inset of every other layout). */}
-              <div className="relative h-full w-full rounded-xl overflow-hidden bg-[#1a1a1a]">
-                <ScreenShareTile
-                  participant={selfPeer}
-                  isSelf
-                  meeting={meeting}
-                />
-
-                {/* Local camera PiP — bottom-right, hidden when video is off */}
-                {!isVideoOff && (
-                  <div className="absolute bottom-4 right-4 z-10 w-[300px] h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
-                    <ParticipantTile
-                      participant={selfPeer}
-                      isSelf
-                      isHandRaised={handRaised}
-                      meeting={meeting}
-                      colorSeed={selfColorSeed}
-                      canManageParticipants={isOrganizer}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : isScreenShareActive && (viewMode === 'sidebar' || viewMode === 'speaker') ? (
-            /*
-             * ── Presenter layout (Sidebar / Speaker) ─────────────────────────
-             * Mirrors Google Meet's default / sidebar presenter view:
-             *   • Wide (≥ 768px): shared content fills the main area; participant
-             *     cameras sit in a vertical strip on the right (180px, scrollable).
-             *   • Narrow (< 768px): participant strip moves to the top as a
-             *     horizontal scrolling row; shared content takes the rest.
-             *
-             * Active when viewMode is 'sidebar' OR 'speaker' AND a share is live
-             * (during a share the speaker stays visible in the strip alongside
-             * the shared content). Grid falls into the normal grid; Spotlight
-             * renders the share full-bleed below.
-             */
-            <div className="flex max-md:flex-col-reverse gap-2 p-3 h-full">
-              {/* Main share area */}
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
-                {screenShareEntries.map(({ p, isSelf: s }) => (
-                  <div key={`${p.id}-screen`} className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
-                    <ScreenShareTile
-                      participant={p}
-                      isSelf={s}
-                      meeting={meeting}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Participant strip — vertical on wide, horizontal on narrow */}
-              <div
-                className={[
-                  'flex-shrink-0 overflow-auto p-1',
-                  // Wide: vertical strip on the right
-                  'md:flex-col md:w-[180px] md:max-h-full md:overflow-y-auto md:overflow-x-hidden',
-                  // Narrow: horizontal row on top
-                  'max-md:flex-row max-md:h-[120px] max-md:w-full max-md:overflow-x-auto max-md:overflow-y-hidden',
-                  'flex gap-2',
-                ].join(' ')}
-              >
-                {allParticipants.map(({ p, isSelf: s }) => (
-                  <div
-                    key={p.id}
-                    className="flex-shrink-0 md:h-[120px] md:w-full max-md:h-full max-md:w-[160px]"
-                  >
-                    <ParticipantTile
-                      participant={p}
-                      isSelf={s}
-                      isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)}
-                      meeting={meeting}
-                      onTogglePin={handleTogglePin}
-                      onClickDetails={onClickParticipantDetails}
-                      colorSeed={s ? selfColorSeed : undefined}
-                      canManageParticipants={isOrganizer}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : isScreenShareActive && viewMode === 'spotlight' ? (
-            /*
-             * ── Spotlight + share: full-area share only ───────────────────────
-             * Mirrors Google Meet's spotlight behaviour: when the user has chosen
-             * Spotlight and someone is sharing, only the share tile(s) are shown
-             * — participant cameras are hidden entirely. If multiple people share
-             * simultaneously each share tile stacks vertically.
-             */
-            <div className="flex flex-col gap-2 p-3 h-full">
-              {screenShareEntries.map(({ p, isSelf: s }) => (
-                <div key={`${p.id}-screen`} className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
-                  <ScreenShareTile
-                    participant={p}
-                    isSelf={s}
-                    meeting={meeting}
-                  />
-                </div>
-              ))}
-              {/* This layout hides every camera tile, which would unmount each
-                  participant's <audio>. Keep remote audio alive with a hidden
-                  sink so the user still hears everyone while watching a screen. */}
-              <div className="sr-only" aria-hidden>
-                {allParticipants
-                  .filter(({ isSelf: s }) => !s)
-                  .map(({ p }) => (
-                    <RemoteParticipantAudio key={p.id} participant={p} />
-                  ))}
-              </div>
-            </div>
-          ) : useFocusedLayout ? (
-            renderCameraFocus(focusedParticipant)
-          ) : isMobile ? (
-            renderMobileGrid()
-          ) : (
-            <div className={`grid ${gridCols} gap-2 p-4 h-full auto-rows-fr`}>
-              {screenShareEntries.map(({ p, isSelf: s }) => (
-                <div key={`${p.id}-screen`} className="rounded-xl overflow-hidden bg-[#1a1a1a]">
-                  <ScreenShareTile
-                    participant={p}
-                    isSelf={s}
-                    meeting={meeting}
-                    onClick={() => handleTogglePin(`${p.id}-screen`)}
-                  />
-                </div>
-              ))}
-              {allParticipants.map(({ p, isSelf: s }) => (
-                <ParticipantTile key={p.id} participant={p} isSelf={s} isHandRaised={s ? handRaised : handRaisedParticipants?.has(p.id)} meeting={meeting} onTogglePin={handleTogglePin} onClickDetails={onClickParticipantDetails} colorSeed={s ? selfColorSeed : undefined} canManageParticipants={isOrganizer} />
-              ))}
-            </div>
-          )}
+          <StageLayout
+            ctx={tileContext}
+            allParticipants={allParticipants}
+            screenShareEntries={screenShareEntries}
+            focusedScreen={focusedScreen}
+            pinnedParticipant={pinnedParticipant}
+            focusedParticipant={focusedParticipant}
+            viewMode={viewMode}
+            isMobile={isMobile}
+            isVideoOff={isVideoOff}
+          />
 
           {shareUrl && <ShareLinkCard shareUrl={shareUrl} addPeopleDialogContent={addPeopleDialogContent} />}
 
@@ -601,18 +820,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
 
           {meeting && <AdmitGuestsPill meeting={meeting} />}
 
-          {showCaptions && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[80%] pointer-events-none">
-              <div className="rounded-2xl bg-black/70 px-4 py-2 text-white backdrop-blur shadow-lg ring-1 ring-white/10">
-                {captions!.slice(-2).map((c) => (
-                  <div key={c.id} className="text-[13px] leading-snug">
-                    <span className="text-white/60 mr-2">{c.speakerName}:</span>
-                    <span className={c.isPartial ? 'opacity-80' : ''}>{c.text}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {showCaptions && captions && <CaptionsOverlay captions={captions} />}
         </div>
 
         <CallControlsBar
@@ -634,10 +842,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           backgroundType={backgroundType}
           isRecording={isRecording}
           recordingState={recordingState}
-          startRecording={gate.record && showControlBarRecording ? startRecording : undefined}
-          stopRecording={gate.record && showControlBarRecording ? stopRecording : undefined}
-          pauseRecording={gate.record && showControlBarRecording ? pauseRecording : undefined}
-          resumeRecording={gate.record && showControlBarRecording ? resumeRecording : undefined}
+          {...controlBarRecording}
           isFullscreen={isFullscreen}
           onToggleFullscreen={onToggleFullscreen}
           onPictureInPicture={onPictureInPicture}
@@ -666,8 +871,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         onClickParticipantDetails={onClickParticipantDetails}
         isRecording={isRecording}
         recordingState={recordingState}
-        startRecording={isOrganizer ? startRecording : undefined}
-        stopRecording={isOrganizer ? stopRecording : undefined}
+        {...rightPanelRecording}
         recordingAvailable={isOrganizer}
       />
 
@@ -676,16 +880,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     </div>
   );
 
-  if (isFullscreen) {
-    return (
-      <div
-        className="fixed inset-0 z-50 flex bg-background transition-[right] duration-200"
-        style={rightReservation > 0 ? { right: `${rightReservation}px` } : undefined}
-      >
-        {content}
-      </div>
-    );
-  }
-
-  return content;
+  return (
+    <FullscreenFrame isFullscreen={isFullscreen} rightReservation={rightReservation}>
+      {content}
+    </FullscreenFrame>
+  );
 }

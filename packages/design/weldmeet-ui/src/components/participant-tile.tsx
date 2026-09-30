@@ -118,6 +118,55 @@ export interface ParticipantTileProps {
   canManageParticipants?: boolean;
 }
 
+interface TileClassOptions {
+  showColoredTile: boolean;
+  clickable: boolean;
+  pinned: boolean;
+  isSpeaking: boolean;
+  isHandRaised: boolean;
+}
+
+function tileClassName({ showColoredTile, clickable, pinned, isSpeaking, isHandRaised }: TileClassOptions): string {
+  return cn(
+    'relative flex items-center justify-center rounded-lg overflow-hidden transition-shadow duration-150 group/tile h-full w-full [container-type:size]',
+    !showColoredTile && 'bg-muted',
+    clickable && 'cursor-pointer',
+    pinned && 'ring-2 ring-primary ring-offset-1 ring-offset-background !aspect-auto h-full',
+    isSpeaking && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
+    isHandRaised && !isSpeaking && !pinned && 'ring-2 ring-yellow-500 ring-offset-1 ring-offset-background',
+  );
+}
+
+/** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
+function getContextMenuPosition(clientX: number, clientY: number) {
+  const menuW = 220;
+  const menuH = 340;
+  return {
+    x: Math.min(clientX, window.innerWidth - menuW),
+    y: clientY + menuH > window.innerHeight ? Math.max(0, clientY - menuH) : clientY,
+  };
+}
+
+interface TileNameTagProps {
+  participant: MeetingPeer;
+  name: string;
+  isSelf?: boolean;
+  ringing: boolean;
+  localMuted: boolean;
+  onClickDetails?: (participant: MeetingPeer) => void;
+}
+
+function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDetails }: TileNameTagProps) {
+  return (
+    <ParticipantNameTag
+      name={isSelf ? 'You' : name}
+      audioEnabled={ringing ? undefined : participant.audioEnabled}
+      localMuted={localMuted}
+      onClick={!ringing && onClickDetails ? () => onClickDetails(participant) : undefined}
+    />
+  );
+}
+
 export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false }: ParticipantTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -176,14 +225,13 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
 
   return (
     <div
-      className={cn(
-        'relative flex items-center justify-center rounded-lg overflow-hidden transition-shadow duration-150 group/tile h-full w-full [container-type:size]',
-        !showColoredTile && 'bg-muted',
-        !ringing && onTogglePin && 'cursor-pointer',
-        pinned && 'ring-2 ring-primary ring-offset-1 ring-offset-background !aspect-auto h-full',
-        isSpeaking && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
-        isHandRaised && !isSpeaking && !pinned && 'ring-2 ring-yellow-500 ring-offset-1 ring-offset-background',
-      )}
+      className={tileClassName({
+        showColoredTile,
+        clickable: !ringing && !!onTogglePin,
+        pinned: !!pinned,
+        isSpeaking,
+        isHandRaised: !!isHandRaised,
+      })}
       // Clicking the tile body promotes this participant to the main stage (and
       // clicking again returns to the grid). Buttons, the name tag and the
       // context-menu overlay all stop propagation, so only "empty" tile clicks
@@ -192,12 +240,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
       onContextMenu={(e) => {
         e.preventDefault();
         if (ringing) return; // placeholder — no participant actions
-        const menuW = 220;
-        const menuH = 340;
-        setContextPos({
-          x: Math.min(e.clientX, window.innerWidth - menuW),
-          y: e.clientY + menuH > window.innerHeight ? Math.max(0, e.clientY - menuH) : e.clientY,
-        });
+        setContextPos(getContextMenuPosition(e.clientX, e.clientY));
         setShowControls(true);
       }}
       style={showColoredTile ? { backgroundColor: theme.tile } : undefined}
@@ -247,7 +290,13 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
             <EllipsisVertical className="h-3.5 w-3.5" />
           </button>
       </div>
-      {participant.videoEnabled && participant.videoTrack ? (
+      {showColoredTile ? (
+        <ParticipantAvatar
+          initials={initials}
+          color={theme.avatar}
+          picture={participant.picture}
+        />
+      ) : (
         // Auto Picture-in-Picture is owned exclusively by the off-screen video
         // in MeetingPiPWidget so tab-switch always enters PiP via that single
         // candidate — adding `autopictureinpicture` here would create
@@ -259,23 +308,19 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
           muted
           className="w-full h-full object-cover"
         />
-      ) : (
-        <ParticipantAvatar
-          initials={initials}
-          color={theme.avatar}
-          picture={participant.picture}
-        />
       )}
       {!isSelf && <audio ref={audioRef} autoPlay />}
 
       {/* Name tag — shared so platform tile + portal preview stay in sync.
           Clicking the name tag (not the tile body) opens the participant
           details panel, leaving the tile body free for future interactions. */}
-      <ParticipantNameTag
-        name={isSelf ? 'You' : name}
-        audioEnabled={ringing ? undefined : participant.audioEnabled}
+      <TileNameTag
+        participant={participant}
+        name={name}
+        isSelf={isSelf}
+        ringing={ringing}
         localMuted={localMuted}
-        onClick={!ringing && onClickDetails ? () => onClickDetails(participant) : undefined}
+        onClickDetails={onClickDetails}
       />
 
       {/* Participant context menu */}
