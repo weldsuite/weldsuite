@@ -5,10 +5,11 @@ interface MessageSkeletonProps {
 }
 
 export function MessageSkeleton({ count = 5 }: Readonly<MessageSkeletonProps>) {
+  const rowIds = Array.from({ length: count }, (_, i) => `message-skeleton-${i}`);
   return (
     <div className="space-y-4">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex gap-3">
+      {rowIds.map((rowId, i) => (
+        <div key={rowId} className="flex gap-3">
           <Skeleton className="h-8 w-8 rounded-full flex-shrink-0" />
           <div className="space-y-2 flex-1">
             <div className="flex items-center gap-2">

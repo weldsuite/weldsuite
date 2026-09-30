@@ -37,8 +37,7 @@ export function PinnedMessagesBar({ channelId }: Readonly<PinnedMessagesBarProps
     }
   };
 
-  const handleUnpin = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleUnpin = () => {
     unpinMessage({ channelId, messageId: currentMessage.id });
     if (safeIndex >= pinnedMessages.length - 1) {
       setActiveIndex(0);
@@ -60,39 +59,44 @@ export function PinnedMessagesBar({ channelId }: Readonly<PinnedMessagesBarProps
     `}</style>
     <div
       data-testid="chat-pinned-bar"
-      className="group border-b bg-muted/30 flex-shrink-0 flex items-center gap-2 md:gap-3 px-4 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
-      onClick={handleClick}
+      className="group border-b bg-muted/30 flex-shrink-0 flex items-center hover:bg-muted/50 transition-colors"
     >
-      {/* Indicator dots — fixed height, dots sized to fit */}
-      {pinnedMessages.length > 1 && (
-        <div className="flex flex-col justify-center gap-[2px] flex-shrink-0 h-[20px]">
-          {pinnedMessages.map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                'w-[3px] rounded-full transition-all',
-                i === safeIndex
-                  ? 'flex-[2] bg-primary'
-                  : 'flex-1 bg-muted-foreground/30',
-              )}
-            />
-          ))}
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={handleClick}
+        className="flex flex-1 min-w-0 items-center gap-2 md:gap-3 pl-4 py-2.5 text-left cursor-pointer"
+      >
+        {/* Indicator dots — fixed height, dots sized to fit */}
+        {pinnedMessages.length > 1 && (
+          <span className="flex flex-col justify-center gap-[2px] flex-shrink-0 h-[20px]">
+            {pinnedMessages.map((m, i) => (
+              <span
+                key={m.id}
+                className={cn(
+                  'w-[3px] rounded-full transition-all',
+                  i === safeIndex
+                    ? 'flex-[2] bg-primary'
+                    : 'flex-1 bg-muted-foreground/30',
+                )}
+              />
+            ))}
+          </span>
+        )}
 
-      {/* Pin icon */}
-      <Pin className="h-4 w-4 text-primary flex-shrink-0" />
+        {/* Pin icon */}
+        <Pin className="h-4 w-4 text-primary flex-shrink-0" />
 
-      {/* Message content */}
-      <div className="flex-1 min-w-0">
-        <span className="text-sm text-foreground truncate">{currentMessage.content}</span>
-      </div>
+        {/* Message content */}
+        <span className="block flex-1 min-w-0">
+          <span className="text-sm text-foreground truncate">{currentMessage.content}</span>
+        </span>
+      </button>
 
       {/* Unpin button */}
       <Button
         variant="ghost"
         size="icon"
-        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+        className="h-6 w-6 mx-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
         onClick={handleUnpin}
         title={t.weldchat.pinnedMessages.unpin}
       >

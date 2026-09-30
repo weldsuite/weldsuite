@@ -213,7 +213,7 @@ export function MessageList({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       const text = (m.content || '').toLowerCase();
-      if ((m.type === 'system' || /^\[system/.test(m.content || '')) &&
+      if ((m.type === 'system' || (m.content || '').startsWith('[system')) &&
           (text.includes('started a voice call') || text.includes('started a video call') || text.includes('started a call'))) {
         return m.id;
       }
