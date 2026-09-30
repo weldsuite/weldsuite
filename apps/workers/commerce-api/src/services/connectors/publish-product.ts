@@ -484,6 +484,37 @@ export async function updateProductSalesChannel(args: {
 }
 
 /**
+ * Delete the listing on the remote store. A 404 is ignored (already gone); any
+ * other remote error becomes `sync_failed` so the caller keeps the local row.
+ */
+async function deleteRemoteListing(args: {
+  db: Database;
+  env: Env;
+  connectionId: string;
+  externalId: string;
+  client?: ProductWriteClient;
+}): Promise<void> {
+  try {
+    let client = args.client;
+    if (!client) {
+      const connection = await getConnectionById(args.db, args.connectionId);
+      if (!connection) {
+        throw new ProductSalesChannelError('not_found', 'Sales channel connection not found');
+      }
+      const keyring = keyringFromEnv(args.env);
+      const credentials = await decryptCredentials(connection.credentials ?? undefined, keyring);
+      client = createProductWriteClient(connection.provider, credentials, connection.externalAccountId);
+    }
+    await client.deleteProduct(args.externalId);
+  } catch (err) {
+    if (err instanceof ProductSalesChannelError) throw err;
+    if (err instanceof ConnectorApiError && err.status === 404) return;
+    const message = err instanceof ConnectorApiError ? err.message : 'Failed to delete the product on the store';
+    throw new ProductSalesChannelError('sync_failed', message);
+  }
+}
+
+/**
  * Delete the remote listing (ignore 404), then drop the local sales-channel row.
  * Non-404 remote errors throw sync_failed before local delete so the user can retry.
  */
@@ -515,25 +546,13 @@ export async function unlinkProductSalesChannel(args: {
   }
 
   if (channel.externalId) {
-    try {
-      let client = args.client;
-      if (!client) {
-        const connection = await getConnectionById(args.db, channel.connectionId);
-        if (!connection) {
-          throw new ProductSalesChannelError('not_found', 'Sales channel connection not found');
-        }
-        const keyring = keyringFromEnv(args.env);
-        const credentials = await decryptCredentials(connection.credentials ?? undefined, keyring);
-        client = createProductWriteClient(connection.provider, credentials, connection.externalAccountId);
-      }
-      await client.deleteProduct(channel.externalId);
-    } catch (err) {
-      if (err instanceof ProductSalesChannelError) throw err;
-      if (!(err instanceof ConnectorApiError && err.status === 404)) {
-        const message = err instanceof ConnectorApiError ? err.message : 'Failed to delete the product on the store';
-        throw new ProductSalesChannelError('sync_failed', message);
-      }
-    }
+    await deleteRemoteListing({
+      db: args.db,
+      env: args.env,
+      connectionId: channel.connectionId,
+      externalId: channel.externalId,
+      client: args.client,
+    });
   }
 
   await args.db.delete(schema.productSalesChannels).where(eq(schema.productSalesChannels.id, channel.id));

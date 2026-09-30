@@ -30,6 +30,7 @@ import {
   type MappedInvoice,
   type MappedOrder,
   type MappedParty,
+  type MappedProduct,
   type MappedProductVariant,
   type MappedRecord,
   type MappedWmsEntity,
@@ -340,6 +341,71 @@ async function replaceOrderItems(
   }
 }
 
+type VariantIndex = { id: string; sku: string | null; attributes: unknown };
+
+function indexExistingVariants(existingRows: VariantIndex[]): {
+  bySku: Map<string, VariantIndex>;
+  byExternal: Map<string, VariantIndex>;
+} {
+  const bySku = new Map<string, VariantIndex>();
+  const byExternal = new Map<string, VariantIndex>();
+  for (const row of existingRows) {
+    if (row.sku) bySku.set(row.sku, row);
+    const externalId = (row.attributes as { externalId?: string } | null)?.externalId;
+    if (externalId) byExternal.set(externalId, row);
+  }
+  return { bySku, byExternal };
+}
+
+function buildVariantFields(variant: MappedProductVariant) {
+  const optionValues = variant.optionValues
+    ? Object.entries(variant.optionValues).map(([name, value]) => ({ name, value }))
+    : null;
+  return {
+    name: variant.name?.trim() || optionValues?.map((o) => o.value).join(' / ') || 'Variant',
+    sku: variant.sku,
+    price: variant.price,
+    inventoryQuantity: variant.inventoryQuantity ?? 0,
+    trackInventory: variant.trackInventory,
+    optionValues,
+    status: variant.status || 'active',
+    position: variant.position,
+    attributes: { externalId: variant.externalId },
+    updatedAt: new Date(),
+  };
+}
+
+async function upsertProductVariant(
+  db: Database,
+  productId: string,
+  variant: MappedProductVariant,
+  index: { bySku: Map<string, VariantIndex>; byExternal: Map<string, VariantIndex> },
+): Promise<void> {
+  const { bySku, byExternal } = index;
+  const match = (variant.sku ? bySku.get(variant.sku) : undefined) ?? byExternal.get(variant.externalId);
+  const fields = buildVariantFields(variant);
+
+  if (match) {
+    await db
+      .update(schema.productVariants)
+      .set(fields)
+      .where(eq(schema.productVariants.id, match.id));
+    if (variant.sku) bySku.set(variant.sku, match);
+    byExternal.set(variant.externalId, match);
+    return;
+  }
+
+  const id = generateId('pvr');
+  await db.insert(schema.productVariants).values({
+    id,
+    productId,
+    ...fields,
+  });
+  const created: VariantIndex = { id, sku: variant.sku, attributes: fields.attributes };
+  if (variant.sku) bySku.set(variant.sku, created);
+  byExternal.set(variant.externalId, created);
+}
+
 async function upsertProductVariants(
   db: Database,
   productId: string,
@@ -350,51 +416,9 @@ async function upsertProductVariants(
     .from(schema.productVariants)
     .where(and(eq(schema.productVariants.productId, productId), isNull(schema.productVariants.deletedAt)));
 
-  type VariantIndex = { id: string; sku: string | null; attributes: unknown };
-  const bySku = new Map<string, VariantIndex>();
-  const byExternal = new Map<string, VariantIndex>();
-  for (const row of existingRows) {
-    if (row.sku) bySku.set(row.sku, row);
-    const externalId = (row.attributes as { externalId?: string } | null)?.externalId;
-    if (externalId) byExternal.set(externalId, row);
-  }
-
+  const index = indexExistingVariants(existingRows);
   for (const variant of variants) {
-    const match = (variant.sku ? bySku.get(variant.sku) : undefined) ?? byExternal.get(variant.externalId);
-    const optionValues = variant.optionValues
-      ? Object.entries(variant.optionValues).map(([name, value]) => ({ name, value }))
-      : null;
-    const fields = {
-      name: variant.name?.trim() || optionValues?.map((o) => o.value).join(' / ') || 'Variant',
-      sku: variant.sku,
-      price: variant.price,
-      inventoryQuantity: variant.inventoryQuantity ?? 0,
-      trackInventory: variant.trackInventory,
-      optionValues,
-      status: variant.status || 'active',
-      position: variant.position,
-      attributes: { externalId: variant.externalId },
-      updatedAt: new Date(),
-    };
-
-    if (match) {
-      await db
-        .update(schema.productVariants)
-        .set(fields)
-        .where(eq(schema.productVariants.id, match.id));
-      if (variant.sku) bySku.set(variant.sku, match);
-      byExternal.set(variant.externalId, match);
-    } else {
-      const id = generateId('pvr');
-      await db.insert(schema.productVariants).values({
-        id,
-        productId,
-        ...fields,
-      });
-      const created: VariantIndex = { id, sku: variant.sku, attributes: fields.attributes };
-      if (variant.sku) bySku.set(variant.sku, created);
-      byExternal.set(variant.externalId, created);
-    }
+    await upsertProductVariant(db, productId, variant, index);
   }
 
   await db
@@ -542,18 +566,121 @@ async function wrappingPartyId(db: Database, kind: 'company' | 'person', identit
   return row?.id ?? null;
 }
 
-async function upsertParty(args: {
+type PartyUpsertArgs = {
   db: Database;
   connectionId: string;
   provider: string;
   ownerId: string;
   mapped: MappedParty;
   checksum: string;
-}): Promise<UpsertOutcome> {
+};
+
+type IdentityTable = typeof schema.companies | typeof schema.people;
+
+async function partyMappingChecksumMatches(db: Database, mappingId: string, checksum: string): Promise<boolean> {
+  const [row] = await db
+    .select({ syncChecksum: schema.integrationEntityMappings.syncChecksum })
+    .from(schema.integrationEntityMappings)
+    .where(eq(schema.integrationEntityMappings.id, mappingId))
+    .limit(1);
+  return row?.syncChecksum === checksum;
+}
+
+async function updateMappedParty(
+  args: PartyUpsertArgs,
+  mapping: { id: string; internalEntityId: string },
+  identityTable: IdentityTable,
+  identityValues: Record<string, unknown>,
+): Promise<void> {
+  const [party] = await args.db
+    .select({ companyId: schema.parties.companyId, personId: schema.parties.personId })
+    .from(schema.parties)
+    .where(eq(schema.parties.id, mapping.internalEntityId))
+    .limit(1);
+  const identityId = args.mapped.kind === 'company' ? party?.companyId : party?.personId;
+  await atomically(args.db, (h) => {
+    const statements: unknown[] = [
+      h
+        .update(schema.parties)
+        .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
+        .where(eq(schema.parties.id, mapping.internalEntityId)),
+      h
+        .update(schema.integrationEntityMappings)
+        .set({ syncChecksum: args.checksum, lastSyncedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.integrationEntityMappings.id, mapping.id)),
+    ];
+    if (identityId) {
+      statements.unshift(
+        h
+          .update(identityTable)
+          .set({ ...identityValues, deletedAt: null } as never)
+          .where(eq(identityTable.id, identityId)),
+      );
+    }
+    return statements;
+  });
+}
+
+/** Find the company/person identity row (email, then VAT) or create it; existing rows are refreshed. */
+async function resolvePartyIdentity(
+  args: PartyUpsertArgs,
+  identityTable: IdentityTable,
+  identityValues: Record<string, unknown>,
+): Promise<string> {
+  const email = typeof args.mapped.identity.email === 'string' ? args.mapped.identity.email : null;
+  const vatNumber = typeof args.mapped.identity.vatNumber === 'string' ? args.mapped.identity.vatNumber : null;
+  const existingId =
+    (email ? await findIdentityByEmail(args.db, identityTable, email) : null)
+    ?? (args.mapped.kind === 'company' && vatNumber ? await findCompanyByVat(args.db, vatNumber) : null);
+
+  if (existingId) {
+    await args.db
+      .update(identityTable)
+      .set({ ...identityValues, deletedAt: null } as never)
+      .where(eq(identityTable.id, existingId));
+    return existingId;
+  }
+
+  const identityId = generateId(args.mapped.kind === 'company' ? 'company' : 'person');
+  const displayName = String(args.mapped.identity.displayName ?? args.mapped.values.displayName ?? 'Contact');
+  await args.db.insert(identityTable).values({
+    id: identityId,
+    displayName,
+    ...identityValues,
+  } as never);
+  return identityId;
+}
+
+/** Find the party wrapping an identity or create it; existing rows are refreshed. */
+async function resolveWrappingParty(
+  args: PartyUpsertArgs,
+  identityId: string,
+): Promise<{ partyId: string; created: boolean }> {
+  const existingId = await wrappingPartyId(args.db, args.mapped.kind, identityId);
+  if (existingId) {
+    await args.db
+      .update(schema.parties)
+      .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
+      .where(eq(schema.parties.id, existingId));
+    return { partyId: existingId, created: false };
+  }
+
+  const partyId = generateId('party');
+  await args.db.insert(schema.parties).values({
+    id: partyId,
+    kind: args.mapped.kind,
+    companyId: args.mapped.kind === 'company' ? identityId : null,
+    personId: args.mapped.kind === 'person' ? identityId : null,
+    ownerId: args.ownerId,
+    ...args.mapped.values,
+  } as never);
+  return { partyId, created: true };
+}
+
+async function upsertParty(args: PartyUpsertArgs): Promise<UpsertOutcome> {
   const externalType = partySyncExternalType(args.provider);
   const mapping = await findMapping(args.db, args.connectionId, externalType, args.mapped.externalId);
   const identityTable = args.mapped.kind === 'company' ? schema.companies : schema.people;
-  const identityCols = identityTable as unknown as Record<string, any>;
   const identityValues = {
     ...args.mapped.identity,
     ownerId: args.ownerId,
@@ -561,87 +688,15 @@ async function upsertParty(args: {
   };
 
   if (mapping) {
-    if (
-      (
-        await args.db
-          .select({ syncChecksum: schema.integrationEntityMappings.syncChecksum })
-          .from(schema.integrationEntityMappings)
-          .where(eq(schema.integrationEntityMappings.id, mapping.id))
-          .limit(1)
-      )[0]?.syncChecksum === args.checksum
-    ) {
+    if (await partyMappingChecksumMatches(args.db, mapping.id, args.checksum)) {
       return { action: 'skipped', internalId: mapping.internalEntityId };
     }
-    const [party] = await args.db
-      .select({ companyId: schema.parties.companyId, personId: schema.parties.personId })
-      .from(schema.parties)
-      .where(eq(schema.parties.id, mapping.internalEntityId))
-      .limit(1);
-    const identityId = args.mapped.kind === 'company' ? party?.companyId : party?.personId;
-    await atomically(args.db, (h) => {
-      const statements: unknown[] = [
-        h
-          .update(schema.parties)
-          .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
-          .where(eq(schema.parties.id, mapping.internalEntityId)),
-        h
-          .update(schema.integrationEntityMappings)
-          .set({ syncChecksum: args.checksum, lastSyncedAt: new Date(), updatedAt: new Date() })
-          .where(eq(schema.integrationEntityMappings.id, mapping.id)),
-      ];
-      if (identityId) {
-        statements.unshift(
-          h
-            .update(identityTable)
-            .set({ ...identityValues, deletedAt: null } as never)
-            .where(eq(identityCols.id, identityId)),
-        );
-      }
-      return statements;
-    });
+    await updateMappedParty(args, mapping, identityTable, identityValues);
     return { action: 'updated', internalId: mapping.internalEntityId };
   }
 
-  const email = typeof args.mapped.identity.email === 'string' ? args.mapped.identity.email : null;
-  const vatNumber = typeof args.mapped.identity.vatNumber === 'string' ? args.mapped.identity.vatNumber : null;
-  let identityId =
-    (email ? await findIdentityByEmail(args.db, identityTable, email) : null)
-    ?? (args.mapped.kind === 'company' && vatNumber ? await findCompanyByVat(args.db, vatNumber) : null);
-
-  if (!identityId) {
-    identityId = generateId(args.mapped.kind === 'company' ? 'company' : 'person');
-    const displayName = String(args.mapped.identity.displayName ?? args.mapped.values.displayName ?? 'Contact');
-    await args.db.insert(identityTable).values({
-      id: identityId,
-      displayName,
-      ...identityValues,
-    } as never);
-  } else {
-    await args.db
-      .update(identityTable)
-      .set({ ...identityValues, deletedAt: null } as never)
-      .where(eq(identityCols.id, identityId));
-  }
-
-  let createdParty = false;
-  let partyId = await wrappingPartyId(args.db, args.mapped.kind, identityId);
-  if (!partyId) {
-    createdParty = true;
-    partyId = generateId('party');
-    await args.db.insert(schema.parties).values({
-      id: partyId,
-      kind: args.mapped.kind,
-      companyId: args.mapped.kind === 'company' ? identityId : null,
-      personId: args.mapped.kind === 'person' ? identityId : null,
-      ownerId: args.ownerId,
-      ...args.mapped.values,
-    } as never);
-  } else {
-    await args.db
-      .update(schema.parties)
-      .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
-      .where(eq(schema.parties.id, partyId));
-  }
+  const identityId = await resolvePartyIdentity(args, identityTable, identityValues);
+  const { partyId, created } = await resolveWrappingParty(args, identityId);
 
   await args.db.insert(schema.integrationEntityMappings).values({
     id: generateId('iem'),
@@ -654,7 +709,7 @@ async function upsertParty(args: {
     syncChecksum: args.checksum,
   });
 
-  return { action: createdParty ? 'created' : 'updated', internalId: partyId };
+  return { action: created ? 'created' : 'updated', internalId: partyId };
 }
 
 async function softDeleteParty(db: Database, partyId: string, mappingId: string): Promise<void> {
@@ -839,9 +894,211 @@ async function maybeSyncMoneybirdAttachments(args: {
     .where(eq(cols.id, args.internalId));
 }
 
+type IngestEventEntityType = Parameters<typeof publishEntityEventRaw>[0]['entityType'];
+
+/** Mutable per-batch state shared by the record handlers. */
+interface IngestState {
+  counts: IngestCounts;
+  errorSamples: IngestResult['errorSamples'];
+}
+
+function pushErrorSample(state: IngestState, externalId: string, message: string): void {
+  if (state.errorSamples.length < MAX_ERROR_SAMPLES) {
+    state.errorSamples.push({ externalId, message });
+  }
+}
+
+/**
+ * Run `handle` for every record with an external id. Records without one are
+ * skipped; a throwing handler counts as a failed record and never aborts the batch.
+ */
+async function runIngestLoop(
+  records: Array<Record<string, unknown>>,
+  logLabel: string,
+  handle: (record: Record<string, unknown>, externalId: string, state: IngestState) => Promise<void>,
+): Promise<IngestResult> {
+  const state: IngestState = { counts: emptyCounts(), errorSamples: [] };
+
+  for (const record of records) {
+    const externalId = externalIdOf(record);
+    if (!externalId) {
+      state.counts.skipped++;
+      continue;
+    }
+
+    try {
+      await handle(record, externalId, state);
+    } catch (err) {
+      state.counts.failed++;
+      pushErrorSample(state, externalId, sanitiseErrorMessage(err));
+      console.error(`[connectors/ingest] ${logLabel} ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    }
+  }
+
+  return { ...state.counts, errorSamples: state.errorSamples };
+}
+
+function tallyOutcome(counts: IngestCounts, action: UpsertOutcome['action']): void {
+  if (action === 'created') counts.created++;
+  else if (action === 'updated') counts.modified++;
+  else counts.skipped++;
+}
+
+async function publishIngestEvent(
+  args: IngestArgs,
+  entityType: IngestEventEntityType,
+  action: 'created' | 'updated' | 'deleted',
+  entityId: string,
+): Promise<void> {
+  await publishEntityEventRaw({
+    env: args.env as never,
+    db: args.db as never,
+    workspaceId: args.workspaceId,
+    userId: args.ownerId,
+    entityType,
+    action,
+    entityId,
+    data: { id: entityId },
+  });
+}
+
+/** Publish created/updated for an upsert outcome; skipped rows emit nothing. */
+async function publishUpsertEvent(
+  args: IngestArgs,
+  entityType: IngestEventEntityType,
+  outcome: UpsertOutcome,
+): Promise<void> {
+  if (outcome.action === 'skipped') return;
+  await publishIngestEvent(args, entityType, outcome.action === 'created' ? 'created' : 'updated', outcome.internalId);
+}
+
+function mapWithFieldMappings(
+  args: IngestArgs,
+  record: Record<string, unknown>,
+  fieldMappings: ConnectorFieldMappingRow[],
+): MappedRecord | null {
+  const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+  return mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
+}
+
+async function deleteAccountingRecord(args: IngestArgs, externalId: string, counts: IngestCounts): Promise<void> {
+  const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+  if (!mapping) {
+    counts.skipped++;
+    return;
+  }
+
+  let entityType: IngestEventEntityType;
+  if (args.sync.internalEntity === 'party') {
+    const [party] = await args.db
+      .select({ kind: schema.parties.kind })
+      .from(schema.parties)
+      .where(eq(schema.parties.id, mapping.internalEntityId))
+      .limit(1);
+    await softDeleteParty(args.db, mapping.internalEntityId, mapping.id);
+    entityType = party?.kind === 'person' ? 'person' : 'company';
+  } else {
+    const table = args.sync.internalEntity === 'invoice' ? schema.invoices : schema.bills;
+    await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
+    entityType = args.sync.internalEntity === 'invoice' ? 'invoice' : 'bill';
+  }
+  counts.deleted++;
+  await publishIngestEvent(args, entityType, 'deleted', mapping.internalEntityId);
+}
+
+async function ingestPartyRecord(
+  args: IngestArgs,
+  mapped: MappedParty,
+  checksum: string,
+  counts: IngestCounts,
+): Promise<void> {
+  const outcome = await upsertParty({
+    db: args.db,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    ownerId: args.ownerId,
+    mapped,
+    checksum,
+  });
+  tallyOutcome(counts, outcome.action);
+  await publishUpsertEvent(args, mapped.kind, outcome);
+}
+
+async function ingestDocumentRecord(params: {
+  args: IngestArgs;
+  entityId: string;
+  document: MappedInvoice | MappedBill;
+  record: Record<string, unknown>;
+  externalId: string;
+  checksum: string;
+  counts: IngestCounts;
+}): Promise<void> {
+  const { args, entityId, document, record, externalId, checksum, counts } = params;
+  const contactId = await resolveContactId({
+    db: args.db,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    ownerId: args.ownerId,
+    contactExternalId: document.contactExternalId,
+    nestedContact: document.nestedContact,
+  });
+  if (!contactId) {
+    throw new Error('Invoice/bill contact is not mapped — sync contacts first');
+  }
+
+  const values: Record<string, unknown> = {
+    ...document.values,
+    entityId,
+    contactId,
+    counterpartyId: contactId,
+    createdBy: args.ownerId,
+    journalEntryId: null,
+  };
+
+  const outcome = await upsertByMapping({
+    db: args.db,
+    connectionId: args.connectionId,
+    externalEntityType: args.sync.externalEntityType,
+    externalEntityId: externalId,
+    internalEntityType: document.entity,
+    table: document.entity === 'invoice' ? schema.invoices : schema.bills,
+    idPrefix: document.entity === 'invoice' ? 'inv' : 'bil',
+    dedupColumn: null,
+    values,
+    checksum,
+  });
+
+  if (outcome.action !== 'skipped') {
+    await replaceDocumentItems({
+      db: args.db,
+      connectionId: args.connectionId,
+      provider: args.provider,
+      entityId,
+      parentId: outcome.internalId,
+      kind: document.entity,
+      items: document.lineItems,
+    });
+    await promoteAccountingRole(
+      args.db,
+      contactId,
+      document.entity === 'invoice' ? 'customer' : 'supplier',
+    );
+    await publishUpsertEvent(args, document.entity, outcome);
+  }
+
+  await maybeSyncMoneybirdAttachments({
+    args,
+    internalId: outcome.internalId,
+    entity: document.entity,
+    externalId,
+    record,
+    force: outcome.action !== 'skipped',
+  });
+
+  tallyOutcome(counts, outcome.action);
+}
+
 async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> {
-  const counts = emptyCounts();
-  const errorSamples: IngestResult['errorSamples'] = [];
   const entityId = args.sync.internalEntity === 'party' ? null : await resolveIngestEntityId(args);
   const fieldMappings = await loadConnectorFieldMappings(
     args.db,
@@ -849,191 +1106,165 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
     args.sync.internalEntity,
   );
 
-  for (const record of args.records) {
-    const externalId = externalIdOf(record);
-    if (!externalId) {
+  return runIngestLoop(args.records, 'record', async (record, externalId, { counts }) => {
+    if (isDeletedRecord(record, args.forceDeleted)) {
+      await deleteAccountingRecord(args, externalId, counts);
+      return;
+    }
+
+    const mapped = mapWithFieldMappings(args, record, fieldMappings);
+    if (!mapped) {
       counts.skipped++;
-      continue;
+      return;
     }
 
-    try {
-      if (isDeletedRecord(record, args.forceDeleted)) {
-        const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
-        if (!mapping) {
-          counts.skipped++;
-          continue;
-        }
-        if (args.sync.internalEntity === 'party') {
-          const [party] = await args.db
-            .select({ kind: schema.parties.kind })
-            .from(schema.parties)
-            .where(eq(schema.parties.id, mapping.internalEntityId))
-            .limit(1);
-          await softDeleteParty(args.db, mapping.internalEntityId, mapping.id);
-          counts.deleted++;
-          await publishEntityEventRaw({
-            env: args.env as never,
-            db: args.db as never,
-            workspaceId: args.workspaceId,
-            userId: args.ownerId,
-            entityType: party?.kind === 'person' ? 'person' : 'company',
-            action: 'deleted',
-            entityId: mapping.internalEntityId,
-            data: { id: mapping.internalEntityId },
-          });
-          continue;
-        }
-        const table = args.sync.internalEntity === 'invoice' ? schema.invoices : schema.bills;
-        await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
-        counts.deleted++;
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: args.sync.internalEntity === 'invoice' ? 'invoice' : 'bill',
-          action: 'deleted',
-          entityId: mapping.internalEntityId,
-          data: { id: mapping.internalEntityId },
-        });
-        continue;
-      }
+    const checksum = await recordChecksum(record);
 
-      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
-      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
-      if (!mapped) {
-        counts.skipped++;
-        continue;
-      }
-
-      const checksum = await recordChecksum(record);
-
-      if (mapped.entity === 'party') {
-        const outcome = await upsertParty({
-          db: args.db,
-          connectionId: args.connectionId,
-          provider: args.provider,
-          ownerId: args.ownerId,
-          mapped,
-          checksum,
-        });
-        if (outcome.action === 'created') counts.created++;
-        else if (outcome.action === 'updated') counts.modified++;
-        else counts.skipped++;
-        if (outcome.action !== 'skipped') {
-          await publishEntityEventRaw({
-            env: args.env as never,
-            db: args.db as never,
-            workspaceId: args.workspaceId,
-            userId: args.ownerId,
-            entityType: mapped.kind,
-            action: outcome.action === 'created' ? 'created' : 'updated',
-            entityId: outcome.internalId,
-            data: { id: outcome.internalId },
-          });
-        }
-        continue;
-      }
-
-      if (!entityId) {
-        throw new Error('Select a WeldBooks entity for this Moneybird connection (or set a default entity)');
-      }
-
-      const document = mapped as MappedInvoice | MappedBill;
-      const contactId = await resolveContactId({
-        db: args.db,
-        connectionId: args.connectionId,
-        provider: args.provider,
-        ownerId: args.ownerId,
-        contactExternalId: document.contactExternalId,
-        nestedContact: document.nestedContact,
-      });
-      if (!contactId) {
-        throw new Error('Invoice/bill contact is not mapped — sync contacts first');
-      }
-
-      const values: Record<string, unknown> = {
-        ...document.values,
-        entityId,
-        contactId,
-        counterpartyId: contactId,
-        createdBy: args.ownerId,
-        journalEntryId: null,
-      };
-
-      const table = document.entity === 'invoice' ? schema.invoices : schema.bills;
-      const idPrefix = document.entity === 'invoice' ? 'inv' : 'bil';
-      const outcome = await upsertByMapping({
-        db: args.db,
-        connectionId: args.connectionId,
-        externalEntityType: args.sync.externalEntityType,
-        externalEntityId: externalId,
-        internalEntityType: document.entity,
-        table,
-        idPrefix,
-        dedupColumn: null,
-        values,
-        checksum,
-      });
-
-      if (outcome.action !== 'skipped') {
-        await replaceDocumentItems({
-          db: args.db,
-          connectionId: args.connectionId,
-          provider: args.provider,
-          entityId,
-          parentId: outcome.internalId,
-          kind: document.entity,
-          items: document.lineItems,
-        });
-        await promoteAccountingRole(
-          args.db,
-          contactId,
-          document.entity === 'invoice' ? 'customer' : 'supplier',
-        );
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: document.entity,
-          action: outcome.action === 'created' ? 'created' : 'updated',
-          entityId: outcome.internalId,
-          data: { id: outcome.internalId },
-        });
-      }
-
-      await maybeSyncMoneybirdAttachments({
-        args,
-        internalId: outcome.internalId,
-        entity: document.entity,
-        externalId,
-        record,
-        force: outcome.action !== 'skipped',
-      });
-
-      if (outcome.action === 'created') counts.created++;
-      else if (outcome.action === 'updated') counts.modified++;
-      else counts.skipped++;
-    } catch (err) {
-      counts.failed++;
-      if (errorSamples.length < MAX_ERROR_SAMPLES) {
-        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
-      }
-      console.error(`[connectors/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    if (mapped.entity === 'party') {
+      await ingestPartyRecord(args, mapped, checksum, counts);
+      return;
     }
+
+    if (!entityId) {
+      throw new Error('Select a WeldBooks entity for this Moneybird connection (or set a default entity)');
+    }
+
+    await ingestDocumentRecord({
+      args,
+      entityId,
+      document: mapped as MappedInvoice | MappedBill,
+      record,
+      externalId,
+      checksum,
+      counts,
+    });
+  });
+}
+
+async function deleteBankRecord(args: IngestArgs, externalId: string, counts: IngestCounts): Promise<void> {
+  const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+  if (!mapping) {
+    counts.skipped++;
+    return;
   }
+  const isAccount = args.sync.internalEntity === 'bank_account';
+  const table = isAccount ? schema.bankAccounts : schema.bankTransactions;
+  await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
+  counts.deleted++;
+  await publishIngestEvent(args, isAccount ? 'bank_account' : 'bank_transaction', 'deleted', mapping.internalEntityId);
+}
 
-  return { ...counts, errorSamples };
+async function ingestBankAccountRecord(params: {
+  args: IngestArgs;
+  entityId: string;
+  account: MappedBankAccount;
+  externalId: string;
+  checksum: string;
+  counts: IngestCounts;
+}): Promise<void> {
+  const { args, entityId, account, externalId, checksum, counts } = params;
+  const outcome = await upsertByMapping({
+    db: args.db,
+    connectionId: args.connectionId,
+    externalEntityType: args.sync.externalEntityType,
+    externalEntityId: externalId,
+    internalEntityType: 'bank_account',
+    table: schema.bankAccounts,
+    idPrefix: 'ba',
+    dedupColumn: null,
+    values: { ...account.values, entityId },
+    checksum,
+  });
+  tallyOutcome(counts, outcome.action);
+  await publishUpsertEvent(args, 'bank_account', outcome);
+}
+
+/** Resolve the internal bank account for a transaction, stubbing archived accounts. */
+async function resolveBankAccountId(params: {
+  args: IngestArgs;
+  entityId: string;
+  accountExternalType: string;
+  txn: MappedBankTransaction;
+  financialAccountExternalId: string;
+}): Promise<string> {
+  const { args, entityId, accountExternalType, txn, financialAccountExternalId } = params;
+  const accountMapping = await findMapping(
+    args.db,
+    args.connectionId,
+    accountExternalType,
+    financialAccountExternalId,
+  );
+  if (accountMapping) return accountMapping.internalEntityId;
+
+  // Mutations can reference archived accounts that financial_accounts omits.
+  // Create a stub so the statement line still lands in WeldBooks.
+  const stub = await upsertByMapping({
+    db: args.db,
+    connectionId: args.connectionId,
+    externalEntityType: accountExternalType,
+    externalEntityId: financialAccountExternalId,
+    internalEntityType: 'bank_account',
+    table: schema.bankAccounts,
+    idPrefix: 'ba',
+    dedupColumn: null,
+    values: {
+      entityId,
+      name: `Moneybird account ${financialAccountExternalId}`,
+      currency: pickCurrency(txn.values) ?? 'EUR',
+      isActive: false,
+      metadata: { stubFromMutation: true, moneybirdFinancialAccountId: financialAccountExternalId },
+    },
+    checksum: `stub:${financialAccountExternalId}`,
+  });
+  return stub.internalId;
+}
+
+async function ingestBankTransactionRecord(params: {
+  args: IngestArgs;
+  entityId: string;
+  accountExternalType: string;
+  txn: MappedBankTransaction;
+  externalId: string;
+  checksum: string;
+  counts: IngestCounts;
+}): Promise<void> {
+  const { args, entityId, accountExternalType, txn, externalId, checksum, counts } = params;
+  if (!txn.financialAccountExternalId) {
+    throw new Error('Bank transaction is missing financial_account_id');
+  }
+  const bankAccountId = await resolveBankAccountId({
+    args,
+    entityId,
+    accountExternalType,
+    txn,
+    financialAccountExternalId: txn.financialAccountExternalId,
+  });
+
+  const outcome = await upsertByMapping({
+    db: args.db,
+    connectionId: args.connectionId,
+    externalEntityType: args.sync.externalEntityType,
+    externalEntityId: externalId,
+    internalEntityType: 'bank_transaction',
+    table: schema.bankTransactions,
+    idPrefix: 'bt',
+    dedupColumn: null,
+    values: {
+      ...txn.values,
+      entityId,
+      bankAccountId,
+    },
+    checksum,
+  });
+  tallyOutcome(counts, outcome.action);
+  await publishUpsertEvent(args, 'bank_transaction', outcome);
 }
 
 async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
-  const counts = emptyCounts();
-  const errorSamples: IngestResult['errorSamples'] = [];
   const entityId = await resolveIngestEntityId(args);
   if (!entityId) {
     return {
-      ...counts,
+      ...emptyCounts(),
       failed: args.records.length,
       errorSamples: [
         {
@@ -1054,161 +1285,39 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
     args.sync.internalEntity,
   );
 
-  for (const record of args.records) {
-    const externalId = externalIdOf(record);
-    if (!externalId) {
-      counts.skipped++;
-      continue;
+  return runIngestLoop(args.records, 'record', async (record, externalId, state) => {
+    const { counts } = state;
+    // Soft-delete only on explicit destroy webhooks. Inactive accounts still upsert
+    // with isActive=false — Moneybird list sync omits archived accounts entirely.
+    if (isDeletedRecord(record, args.forceDeleted)) {
+      await deleteBankRecord(args, externalId, counts);
+      return;
     }
 
-    try {
-      // Soft-delete only on explicit destroy webhooks. Inactive accounts still upsert
-      // with isActive=false — Moneybird list sync omits archived accounts entirely.
-      if (isDeletedRecord(record, args.forceDeleted)) {
-        const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
-        if (!mapping) {
-          counts.skipped++;
-          continue;
-        }
-        const table =
-          args.sync.internalEntity === 'bank_account' ? schema.bankAccounts : schema.bankTransactions;
-        await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
-        counts.deleted++;
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: args.sync.internalEntity === 'bank_account' ? 'bank_account' : 'bank_transaction',
-          action: 'deleted',
-          entityId: mapping.internalEntityId,
-          data: { id: mapping.internalEntityId },
-        });
-        continue;
-      }
-
-      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
-      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
-      if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
-        counts.failed++;
-        if (errorSamples.length < MAX_ERROR_SAMPLES) {
-          errorSamples.push({
-            externalId,
-            message: 'Could not map Moneybird bank record (missing required fields)',
-          });
-        }
-        continue;
-      }
-
-      const checksum = await recordChecksum(record);
-
-      if (mapped.entity === 'bank_account') {
-        const account = mapped as MappedBankAccount;
-        const outcome = await upsertByMapping({
-          db: args.db,
-          connectionId: args.connectionId,
-          externalEntityType: args.sync.externalEntityType,
-          externalEntityId: externalId,
-          internalEntityType: 'bank_account',
-          table: schema.bankAccounts,
-          idPrefix: 'ba',
-          dedupColumn: null,
-          values: { ...account.values, entityId },
-          checksum,
-        });
-        if (outcome.action === 'created') counts.created++;
-        else if (outcome.action === 'updated') counts.modified++;
-        else counts.skipped++;
-        if (outcome.action !== 'skipped') {
-          await publishEntityEventRaw({
-            env: args.env as never,
-            db: args.db as never,
-            workspaceId: args.workspaceId,
-            userId: args.ownerId,
-            entityType: 'bank_account',
-            action: outcome.action === 'created' ? 'created' : 'updated',
-            entityId: outcome.internalId,
-            data: { id: outcome.internalId },
-          });
-        }
-        continue;
-      }
-
-      const txn = mapped as MappedBankTransaction;
-      if (!txn.financialAccountExternalId) {
-        throw new Error('Bank transaction is missing financial_account_id');
-      }
-      let accountMapping = await findMapping(
-        args.db,
-        args.connectionId,
-        accountExternalType,
-        txn.financialAccountExternalId,
-      );
-      // Mutations can reference archived accounts that financial_accounts omits.
-      // Create a stub so the statement line still lands in WeldBooks.
-      if (!accountMapping) {
-        const stub = await upsertByMapping({
-          db: args.db,
-          connectionId: args.connectionId,
-          externalEntityType: accountExternalType,
-          externalEntityId: txn.financialAccountExternalId,
-          internalEntityType: 'bank_account',
-          table: schema.bankAccounts,
-          idPrefix: 'ba',
-          dedupColumn: null,
-          values: {
-            entityId,
-            name: `Moneybird account ${txn.financialAccountExternalId}`,
-            currency: pickCurrency(txn.values) ?? 'EUR',
-            isActive: false,
-            metadata: { stubFromMutation: true, moneybirdFinancialAccountId: txn.financialAccountExternalId },
-          },
-          checksum: `stub:${txn.financialAccountExternalId}`,
-        });
-        accountMapping = { id: '', internalEntityId: stub.internalId };
-      }
-
-      const outcome = await upsertByMapping({
-        db: args.db,
-        connectionId: args.connectionId,
-        externalEntityType: args.sync.externalEntityType,
-        externalEntityId: externalId,
-        internalEntityType: 'bank_transaction',
-        table: schema.bankTransactions,
-        idPrefix: 'bt',
-        dedupColumn: null,
-        values: {
-          ...txn.values,
-          entityId,
-          bankAccountId: accountMapping.internalEntityId,
-        },
-        checksum,
-      });
-      if (outcome.action === 'created') counts.created++;
-      else if (outcome.action === 'updated') counts.modified++;
-      else counts.skipped++;
-      if (outcome.action !== 'skipped') {
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: 'bank_transaction',
-          action: outcome.action === 'created' ? 'created' : 'updated',
-          entityId: outcome.internalId,
-          data: { id: outcome.internalId },
-        });
-      }
-    } catch (err) {
+    const mapped = mapWithFieldMappings(args, record, fieldMappings);
+    if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
       counts.failed++;
-      if (errorSamples.length < MAX_ERROR_SAMPLES) {
-        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
-      }
-      console.error(`[connectors/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+      pushErrorSample(state, externalId, 'Could not map Moneybird bank record (missing required fields)');
+      return;
     }
-  }
 
-  return { ...counts, errorSamples };
+    const checksum = await recordChecksum(record);
+
+    if (mapped.entity === 'bank_account') {
+      await ingestBankAccountRecord({ args, entityId, account: mapped as MappedBankAccount, externalId, checksum, counts });
+      return;
+    }
+
+    await ingestBankTransactionRecord({
+      args,
+      entityId,
+      accountExternalType,
+      txn: mapped as MappedBankTransaction,
+      externalId,
+      checksum,
+      counts,
+    });
+  });
 }
 
 function pickCurrency(values: Record<string, unknown>): string | null {
@@ -1368,6 +1477,35 @@ function expandWmsRecords(
   });
 }
 
+/** Internal id of the mapped `<provider>_<kind>` record, or null when unlinked/unmapped. */
+async function linkedInternalId(
+  args: { db: Database; connectionId: string; provider: string },
+  externalId: string | null | undefined,
+  kind: string,
+): Promise<string | null> {
+  if (!externalId) return null;
+  const mapping = await findMapping(args.db, args.connectionId, `${args.provider}_${kind}`, externalId);
+  return mapping?.internalEntityId ?? null;
+}
+
+function warehouseLinkFields(entity: MappedWmsEntity['entity'], warehouseId: string): Record<string, unknown> {
+  if (entity === 'inventory_movement') {
+    return { warehouseId, sourceWarehouseId: warehouseId, destWarehouseId: warehouseId };
+  }
+  return { warehouseId };
+}
+
+function locationLinkFields(entity: MappedWmsEntity['entity'], locationId: string): Record<string, unknown> {
+  if (entity === 'stock_count') return { locationId, locationIds: [locationId] };
+  return { locationId };
+}
+
+function orderLinkFields(entity: MappedWmsEntity['entity'], orderId: string): Record<string, unknown> {
+  if (entity === 'picklist') return { orderIds: [orderId] };
+  if (entity === 'return') return { originalOrderId: orderId };
+  return {};
+}
+
 async function resolveLinkedIds(args: {
   db: Database;
   connectionId: string;
@@ -1376,85 +1514,113 @@ async function resolveLinkedIds(args: {
 }): Promise<Record<string, unknown>> {
   const extra: Record<string, unknown> = {};
   const links = args.mapped.links ?? {};
-  if (links.productExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_product`,
-      links.productExternalId,
-    );
-    if (mapping) extra.productId = mapping.internalEntityId;
-  }
-  if (links.warehouseExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_warehouse`,
-      links.warehouseExternalId,
-    );
-    if (mapping) {
-      extra.warehouseId = mapping.internalEntityId;
-      if (args.mapped.entity === 'inventory_movement') {
-        extra.sourceWarehouseId = mapping.internalEntityId;
-        extra.destWarehouseId = mapping.internalEntityId;
-      }
-    }
-  }
-  if (links.locationExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_location`,
-      links.locationExternalId,
-    );
-    if (mapping) {
-      extra.locationId = mapping.internalEntityId;
-      if (args.mapped.entity === 'stock_count') {
-        extra.locationIds = [mapping.internalEntityId];
-      }
-    }
-  }
-  if (links.supplierExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_supplier`,
-      links.supplierExternalId,
-    );
-    if (mapping) extra.supplierId = mapping.internalEntityId;
-  }
-  if (links.orderExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_order`,
-      links.orderExternalId,
-    );
-    if (mapping) {
-      if (args.mapped.entity === 'picklist') extra.orderIds = [mapping.internalEntityId];
-      if (args.mapped.entity === 'return') extra.originalOrderId = mapping.internalEntityId;
-    }
-  }
-  if (links.picklistExternalId) {
-    const mapping = await findMapping(
-      args.db,
-      args.connectionId,
-      `${args.provider}_picklist`,
-      links.picklistExternalId,
-    );
-    if (mapping) {
-      extra.metadata = {
-        ...((args.mapped.values.metadata as Record<string, unknown> | undefined) ?? {}),
-        pickListId: mapping.internalEntityId,
-      };
-    }
+  const entity = args.mapped.entity;
+
+  const productId = await linkedInternalId(args, links.productExternalId, 'product');
+  if (productId) extra.productId = productId;
+
+  const warehouseId = await linkedInternalId(args, links.warehouseExternalId, 'warehouse');
+  if (warehouseId) Object.assign(extra, warehouseLinkFields(entity, warehouseId));
+
+  const locationId = await linkedInternalId(args, links.locationExternalId, 'location');
+  if (locationId) Object.assign(extra, locationLinkFields(entity, locationId));
+
+  const supplierId = await linkedInternalId(args, links.supplierExternalId, 'supplier');
+  if (supplierId) extra.supplierId = supplierId;
+
+  const orderId = await linkedInternalId(args, links.orderExternalId, 'order');
+  if (orderId) Object.assign(extra, orderLinkFields(entity, orderId));
+
+  const picklistId = await linkedInternalId(args, links.picklistExternalId, 'picklist');
+  if (picklistId) {
+    extra.metadata = {
+      ...((args.mapped.values.metadata as Record<string, unknown> | undefined) ?? {}),
+      pickListId: picklistId,
+    };
   }
   return extra;
 }
 
+const WAREHOUSE_DEFAULT_ENTITIES = new Set<string>(['inventory', 'picklist', 'stock_count', 'location']);
+
+/**
+ * Fill warehouse defaults on a WMS row. Returns false when the row cannot be
+ * ingested (inventory / movement rows need a linked product).
+ */
+function applyWmsDefaults(
+  entity: MappedWmsEntity['entity'],
+  values: Record<string, unknown>,
+  defaultWarehouseId: string,
+): boolean {
+  if (WAREHOUSE_DEFAULT_ENTITIES.has(entity) && !values.warehouseId) {
+    values.warehouseId = defaultWarehouseId;
+  }
+  if ((entity === 'inventory' || entity === 'inventory_movement') && !values.productId) return false;
+  if (entity === 'inventory_movement') {
+    values.sourceWarehouseId = values.sourceWarehouseId ?? defaultWarehouseId;
+    values.destWarehouseId = values.destWarehouseId ?? defaultWarehouseId;
+  }
+  return true;
+}
+
+async function deleteWmsRecord(args: IngestArgs, externalId: string, counts: IngestCounts): Promise<void> {
+  const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+  if (!mapping) {
+    counts.skipped++;
+    return;
+  }
+  const target = wmsTarget(args.sync.internalEntity as MappedWmsEntity['entity']);
+  await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+  counts.deleted++;
+}
+
+async function ingestWmsRecord(params: {
+  args: IngestArgs;
+  wms: MappedWmsEntity;
+  record: Record<string, unknown>;
+  externalId: string;
+  defaultWarehouseId: string;
+  counts: IngestCounts;
+}): Promise<void> {
+  const { args, wms, record, externalId, defaultWarehouseId, counts } = params;
+  const target = wmsTarget(wms.entity);
+  const linked = await resolveLinkedIds({
+    db: args.db,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    mapped: wms,
+  });
+
+  const values: Record<string, unknown> = {
+    ...wms.values,
+    ...linked,
+    createdBy: wms.values.createdBy ?? args.ownerId,
+  };
+
+  if (!applyWmsDefaults(wms.entity, values, defaultWarehouseId)) {
+    counts.skipped++;
+    return;
+  }
+
+  const checksum = await recordChecksum(record);
+  const outcome = await upsertByMapping({
+    db: args.db,
+    connectionId: args.connectionId,
+    externalEntityType: args.sync.externalEntityType,
+    externalEntityId: externalId,
+    internalEntityType: target.internalEntityType,
+    table: target.table,
+    idPrefix: target.idPrefix,
+    dedupColumn: target.dedupColumn,
+    values,
+    checksum,
+  });
+
+  tallyOutcome(counts, outcome.action);
+  await publishUpsertEvent(args, target.eventEntityType, outcome);
+}
+
 async function ingestWmsRecords(args: IngestArgs): Promise<IngestResult> {
-  const counts = emptyCounts();
-  const errorSamples: IngestResult['errorSamples'] = [];
   const fieldMappings = await loadConnectorFieldMappings(
     args.db,
     args.connectionId,
@@ -1463,140 +1629,95 @@ async function ingestWmsRecords(args: IngestArgs): Promise<IngestResult> {
   const records = expandWmsRecords(args.provider, args.sync.internalEntity, args.records);
   const defaultWarehouseId = await ensureDefaultWarehouse(args.db, args.ownerId);
 
-  for (const record of records) {
-    const externalId = externalIdOf(record);
-    if (!externalId) {
+  return runIngestLoop(records, 'wms record', async (record, externalId, { counts }) => {
+    if (isDeletedRecord(record, args.forceDeleted)) {
+      await deleteWmsRecord(args, externalId, counts);
+      return;
+    }
+
+    const mapped = mapWithFieldMappings(args, record, fieldMappings);
+    if (!mapped || !('entity' in mapped) || !isWmsEntity(mapped.entity)) {
       counts.skipped++;
-      continue;
+      return;
     }
-
-    try {
-      if (isDeletedRecord(record, args.forceDeleted)) {
-        const mapping = await findMapping(
-          args.db,
-          args.connectionId,
-          args.sync.externalEntityType,
-          externalId,
-        );
-        if (mapping) {
-          const target = wmsTarget(args.sync.internalEntity as MappedWmsEntity['entity']);
-          await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
-          counts.deleted++;
-        } else {
-          counts.skipped++;
-        }
-        continue;
-      }
-
-      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
-      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
-      if (!mapped || !('entity' in mapped) || !isWmsEntity(mapped.entity)) {
-        counts.skipped++;
-        continue;
-      }
-      const wms = mapped as MappedWmsEntity;
-      const target = wmsTarget(wms.entity);
-      const linked = await resolveLinkedIds({
-        db: args.db,
-        connectionId: args.connectionId,
-        provider: args.provider,
-        mapped: wms,
-      });
-
-      const values: Record<string, unknown> = {
-        ...wms.values,
-        ...linked,
-        createdBy: wms.values.createdBy ?? args.ownerId,
-      };
-
-      if (
-        (wms.entity === 'inventory' || wms.entity === 'picklist' || wms.entity === 'stock_count')
-        && !values.warehouseId
-      ) {
-        values.warehouseId = defaultWarehouseId;
-      }
-
-      if (wms.entity === 'location' && !values.warehouseId) {
-        values.warehouseId = defaultWarehouseId;
-      }
-
-      if (wms.entity === 'inventory' && !values.productId) {
-        counts.skipped++;
-        continue;
-      }
-
-      if (wms.entity === 'inventory_movement' && !values.productId) {
-        counts.skipped++;
-        continue;
-      }
-
-      if (wms.entity === 'inventory_movement') {
-        values.sourceWarehouseId = values.sourceWarehouseId ?? defaultWarehouseId;
-        values.destWarehouseId = values.destWarehouseId ?? defaultWarehouseId;
-      }
-
-      const checksum = await recordChecksum(record);
-      const outcome = await upsertByMapping({
-        db: args.db,
-        connectionId: args.connectionId,
-        externalEntityType: args.sync.externalEntityType,
-        externalEntityId: externalId,
-        internalEntityType: target.internalEntityType,
-        table: target.table,
-        idPrefix: target.idPrefix,
-        dedupColumn: target.dedupColumn,
-        values,
-        checksum,
-      });
-
-      if (outcome.action === 'created') counts.created++;
-      else if (outcome.action === 'updated') counts.modified++;
-      else counts.skipped++;
-
-      if (outcome.action !== 'skipped') {
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: target.eventEntityType,
-          action: outcome.action === 'created' ? 'created' : 'updated',
-          entityId: outcome.internalId,
-          data: { id: outcome.internalId },
-        });
-      }
-    } catch (err) {
-      counts.failed++;
-      if (errorSamples.length < MAX_ERROR_SAMPLES) {
-        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
-      }
-      console.error(`[connectors/ingest] wms record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
-    }
-  }
-
-  return { ...counts, errorSamples };
+    await ingestWmsRecord({ args, wms: mapped as MappedWmsEntity, record, externalId, defaultWarehouseId, counts });
+  });
 }
 
-export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
-  if (
-    args.sync.internalEntity === 'party'
-    || args.sync.internalEntity === 'invoice'
-    || args.sync.internalEntity === 'bill'
-  ) {
-    return ingestAccountingRecords(args);
-  }
-  if (
-    args.sync.internalEntity === 'bank_account'
-    || args.sync.internalEntity === 'bank_transaction'
-  ) {
-    return ingestBankRecords(args);
-  }
-  if (isWmsEntity(args.sync.internalEntity)) {
-    return ingestWmsRecords(args);
+type CatalogTarget = ReturnType<typeof targetFor>;
+
+async function deleteCatalogRecord(
+  args: IngestArgs,
+  target: CatalogTarget,
+  externalId: string,
+  counts: IngestCounts,
+): Promise<void> {
+  const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+  if (!mapping) {
+    counts.skipped++;
+    return;
   }
 
-  const counts = emptyCounts();
-  const errorSamples: IngestResult['errorSamples'] = [];
+  const isProduct = args.sync.internalEntity === 'product';
+  if (isProduct) await markSalesChannelDeleted(args.db, args.connectionId, externalId);
+  // A product listed on another channel stays; only the last channel removes it.
+  const stillListed = isProduct && (await activeSalesChannelCount(args.db, mapping.internalEntityId)) > 0;
+  if (!stillListed) {
+    await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+  }
+  counts.deleted++;
+  await publishIngestEvent(args, target.entityType, 'deleted', mapping.internalEntityId);
+}
+
+async function buildCatalogValues(
+  args: IngestArgs,
+  mapped: MappedRecord,
+  customerType: string,
+): Promise<Record<string, unknown>> {
+  const values: Record<string, unknown> = { ...mapped.values };
+  if (mapped.entity === 'person') {
+    values.ownerId = args.ownerId;
+  }
+  if (mapped.entity === 'product' || mapped.entity === 'order') {
+    values.createdBy = values.createdBy ?? args.ownerId;
+  }
+  if (mapped.entity === 'order' && mapped.customerExternalId) {
+    const customer = await findMapping(args.db, args.connectionId, customerType, mapped.customerExternalId);
+    if (customer) values.personId = customer.internalEntityId;
+  }
+  return values;
+}
+
+function productPermalink(args: IngestArgs, mapped: MappedProduct, externalId: string): string | null {
+  if (mapped.externalUrl != null) return mapped.externalUrl;
+  if (!args.storeUrl) return null;
+  if (args.provider === 'shopify') return `${args.storeUrl}/products/${String(mapped.values.slug ?? '')}`;
+  return `${args.storeUrl}/?p=${externalId}`;
+}
+
+async function syncProductListing(
+  args: IngestArgs,
+  mapped: MappedProduct,
+  externalId: string,
+  outcome: UpsertOutcome,
+): Promise<void> {
+  await upsertSalesChannel({
+    db: args.db,
+    productId: outcome.internalId,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    displayName: args.displayName,
+    externalId,
+    externalUrl: productPermalink(args, mapped, externalId),
+    price: mapped.values.price != null ? String(mapped.values.price) : null,
+    listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
+  });
+  if (mapped.variants?.length && outcome.action !== 'skipped') {
+    await upsertProductVariants(args.db, outcome.internalId, mapped.variants);
+  }
+}
+
+async function ingestCatalogRecords(args: IngestArgs): Promise<IngestResult> {
   const target = targetFor(args.sync.internalEntity as 'product' | 'order' | 'person');
   const customerType = `${args.provider}_customer`;
   const fieldMappings = await loadConnectorFieldMappings(
@@ -1605,128 +1726,55 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
     args.sync.internalEntity,
   );
 
-  for (const record of args.records) {
-    const externalId = externalIdOf(record);
-    if (!externalId) {
+  return runIngestLoop(args.records, 'record', async (record, externalId, { counts }) => {
+    if (isDeletedRecord(record, args.forceDeleted)) {
+      await deleteCatalogRecord(args, target, externalId, counts);
+      return;
+    }
+
+    const mapped = mapWithFieldMappings(args, record, fieldMappings);
+    if (!mapped) {
       counts.skipped++;
-      continue;
+      return;
     }
 
-    try {
-      if (isDeletedRecord(record, args.forceDeleted)) {
-        const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
-        if (mapping) {
-          if (args.sync.internalEntity === 'product') {
-            await markSalesChannelDeleted(args.db, args.connectionId, externalId);
-            const remaining = await activeSalesChannelCount(args.db, mapping.internalEntityId);
-            if (remaining === 0) {
-              await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
-            }
-          } else {
-            await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
-          }
-          counts.deleted++;
-          await publishEntityEventRaw({
-            env: args.env as never,
-            db: args.db as never,
-            workspaceId: args.workspaceId,
-            userId: args.ownerId,
-            entityType: target.entityType,
-            action: 'deleted',
-            entityId: mapping.internalEntityId,
-            data: { id: mapping.internalEntityId },
-          });
-        } else {
-          counts.skipped++;
-        }
-        continue;
-      }
+    const values = await buildCatalogValues(args, mapped, customerType);
+    const checksum = await recordChecksum(record);
+    const outcome = await upsertByMapping({
+      db: args.db,
+      connectionId: args.connectionId,
+      externalEntityType: args.sync.externalEntityType,
+      externalEntityId: externalId,
+      internalEntityType: target.entityType,
+      table: target.table,
+      idPrefix: target.idPrefix,
+      dedupColumn: target.dedupColumn,
+      values,
+      checksum,
+    });
 
-      const mappedRaw = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
-      const mapped = mappedRaw ? applyMappingsToRecord(record, mappedRaw, fieldMappings) : null;
-      if (!mapped) {
-        counts.skipped++;
-        continue;
-      }
-
-      const values: Record<string, unknown> = { ...mapped.values };
-      if (mapped.entity === 'person') {
-        values.ownerId = args.ownerId;
-      }
-      if (mapped.entity === 'product' || mapped.entity === 'order') {
-        values.createdBy = values.createdBy ?? args.ownerId;
-      }
-      if (mapped.entity === 'order' && mapped.customerExternalId) {
-        const customer = await findMapping(args.db, args.connectionId, customerType, mapped.customerExternalId);
-        if (customer) values.personId = customer.internalEntityId;
-      }
-
-      const checksum = await recordChecksum(record);
-      const outcome = await upsertByMapping({
-        db: args.db,
-        connectionId: args.connectionId,
-        externalEntityType: args.sync.externalEntityType,
-        externalEntityId: externalId,
-        internalEntityType: target.entityType,
-        table: target.table,
-        idPrefix: target.idPrefix,
-        dedupColumn: target.dedupColumn,
-        values,
-        checksum,
-      });
-
-      if (mapped.entity === 'order' && outcome.action !== 'skipped') {
-        await replaceOrderItems(args.db, args.connectionId, args.provider, outcome.internalId, mapped);
-      }
-
-      if (mapped.entity === 'product') {
-        const permalink =
-          mapped.externalUrl
-          ?? (args.storeUrl && args.provider === 'shopify'
-            ? `${args.storeUrl}/products/${String(mapped.values.slug ?? '')}`
-            : args.storeUrl
-              ? `${args.storeUrl}/?p=${externalId}`
-              : null);
-        await upsertSalesChannel({
-          db: args.db,
-          productId: outcome.internalId,
-          connectionId: args.connectionId,
-          provider: args.provider,
-          displayName: args.displayName,
-          externalId,
-          externalUrl: permalink,
-          price: mapped.values.price != null ? String(mapped.values.price) : null,
-          listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
-        });
-        if (mapped.variants?.length && outcome.action !== 'skipped') {
-          await upsertProductVariants(args.db, outcome.internalId, mapped.variants);
-        }
-      }
-
-      if (outcome.action === 'created') counts.created++;
-      else if (outcome.action === 'updated') counts.modified++;
-      else counts.skipped++;
-
-      if (outcome.action !== 'skipped') {
-        await publishEntityEventRaw({
-          env: args.env as never,
-          db: args.db as never,
-          workspaceId: args.workspaceId,
-          userId: args.ownerId,
-          entityType: target.entityType,
-          action: outcome.action === 'created' ? 'created' : 'updated',
-          entityId: outcome.internalId,
-          data: { id: outcome.internalId },
-        });
-      }
-    } catch (err) {
-      counts.failed++;
-      if (errorSamples.length < MAX_ERROR_SAMPLES) {
-        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
-      }
-      console.error(`[connectors/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    if (mapped.entity === 'order' && outcome.action !== 'skipped') {
+      await replaceOrderItems(args.db, args.connectionId, args.provider, outcome.internalId, mapped);
     }
+    if (mapped.entity === 'product') {
+      await syncProductListing(args, mapped, externalId, outcome);
+    }
+
+    tallyOutcome(counts, outcome.action);
+    await publishUpsertEvent(args, target.entityType, outcome);
+  });
+}
+
+export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
+  const entity = args.sync.internalEntity;
+  if (entity === 'party' || entity === 'invoice' || entity === 'bill') {
+    return ingestAccountingRecords(args);
   }
-
-  return { ...counts, errorSamples };
+  if (entity === 'bank_account' || entity === 'bank_transaction') {
+    return ingestBankRecords(args);
+  }
+  if (isWmsEntity(entity)) {
+    return ingestWmsRecords(args);
+  }
+  return ingestCatalogRecords(args);
 }
