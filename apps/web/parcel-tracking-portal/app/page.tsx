@@ -19,9 +19,15 @@ const TrackingMap = dynamic(() => import('../components/tracking-map'), {
   )
 });
 
+function getStatusBadgeVariant(status: string): 'default' | 'secondary' | 'outline' {
+  if (status === 'Shipped') return 'default';
+  if (status === 'In Transit') return 'secondary';
+  return 'outline';
+}
+
 export default function HomePage() {
   const [selectedShipment, setSelectedShipment] = useState('SP9876543210');
-  const [showLiveTracking, setShowLiveTracking] = useState(true);
+  const [showLiveTracking] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
 
   const shipments = [
@@ -72,7 +78,7 @@ export default function HomePage() {
                       </p>
                     </div>
                     <Badge 
-                      variant={shipment.status === 'Shipped' ? 'default' : shipment.status === 'In Transit' ? 'secondary' : 'outline'}
+                      variant={getStatusBadgeVariant(shipment.status)}
                     >
                       {shipment.status}
                     </Badge>
