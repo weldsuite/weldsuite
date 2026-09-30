@@ -147,6 +147,30 @@ export function collapseAdacResults(events: AdacEvent[]): AdacMappedResult[] {
   return order.map((name) => byName.get(name)!);
 }
 
+function adacTransportError(err: unknown): RealtimeRegistrarError {
+  const aborted =
+    (err instanceof Error && err.name === 'AbortError') ||
+    (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'TimeoutError');
+  return new RealtimeRegistrarError(
+    0,
+    aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
+    `ADAC ${aborted ? 'timeout' : 'network error'}: ${err instanceof Error ? err.message : String(err)}`,
+    'adac',
+  );
+}
+
+function adacHttpErrorMessage(status: number, text: string): string {
+  let message = `ADAC returned ${status}`;
+  try {
+    const parsed = JSON.parse(text) as { data?: unknown; message?: string };
+    if (typeof parsed.message === 'string') message = parsed.message;
+    else if (typeof parsed.data === 'string') message = parsed.data;
+  } catch {
+    if (text) message = text.slice(0, 300);
+  }
+  return message;
+}
+
 export async function postAdacAction(
   fetchImpl: typeof fetch,
   opts: {
@@ -183,27 +207,12 @@ export async function postAdacAction(
       signal,
     });
   } catch (err) {
-    const aborted =
-      (err instanceof Error && err.name === 'AbortError') ||
-      (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'TimeoutError');
-    throw new RealtimeRegistrarError(
-      0,
-      aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
-      `ADAC ${aborted ? 'timeout' : 'network error'}: ${err instanceof Error ? err.message : String(err)}`,
-      'adac',
-    );
+    throw adacTransportError(err);
   }
 
   const text = await res.text();
   if (!res.ok) {
-    let message = `ADAC returned ${res.status}`;
-    try {
-      const parsed = JSON.parse(text) as { data?: unknown; message?: string };
-      if (typeof parsed.message === 'string') message = parsed.message;
-      else if (typeof parsed.data === 'string') message = parsed.data;
-    } catch {
-      if (text) message = text.slice(0, 300);
-    }
+    const message = adacHttpErrorMessage(res.status, text);
     throw new RealtimeRegistrarError(res.status, `HTTP_${res.status}`, message, 'adac', text);
   }
 

@@ -25,15 +25,27 @@ export interface PricelistRow {
   price?: number;
 }
 
+/** TLD for a `domain_<tld>` pricelist row, or null when the row isn't a usable domain price. */
+function pricelistTld(row: PricelistRow): string | null {
+  if (typeof row.product !== 'string' || typeof row.price !== 'number') return null;
+  if (!row.product.startsWith('domain_')) return null;
+  const tld = row.product.slice('domain_'.length).replace(/^\./, '').toLowerCase();
+  return tld || null;
+}
+
+function applyPricelistAction(entry: DomainWholesalePrice, action: string, price: number): void {
+  if (action === 'CREATE') entry.createCents = price;
+  else if (action === 'RENEW') entry.renewCents = price;
+  else if (action === 'TRANSFER') entry.transferCents = price;
+}
+
 export function parseDomainPricelist(
   prices: PricelistRow[] | undefined | null,
 ): Map<string, DomainWholesalePrice> {
   const byTld = new Map<string, DomainWholesalePrice>();
   for (const row of prices ?? []) {
-    if (typeof row.product !== 'string' || typeof row.price !== 'number') continue;
-    if (!row.product.startsWith('domain_')) continue;
-    const tld = row.product.slice('domain_'.length).replace(/^\./, '').toLowerCase();
-    if (!tld) continue;
+    const tld = pricelistTld(row);
+    if (!tld || typeof row.price !== 'number') continue;
 
     let entry = byTld.get(tld);
     if (!entry) {
@@ -42,10 +54,7 @@ export function parseDomainPricelist(
     }
     if (row.currency) entry.currency = row.currency.toUpperCase();
 
-    const action = (row.action ?? '').toUpperCase();
-    if (action === 'CREATE') entry.createCents = row.price;
-    else if (action === 'RENEW') entry.renewCents = row.price;
-    else if (action === 'TRANSFER') entry.transferCents = row.price;
+    applyPricelistAction(entry, (row.action ?? '').toUpperCase(), row.price);
   }
 
   for (const [tld, entry] of byTld) {
