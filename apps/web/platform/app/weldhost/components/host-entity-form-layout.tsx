@@ -1,5 +1,5 @@
 
-import { ReactNode, useId } from "react";
+import { ReactNode, isValidElement, useId } from "react";
 import { useRouter, Link } from '@/lib/router';
 import { Button } from "@weldsuite/ui/components/button";
 import { LucideIcon, ChevronLeft } from "lucide-react";
@@ -68,6 +68,59 @@ export interface HostEntityFormLayoutProps {
   summaryHeaderAction?: ReactNode;
 }
 
+/** Stable, content-based key for a ReactNode label/value (string, number or keyed element). */
+function nodeKeyPart(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (isValidElement(node) && node.key != null) return String(node.key);
+  return "";
+}
+
+/**
+ * Builds content-based keys for a list. Identical base keys are disambiguated
+ * with an occurrence counter so keys stay unique even when content repeats.
+ */
+function withStableKeys<T>(items: readonly T[], baseOf: (item: T) => string): { key: string; item: T }[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = baseOf(item);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { key: `${base}#${occurrence}`, item };
+  });
+}
+
+function summaryFieldBaseKey(field: HostSummaryField): string {
+  return nodeKeyPart(field.label) || nodeKeyPart(field.value) || "field";
+}
+
+function formSectionBaseKey(section: HostFormSection): string {
+  return `${section.title}|${section.description ?? ""}`;
+}
+
+/** Label/value rows of a purchase summary (shared by mobile and desktop panels). */
+function SummaryFieldRows({ fields }: Readonly<{ fields: HostSummaryField[] }>) {
+  return (
+    <>
+      {withStableKeys(fields, summaryFieldBaseKey).map(({ key, item: field }) => {
+        if (field.hideIfEmpty && !field.value) {
+          return null;
+        }
+        return (
+          <div
+            key={key}
+            className={`flex justify-between text-sm ${
+              field.bordered ? "border-t pt-3 mt-3" : ""
+            }`}
+          >
+            <span className="text-muted-foreground">{field.label}</span>
+            <span className="font-medium">{field.value || "—"}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function HostEntityFormLayout({
   title,
   subtitle,
@@ -96,8 +149,9 @@ export function HostEntityFormLayout({
   const resolvedCancelText = cancelText ?? t('sweep.miscB.cancel');
   const resolvedBackButtonText = backButtonText ?? t('sweep.miscB.back');
 
-  const backButton = showBackButton ? (
-    backLink ? (
+  let backButton: ReactNode = null;
+  if (showBackButton && backLink) {
+    backButton = (
       <Link href={backLink}>
         <Button
           type="button"
@@ -109,7 +163,9 @@ export function HostEntityFormLayout({
           {resolvedBackButtonText}
         </Button>
       </Link>
-    ) : (
+    );
+  } else if (showBackButton) {
+    backButton = (
       <Button
         type="button"
         variant="ghost"
@@ -120,8 +176,9 @@ export function HostEntityFormLayout({
         <ChevronLeft className="h-4 w-4 mr-0.5" />
         {resolvedBackButtonText}
       </Button>
-    )
-  ) : null;
+    );
+  }
+  const keyedSections = withStableKeys(sections, formSectionBaseKey);
 
   return (
     <div
@@ -141,12 +198,12 @@ export function HostEntityFormLayout({
                 {subtitle && (
                   <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
                 )}
-                {sections.map((section, index) => {
+                {keyedSections.map(({ key: sectionKey, item: section }) => {
                   const hasHeader = section.title || section.description;
 
                   if (!hasHeader) {
                     return (
-                      <div key={index} className="space-y-4">
+                      <div key={sectionKey} className="space-y-4">
                         {section.content}
                       </div>
                     );
@@ -154,7 +211,7 @@ export function HostEntityFormLayout({
 
                   return (
                     <div
-                      key={index}
+                      key={sectionKey}
                       className="bg-background px-4 md:px-6 pt-4 md:pt-5 pb-5 md:pb-6 rounded-lg border border-border"
                     >
                       <div className="mb-4">
@@ -190,22 +247,7 @@ export function HostEntityFormLayout({
             <div className="p-4 space-y-4">
               {summaryFields.length > 0 && (
                 <div className="space-y-3">
-                  {summaryFields.map((field, index) => {
-                    if (field.hideIfEmpty && !field.value) {
-                      return null;
-                    }
-                    return (
-                      <div
-                        key={index}
-                        className={`flex justify-between text-sm ${
-                          field.bordered ? "border-t pt-3 mt-3" : ""
-                        }`}
-                      >
-                        <span className="text-muted-foreground">{field.label}</span>
-                        <span className="font-medium">{field.value || "—"}</span>
-                      </div>
-                    );
-                  })}
+                  <SummaryFieldRows fields={summaryFields} />
                 </div>
               )}
 
@@ -217,22 +259,7 @@ export function HostEntityFormLayout({
 
               {summaryBottomFields && summaryBottomFields.length > 0 && (
                 <div className="space-y-3 pt-3 border-t border-border">
-                  {summaryBottomFields.map((field, index) => {
-                    if (field.hideIfEmpty && !field.value) {
-                      return null;
-                    }
-                    return (
-                      <div
-                        key={index}
-                        className={`flex justify-between text-sm ${
-                          field.bordered ? "border-t pt-3 mt-3" : ""
-                        }`}
-                      >
-                        <span className="text-muted-foreground">{field.label}</span>
-                        <span className="font-medium">{field.value || "—"}</span>
-                      </div>
-                    );
-                  })}
+                  <SummaryFieldRows fields={summaryBottomFields} />
                 </div>
               )}
 
@@ -293,23 +320,7 @@ export function HostEntityFormLayout({
 
           <div className="space-y-6 px-4">
             <div className="space-y-3">
-              {summaryFields.map((field, index) => {
-                if (field.hideIfEmpty && !field.value) {
-                  return null;
-                }
-
-                return (
-                  <div
-                    key={index}
-                    className={`flex justify-between text-sm ${
-                      field.bordered ? "border-t pt-3 mt-3" : ""
-                    }`}
-                  >
-                    <span className="text-muted-foreground">{field.label}</span>
-                    <span className="font-medium">{field.value || "—"}</span>
-                  </div>
-                );
-              })}
+              <SummaryFieldRows fields={summaryFields} />
             </div>
 
             {summaryContent && (
@@ -323,23 +334,7 @@ export function HostEntityFormLayout({
         <div className="p-4 pt-4 border-t border-border bg-background">
           {summaryBottomFields && summaryBottomFields.length > 0 && (
             <div className="space-y-3 mb-4">
-              {summaryBottomFields.map((field, index) => {
-                if (field.hideIfEmpty && !field.value) {
-                  return null;
-                }
-
-                return (
-                  <div
-                    key={index}
-                    className={`flex justify-between text-sm ${
-                      field.bordered ? "border-t pt-3 mt-3" : ""
-                    }`}
-                  >
-                    <span className="text-muted-foreground">{field.label}</span>
-                    <span className="font-medium">{field.value || "—"}</span>
-                  </div>
-                );
-              })}
+              <SummaryFieldRows fields={summaryBottomFields} />
             </div>
           )}
 
