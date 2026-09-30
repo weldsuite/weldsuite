@@ -5,7 +5,7 @@
  * (app-api create lives at `POST /tasks/projects/:projectId`).
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import {
   View,
   FlatList,
@@ -132,6 +132,53 @@ export default function MyTasksScreen() {
     );
   }
 
+  let projectPickerBody: ReactNode;
+  if (projectsQuery.isLoading) {
+    projectPickerBody = (
+      <View style={{ marginTop: 16 }}>
+        <Spinner />
+      </View>
+    );
+  } else if (projects.length === 0) {
+    projectPickerBody = (
+      <Text style={[styles.emptyState, { color: colors.mutedForeground }]}>
+        {t.myTasks.noProjects}
+      </Text>
+    );
+  } else {
+    projectPickerBody = (
+      <ScrollView>
+        {projects.map((project) => (
+          <Pressable
+            key={project.id}
+            style={({ pressed }) => [
+              styles.projectRow,
+              { borderBottomColor: colors.border },
+              pressed && { backgroundColor: colors.pressed },
+            ]}
+            onPress={() => {
+              setProjectPickerOpen(false);
+              open(`/task/new/${project.id}`);
+            }}
+          >
+            <ColorSwatch color={project.color || BRAND} size={32} />
+            <View style={styles.projectInfo}>
+              <Text style={[styles.projectName, { color: colors.text }]} numberOfLines={1}>
+                {project.name}
+              </Text>
+              {project.code ? (
+                <Text style={[styles.projectCode, { color: colors.mutedForeground }]}>
+                  {project.code}
+                </Text>
+              ) : null}
+            </View>
+            <ProjectStatusBadge status={project.status} />
+          </Pressable>
+        ))}
+      </ScrollView>
+    );
+  }
+
   return (
     <Screen header={header}>
       <FlatList
@@ -191,45 +238,7 @@ export default function MyTasksScreen() {
                 <Text style={[styles.sheetAction, { color: BRAND }]}>{t.common.cancel}</Text>
               </Pressable>
             </View>
-            {projectsQuery.isLoading ? (
-              <View style={{ marginTop: 16 }}>
-                <Spinner />
-              </View>
-            ) : projects.length === 0 ? (
-              <Text style={[styles.emptyState, { color: colors.mutedForeground }]}>
-                {t.myTasks.noProjects}
-              </Text>
-            ) : (
-              <ScrollView>
-                {projects.map((project) => (
-                  <Pressable
-                    key={project.id}
-                    style={({ pressed }) => [
-                      styles.projectRow,
-                      { borderBottomColor: colors.border },
-                      pressed && { backgroundColor: colors.pressed },
-                    ]}
-                    onPress={() => {
-                      setProjectPickerOpen(false);
-                      open(`/task/new/${project.id}`);
-                    }}
-                  >
-                    <ColorSwatch color={project.color || BRAND} size={32} />
-                    <View style={styles.projectInfo}>
-                      <Text style={[styles.projectName, { color: colors.text }]} numberOfLines={1}>
-                        {project.name}
-                      </Text>
-                      {project.code ? (
-                        <Text style={[styles.projectCode, { color: colors.mutedForeground }]}>
-                          {project.code}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <ProjectStatusBadge status={project.status} />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
+            {projectPickerBody}
           </Pressable>
         </Pressable>
       </Modal>
