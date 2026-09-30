@@ -81,11 +81,8 @@ export default function SettingsScreen() {
                   style={({ pressed }) => [styles.linkRow, pressed && !isActive && { opacity: 0.7 }]}
                 >
                   <Text style={[styles.linkLabel, { color: colors.text }]}>{ws.name}</Text>
-                  {isSwitching ? (
-                    <ActivityIndicator size="small" color={colors.mutedForeground} />
-                  ) : isActive ? (
-                    <Check size={18} color={colors.text} />
-                  ) : null}
+                  {isSwitching ? <ActivityIndicator size="small" color={colors.mutedForeground} /> : null}
+                  {!isSwitching && isActive ? <Check size={18} color={colors.text} /> : null}
                 </Pressable>
               );
             })

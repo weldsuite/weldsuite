@@ -21,6 +21,32 @@ import type { CalendarEvent } from '@/types/weldcalendar';
 
 const MAX_DOTS = 3;
 
+/** Stable keys for the Monday-first weekday header cells. */
+const WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+interface DayDot {
+  /** Unique within the grid: local day key + the event's ordinal on that day. */
+  id: string;
+  color: string;
+}
+
+interface DayFlags {
+  isSelected: boolean;
+  isCurrentDay: boolean;
+  inMonth: boolean;
+}
+
+/** Colour of the day number: selected > today > in-month > outside-month. */
+function dayTextColor(
+  { isSelected, isCurrentDay, inMonth }: DayFlags,
+  text: string,
+  muted: string,
+): string {
+  if (isSelected) return '#fff';
+  if (isCurrentDay) return BRAND;
+  return inMonth ? text : muted;
+}
+
 export interface MonthGridProps {
   /** Any date inside the month to render. */
   month: Date;
@@ -39,15 +65,15 @@ export function MonthGrid({ month, selected, events, onSelect }: Readonly<MonthG
 
   /** Day key → event colours, in start order, capped at what we can draw. */
   const dotsByDay = useMemo(() => {
-    const map = new Map<string, { colors: string[]; total: number }>();
+    const map = new Map<string, { dots: DayDot[]; total: number }>();
     for (const event of events) {
       const key = dayKey(event.startTime);
       if (!key) continue;
-      const entry = map.get(key) ?? { colors: [], total: 0 };
-      entry.total += 1;
-      if (entry.colors.length < MAX_DOTS) {
-        entry.colors.push(eventColor(event.color, event.type));
+      const entry = map.get(key) ?? { dots: [], total: 0 };
+      if (entry.dots.length < MAX_DOTS) {
+        entry.dots.push({ id: `${key}-${entry.total}`, color: eventColor(event.color, event.type) });
       }
+      entry.total += 1;
       map.set(key, entry);
     }
     return map;
@@ -59,21 +85,21 @@ export function MonthGrid({ month, selected, events, onSelect }: Readonly<MonthG
     <View style={styles.wrap}>
       <View style={styles.headerRow}>
         {headers.map((label, index) => (
-          <View key={index} style={styles.headerCell}>
+          <View key={WEEKDAY_KEYS[index]} style={styles.headerCell}>
             <Text style={[styles.headerText, { color: colors.mutedForeground }]}>{label}</Text>
           </View>
         ))}
       </View>
 
-      {weeks.map((week, weekIndex) => (
-        <View key={weekIndex} style={styles.week}>
+      {weeks.map((week) => (
+        <View key={dayKey(week[0])} style={styles.week}>
           {week.map((date) => {
             const key = dayKey(date);
             const entry = dotsByDay.get(key);
             const inMonth = isSameMonth(date, month);
             const isSelected = isSameDay(date, selected);
             const isCurrentDay = isSameDay(date, today);
-            const overflow = entry ? entry.total - entry.colors.length : 0;
+            const overflow = entry ? entry.total - entry.dots.length : 0;
 
             return (
               <Pressable
@@ -99,13 +125,11 @@ export function MonthGrid({ month, selected, events, onSelect }: Readonly<MonthG
                     style={[
                       styles.dayText,
                       {
-                        color: isSelected
-                          ? '#fff'
-                          : isCurrentDay
-                            ? BRAND
-                            : inMonth
-                              ? colors.text
-                              : colors.mutedForeground,
+                        color: dayTextColor(
+                          { isSelected, isCurrentDay, inMonth },
+                          colors.text,
+                          colors.mutedForeground,
+                        ),
                       },
                       !inMonth && !isSelected && styles.outsideMonth,
                       (isSelected || isCurrentDay) && styles.dayTextStrong,
@@ -116,12 +140,12 @@ export function MonthGrid({ month, selected, events, onSelect }: Readonly<MonthG
                 </View>
 
                 <View style={styles.dotRow}>
-                  {entry?.colors.map((dotColor, index) => (
+                  {entry?.dots.map((dot) => (
                     <View
-                      key={index}
+                      key={dot.id}
                       style={[
                         styles.dot,
-                        { backgroundColor: dotColor },
+                        { backgroundColor: dot.color },
                         !inMonth && styles.outsideMonth,
                       ]}
                     />
