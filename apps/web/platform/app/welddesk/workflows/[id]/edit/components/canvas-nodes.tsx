@@ -262,6 +262,7 @@ export function InlineAddStepPopover({
 
       {open && (
         <div
+          role="presentation"
           className="absolute z-50 top-full mt-1 left-0 w-[240px] rounded-lg border bg-popover shadow-lg"
           onClick={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
@@ -453,6 +454,15 @@ export function StepCard({
 // ConnectorDot — small circle on node edges for SVG edge connections
 // ============================================================================
 
+const POSITIVE_BRANCH_LABELS = new Set(['True', 'Completed']);
+const NEGATIVE_BRANCH_LABELS = new Set(['False', 'Failed']);
+
+function getBranchLabelColor(label: string): string {
+  if (POSITIVE_BRANCH_LABELS.has(label)) return 'text-emerald-700 dark:text-emerald-400';
+  if (NEGATIVE_BRANCH_LABELS.has(label)) return 'text-red-700 dark:text-red-400';
+  return 'text-muted-foreground';
+}
+
 function ConnectorDot({ side, connectorId }: Readonly<{ side: 'left' | 'right'; connectorId?: string }>) {
   return (
     <div
@@ -508,8 +518,18 @@ export function TriggerNode({
     <div
       style={style}
       className="relative select-none"
+      role="button"
+      tabIndex={0}
       onMouseDown={onDragStart}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClick();
+        }
+      }}
     >
       {/* "Trigger" tab label */}
       <div className="inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 bg-background px-3 py-1.5">
@@ -586,6 +606,7 @@ export function PathNode({
     <div
       style={style}
       className="relative select-none"
+      role="presentation"
       onMouseDown={onDragStart}
       onClick={(e) => e.stopPropagation()}
     >
@@ -821,12 +842,7 @@ export function PathNode({
                 return (
                   <div className="ml-2 mt-1 space-y-0.5 relative">
                     {defs.map((bd) => {
-                      const labelColor =
-                        bd.label === 'True' || bd.label === 'Completed'
-                          ? 'text-emerald-700 dark:text-emerald-400'
-                          : bd.label === 'False' || bd.label === 'Failed'
-                            ? 'text-red-700 dark:text-red-400'
-                            : 'text-muted-foreground';
+                      const labelColor = getBranchLabelColor(bd.label);
 
                       return (
                         <div key={bd.value} className="flex items-center gap-2 py-1.5 relative">
