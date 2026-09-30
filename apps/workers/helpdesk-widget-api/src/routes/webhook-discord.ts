@@ -243,25 +243,7 @@ discordWebhookRoutes.post('/message', async (c) => {
   try {
     const db = await getTenantDbForWorkspace(c.env, mapping.clerkOrgId);
 
-    const rows = await db
-      .select({
-        status: schema.helpdeskChannelIntegrations.status,
-        config: schema.helpdeskChannelIntegrations.config,
-        accountInfo: schema.helpdeskChannelIntegrations.accountInfo,
-      })
-      .from(schema.helpdeskChannelIntegrations)
-      .where(
-        and(
-          eq(schema.helpdeskChannelIntegrations.provider, 'discord'),
-          isNull(schema.helpdeskChannelIntegrations.deletedAt),
-        ),
-      );
-
-    const integration =
-      rows.find((row) => {
-        const info = row.accountInfo as { id?: string; metadata?: { guildId?: string } } | null;
-        return info?.metadata?.guildId === body.guild_id || info?.id === body.guild_id;
-      }) ?? rows[0];
+    const integration = await findDiscordIntegration(db, body.guild_id);
 
     if (!integration || integration.status !== 'connected') {
       return success(c, { ignored: true, reason: 'not_connected' });
@@ -305,42 +287,7 @@ discordWebhookRoutes.post('/message', async (c) => {
       }
     }
 
-    let customerEmail = `discord:${body.author.id}@discord`;
-    let customerName = body.author.username;
-
-    try {
-      const [identity] = await db
-        .select({
-          personId: schema.contactExternalIdentities.personId,
-          externalEmail: schema.contactExternalIdentities.externalEmail,
-        })
-        .from(schema.contactExternalIdentities)
-        .where(
-          and(
-            eq(schema.contactExternalIdentities.provider, 'discord'),
-            eq(schema.contactExternalIdentities.externalId, body.author.id),
-          ),
-        )
-        .limit(1);
-
-      if (identity) {
-        if (identity.externalEmail) customerEmail = identity.externalEmail;
-        if (identity.personId) {
-          const [person] = await db
-            .select({
-              fullName: schema.people.fullName,
-              displayName: schema.people.displayName,
-            })
-            .from(schema.people)
-            .where(eq(schema.people.id, identity.personId))
-            .limit(1);
-          if (person?.fullName) customerName = person.fullName;
-          else if (person?.displayName) customerName = person.displayName;
-        }
-      }
-    } catch {
-      // Non-fatal
-    }
+    const { customerEmail, customerName } = await resolveDiscordCustomer(db, body.author.id, body.author.username);
 
     const now = body.timestamp ? new Date(body.timestamp) : new Date();
     const msgId = generateId('msg');
@@ -381,25 +328,12 @@ discordWebhookRoutes.post('/message', async (c) => {
       })
       .where(eq(schema.helpdeskConversations.id, existingConv.id));
 
-    if (c.env.REALTIME) {
-      try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
-        await rt.conversationPublish(existingConv.id, {
-          type: 'message',
-          id: msgId,
-          content: messageContent,
-          senderId: `discord_${body.author.id}`,
-          senderName: customerName,
-          senderType: 'customer',
-          ts: Date.now(),
-        });
-        await rt.helpdeskEvent(mapping.clerkOrgId, 'conversation_updated', {
-          conversationId: existingConv.id,
-        });
-      } catch (err) {
-        console.error('[discord-webhook] realtime publish failed:', err);
-      }
-    }
+    await publishCustomerMessageRealtime(c.env, mapping.clerkOrgId, existingConv.id, {
+      id: msgId,
+      content: messageContent,
+      senderId: `discord_${body.author.id}`,
+      senderName: customerName,
+    });
 
     await triggerWorkflow(c.env, {
       type: 'message_received',
@@ -583,6 +517,103 @@ discordWebhookRoutes.post('/workflow-respond', async (c) => {
     return error.internal(c, 'Failed to resume workflow');
   }
 });
+
+type TenantDbHandle = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+
+/** The Discord integration row for a guild, falling back to the first Discord integration. */
+async function findDiscordIntegration(db: TenantDbHandle, guildId: string) {
+  const rows = await db
+    .select({
+      status: schema.helpdeskChannelIntegrations.status,
+      config: schema.helpdeskChannelIntegrations.config,
+      accountInfo: schema.helpdeskChannelIntegrations.accountInfo,
+    })
+    .from(schema.helpdeskChannelIntegrations)
+    .where(
+      and(
+        eq(schema.helpdeskChannelIntegrations.provider, 'discord'),
+        isNull(schema.helpdeskChannelIntegrations.deletedAt),
+      ),
+    );
+
+  return (
+    rows.find((row) => {
+      const info = row.accountInfo as { id?: string; metadata?: { guildId?: string } } | null;
+      return info?.metadata?.guildId === guildId || info?.id === guildId;
+    }) ?? rows[0]
+  );
+}
+
+/**
+ * Resolve the customer email/name for a Discord author from linked external
+ * identities. Lookup failures are non-fatal: whatever was resolved so far wins.
+ */
+async function resolveDiscordCustomer(
+  db: TenantDbHandle,
+  authorId: string,
+  username: string,
+): Promise<{ customerEmail: string; customerName: string }> {
+  let customerEmail = `discord:${authorId}@discord`;
+  let customerName = username;
+
+  try {
+    const [identity] = await db
+      .select({
+        personId: schema.contactExternalIdentities.personId,
+        externalEmail: schema.contactExternalIdentities.externalEmail,
+      })
+      .from(schema.contactExternalIdentities)
+      .where(
+        and(
+          eq(schema.contactExternalIdentities.provider, 'discord'),
+          eq(schema.contactExternalIdentities.externalId, authorId),
+        ),
+      )
+      .limit(1);
+
+    if (identity?.externalEmail) customerEmail = identity.externalEmail;
+    if (identity?.personId) {
+      const [person] = await db
+        .select({
+          fullName: schema.people.fullName,
+          displayName: schema.people.displayName,
+        })
+        .from(schema.people)
+        .where(eq(schema.people.id, identity.personId))
+        .limit(1);
+      customerName = person?.fullName || person?.displayName || customerName;
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  return { customerEmail, customerName };
+}
+
+/** Push a customer message + conversation update over realtime; failures are logged, never thrown. */
+async function publishCustomerMessageRealtime(
+  env: Env,
+  clerkOrgId: string,
+  conversationId: string,
+  message: { id: string; content: string; senderId: string; senderName: string },
+): Promise<void> {
+  if (!env.REALTIME) return;
+  try {
+    const rt = new RealtimePublisher(env.REALTIME);
+    await rt.conversationPublish(conversationId, {
+      type: 'message',
+      id: message.id,
+      content: message.content,
+      senderId: message.senderId,
+      senderName: message.senderName,
+      senderType: 'customer',
+      ts: Date.now(),
+    });
+    await rt.helpdeskEvent(clerkOrgId, 'conversation_updated', { conversationId });
+  } catch (err) {
+    console.error('[discord-webhook] realtime publish failed:', err);
+  }
+}
 
 async function resolveGuild(env: Env, guildId: string): Promise<GuildMapping | null> {
   const cached = (await env.WORKSPACE_CACHE.get(`discord_guild:${guildId}`, 'json')) as GuildMapping | null;
