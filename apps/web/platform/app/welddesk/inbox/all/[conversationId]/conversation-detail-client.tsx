@@ -619,6 +619,16 @@ function MessageTimestamp({ message, senderKind }: Readonly<{ message: Conversat
   );
 }
 
+/** Split message text into lines with stable keys (line text + occurrence count, no array index). */
+function toKeyedLines(content: string): Array<{ key: string; text: string }> {
+  const seen = new Map<string, number>();
+  return content.split('\n').map((text) => {
+    const occurrence = (seen.get(text) ?? 0) + 1;
+    seen.set(text, occurrence);
+    return { key: `${text}#${occurrence}`, text };
+  });
+}
+
 function ChatBubble({
   message,
   prevMessage,
@@ -634,8 +644,8 @@ function ChatBubble({
 }>) {
   const senderKind = getSenderKind(message);
   const isInternalNote = senderKind === 'note';
-  const lines = (message.content || '').split('\n');
-  const lastLine = lines[lines.length - 1];
+  const lines = toKeyedLines(message.content || '');
+  const lastLine = lines[lines.length - 1].text;
   const shouldPutTimestampBelow = lastLine.length > 60;
   const hasText = Boolean((message.content || '').trim());
   const hasAttachments = Boolean(message.attachments && message.attachments.length > 0);
@@ -671,11 +681,11 @@ function ChatBubble({
               "text-[14px] leading-relaxed whitespace-pre-wrap break-all",
               BUBBLE_TEXT_CLASS[senderKind]
             )}>
-              {lines.map((line, i) => {
+              {lines.map(({ key, text: line }, i) => {
                 const isLastLine = i === lines.length - 1;
                 if (isLastLine && !shouldPutTimestampBelow && !hasAttachments) {
                   return (
-                    <div key={i} className="flex items-end gap-2">
+                    <div key={key} className="flex items-end gap-2">
                       <span className="flex-1">{line}</span>
                       <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
                         <MessageTimestamp message={message} senderKind={senderKind} />
@@ -683,7 +693,7 @@ function ChatBubble({
                     </div>
                   );
                 }
-                return <div key={i}>{line || <br />}</div>;
+                return <div key={key}>{line || <br />}</div>;
               })}
               {shouldPutTimestampBelow && !hasAttachments && (
                 <div className="flex items-center gap-1.5 justify-end mt-1">
