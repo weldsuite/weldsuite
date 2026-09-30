@@ -18,7 +18,8 @@ function ProductsPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldcommerce/products${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldcommerce/products${query}`);
     },
     [router, searchParams],
   );
