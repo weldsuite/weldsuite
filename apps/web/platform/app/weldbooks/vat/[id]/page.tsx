@@ -11,6 +11,12 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
+  if (status === 'filed' || status === 'accepted') return 'default';
+  if (status === 'rejected') return 'destructive';
+  return 'outline';
+}
+
 const rubriekLabels: Record<string, string> = {
   r1a: '1a. Leveringen/diensten belast met hoog tarief',
   r1b: '1b. Omzetbelasting over 1a',
@@ -113,15 +119,7 @@ export default function VatReturnDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge
-            variant={
-              vr.status === 'filed' || vr.status === 'accepted'
-                ? 'default'
-                : vr.status === 'rejected'
-                  ? 'destructive'
-                  : 'outline'
-            }
-          >
+          <Badge variant={vatStatusBadgeVariant(vr.status)}>
             {tslVat[vr.status as keyof typeof tslVat] ?? vr.status}
           </Badge>
           {(vr.status === 'calculated' || vr.status === 'reviewed') && (

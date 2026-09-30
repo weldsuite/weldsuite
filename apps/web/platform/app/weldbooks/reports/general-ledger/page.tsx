@@ -155,8 +155,8 @@ export default function GeneralLedgerReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report.lines ?? []).map((line, idx: number) => (
-                    <TableRow key={idx}>
+                  {(report.lines ?? []).map((line) => (
+                    <TableRow key={line.id}>
                       <TableCell>{line.date}</TableCell>
                       <TableCell>{line.entryNumber ?? '-'}</TableCell>
                       <TableCell>{line.description ?? '-'}</TableCell>
