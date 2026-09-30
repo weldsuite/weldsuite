@@ -13,6 +13,7 @@ import {
   classifyStatus,
   ConnectorApiError,
   parseRetryAfter,
+  runWithRetries,
   type ExternalProductRef,
   type OutboundCatalogProduct,
 } from '../types';
@@ -56,8 +57,17 @@ export function normalizeShopDomain(domain: string): string {
   return host;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function shopifyHttpError(response: Response, text: string): ConnectorApiError {
+  return new ConnectorApiError({
+    message:
+      response.status === 401 || response.status === 403
+        ? 'Shopify rejected the Admin API access token'
+        : `Shopify request failed (${response.status})`,
+    status: response.status,
+    kind: classifyStatus(response.status),
+    body: text.slice(0, 500),
+    retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
+  });
 }
 
 function parseNextPageInfo(linkHeader: string | null): string | null {
@@ -97,65 +107,32 @@ export class ShopifyClient implements ConnectorProviderClient {
     init?: { method?: string; search?: Record<string, string | undefined>; body?: unknown },
   ): Promise<{ data: T; headers: Headers }> {
     const url = new URL(`${this.storeUrl}/admin/api/${SHOPIFY_API_VERSION}/${path.replace(/^\//, '')}`);
-    if (init?.search) {
-      for (const [key, value] of Object.entries(init.search)) {
-        if (value) url.searchParams.set(key, value);
-      }
+    for (const [key, value] of Object.entries(init?.search ?? {})) {
+      if (value) url.searchParams.set(key, value);
     }
 
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      try {
-        const method = init?.method ?? 'GET';
+    const hasBody = init?.body !== undefined;
+    return runWithRetries<{ data: T; headers: Headers }>({
+      maxRetries: MAX_RETRIES,
+      timeoutMs: this.timeoutMs,
+      unreachableMessage: 'Could not reach the Shopify store',
+      failureMessage: 'Shopify request failed',
+      attemptOnce: async (signal) => {
         const response = await this.fetchImpl(url.toString(), {
-          method,
+          method: init?.method ?? 'GET',
           headers: {
             'X-Shopify-Access-Token': this.accessToken,
             Accept: 'application/json',
-            ...(init?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
           },
-          body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
-          signal: controller.signal,
+          body: hasBody ? JSON.stringify(init?.body) : undefined,
+          signal,
         });
         const text = await response.text();
-        if (!response.ok) {
-          const kind = classifyStatus(response.status);
-          const error = new ConnectorApiError({
-            message:
-              response.status === 401 || response.status === 403
-                ? 'Shopify rejected the Admin API access token'
-                : `Shopify request failed (${response.status})`,
-            status: response.status,
-            kind,
-            body: text.slice(0, 500),
-            retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
-          });
-          if (!error.retryable || attempt === MAX_RETRIES) throw error;
-          lastError = error;
-          await sleep(error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
-          continue;
-        }
-        return { data: (text ? JSON.parse(text) : null) as T, headers: response.headers };
-      } catch (err) {
-        if (err instanceof ConnectorApiError) throw err;
-        lastError = err;
-        if (attempt === MAX_RETRIES) {
-          throw new ConnectorApiError({
-            message: 'Could not reach the Shopify store',
-            status: 503,
-            kind: 'transient',
-          });
-        }
-        await sleep(400 * 2 ** attempt);
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    throw lastError instanceof Error
-      ? lastError
-      : new ConnectorApiError({ message: 'Shopify request failed', status: 503, kind: 'transient' });
+        if (!response.ok) return { ok: false, error: shopifyHttpError(response, text) };
+        return { ok: true, value: { data: (text ? JSON.parse(text) : null) as T, headers: response.headers } };
+      },
+    });
   }
 
   async test(): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
