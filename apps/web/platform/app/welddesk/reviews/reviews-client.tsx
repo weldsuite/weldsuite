@@ -181,7 +181,15 @@ export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
     return (
       <div
         key={review.id}
+        role="button"
+        tabIndex={0}
         onClick={() => handleRowClick(review)}
+        onKeyDown={(e) => {
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            handleRowClick(review);
+          }
+        }}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Customer */}
@@ -232,7 +240,7 @@ export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
