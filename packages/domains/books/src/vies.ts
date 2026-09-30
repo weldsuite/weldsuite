@@ -41,6 +41,52 @@ export function normalizeVatNumber(raw: string): { countryCode: string; number: 
   return { countryCode: match[1], number: match[2], full };
 }
 
+interface ViesResponseBody {
+  valid?: boolean;
+  name?: string;
+  address?: string;
+  requestIdentifier?: string;
+  actionSucceed?: boolean;
+  userError?: string;
+}
+
+/** Project a cached `vies_checks` row into a result. */
+function resultFromCache(
+  cached: typeof schema.viesChecks.$inferSelect,
+  vatNumber: string,
+): ViesResult {
+  return {
+    available: true,
+    valid: cached.valid,
+    vatNumber,
+    countryCode: cached.countryCode,
+    traderName: cached.traderName,
+    traderAddress: cached.traderAddress,
+    consultationNumber: cached.consultationNumber,
+    checkedAt: cached.checkedAt,
+    fromCache: true,
+  };
+}
+
+/** Call the VIES REST API. Throws on HTTP failure or a member-state outage. */
+async function consultVies(normalized: { countryCode: string; number: string }): Promise<ViesResponseBody> {
+  const response = await fetch(VIES_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      countryCode: normalized.countryCode,
+      vatNumber: normalized.number,
+    }),
+  });
+  if (!response.ok) throw new Error(`VIES HTTP ${response.status}`);
+  const body = (await response.json()) as ViesResponseBody;
+  // VIES reports member-state outages via userError (e.g. MS_UNAVAILABLE)
+  if (body.userError && body.userError !== 'VALID' && body.userError !== 'INVALID') {
+    throw new Error(`VIES userError: ${body.userError}`);
+  }
+  return body;
+}
+
 /**
  * Validate an EU VAT number against VIES, with tenant-DB caching.
  */
@@ -69,61 +115,17 @@ export async function checkVatNumber(db: Database, rawVatNumber: string): Promis
   if (cached) {
     const age = now.getTime() - cached.checkedAt.getTime();
     const ttl = cached.valid ? VALID_TTL_MS : INVALID_TTL_MS;
-    if (age < ttl) {
-      return {
-        available: true,
-        valid: cached.valid,
-        vatNumber: normalized.full,
-        countryCode: cached.countryCode,
-        traderName: cached.traderName,
-        traderAddress: cached.traderAddress,
-        consultationNumber: cached.consultationNumber,
-        checkedAt: cached.checkedAt,
-        fromCache: true,
-      };
-    }
+    if (age < ttl) return resultFromCache(cached, normalized.full);
   }
 
   // Live VIES consultation
-  let body: {
-    valid?: boolean;
-    name?: string;
-    address?: string;
-    requestIdentifier?: string;
-    actionSucceed?: boolean;
-    userError?: string;
-  };
+  let body: ViesResponseBody;
   try {
-    const response = await fetch(VIES_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        countryCode: normalized.countryCode,
-        vatNumber: normalized.number,
-      }),
-    });
-    if (!response.ok) throw new Error(`VIES HTTP ${response.status}`);
-    body = (await response.json()) as typeof body;
-    // VIES reports member-state outages via userError (e.g. MS_UNAVAILABLE)
-    if (body.userError && body.userError !== 'VALID' && body.userError !== 'INVALID') {
-      throw new Error(`VIES userError: ${body.userError}`);
-    }
+    body = await consultVies(normalized);
   } catch (err) {
     console.warn('[vies] lookup failed:', err);
     // Fall back to a stale cache entry if we have one — better than nothing
-    if (cached) {
-      return {
-        available: true,
-        valid: cached.valid,
-        vatNumber: normalized.full,
-        countryCode: cached.countryCode,
-        traderName: cached.traderName,
-        traderAddress: cached.traderAddress,
-        consultationNumber: cached.consultationNumber,
-        checkedAt: cached.checkedAt,
-        fromCache: true,
-      };
-    }
+    if (cached) return resultFromCache(cached, normalized.full);
     return {
       available: false,
       valid: false,

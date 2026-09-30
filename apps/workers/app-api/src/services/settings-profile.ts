@@ -154,59 +154,74 @@ export async function updateSelfProfile(
       .where(memberWhere(userId));
   }
 
+  const extFields = pickExtendedFields(data);
+  const hasExtFields = Object.keys(extFields).length > 0;
+
+  // `timezone` lives on its own column, so a timezone-only update must still
+  // reach the prefs row even when the `profile` bag has nothing to change.
+  if (hasExtFields || data.timezone !== undefined) {
+    await upsertPreferences(db, userId, extFields, data.timezone);
+  }
+
+  return composeProfile(db, userId);
+}
+
+/** Extended profile fields actually present on the update payload. */
+function pickExtendedFields(data: UpdateSelfProfileInput): ExtendedProfile {
   const extFields: ExtendedProfile = {};
   if (data.nickname !== undefined) extFields.nickname = data.nickname;
   if (data.phone !== undefined) extFields.phone = data.phone;
   if (data.jobTitle !== undefined) extFields.jobTitle = data.jobTitle;
   if (data.bio !== undefined) extFields.bio = data.bio;
+  return extFields;
+}
 
+/** Merge the extended fields / timezone into the caller's prefs row, creating it when missing. */
+async function upsertPreferences(
+  db: Database,
+  userId: string,
+  extFields: ExtendedProfile,
+  timezone: string | undefined,
+): Promise<void> {
   const hasExtFields = Object.keys(extFields).length > 0;
-  // Local binding so TS narrows to `string` inside the conditional spreads.
-  const timezone = data.timezone;
+  const [existing] = await db
+    .select()
+    .from(schema.userPreferences)
+    .where(prefsWhere(userId))
+    .limit(1);
 
-  // `timezone` lives on its own column, so a timezone-only update must still
-  // reach the prefs row even when the `profile` bag has nothing to change.
-  if (hasExtFields || timezone !== undefined) {
-    const [existing] = await db
-      .select()
-      .from(schema.userPreferences)
-      .where(prefsWhere(userId))
-      .limit(1);
-
-    if (existing) {
-      const currentUiPrefs = (existing.uiPreferences ?? {}) as UiPreferencesWithProfile;
-      const currentProfile = currentUiPrefs.profile ?? {};
-      const merged: UiPreferencesWithProfile = {
-        // Preserve every sibling key on the column …
-        ...currentUiPrefs,
-        // … and every sibling key inside the profile bag.
-        profile: { ...currentProfile, ...extFields },
-      };
-      await db
-        .update(schema.userPreferences)
-        .set({
-          // Only touch `ui_preferences` when the bag actually changed, so a
-          // timezone-only save cannot rewrite (and risk clobbering) it.
-          ...(hasExtFields ? { uiPreferences: merged as UiPreferences } : {}),
-          ...(timezone !== undefined ? { timezone } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.userPreferences.id, existing.id));
-    } else {
-      const seed: UiPreferencesWithProfile = { profile: extFields };
-      await db.insert(schema.userPreferences).values({
-        id: generateId('upref'),
-        userId,
-        ...(hasExtFields ? { uiPreferences: seed as UiPreferences } : {}),
-        // Omitted when absent so the column keeps its 'UTC' default.
+  if (existing) {
+    const currentUiPrefs = (existing.uiPreferences ?? {}) as UiPreferencesWithProfile;
+    const currentProfile = currentUiPrefs.profile ?? {};
+    const merged: UiPreferencesWithProfile = {
+      // Preserve every sibling key on the column …
+      ...currentUiPrefs,
+      // … and every sibling key inside the profile bag.
+      profile: { ...currentProfile, ...extFields },
+    };
+    await db
+      .update(schema.userPreferences)
+      .set({
+        // Only touch `ui_preferences` when the bag actually changed, so a
+        // timezone-only save cannot rewrite (and risk clobbering) it.
+        ...(hasExtFields ? { uiPreferences: merged as UiPreferences } : {}),
         ...(timezone !== undefined ? { timezone } : {}),
-        createdAt: new Date(),
         updatedAt: new Date(),
-      });
-    }
+      })
+      .where(eq(schema.userPreferences.id, existing.id));
+    return;
   }
 
-  return composeProfile(db, userId);
+  const seed: UiPreferencesWithProfile = { profile: extFields };
+  await db.insert(schema.userPreferences).values({
+    id: generateId('upref'),
+    userId,
+    ...(hasExtFields ? { uiPreferences: seed as UiPreferences } : {}),
+    // Omitted when absent so the column keeps its 'UTC' default.
+    ...(timezone !== undefined ? { timezone } : {}),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 }
 
 /** Point the caller's workspace member row at a new avatar URL. */
