@@ -24,6 +24,21 @@ interface NewTaskModalProps {
   onSave: (task: { title: string; description?: string; status?: string; dueDate?: Date }) => void;
 }
 
+// Demo directory the quick-create form picks from.
+function getAssigneeName(assigneeId: string): string {
+  return assigneeId === '1' ? 'John Doe' : 'Sarah Chen';
+}
+
+function getAssigneeFirstName(assigneeId: string): string {
+  return assigneeId === '1' ? 'John' : 'Sarah';
+}
+
+function getCompany(companyId: string): { name: string; color: string } {
+  if (companyId === '1') return { name: 'TechCorp', color: '#FF5A5F' };
+  if (companyId === '2') return { name: 'GlobalTech', color: '#00D084' };
+  return { name: 'StartupX', color: '#0063E0' };
+}
+
 export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
   const st = useTranslations();
   const [title, setTitle] = useState('');
@@ -57,13 +72,9 @@ export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
       dueDate: dueDate ? new Date(dueDate) : undefined,
       assignee: assigneeId ? { 
         id: assigneeId, 
-        name: assigneeId === '1' ? 'John Doe' : 'Sarah Chen'
+        name: getAssigneeName(assigneeId)
       } : undefined,
-      linkedCompany: companyId ? {
-        id: companyId,
-        name: companyId === '1' ? 'TechCorp' : companyId === '2' ? 'GlobalTech' : 'StartupX',
-        color: companyId === '1' ? '#FF5A5F' : companyId === '2' ? '#00D084' : '#0063E0'
-      } : undefined,
+      linkedCompany: companyId ? { id: companyId, ...getCompany(companyId) } : undefined,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -138,7 +149,7 @@ export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
               <SelectTrigger className="h-7 text-xs font-normal w-auto">
                 <div className="flex items-center gap-1.5">
                   <User className="h-3 w-3" />
-                  {assigneeId ? (assigneeId === '1' ? 'John' : 'Sarah') : st('sweep.weldflow.newTaskModal.assignee')}
+                  {assigneeId ? getAssigneeFirstName(assigneeId) : st('sweep.weldflow.newTaskModal.assignee')}
                 </div>
               </SelectTrigger>
               <SelectContent>
@@ -192,10 +203,10 @@ export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
                       <div 
                         className="h-2.5 w-2.5 rounded-sm" 
                         style={{ 
-                          backgroundColor: companyId === '1' ? '#FF5A5F' : companyId === '2' ? '#00D084' : '#0063E0' 
+                          backgroundColor: getCompany(companyId).color
                         }} 
                       />
-                      {companyId === '1' ? 'TechCorp' : companyId === '2' ? 'GlobalTech' : 'StartupX'}
+                      {getCompany(companyId).name}
                     </>
                   ) : (
                     <>
