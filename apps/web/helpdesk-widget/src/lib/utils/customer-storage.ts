@@ -47,12 +47,27 @@ const ANIMALS = [
   'Tiger', 'Whale', 'Wolf', 'Wren', 'Zebra', 'Heron', 'Jaguar',
 ];
 
+
+/** Random base-36 string of `length` characters (Web Crypto, not Math.random). */
+function randomToken(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
+/** Secure random index in [0, length). */
+function randomIndex(length: number): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] % length;
+}
+
 /**
  * Generate a friendly visitor name (e.g. "Curious Falcon")
  */
 function generateFriendlyName(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-  const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+  const adj = ADJECTIVES[randomIndex(ADJECTIVES.length)];
+  const animal = ANIMALS[randomIndex(ANIMALS.length)];
   return `${adj} ${animal}`;
 }
 
@@ -72,7 +87,7 @@ export function getOrCreateVisitorName(): string {
  * Generate a unique visitor ID
  */
 function generateVisitorId(): string {
-  return `visitor_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  return `visitor_${Date.now()}_${randomToken(13)}`;
 }
 
 /**

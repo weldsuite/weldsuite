@@ -12,11 +12,19 @@ visitorId?: string;
 const STORAGE_KEY_PREFIX = 'weldsuite_helpdesk_customer_';
 const VISITOR_ID_KEY = 'weldsuite_helpdesk_visitor_id';
 
+
+/** Random base-36 string of `length` characters (Web Crypto, not Math.random). */
+function randomToken(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 /**
  * Generate a unique visitor ID
  */
 function generateVisitorId(): string {
-  return `visitor_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  return `visitor_${Date.now()}_${randomToken(13)}`;
 }
 
 /**
