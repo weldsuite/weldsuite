@@ -554,7 +554,7 @@ export default function NewHelpArticlePage() {
     const imageWrapper = document.createElement('div');
     imageWrapper.className = 'my-4 image-wrapper';
     imageWrapper.setAttribute('contenteditable', 'false');
-    imageWrapper.setAttribute('data-image-wrapper', 'true');
+    imageWrapper.dataset.imageWrapper = 'true';
 
     const img = document.createElement('img');
     img.src = imageUrl;
@@ -703,17 +703,17 @@ export default function NewHelpArticlePage() {
     let wrapper = selectedImage.parentElement;
 
     // If the parent is not a wrapper, create one
-    if (!wrapper || !wrapper.hasAttribute('data-image-wrapper')) {
+    if (!wrapper || !('imageWrapper' in wrapper.dataset)) {
       // Check if parent has contenteditable="false"
       if (wrapper && wrapper.getAttribute('contenteditable') === 'false') {
-        wrapper.setAttribute('data-image-wrapper', 'true');
+        wrapper.dataset.imageWrapper = 'true';
         wrapper.classList.add('image-wrapper');
       } else {
         // Create a wrapper for the image
         const newWrapper = document.createElement('div');
         newWrapper.className = 'my-4 image-wrapper';
         newWrapper.setAttribute('contenteditable', 'false');
-        newWrapper.setAttribute('data-image-wrapper', 'true');
+        newWrapper.dataset.imageWrapper = 'true';
         selectedImage.parentNode?.insertBefore(newWrapper, selectedImage);
         newWrapper.appendChild(selectedImage);
         wrapper = newWrapper;
