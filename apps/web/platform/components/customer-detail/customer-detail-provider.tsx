@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { Note } from './note-editor-dialog';
 import type {
   CustomerDetailContextValue,
@@ -96,6 +96,12 @@ function resolveNavigation(
   return rawNav.data as unknown as CustomerNavigationData;
 }
 
+/** Sidebar is always shown on pages; in other modes only while expanded. */
+function resolveShowSidebar(mode: CustomerDetailMode, showSidebar: boolean, isExpanded: boolean | undefined): boolean {
+  if (mode === 'page') return showSidebar;
+  return !!isExpanded;
+}
+
 function describeQueryError(error: unknown, fallback: string): string | null {
   if (!error) return null;
   return error instanceof Error ? error.message : fallback;
@@ -177,9 +183,13 @@ export function CustomerDetailProvider({
   const detailQuery = isContact ? personDetailQuery : companyDetailQuery;
 
   // Derive detail data from queries
-  const queryData = isContact
-    ? (personDetailQuery.data?.data ? personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow) : null)
-    : (companyDetailQuery.data?.data as CustomerDetailData | null ?? null);
+  let queryData: CustomerDetailData | null;
+  if (isContact) {
+    const personRow = personDetailQuery.data?.data;
+    queryData = personRow ? personToCustomerDetailData(personRow as unknown as PersonDetailRow) : null;
+  } else {
+    queryData = (companyDetailQuery.data?.data as CustomerDetailData | null) ?? null;
+  }
 
   const data = initialData ?? queryData;
 
@@ -214,7 +224,9 @@ export function CustomerDetailProvider({
     await detailQuery.refetch();
   }, [detailQuery]);
 
-  const value: CustomerDetailContextValue = {
+  const showSidebarResolved = resolveShowSidebar(mode, showSidebar, isExpanded);
+
+  const value = useMemo<CustomerDetailContextValue>(() => ({
     data,
     isLoading,
     error,
@@ -232,7 +244,7 @@ export function CustomerDetailProvider({
     returnUrl,
     showHeader,
     showTabs,
-    showSidebar: mode === 'page' ? showSidebar : isExpanded ? true : false,
+    showSidebar: showSidebarResolved,
     onCompose,
     onCall,
     onClose,
@@ -249,7 +261,36 @@ export function CustomerDetailProvider({
     showTaskDialog,
     setShowTaskDialog,
     visitorLocation,
-  };
+  }), [
+    data,
+    isLoading,
+    error,
+    navigation,
+    activeTab,
+    sidebarTab,
+    refresh,
+    silentRefresh,
+    mode,
+    entityType,
+    customerId,
+    listId,
+    returnUrl,
+    showHeader,
+    showTabs,
+    showSidebarResolved,
+    onCompose,
+    onCall,
+    onClose,
+    isExpanded,
+    onToggleExpand,
+    countOverrides,
+    setCountOverride,
+    pendingNoteCreate,
+    floatingNote,
+    showFloatingNoteEditor,
+    showTaskDialog,
+    visitorLocation,
+  ]);
 
   return (
     <CustomerDetailContext.Provider value={value}>

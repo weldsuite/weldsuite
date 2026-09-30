@@ -167,14 +167,8 @@ function CustomerDetailPageLayout({
   const { data, customerId, entityType, isLoading } = useCustomerDetailContext();
 
   const customer = data?.customer;
-  const isB2B = (customer?.type ?? '').toLowerCase() === 'b2b';
   const customerName = customer
-    ? isB2B
-      ? customer.companyName || customer.tradingName || t('sweep.weldcrm.customerDetailContent.customer')
-      : customer.fullName ||
-        `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() ||
-        customer.companyName ||
-        t('sweep.weldcrm.customerDetailContent.customer')
+    ? getCustomerDisplayName(customer, t('sweep.weldcrm.customerDetailContent.customer'))
     : undefined;
   const showChat = (entityType === 'customer' || entityType === 'contact') && !!customer;
 
@@ -291,6 +285,7 @@ function CustomerDetailPageLayout({
             >
               {/* Resize handle on the left edge — drag to resize */}
               <div
+                role="presentation"
                 className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
                 onMouseDown={handleResizeMouseDown}
               >

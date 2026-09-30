@@ -43,6 +43,9 @@ const panelTabs: CustomerDetailTab[] = ['overview', 'contacts', 'activity'];
 // Tabs to show in page mode (full set)
 const pageTabs: CustomerDetailTab[] = ['overview', 'activity', 'contacts', 'emails', 'calls', 'deals', 'notes', 'meetings', 'tasks', 'files', 'audit'];
 
+// Tabs to show in page mode for contacts (people have no pipeline / audit tabs)
+const contactPageTabs: CustomerDetailTab[] = ['overview', 'activity', 'emails', 'calls', 'notes', 'tasks', 'files'];
+
 export function CustomerDetailTabs({ variant = 'page' }: Readonly<CustomerDetailTabsProps>) {
   const t = useTranslations();
   const allTabs: TabConfig[] = [
@@ -76,9 +79,14 @@ export function CustomerDetailTabs({ variant = 'page' }: Readonly<CustomerDetail
   const counts = data?.counts ? { ...data.counts, tasks: activeTaskCount, ...countOverrides } : undefined;
 
   // Filter tabs based on variant, entity type, and user visibility preferences.
-  const baseTabIds = entityType === 'contact'
-    ? (variant === 'panel' ? panelTabs : ['overview', 'activity', 'emails', 'calls', 'notes', 'tasks', 'files'] as CustomerDetailTab[])
-    : (variant === 'panel' ? panelTabs : pageTabs);
+  let baseTabIds: CustomerDetailTab[];
+  if (variant === 'panel') {
+    baseTabIds = panelTabs;
+  } else if (entityType === 'contact') {
+    baseTabIds = contactPageTabs;
+  } else {
+    baseTabIds = pageTabs;
+  }
   const visibleTabIds = baseTabIds.filter(tabId => isFieldVisible(tabId));
   // Preserve the order from baseTabIds (e.g. panelTabs) instead of allTabs
   // so callers can dictate the tab order — important for the panel variant
