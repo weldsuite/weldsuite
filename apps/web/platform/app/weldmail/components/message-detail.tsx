@@ -196,6 +196,14 @@ function getLabelColor(labelName: string, labelData?: MailTypes.Label): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
+// Lazy gap between the "From:", "Sent:", "To:" and "Subject:" quote-header labels.
+const QUOTE_HEADER_GAP = String.raw`[\s\S]{0,300}?`;
+// Generic "From: ... Sent: ... To: ... Subject:" quote header, optionally preceded by tags/bold markup.
+const GENERIC_QUOTE_HEADERS_RE = new RegExp(
+  String.raw`(?:<[^>]*>\s*)*(?:<(?:b|strong)>)?\s*From\s*:\s*(?:<\/(?:b|strong)>)?${QUOTE_HEADER_GAP}\bSent\s*:${QUOTE_HEADER_GAP}\bTo\s*:${QUOTE_HEADER_GAP}\bSubject\s*:`,
+  'i',
+);
+
 function parseMainContent(bodyHtml?: string, bodyText?: string): { main: string; quoted: string } {
   const content = bodyHtml || bodyText || '';
   if (!content) return { main: '', quoted: '' };
@@ -228,7 +236,7 @@ function parseMainContent(bodyHtml?: string, bodyText?: string): { main: string;
   }
 
   // Generic: "From:" + "Sent:" + "To:" + "Subject:" pattern in any HTML
-  const genericQuoteHeaders = content.search(/(<[^>]*>[\s\n]*)*(<b>|<strong>)?\s*From\s*:\s*(<\/b>|<\/strong>)?[\s\S]{0,300}?\bSent\s*:[\s\S]{0,300}?\bTo\s*:[\s\S]{0,300}?\bSubject\s*:/i);
+  const genericQuoteHeaders = content.search(GENERIC_QUOTE_HEADERS_RE);
   if (genericQuoteHeaders !== -1) {
     return {
       main: content.substring(0, genericQuoteHeaders).trim(),
@@ -256,20 +264,19 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
   const { main, quoted } = parseMainContent(threadMsg.bodyHtml, threadMsg.bodyText);
   const isHtml = !!threadMsg.bodyHtml;
 
+  let mainContent: React.ReactNode;
+  if (main) {
+    mainContent = isHtml ? <IsolatedHtmlContent html={main} /> : <div className="whitespace-pre-wrap">{main}</div>;
+  } else if (threadMsg.bodyText) {
+    mainContent = <div className="whitespace-pre-wrap">{threadMsg.bodyText}</div>;
+  } else {
+    mainContent = <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>;
+  }
+
   return (
     <div className="px-3 md:px-4 pb-4 pt-0 overflow-x-auto group/email">
       <div className="text-sm text-foreground leading-relaxed">
-        {main ? (
-          isHtml ? (
-            <IsolatedHtmlContent html={main} />
-          ) : (
-            <div className="whitespace-pre-wrap">{main}</div>
-          )
-        ) : threadMsg.bodyText ? (
-          <div className="whitespace-pre-wrap">{threadMsg.bodyText}</div>
-        ) : (
-          <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>
-        )}
+        {mainContent}
         {quoted && (
           <>
             <Button
@@ -641,6 +648,25 @@ function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
   );
 }
 
+// Removes every `<...>` run (leftmost, up to the first `>`), in a single linear pass.
+function stripHtmlTags(html: string): string {
+  let result = '';
+  let pos = 0;
+  while (pos < html.length) {
+    const open = html.indexOf('<', pos);
+    if (open === -1) break;
+    const close = html.indexOf('>', open + 1);
+    if (close === -1) break;
+    result += html.slice(pos, open);
+    pos = close + 1;
+  }
+  return result + html.slice(pos);
+}
+
+function draftPreviewText(html: string | undefined): string | undefined {
+  return html ? stripHtmlTags(html).substring(0, 150) : undefined;
+}
+
 function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDelete }: Readonly<{
   draft: ThreadDraft;
   className: string;
@@ -650,7 +676,19 @@ function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDel
 }>) {
   const { t } = useI18n();
   return (
-    <div className={className} onClick={onOpen}>
+    <div
+      role="button"
+      tabIndex={0}
+      className={className}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
       <div className="px-3 md:px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="w-6 h-6 rounded-md flex items-center justify-center bg-orange-100 flex-shrink-0">
@@ -681,7 +719,7 @@ function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDel
       {(draft.body || draft.htmlBody) && (
         <div className="px-3 md:px-4 pb-3 pt-0">
           <div className="text-sm text-muted-foreground truncate">
-            {draft.body?.replace(/<[^>]*>/g, '').substring(0, 150) || draft.htmlBody?.replace(/<[^>]*>/g, '').substring(0, 150)}
+            {draftPreviewText(draft.body) || draftPreviewText(draft.htmlBody)}
           </div>
         </div>
       )}
@@ -1033,15 +1071,21 @@ function ComposeToRow({ to, autoFocus, onToChange, onMinimize, onExpand }: Reado
   onExpand: () => void;
 }>) {
   const { t } = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+    // Focus only when the row mounts, matching the previous autoFocus behaviour.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="flex items-center gap-2 px-3 py-2.5">
       <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
       <input
+        ref={inputRef}
         type="text"
         className="flex-1 text-sm outline-none bg-transparent min-w-0 text-foreground"
         value={to}
         onChange={(e) => onToChange(e.target.value)}
-        autoFocus={autoFocus}
       />
       <div className="flex items-center gap-0.5 flex-shrink-0">
         <Button
@@ -1818,10 +1862,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     cancelCompose();
     // Pass inReplyTo and returnUrl via URL params for reliability
     const params = new URLSearchParams();
-    if (rfcMessageId) params.set('inReplyTo', rfcMessageId);
+    if (rfcMessageId) {
+      params.set('inReplyTo', rfcMessageId);
+    }
     params.set('returnUrl', currentMailHref());
     const qs = params.toString();
-    router.push(`/weldmail/${accountId}/${folder}/compose${qs ? `?${qs}` : ''}`);
+    const query = qs ? `?${qs}` : '';
+    router.push(`/weldmail/${accountId}/${folder}/compose${query}`);
   };
 
   const renderComposeBox = (inThread = false) => {
@@ -1840,6 +1887,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
     return (
       <div
+        role="presentation"
         className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}
         onKeyDown={(e) => {
           if (!isSendShortcut(e)) return;
