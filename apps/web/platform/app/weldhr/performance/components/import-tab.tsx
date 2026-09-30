@@ -55,6 +55,27 @@ function parseCsv(text: string): { rows: ParsedRow[]; skipped: number } {
   return { rows, skipped };
 }
 
+function downloadTemplate() {
+  const body = 'employee,value,client_id\n';
+  const url = URL.createObjectURL(new Blob([body], { type: 'text/csv' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'weldhr-kpi-values-template.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Pairs each item with a stable key built from its content plus an occurrence counter, so repeated content still gets unique keys. */
+function withContentKeys<T>(items: readonly T[], contentOf: (item: T) => string): Array<{ key: string; item: T }> {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = contentOf(item);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { key: `${base}#${occurrence}`, item };
+  });
+}
+
 export function ImportTab() {
   const t = useTranslations();
   const { data: kpis } = useHrKpis();
@@ -70,16 +91,6 @@ export function ImportTab() {
   const [result, setResult] = useState<HrImportResult | null>(null);
 
   const { rows, skipped } = parseCsv(csvText);
-
-  function downloadTemplate() {
-    const body = 'employee,value,client_id\n';
-    const url = URL.createObjectURL(new Blob([body], { type: 'text/csv' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'weldhr-kpi-values-template.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  }
 
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -204,8 +215,8 @@ export function ImportTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.slice(0, 50).map((row, i) => (
-                    <TableRow key={i}>
+                  {withContentKeys(rows.slice(0, 50), (r) => `${r.employee}|${r.value}|${r.companyId ?? ''}`).map(({ key, item: row }) => (
+                    <TableRow key={key}>
                       <TableCell>{row.employee}</TableCell>
                       <TableCell>{row.value}</TableCell>
                       <TableCell>{row.companyId ?? '—'}</TableCell>
@@ -238,8 +249,8 @@ export function ImportTab() {
                   {t('weldhr.common.importErrors', { count: result.errors.length })}
                 </p>
                 <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                  {result.errors.slice(0, 20).map((e, i) => (
-                    <li key={i}>
+                  {withContentKeys(result.errors.slice(0, 20), (err) => `${err.row}|${err.reason}`).map(({ key, item: e }) => (
+                    <li key={key}>
                       {t('weldhr.performance.import.result.row', { row: e.row })}: {e.reason}
                     </li>
                   ))}
