@@ -93,7 +93,7 @@ function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (f
         meeting.self?.removeListener?.('audioUpdate', tick);
       } catch { /* ignore */ }
     };
-  }, [meeting]);
+  }, [meeting, forceUpdate]);
 }
 
 /** Continuously-redrawn placeholder canvas stream; returns the stream and a stop function. */
