@@ -96,10 +96,24 @@ function normalizeListField(value: string[] | string | undefined): string[] | nu
   return null;
 }
 
+/** Lower-cases + trims a free-text value and falls back when it is empty or not one of `valid`. */
+function normalizeEnum(
+  raw: unknown,
+  valid: string[],
+  fallback: string,
+  sanitize: (value: string) => string = (value) => value,
+): string {
+  if (!raw) return fallback;
+  const value = sanitize(String(raw).toLowerCase().trim());
+  return valid.includes(value) ? value : fallback;
+}
+
+type StageMap = Map<string, { id: string; systemStatus: string }>;
+
 function normalizeTask(
   row: TaskRow,
   ctx: {
-    stageMap: Map<string, { id: string; systemStatus: string }>;
+    stageMap: StageMap;
     memberMap: Map<string, string>; // email → userId
   },
 ): {
@@ -109,36 +123,23 @@ function normalizeTask(
 } {
   const title = row.title ? String(row.title).trim() : '';
 
-  let status = row.status ? String(row.status).toLowerCase().trim().replace(/[\s-]/g, '_') : 'todo';
-  if (!VALID_STATUSES.includes(status)) status = 'todo';
-
-  let priority = row.priority ? String(row.priority).toLowerCase().trim() : 'medium';
-  if (!VALID_PRIORITIES.includes(priority)) priority = 'medium';
-
-  let type = row.type ? String(row.type).toLowerCase().trim() : 'task';
-  if (!VALID_TYPES.includes(type)) type = 'task';
+  let status = normalizeEnum(row.status, VALID_STATUSES, 'todo', (v) => v.replace(/[\s-]/g, '_'));
+  const priority = normalizeEnum(row.priority, VALID_PRIORITIES, 'medium');
+  const type = normalizeEnum(row.type, VALID_TYPES, 'task');
 
   // Resolve stageId by case-insensitive name match; if found, derive status
   let stageId: string | null = null;
-  if (row.stageName) {
-    const stage = ctx.stageMap.get(String(row.stageName).toLowerCase().trim());
-    if (stage) {
-      stageId = stage.id;
-      status = stage.systemStatus;
-    }
+  const stage = row.stageName ? ctx.stageMap.get(String(row.stageName).toLowerCase().trim()) : undefined;
+  if (stage) {
+    stageId = stage.id;
+    status = stage.systemStatus;
   }
 
   // Resolve assignee by email
-  let primaryAssigneeId: string | null = null;
-  const assigneeIds: string[] = [];
-  if (row.assigneeEmail) {
-    const email = String(row.assigneeEmail).toLowerCase().trim();
-    const userId = ctx.memberMap.get(email);
-    if (userId) {
-      primaryAssigneeId = userId;
-      assigneeIds.push(userId);
-    }
-  }
+  const primaryAssigneeId = row.assigneeEmail
+    ? (ctx.memberMap.get(String(row.assigneeEmail).toLowerCase().trim()) || null)
+    : null;
+  const assigneeIds: string[] = primaryAssigneeId ? [primaryAssigneeId] : [];
 
   const values: Record<string, any> = {
     title,
@@ -197,29 +198,30 @@ async function loadResolutionMaps(db: Database, projectId: string) {
   return { stageMap, memberMap };
 }
 
-async function processBatch(
-  db: Database,
-  batch: TaskRow[],
-  ctx: {
-    projectId: string;
-    userId: string;
-    startIndex: number;
-    stageMap: Map<string, { id: string; systemStatus: string }>;
-    memberMap: Map<string, string>;
-    nextPositionRef: { value: number };
-  },
-): Promise<BatchResult> {
-  const { tasks } = schema;
-  const now = new Date();
-  const result: BatchResult = { imported: 0, updated: 0, failed: 0, errors: [] };
+interface BatchContext {
+  projectId: string;
+  userId: string;
+  startIndex: number;
+  stageMap: StageMap;
+  memberMap: Map<string, string>;
+  nextPositionRef: { value: number };
+}
 
-  // Partition by key (upsert candidates) vs new inserts
-  const upsertCandidates: { row: TaskRow; rowNum: number; title: string; key: string }[] = [];
-  const insertCandidates: { row: TaskRow; rowNum: number; title: string }[] = [];
+type UpsertCandidate = { row: TaskRow; rowNum: number; title: string; key: string };
+type InsertCandidate = { row: TaskRow; rowNum: number; title: string };
+
+/** Split rows into key-based upsert candidates and plain inserts; rows without a title fail. */
+function partitionBatch(
+  batch: TaskRow[],
+  startIndex: number,
+  result: BatchResult,
+): { upsertCandidates: UpsertCandidate[]; insertCandidates: InsertCandidate[] } {
+  const upsertCandidates: UpsertCandidate[] = [];
+  const insertCandidates: InsertCandidate[] = [];
 
   for (let i = 0; i < batch.length; i++) {
     const row = batch[i]!;
-    const rowNum = ctx.startIndex + i + 1;
+    const rowNum = startIndex + i + 1;
     const title = row.title ? String(row.title).trim() : '';
 
     if (!title) {
@@ -234,112 +236,156 @@ async function processBatch(
       insertCandidates.push({ row, rowNum, title });
     }
   }
+  return { upsertCandidates, insertCandidates };
+}
 
-  // ── Path 1: Key-based upserts ────────────────────────────────────────
-  if (upsertCandidates.length > 0) {
-    const keys = upsertCandidates.map((c) => c.key);
-    const existing = await db
-      .select({ id: tasks.id, key: tasks.key })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.projectId, ctx.projectId),
-          inArray(tasks.key, keys),
-          isNull(tasks.deletedAt),
-        ),
-      );
-    const existingByKey = new Map(existing.map((t) => [t.key as string, t.id]));
+// ── Path 1: Key-based upserts ────────────────────────────────────────────
+async function processUpserts(
+  db: Database,
+  upsertCandidates: UpsertCandidate[],
+  ctx: BatchContext,
+  now: Date,
+  result: BatchResult,
+): Promise<void> {
+  const { tasks } = schema;
+  const keys = upsertCandidates.map((c) => c.key);
+  const existing = await db
+    .select({ id: tasks.id, key: tasks.key })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.projectId, ctx.projectId),
+        inArray(tasks.key, keys),
+        isNull(tasks.deletedAt),
+      ),
+    );
+  const existingByKey = new Map(existing.map((t) => [t.key as string, t.id]));
 
-    // Pre-allocate a block of numbers for the candidates that will be new inserts
-    // (existing keys are updates and keep their current number).
-    const insertCount = upsertCandidates.filter((c) => !existingByKey.has(c.key)).length;
-    const numberPool = await allocateTaskNumbers(db, insertCount);
-    let numberCursor = 0;
+  // Pre-allocate a block of numbers for the candidates that will be new inserts
+  // (existing keys are updates and keep their current number).
+  const insertCount = upsertCandidates.filter((c) => !existingByKey.has(c.key)).length;
+  const numberPool = await allocateTaskNumbers(db, insertCount);
+  let numberCursor = 0;
 
-    for (const candidate of upsertCandidates) {
-      try {
-        const { values } = normalizeTask(candidate.row, ctx);
-        const existingId = existingByKey.get(candidate.key);
+  for (const candidate of upsertCandidates) {
+    try {
+      const { values } = normalizeTask(candidate.row, ctx);
+      const existingId = existingByKey.get(candidate.key);
 
-        if (existingId) {
-          await db
-            .update(tasks)
-            .set({ ...values, updatedAt: now })
-            .where(eq(tasks.id, existingId));
-          result.updated++;
-        } else {
-          const id = generateId('task');
-          await db.insert(tasks).values({
-            id,
-            number: numberPool[numberCursor++],
-            projectId: ctx.projectId,
-            key: candidate.key,
-            ...values,
-            reporterId: ctx.userId,
-            isBillable: true,
-            position: ctx.nextPositionRef.value++,
-            progress: '0',
-            createdAt: now,
-            updatedAt: now,
-          } as any);
-          result.imported++;
-        }
-      } catch (err: any) {
-        result.errors.push({
-          row: candidate.rowNum,
-          title: candidate.title,
-          error: err?.message || 'Database error',
-        });
-        result.failed++;
+      if (existingId) {
+        await db
+          .update(tasks)
+          .set({ ...values, updatedAt: now })
+          .where(eq(tasks.id, existingId));
+        result.updated++;
+      } else {
+        const id = generateId('task');
+        await db.insert(tasks).values({
+          id,
+          number: numberPool[numberCursor++],
+          projectId: ctx.projectId,
+          key: candidate.key,
+          ...values,
+          reporterId: ctx.userId,
+          isBillable: true,
+          position: ctx.nextPositionRef.value++,
+          progress: '0',
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+        result.imported++;
       }
+    } catch (err: any) {
+      result.errors.push({
+        row: candidate.rowNum,
+        title: candidate.title,
+        error: err?.message || 'Database error',
+      });
+      result.failed++;
     }
   }
+}
 
-  // ── Path 2: New inserts ──────────────────────────────────────────────
+/** Inserts one chunk, falling back to per-row inserts to isolate a failing row. */
+async function insertChunk(
+  db: Database,
+  chunk: Array<typeof schema.tasks.$inferInsert>,
+  result: BatchResult,
+): Promise<void> {
+  const { tasks } = schema;
+  try {
+    await db.insert(tasks).values(chunk);
+    result.imported += chunk.length;
+    return;
+  } catch {
+    // Fall through to the per-row insert below
+  }
+
+  for (const item of chunk) {
+    try {
+      await db.insert(tasks).values(item);
+      result.imported++;
+    } catch (rowErr: any) {
+      result.errors.push({
+        row: 0,
+        title: (item as any).title || '(unknown)',
+        error: rowErr?.message || 'Database error',
+      });
+      result.failed++;
+    }
+  }
+}
+
+// ── Path 2: New inserts ──────────────────────────────────────────────────
+async function processInserts(
+  db: Database,
+  insertCandidates: InsertCandidate[],
+  ctx: BatchContext,
+  now: Date,
+  result: BatchResult,
+): Promise<void> {
+  // Allocate a contiguous block of task numbers in one atomic bump.
+  const numbers = await allocateTaskNumbers(db, insertCandidates.length);
+  const toInsert: Array<typeof schema.tasks.$inferInsert> = [];
+  for (let idx = 0; idx < insertCandidates.length; idx++) {
+    const c = insertCandidates[idx];
+    const { values } = normalizeTask(c.row, ctx);
+    toInsert.push({
+      id: generateId('task'),
+      number: numbers[idx],
+      projectId: ctx.projectId,
+      ...values,
+      reporterId: ctx.userId,
+      isBillable: true,
+      position: ctx.nextPositionRef.value++,
+      progress: '0',
+      createdAt: now,
+      updatedAt: now,
+    } as any);
+  }
+
+  const CHUNK = 100;
+  for (let i = 0; i < toInsert.length; i += CHUNK) {
+    await insertChunk(db, toInsert.slice(i, i + CHUNK), result);
+  }
+}
+
+async function processBatch(
+  db: Database,
+  batch: TaskRow[],
+  ctx: BatchContext,
+): Promise<BatchResult> {
+  const now = new Date();
+  const result: BatchResult = { imported: 0, updated: 0, failed: 0, errors: [] };
+
+  // Partition by key (upsert candidates) vs new inserts
+  const { upsertCandidates, insertCandidates } = partitionBatch(batch, ctx.startIndex, result);
+
+  if (upsertCandidates.length > 0) {
+    await processUpserts(db, upsertCandidates, ctx, now, result);
+  }
   if (insertCandidates.length > 0) {
-    // Allocate a contiguous block of task numbers in one atomic bump.
-    const numbers = await allocateTaskNumbers(db, insertCandidates.length);
-    const toInsert: Array<typeof tasks.$inferInsert> = [];
-    for (let idx = 0; idx < insertCandidates.length; idx++) {
-      const c = insertCandidates[idx];
-      const { values } = normalizeTask(c.row, ctx);
-      toInsert.push({
-        id: generateId('task'),
-        number: numbers[idx],
-        projectId: ctx.projectId,
-        ...values,
-        reporterId: ctx.userId,
-        isBillable: true,
-        position: ctx.nextPositionRef.value++,
-        progress: '0',
-        createdAt: now,
-        updatedAt: now,
-      } as any);
-    }
-
-    const CHUNK = 100;
-    for (let i = 0; i < toInsert.length; i += CHUNK) {
-      const chunk = toInsert.slice(i, i + CHUNK);
-      try {
-        await db.insert(tasks).values(chunk);
-        result.imported += chunk.length;
-      } catch (err: any) {
-        // Fall back to per-row insert to isolate the failing row
-        for (const item of chunk) {
-          try {
-            await db.insert(tasks).values(item);
-            result.imported++;
-          } catch (rowErr: any) {
-            result.errors.push({
-              row: 0,
-              title: (item as any).title || '(unknown)',
-              error: rowErr?.message || 'Database error',
-            });
-            result.failed++;
-          }
-        }
-      }
-    }
+    await processInserts(db, insertCandidates, ctx, now, result);
   }
 
   return result;

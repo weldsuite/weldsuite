@@ -54,6 +54,17 @@ export async function publishMeetingUpdated(
 // End session
 // ============================================================================
 
+function isMeetingPast(
+  meeting: { scheduledEnd: Date | null; scheduledStart: Date | null } | undefined,
+  now: Date,
+): boolean {
+  if (meeting?.scheduledEnd) return new Date(meeting.scheduledEnd).getTime() < now.getTime();
+  if (meeting?.scheduledStart) {
+    return new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000;
+  }
+  return true;
+}
+
 export async function endMeetingSession(
   db: Database,
   env: Env,
@@ -111,11 +122,7 @@ export async function endMeetingSession(
     .where(eq(meetings.id, meetingId))
     .limit(1);
 
-  const isPast = meeting?.scheduledEnd
-    ? new Date(meeting.scheduledEnd).getTime() < now.getTime()
-    : meeting?.scheduledStart
-      ? new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000
-      : true;
+  const isPast = isMeetingPast(meeting, now);
 
   await db
     .update(meetings)

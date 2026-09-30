@@ -109,6 +109,26 @@ export async function createSchedule(
   return { id };
 }
 
+const PASSTHROUGH_UPDATE_FIELDS = ['name', 'cronExpression', 'timezone', 'isEnabled'] as const;
+const DATE_UPDATE_FIELDS = ['startDate', 'endDate'] as const;
+
+/** Map a partial schedule payload onto the columns to write (undefined = untouched). */
+function buildScheduleUpdate(data: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const field of PASSTHROUGH_UPDATE_FIELDS) {
+    if (data[field] !== undefined) update[field] = data[field];
+  }
+  for (const field of DATE_UPDATE_FIELDS) {
+    if (data[field] !== undefined) update[field] = data[field] ? new Date(String(data[field])) : null;
+  }
+  return update;
+}
+
+/** The value written by this update when the field is present, else the stored value. */
+function pickUpdated<T>(update: Record<string, unknown>, field: string, existing: T): T {
+  return field in update ? (update[field] as T) : existing;
+}
+
 export async function updateSchedule(
   db: Database,
   id: string,
@@ -122,13 +142,7 @@ export async function updateSchedule(
     .limit(1);
   if (!existing) return null;
 
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  if (data.name !== undefined) update.name = data.name;
-  if (data.cronExpression !== undefined) update.cronExpression = data.cronExpression;
-  if (data.timezone !== undefined) update.timezone = data.timezone;
-  if (data.startDate !== undefined) update.startDate = data.startDate ? new Date(String(data.startDate)) : null;
-  if (data.endDate !== undefined) update.endDate = data.endDate ? new Date(String(data.endDate)) : null;
-  if (data.isEnabled !== undefined) update.isEnabled = data.isEnabled;
+  const update = buildScheduleUpdate(data);
 
   await db.update(workflowSchedules).set(update).where(eq(workflowSchedules.id, id));
 
@@ -143,9 +157,9 @@ export async function updateSchedule(
       triggerId: existing.triggerId,
       cronExpression: (update.cronExpression as string) ?? existing.cronExpression,
       timezone: (update.timezone as string) ?? existing.timezone,
-      startDate: 'startDate' in update ? (update.startDate as Date | null) : existing.startDate,
-      endDate: 'endDate' in update ? (update.endDate as Date | null) : existing.endDate,
-      isEnabled: 'isEnabled' in update ? (update.isEnabled as boolean) : existing.isEnabled,
+      startDate: pickUpdated<Date | null>(update, 'startDate', existing.startDate),
+      endDate: pickUpdated<Date | null>(update, 'endDate', existing.endDate),
+      isEnabled: pickUpdated<boolean>(update, 'isEnabled', existing.isEnabled),
     });
   }
 

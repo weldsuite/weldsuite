@@ -11,6 +11,76 @@
  *  - {{contact.field}}      — contact/customer data
  */
 
+interface ResolveSources {
+  previousResults: Record<string, unknown>;
+  triggerData: unknown;
+  variables: Record<string, unknown>;
+  contactData: Record<string, unknown>;
+}
+
+function getNested(root: unknown, props: string[]): unknown {
+  return props.reduce<unknown>(
+    (obj, prop) => (obj as Record<string, unknown> | null | undefined)?.[prop],
+    root,
+  );
+}
+
+/** Look up a `steps.` / `trigger.` / `variables.` / `contact.` reference; undefined when unknown. */
+function lookupReference(path: string, sources: ResolveSources): unknown {
+  if (path.startsWith('steps.')) {
+    const [, stepId, ...rest] = path.split('.');
+    return getNested(sources.previousResults[stepId], rest);
+  }
+  if (path.startsWith('trigger.')) return getNested(sources.triggerData, path.slice(8).split('.'));
+  if (path.startsWith('variables.')) return sources.variables[path.slice(10)];
+  if (path.startsWith('contact.')) return sources.contactData[path.slice(8)];
+  return undefined;
+}
+
+function resolveString(value: string, sources: ResolveSources): unknown {
+  if (!(value.includes('{{') && value.includes('}}'))) return value;
+
+  let resolved: unknown = value.replace(/\{\{([^}]+)\}\}/g, (match, path: string) => {
+    const result = lookupReference(path.trim(), sources);
+    if (result !== undefined) return String(result);
+    console.warn(`Unresolved template: ${match}`);
+    return '';
+  });
+
+  // If the entire value was a single expression, preserve original type
+  if (/^\{\{[^}]+\}\}$/.test(value)) {
+    const result = lookupReference(value.slice(2, -2).trim(), sources);
+    if (result !== undefined) resolved = result;
+  }
+  return resolved;
+}
+
+function resolveValue(value: unknown, sources: ResolveSources): unknown {
+  if (typeof value === 'string') return resolveString(value, sources);
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      typeof item === 'object' && item !== null
+        ? resolveWithSources(item as Record<string, unknown>, sources)
+        : item,
+    );
+  }
+  if (typeof value === 'object' && value !== null) {
+    return resolveWithSources(value as Record<string, unknown>, sources);
+  }
+  return value;
+}
+
+function resolveWithSources(
+  inputs: Record<string, unknown>,
+  sources: ResolveSources,
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(inputs)) {
+    resolved[key] = resolveValue(value, sources);
+  }
+  return resolved;
+}
+
 export function resolveInputs(
   inputs: Record<string, unknown>,
   previousResults: Record<string, unknown>,
@@ -18,95 +88,5 @@ export function resolveInputs(
   variables: Record<string, unknown>,
   contactData: Record<string, unknown>,
 ): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(inputs)) {
-    if (typeof value === 'string') {
-      if (value.includes('{{') && value.includes('}}')) {
-        resolved[key] = value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
-          const trimmedPath = path.trim();
-
-          if (trimmedPath.startsWith('steps.')) {
-            const [, stepId, ...rest] = trimmedPath.split('.');
-            const stepOutput = previousResults[stepId] as Record<string, unknown>;
-            const result = rest.reduce((obj: any, prop: string) => obj?.[prop], stepOutput);
-            if (result !== undefined) return String(result);
-            console.warn(`Unresolved template: ${match}`);
-            return '';
-          } else if (trimmedPath.startsWith('trigger.')) {
-            const props = trimmedPath.slice(8).split('.');
-            const result = props.reduce((obj: any, prop: string) => obj?.[prop], triggerData);
-            if (result !== undefined) return String(result);
-            console.warn(`Unresolved template: ${match}`);
-            return '';
-          } else if (trimmedPath.startsWith('variables.')) {
-            const varName = trimmedPath.slice(10);
-            const result = variables[varName];
-            if (result !== undefined) return String(result);
-            console.warn(`Unresolved template: ${match}`);
-            return '';
-          } else if (trimmedPath.startsWith('contact.')) {
-            const prop = trimmedPath.slice(8);
-            const result = contactData[prop];
-            if (result !== undefined) return String(result);
-            console.warn(`Unresolved template: ${match}`);
-            return '';
-          } else {
-            console.warn(`Unresolved template: ${match}`);
-            return '';
-          }
-        });
-
-        // If the entire value was a single expression, preserve original type
-        if (value.match(/^\{\{[^}]+\}\}$/)) {
-          const path = value.slice(2, -2).trim();
-          if (path.startsWith('steps.')) {
-            const [, stepId, ...rest] = path.split('.');
-            const stepOutput = previousResults[stepId] as Record<string, unknown>;
-            const result = rest.reduce((obj: any, prop: string) => obj?.[prop], stepOutput);
-            if (result !== undefined) resolved[key] = result;
-          } else if (path.startsWith('trigger.')) {
-            const props = path.slice(8).split('.');
-            const result = props.reduce((obj: any, prop: string) => obj?.[prop], triggerData);
-            if (result !== undefined) resolved[key] = result;
-          } else if (path.startsWith('variables.')) {
-            const varName = path.slice(10);
-            const result = variables[varName];
-            if (result !== undefined) resolved[key] = result;
-          } else if (path.startsWith('contact.')) {
-            const prop = path.slice(8);
-            const result = contactData[prop];
-            if (result !== undefined) resolved[key] = result;
-          }
-        }
-      } else {
-        resolved[key] = value;
-      }
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      resolved[key] = resolveInputs(
-        value as Record<string, unknown>,
-        previousResults,
-        triggerData,
-        variables,
-        contactData,
-      );
-    } else if (Array.isArray(value)) {
-      resolved[key] = value.map((item) => {
-        if (typeof item === 'object' && item !== null) {
-          return resolveInputs(
-            item as Record<string, unknown>,
-            previousResults,
-            triggerData,
-            variables,
-            contactData,
-          );
-        }
-        return item;
-      });
-    } else {
-      resolved[key] = value;
-    }
-  }
-
-  return resolved;
+  return resolveWithSources(inputs, { previousResults, triggerData, variables, contactData });
 }
