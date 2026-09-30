@@ -516,6 +516,14 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   );
 }
 
+/** Builds the note text from the typed text plus an optional attachment list. */
+function buildNoteText(noteText: string, attachments?: AttachmentPreview[]): string {
+  const hasAttachments = !!attachments && attachments.length > 0;
+  const attachmentList = attachments?.map(a => a.name).join(', ') ?? '';
+  if (!noteText.trim()) return `📎 ${attachmentList}`;
+  if (hasAttachments) return `${noteText}\n\n📎 ${attachmentList}`;
+  return noteText;
+}
 
 // --- Back-Office View ---
 function BackOfficeView({
@@ -538,17 +546,7 @@ function BackOfficeView({
 
   const handleSubmit = (attachments?: AttachmentPreview[]) => {
     if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    const hasAttachments = !!attachments && attachments.length > 0;
-    const attachmentList = attachments?.map(a => a.name).join(', ') ?? '';
-    let text: string;
-    if (!noteText.trim()) {
-      text = `📎 ${attachmentList}`;
-    } else if (hasAttachments) {
-      text = `${noteText}\n\n📎 ${attachmentList}`;
-    } else {
-      text = noteText;
-    }
-    onAddNote(text);
+    onAddNote(buildNoteText(noteText, attachments));
     setNoteText('');
   };
 
@@ -650,12 +648,7 @@ function TrackerView({
 
   const handleSubmit = (attachments?: AttachmentPreview[]) => {
     if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    const text = noteText.trim()
-      ? attachments && attachments.length > 0
-        ? `${noteText}\n\n📎 ${attachments.map(a => a.name).join(', ')}`
-        : noteText
-      : `📎 ${attachments!.map(a => a.name).join(', ')}`;
-    onAddNote(text);
+    onAddNote(buildNoteText(noteText, attachments));
     setNoteText('');
   };
 
@@ -950,6 +943,16 @@ function TicketSidebar({
   const tp = t.helpdesk.ticketsPage;
   const { fields: visFields, fieldVisibility, isFieldVisible, toggleField, resetToDefaults } = useDrawerFieldVisibility('ticket-sidebar');
 
+  let panelFallbackTitle = tp.noCustomer;
+  let panelSubtitle = ticket.fromEmail || tp.noEmail;
+  if (category === 'back-office') {
+    panelFallbackTitle = tp.internalTask;
+    panelSubtitle = tp.backOfficeTask;
+  } else if (category === 'tracker') {
+    panelFallbackTitle = tp.trackerTask;
+    panelSubtitle = tp.issueTracker;
+  }
+
   return (
     <div className="w-[484px] bg-background border-l border-border flex flex-col h-full">
       {/* Panel Header */}
@@ -963,10 +966,10 @@ function TicketSidebar({
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-foreground truncate">
-              {category === 'back-office' ? (ticket.from || tp.internalTask) : category === 'tracker' ? (ticket.from || tp.trackerTask) : (ticket.from || tp.noCustomer)}
+              {ticket.from || panelFallbackTitle}
             </h3>
             <p className="text-[12px] text-muted-foreground truncate">
-              {category === 'back-office' ? tp.backOfficeTask : category === 'tracker' ? tp.issueTracker : (ticket.fromEmail || tp.noEmail)}
+              {panelSubtitle}
             </p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -1310,6 +1313,11 @@ export default function TicketDetailClient({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Focus the subject input when inline editing starts
+  useEffect(() => {
+    if (isEditingSubject) subjectInputRef.current?.focus();
+  }, [isEditingSubject]);
+
   const handleWeldAgentSend = async () => {
     if (!weldAgentPrompt.trim()) return;
 
@@ -1462,20 +1470,22 @@ export default function TicketDetailClient({
                   setIsEditingSubject(false);
                 }}
                 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground bg-transparent outline-none border border-blue-500 dark:border-blue-400 rounded-md px-2 py-0.5 min-w-[80px] w-full -ml-0.5"
-                autoFocus
               />
             ) : (
-              <div
-                className="flex items-center min-w-0 group cursor-text border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
-                onClick={() => {
-                  setEditedSubject(ticket.subject || '');
-                  setIsEditingSubject(true);
-                }}
-              >
-                <h1 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground truncate">
-                  {ticket.subject || tp.noSubject}
-                </h1>
-              </div>
+              <h1 className="min-w-0 text-sm md:text-lg font-medium text-gray-900 dark:text-foreground">
+                <button
+                  type="button"
+                  className="flex items-center max-w-full min-w-0 group cursor-text text-left border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
+                  onClick={() => {
+                    setEditedSubject(ticket.subject || '');
+                    setIsEditingSubject(true);
+                  }}
+                >
+                  <span className="truncate">
+                    {ticket.subject || tp.noSubject}
+                  </span>
+                </button>
+              </h1>
             )}
             {/* Category badge */}
             {category === 'back-office' && (
