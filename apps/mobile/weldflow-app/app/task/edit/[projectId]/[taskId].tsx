@@ -21,12 +21,12 @@ export default function EditTaskScreen() {
 
   const initialValues = useMemo<Partial<TaskFormValues> | undefined>(() => {
     if (!task) return undefined;
-    const assignees =
-      task.assigneeIds && task.assigneeIds.length > 0
-        ? task.assigneeIds
-        : task.assigneeId
-          ? [task.assigneeId]
-          : [];
+    let assignees: string[] = [];
+    if (task.assigneeIds && task.assigneeIds.length > 0) {
+      assignees = task.assigneeIds;
+    } else if (task.assigneeId) {
+      assignees = [task.assigneeId];
+    }
     return {
       title: task.title,
       description: task.description ?? '',

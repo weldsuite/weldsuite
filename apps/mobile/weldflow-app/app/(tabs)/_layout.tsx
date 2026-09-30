@@ -1,4 +1,6 @@
 import { Tabs } from 'expo-router';
+import type { ComponentProps } from 'react';
+import type { ColorValue } from 'react-native';
 import {
   LayoutDashboard,
   FolderKanban,
@@ -15,6 +17,30 @@ import {
 } from '@/components/floating-tab-bar';
 import { useI18n } from '@/lib/i18n';
 
+type TabIconProps = { color: ColorValue; size: number };
+
+type TabBarRenderProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
+
+function renderTabBar(props: TabBarRenderProps) {
+  return <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />;
+}
+
+function HomeTabIcon({ color, size }: TabIconProps) {
+  return <LayoutDashboard size={size} color={color} strokeWidth={2.2} />;
+}
+
+function ProjectsTabIcon({ color, size }: TabIconProps) {
+  return <FolderKanban size={size} color={color} strokeWidth={2.2} />;
+}
+
+function MyTasksTabIcon({ color, size }: TabIconProps) {
+  return <CheckSquare size={size} color={color} strokeWidth={2.2} />;
+}
+
+function MoreTabIcon({ color, size }: TabIconProps) {
+  return <MoreHorizontal size={size} color={color} strokeWidth={2.2} />;
+}
+
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const tabBarInset = floatingTabBarBottomInset(insets.bottom);
@@ -22,7 +48,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
+      tabBar={renderTabBar}
       screenOptions={{
         ...floatingTabBarScreenOptions,
         headerShown: false,
@@ -36,36 +62,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t.tabs.home,
-          tabBarIcon: ({ color, size }) => (
-            <LayoutDashboard size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="projects"
         options={{
           title: t.tabs.projects,
-          tabBarIcon: ({ color, size }) => (
-            <FolderKanban size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: ProjectsTabIcon,
         }}
       />
       <Tabs.Screen
         name="my-tasks"
         options={{
           title: t.tabs.myTasks,
-          tabBarIcon: ({ color, size }) => (
-            <CheckSquare size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: MyTasksTabIcon,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: t.tabs.more,
-          tabBarIcon: ({ color, size }) => (
-            <MoreHorizontal size={size} color={color} strokeWidth={2.2} />
-          ),
+          tabBarIcon: MoreTabIcon,
         }}
       />
     </Tabs>
