@@ -162,20 +162,15 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
   const renderRow = useCallback((bk: BookmarkItem) => (
     <div
       key={bk.id}
-      role="button"
-      tabIndex={0}
-      onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          jumpToMessage(bk.channelId, bk.messageId);
-        }
-      }}
       className={cn(
-        'flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group/bk relative',
+        'flex items-start pr-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group/bk relative',
       )}
     >
-      <div className="flex-1 min-w-0 flex items-start gap-3">
+      <button
+        type="button"
+        onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
+        className="flex-1 min-w-0 flex items-start gap-3 pl-4 pr-4 py-3 text-left cursor-pointer"
+      >
         <div className="relative flex-shrink-0 mt-0.5">
           <Avatar className="h-6 w-6 !rounded-[8px]">
             {bk.messageAuthorAvatar && (
@@ -203,9 +198,9 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
             </div>
           )}
         </div>
-      </div>
+      </button>
 
-      <div className="w-[32px] flex-shrink-0 flex justify-end -mr-1">
+      <div className="w-[32px] flex-shrink-0 flex justify-end py-3">
         <Button
           variant="ghost"
           size="icon"
