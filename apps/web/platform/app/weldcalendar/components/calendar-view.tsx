@@ -1482,6 +1482,10 @@ function DescriptionRow({
   onDeactivate: () => void;
   onChange: (value: string) => void;
 }) {
+  // Focus the textarea when the row becomes active (replaces the autoFocus attribute).
+  useEffect(() => {
+    if (isActive) descriptionRef.current?.focus();
+  }, [isActive, descriptionRef]);
   const summary = description ? (
     <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
   ) : (
@@ -1505,7 +1509,6 @@ function DescriptionRow({
           onBlur={onDeactivate}
           rows={1}
           className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
-          autoFocus
         />
       ) : (
         summary
