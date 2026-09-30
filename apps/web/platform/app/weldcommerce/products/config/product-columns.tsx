@@ -13,11 +13,14 @@ import { ProductSalesChannelsEditor } from '../components/product-sales-channels
 
 export function formatMoney(amount: unknown, currency?: string | null): string {
   if (amount == null || amount === '') return '—';
-  return `${Number(amount).toFixed(2)}${currency ? ` ${currency}` : ''}`;
+  const currencySuffix = currency ? ` ${currency}` : '';
+  return `${Number(amount).toFixed(2)}${currencySuffix}`;
 }
 
 export function productStatusVariant(status: string | null | undefined) {
-  return status === 'active' ? 'default' : status === 'draft' ? 'outline' : 'secondary';
+  if (status === 'active') return 'default';
+  if (status === 'draft') return 'outline';
+  return 'secondary';
 }
 
 export function buildProductColumns(): ColumnDef<CommerceProduct>[] {

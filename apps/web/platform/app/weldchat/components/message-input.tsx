@@ -1247,6 +1247,7 @@ export function MessageInput({
                 )}
                 style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
                 role="textbox"
+                tabIndex={isVoiceRecording ? -1 : 0}
               />
             </div>
 
