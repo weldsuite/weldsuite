@@ -216,6 +216,83 @@ function storageRecordsPath(collection: string, id?: string): string {
   return id === undefined ? base : `${base}/${encodeURIComponent(id)}`;
 }
 
+/** Body for `storage.update`: an explicit `data` object, else every other argument. */
+function storageUpdateData(args: Record<string, unknown>): unknown {
+  if (args.data !== undefined && args.data !== null) return args.data;
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (key === 'id' || value === undefined) continue;
+    rest[key] = value;
+  }
+  return rest;
+}
+
+type StorageActionType = 'storage.list' | 'storage.create' | 'storage.update' | 'storage.delete';
+
+/** Shape one of the `storage.*` actions against the app's own collection. */
+function shapeStorageRequest(
+  type: StorageActionType,
+  collection: string | undefined,
+  args: Record<string, unknown>,
+): ShapedRequest | string {
+  if (!collection) return 'Tool action is missing a storage collection';
+
+  if (type === 'storage.list') {
+    const query: Record<string, unknown> = {};
+    if (args.limit !== undefined) query.limit = args.limit;
+    if (args.filter !== undefined) {
+      query.filter = typeof args.filter === 'string' ? args.filter : JSON.stringify(args.filter);
+    }
+    return { method: 'GET', path: storageRecordsPath(collection), query };
+  }
+
+  if (type === 'storage.create') {
+    return { method: 'POST', path: storageRecordsPath(collection), body: { data: args } };
+  }
+
+  const id = requireRecordId(args);
+  if (!id) return 'Missing required parameter: id';
+  if (type === 'storage.update') {
+    return {
+      method: 'PATCH',
+      path: storageRecordsPath(collection, id),
+      body: { data: storageUpdateData(args) },
+    };
+  }
+  return { method: 'DELETE', path: storageRecordsPath(collection, id) };
+}
+
+/** Shape an `api.request` action, enforcing the path allowlist and the app's granted scopes. */
+function shapeApiRequest(tool: UserAppTool, args: Record<string, unknown>): ShapedRequest | string {
+  const { action } = tool;
+  const method = action.method?.toUpperCase() as HttpMethod | undefined;
+  if (!method || !API_REQUEST_METHODS.includes(method)) {
+    return `Unsupported API request method: ${action.method ?? '(none)'}`;
+  }
+  const path = action.path ?? '';
+  // Strict allowlist BEFORE any URL resolution: no '..', '//', '\', or
+  // percent-encoding that could escape the /v1/ prefix after
+  // normalization.
+  if (!/^\/v1\/[A-Za-z0-9\-_./]+$/.test(path) || path.includes('..') || path.includes('//')) {
+    return 'API request paths must be a plain /v1/... path';
+  }
+  // Enforce the app's consented install scopes, not the invoking key's
+  // privileges. App-storage paths are the app's own data plane and are
+  // scoped by X-App-Code server-side; everything else needs a granted
+  // `resource:action` scope.
+  if (!path.startsWith('/v1/app-storage/')) {
+    const resource = path.split('/')[2] ?? '';
+    const requiredScope = `${resource}:${SCOPE_ACTION_BY_METHOD[method]}`;
+    if (!appScopesAllow(tool.grantedScopes ?? [], requiredScope)) {
+      return `The app's granted scopes do not allow ${requiredScope}`;
+    }
+  }
+  if (method === 'GET' || method === 'DELETE') {
+    return { method, path, query: args };
+  }
+  return { method, path, body: args };
+}
+
 /**
  * Map a declarative user-app tool action + call arguments onto an external-api
  * HTTP request. Returns a string error message when the manifest action or the
@@ -223,77 +300,8 @@ function storageRecordsPath(collection: string, id?: string): string {
  */
 function shapeRequest(tool: UserAppTool, args: Record<string, unknown>): ShapedRequest | string {
   const { action } = tool;
-
-  switch (action.type) {
-    case 'storage.list': {
-      if (!action.collection) return 'Tool action is missing a storage collection';
-      const query: Record<string, unknown> = {};
-      if (args.limit !== undefined) query.limit = args.limit;
-      if (args.filter !== undefined) {
-        query.filter = typeof args.filter === 'string' ? args.filter : JSON.stringify(args.filter);
-      }
-      return { method: 'GET', path: storageRecordsPath(action.collection), query };
-    }
-
-    case 'storage.create': {
-      if (!action.collection) return 'Tool action is missing a storage collection';
-      return { method: 'POST', path: storageRecordsPath(action.collection), body: { data: args } };
-    }
-
-    case 'storage.update': {
-      if (!action.collection) return 'Tool action is missing a storage collection';
-      const id = requireRecordId(args);
-      if (!id) return 'Missing required parameter: id';
-      let data: unknown;
-      if (args.data !== undefined && args.data !== null) {
-        data = args.data;
-      } else {
-        const rest: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(args)) {
-          if (key === 'id' || value === undefined) continue;
-          rest[key] = value;
-        }
-        data = rest;
-      }
-      return { method: 'PATCH', path: storageRecordsPath(action.collection, id), body: { data } };
-    }
-
-    case 'storage.delete': {
-      if (!action.collection) return 'Tool action is missing a storage collection';
-      const id = requireRecordId(args);
-      if (!id) return 'Missing required parameter: id';
-      return { method: 'DELETE', path: storageRecordsPath(action.collection, id) };
-    }
-
-    case 'api.request': {
-      const method = action.method?.toUpperCase() as HttpMethod | undefined;
-      if (!method || !API_REQUEST_METHODS.includes(method)) {
-        return `Unsupported API request method: ${action.method ?? '(none)'}`;
-      }
-      const path = action.path ?? '';
-      // Strict allowlist BEFORE any URL resolution: no '..', '//', '\', or
-      // percent-encoding that could escape the /v1/ prefix after
-      // normalization.
-      if (!/^\/v1\/[A-Za-z0-9\-_./]+$/.test(path) || path.includes('..') || path.includes('//')) {
-        return 'API request paths must be a plain /v1/... path';
-      }
-      // Enforce the app's consented install scopes, not the invoking key's
-      // privileges. App-storage paths are the app's own data plane and are
-      // scoped by X-App-Code server-side; everything else needs a granted
-      // `resource:action` scope.
-      if (!path.startsWith('/v1/app-storage/')) {
-        const resource = path.split('/')[2] ?? '';
-        const requiredScope = `${resource}:${SCOPE_ACTION_BY_METHOD[method]}`;
-        if (!appScopesAllow(tool.grantedScopes ?? [], requiredScope)) {
-          return `The app's granted scopes do not allow ${requiredScope}`;
-        }
-      }
-      if (method === 'GET' || method === 'DELETE') {
-        return { method, path, query: args };
-      }
-      return { method, path, body: args };
-    }
-  }
+  if (action.type === 'api.request') return shapeApiRequest(tool, args);
+  return shapeStorageRequest(action.type, action.collection, args);
 }
 
 const SCOPE_ACTION_BY_METHOD: Record<HttpMethod, string> = {
@@ -318,6 +326,20 @@ function appScopesAllow(granted: string[], required: string): boolean {
   return false;
 }
 
+/** Resolve the shaped request's path and query onto the internal origin. */
+function buildRequestUrl(shaped: ShapedRequest): URL {
+  const url = new URL(shaped.path, INTERNAL_ORIGIN);
+  for (const [key, value] of Object.entries(shaped.query ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) url.searchParams.append(key, String(v));
+    } else {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url;
+}
+
 /**
  * Execute a user-app tool by dispatching its declarative action in-process.
  *
@@ -335,15 +357,7 @@ export async function executeUserAppTool(
   const shaped = shapeRequest(tool, args);
   if (typeof shaped === 'string') return toolError(shaped);
 
-  const url = new URL(shaped.path, INTERNAL_ORIGIN);
-  for (const [key, value] of Object.entries(shaped.query ?? {})) {
-    if (value === undefined || value === null) continue;
-    if (Array.isArray(value)) {
-      for (const v of value) url.searchParams.append(key, String(v));
-    } else {
-      url.searchParams.set(key, String(value));
-    }
-  }
+  const url = buildRequestUrl(shaped);
 
   const body = shaped.body === undefined ? undefined : JSON.stringify(shaped.body);
 

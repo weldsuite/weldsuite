@@ -41,6 +41,43 @@ const baseBody = {
 const createBody = z.object({ accountId: z.string().min(1), ...baseBody });
 const updateBody = z.object(baseBody).partial();
 
+type DraftUpdate = z.infer<typeof updateBody>;
+
+/** Draft fields copied to the patch verbatim when supplied. */
+const PLAIN_PATCH_FIELDS = [
+  'subject',
+  'to',
+  'cc',
+  'bcc',
+  'replyTo',
+  'body',
+  'htmlBody',
+  'importance',
+  'labels',
+  'inReplyTo',
+  'originalMessageId',
+  'isReply',
+  'isForward',
+] as const satisfies ReadonlyArray<keyof DraftUpdate>;
+
+/** Build the column patch for a partial draft update; only supplied fields are touched. */
+function buildDraftPatch(data: DraftUpdate, now: Date): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    updatedAt: now,
+    lastAutoSavedAt: now,
+  };
+
+  for (const field of PLAIN_PATCH_FIELDS) {
+    if (data[field] !== undefined) patch[field] = data[field];
+  }
+  if (data.attachmentIds !== undefined) {
+    patch.attachmentIds = data.attachmentIds;
+    patch.hasAttachments = data.attachmentIds.length > 0;
+    patch.attachmentCount = data.attachmentIds.length;
+  }
+  return patch;
+}
+
 async function assertAccountOwned(
   personalDb: ReturnType<typeof getPersonalDb>,
   personalAccountId: string,
@@ -196,30 +233,7 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
 
     if (!existing) return error.notFound(c, 'Draft', id);
 
-    const now = new Date();
-    const patch: Record<string, unknown> = {
-      updatedAt: now,
-      lastAutoSavedAt: now,
-    };
-
-    if (data.subject !== undefined) patch.subject = data.subject;
-    if (data.to !== undefined) patch.to = data.to;
-    if (data.cc !== undefined) patch.cc = data.cc;
-    if (data.bcc !== undefined) patch.bcc = data.bcc;
-    if (data.replyTo !== undefined) patch.replyTo = data.replyTo;
-    if (data.body !== undefined) patch.body = data.body;
-    if (data.htmlBody !== undefined) patch.htmlBody = data.htmlBody;
-    if (data.importance !== undefined) patch.importance = data.importance;
-    if (data.labels !== undefined) patch.labels = data.labels;
-    if (data.attachmentIds !== undefined) {
-      patch.attachmentIds = data.attachmentIds;
-      patch.hasAttachments = data.attachmentIds.length > 0;
-      patch.attachmentCount = data.attachmentIds.length;
-    }
-    if (data.inReplyTo !== undefined) patch.inReplyTo = data.inReplyTo;
-    if (data.originalMessageId !== undefined) patch.originalMessageId = data.originalMessageId;
-    if (data.isReply !== undefined) patch.isReply = data.isReply;
-    if (data.isForward !== undefined) patch.isForward = data.isForward;
+    const patch = buildDraftPatch(data, new Date());
 
     const [updated] = await personalDb
       .update(personalMailDrafts)
