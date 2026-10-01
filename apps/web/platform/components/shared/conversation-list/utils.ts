@@ -1,4 +1,11 @@
-import { isToday, isYesterday, format } from 'date-fns';
+import {
+  isToday,
+  isYesterday,
+  isThisYear,
+  format,
+  startOfWeek,
+  differenceInCalendarWeeks,
+} from 'date-fns';
 
 const AVATAR_COLORS = [
   '#4F46E5', '#7C3AED', '#EC4899', '#EF4444', '#F97316',
@@ -30,17 +37,31 @@ export function getLabelColor(labelName: string, colorMap?: Record<string, strin
   return LABEL_COLORS[hashString(labelName) % LABEL_COLORS.length];
 }
 
-function getDateLabel(date: Date): string {
+const WEEK_OPTIONS = { weekStartsOn: 1 } as const;
+
+// Gmail/Outlook-style buckets: Today, Yesterday, weekday names for the rest
+// of this week, Last week / N weeks ago, then one bucket per month (with the
+// year once it's no longer the current year).
+function getDateLabel(date: Date, now: Date = new Date()): string {
   if (isToday(date)) return 'Today';
   if (isYesterday(date)) return 'Yesterday';
-  return format(date, 'MMMM d');
+  // Future dates (e.g. scheduled sends) keep a precise day label.
+  if (date > now) return format(date, 'MMMM d');
+  if (date >= startOfWeek(now, WEEK_OPTIONS)) return format(date, 'EEEE');
+
+  const weeksAgo = differenceInCalendarWeeks(now, date, WEEK_OPTIONS);
+  if (weeksAgo === 1) return 'Last week';
+  if (weeksAgo <= 3) return `${weeksAgo} weeks ago`;
+
+  return isThisYear(date) ? format(date, 'MMMM') : format(date, 'MMMM yyyy');
 }
 
 export function groupByDate<T extends { date: Date }>(items: T[]): Record<string, T[]> {
   const groups: Record<string, T[]> = {};
+  const now = new Date();
 
   items.forEach((item) => {
-    const label = getDateLabel(new Date(item.date));
+    const label = getDateLabel(new Date(item.date), now);
     if (!groups[label]) {
       groups[label] = [];
     }
