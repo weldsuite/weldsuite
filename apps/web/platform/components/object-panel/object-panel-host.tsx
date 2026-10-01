@@ -5,9 +5,9 @@ import { usePathname } from '@/lib/router';
 
 /**
  * Renders the object-panel stack as plain in-flow flex siblings. It's mounted
- * inside `ModuleContent`'s flex row (next to the module content and the drawer
- * host), so the panels sit in that row and the row's `gap` handles all spacing
- * — no absolute positioning, no width reservation, no drawer-inset math.
+ * inside `ModuleContent`'s flex row right after the module content, directly
+ * on the shell background, and each panel attaches with a `border-l` divider —
+ * no absolute positioning, no width reservation, no drawer-inset math.
  *
  * Deeper panels render first (to the left), the top-of-stack last (to the
  * right). A `fullscreen` panel renders its own fixed overlay (see

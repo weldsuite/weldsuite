@@ -17,7 +17,7 @@ export function MailPendingSkeleton() {
       data-slot="mail-pending"
     >
       {/* Module header band — matches MailHeader / BreadcrumbHeader (h-[60px]) */}
-      <div className="hidden md:flex h-[60px] shrink-0 items-center justify-between gap-2 px-4">
+      <div className="hidden md:flex h-[60px] shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
         <div className="flex items-center gap-2">
           <Skeleton className="h-4 w-4 rounded" />
           <Skeleton className="h-4 w-20" />
