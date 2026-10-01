@@ -1,10 +1,10 @@
 /**
  * @weldsuite/permissions — Rewrite stored grants to the per-app format
  *
- * Used by the tenant sweep (apps/tools/migrate-databases
- * migrate-app-permissions.ts) to rewrite `roles.permissions` and
- * `workspace_members.permissions` from `object:action` to
- * `app:object:action`.
+ * Rewrites stored grants (`roles.permissions`,
+ * `workspace_members.permissions`) from `object:action` to
+ * `app:object:action`. The one-off tenant sweep that applied it
+ * (migrate-app-permissions.ts) has been removed; git history has it.
  *
  * Every unqualified grant on an app-scoped object is expanded into one grant
  * per app that exposes the object, so nobody gains or loses access: the

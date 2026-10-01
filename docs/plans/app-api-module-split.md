@@ -521,9 +521,10 @@ Server callers:
    X-Weld-App context; `requirePermission` / the resolver are the same package code).
    Enforcement (`PERMISSIONS_APP_ENFORCE="true"`) must be switched on in app-api **and
    every module worker** together. The grant-rewrite sweep
-   (`apps/tools/migrate-databases` `migrate:app-permissions`) may only `--execute` in an
-   environment once the module workers are deployed there; until then unqualified
-   grants keep working everywhere.
+   (`apps/tools/migrate-databases` `migrate:app-permissions`) ran on test on
+   2026-10-01 (140 rows across 20 tenants) and was then removed from the repo;
+   restore it from git history (commit 94f8371b) before running it on production.
+   Unqualified grants keep working everywhere until enforcement is on.
 7. **Internal calls over named entrypoints (2026-09-29).** Worker-to-worker calls that
    used the shared `INTERNAL_API_SECRET` bearer now go over a named `WorkerEntrypoint`
    service binding. An entrypoint other than the default is reachable only through a
