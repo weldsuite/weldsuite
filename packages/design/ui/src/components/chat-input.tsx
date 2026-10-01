@@ -158,7 +158,7 @@ function insertMentionBadge(el: HTMLElement, member: MentionOption): boolean {
   insertRange.collapse(true);
 
   const badge = document.createElement("span");
-  badge.setAttribute("data-mention-userid", member.userId);
+  badge.dataset.mentionUserid = member.userId;
   badge.setAttribute("contenteditable", "false");
   badge.className =
     "inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0 text-[13px] font-medium align-middle mx-0.5";

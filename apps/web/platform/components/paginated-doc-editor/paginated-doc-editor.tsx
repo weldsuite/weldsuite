@@ -402,7 +402,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       if (ul) {
         if (ul.classList.contains('pgn-checklist')) {
           // Already a checklist → unwrap back to paragraphs.
-          ul.querySelectorAll('li').forEach((li) => li.removeAttribute('data-checked'));
+          ul.querySelectorAll('li').forEach((li) => {
+            delete li.dataset.checked;
+          });
           document.execCommand('insertUnorderedList');
         } else {
           // Plain bullet list → promote to checklist.
@@ -425,8 +427,8 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       if (li && li.parentElement?.classList.contains('pgn-checklist')) {
         const rect = li.getBoundingClientRect();
         if (e.clientX - rect.left <= 22) {
-          if (li.hasAttribute('data-checked')) li.removeAttribute('data-checked');
-          else li.setAttribute('data-checked', '');
+          if ('checked' in li.dataset) delete li.dataset.checked;
+          else li.dataset.checked = '';
           handleInput();
         }
       }
