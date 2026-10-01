@@ -2102,8 +2102,8 @@ export function CommentsList({
   const htmlToContent = useCallback((html: string): string => {
     const div = document.createElement('div');
     div.innerHTML = html;
-    div.querySelectorAll('.comment-mention-badge').forEach((badge) => {
-      const userId = badge.getAttribute('data-userid');
+    div.querySelectorAll<HTMLElement>('.comment-mention-badge').forEach((badge) => {
+      const userId = badge.dataset.userid;
       if (userId) badge.replaceWith(`<@${userId}>`);
     });
     return div.innerText;
