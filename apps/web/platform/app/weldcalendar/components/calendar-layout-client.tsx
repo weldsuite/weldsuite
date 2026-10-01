@@ -11,7 +11,7 @@ interface CalendarLayoutClientProps {
 /**
  * Portal target for the calendar event detail panel. `display: contents` so
  * the portaled panel becomes a real flex sibling of the content card inside
- * ModuleContent's row — same layout slot ObjectPanelHost / DrawerHost use.
+ * ModuleContent's row — same layout slot ObjectPanelHost uses.
  */
 function CalendarEventPanelSlot() {
   return <div id="weldcalendar-event-panel-slot" className="contents" />;

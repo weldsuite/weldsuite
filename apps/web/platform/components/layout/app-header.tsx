@@ -117,7 +117,7 @@ export function AppHeader({
     <>
       <header
         data-slot="app-header"
-        className="sticky top-0 z-40 hidden md:flex h-[60px] shrink-0 items-center bg-[var(--shell-panel)] relative"
+        className="sticky top-0 z-40 hidden md:flex h-[60px] shrink-0 items-center bg-[var(--shell-panel)] border-b border-border relative"
       >
         <div className="flex items-center gap-2 px-4 w-full relative z-10">
           <SidebarTrigger className="-ml-1 hidden md:flex" />

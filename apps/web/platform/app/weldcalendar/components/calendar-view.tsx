@@ -3853,10 +3853,10 @@ function EventDetailPanel({
         // max sizes, CanvasText colour) that would pull the panel out of the
         // content row, so reset them and keep the layout identical to a div.
         'relative m-0 p-0 h-auto max-h-none max-w-none text-inherit',
-        'flex flex-col overflow-hidden bg-background border border-border',
-        // Desktop: in-flow rounded card sibling in ModuleContent's content row
-        // (same shell as FloatingDrawer / EntityDetailView panel mode).
-        'md:h-full md:shrink-0 md:rounded-xl',
+        'flex flex-col overflow-hidden bg-background border-border max-md:border-t',
+        // Desktop: in-flow column attached to the content on the shell
+        // background (same shell as EntityDetailView panel mode).
+        'md:h-full md:shrink-0 md:border-l',
         // Mobile: full-screen sheet below the mobile header.
         'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-[56px] max-md:z-50 max-md:!w-full',
         'animate-in slide-in-from-right fade-in-50 duration-200',

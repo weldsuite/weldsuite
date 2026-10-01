@@ -394,9 +394,11 @@ function AnimatedShell({
         aria-modal="false"
         className={cn(
           // No explicit height — the panel slot (ObjectPanelHost) stretches it
-          // to fill the slot's content box (which is offset below the header),
-          // so it lines up with the module's white content card.
-          "relative flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background",
+          // to fill the slot's content box (which is offset below the header).
+          // No card chrome: the panel sits on the shell background next to
+          // the module content and attaches to it (or to the panel before it)
+          // with a left divider.
+          "relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-background",
           className,
         )}
         style={{ width: widthCss }}
