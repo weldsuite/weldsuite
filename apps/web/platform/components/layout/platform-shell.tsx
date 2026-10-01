@@ -92,12 +92,14 @@ export function PlatformShell({ children, embedded }: PlatformShellProps) {
                   panel(s) and drawers out as a flex row (rounded white cards
                   separated by the row's gap). On mobile it stays full-bleed. */}
               <div className="relative flex flex-1 min-w-0 h-full md:py-2 md:pr-2">
-                {/* Round only the right side: the card sits flush against the
-                    module sidebar on its left, so rounding the left corners
-                    would carve a weird notch at the sidebar seam (the header's
-                    top-left). The right side faces the chrome gap, so it rounds.
-                    A left border draws the vertical divider along that seam. */}
-                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-r-xl md:border-l md:border-border">
+                {/* Round all corners, except the left ones while an expanded
+                    module sidebar (the `peer` sibling) sits flush against the
+                    card — rounding there would carve a weird notch at the
+                    sidebar seam. Pages without a module sidebar (App Store) or
+                    with it collapsed (offcanvas) face the chrome on the left
+                    too, so they round. A left border draws the vertical
+                    divider along that edge. */}
+                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border-l md:border-border">
                   <AppAccessGuard>
                     {children}
                   </AppAccessGuard>

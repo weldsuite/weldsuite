@@ -20,15 +20,15 @@ interface ModuleContentProps {
  * The content row for a module page. Sits BELOW the module's full-width header.
  * The module content, any module-owned aside panel(s) and the object-panel
  * stack sit directly on the shell background — no card, no inset — separated
- * only by the panels' `border-l` divider. Open top-nav drawers stay rounded
- * cards on the right:
+ * only by the panels' `border-l` divider. Open top-nav drawers attach the same
+ * way on the right:
  *
  *   ┌ header (full width, rendered by the module layout) ──────┐
  *   ├──────────────────────────────────────────────────────────┤
  *   │  content (flex-1) │ aside │ panel…     [ drawer ]         │  ← this row
  *   └──────────────────────────────────────────────────────────┘
  *
- * `--background` is remapped to the shell's panel tone for the whole group, so
+ * `--background` is remapped to the shell's panel tone for the whole row, so
  * every `bg-background` surface inside pages and panels (sticky headers,
  * lists, fullscreen panels…) matches the background instead of reading as a
  * card. Portaled popovers and dialogs live outside the group and keep the
@@ -46,8 +46,8 @@ const ON_BACKGROUND_STYLE = {
 
 export function ModuleContent({ children, className, aside }: ModuleContentProps) {
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1" style={ON_BACKGROUND_STYLE}>
+    <div className="flex min-h-0 flex-1" style={ON_BACKGROUND_STYLE}>
+      <div className="flex min-w-0 flex-1">
         <div
           data-module-content
           className={cn('flex min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}
@@ -57,7 +57,7 @@ export function ModuleContent({ children, className, aside }: ModuleContentProps
         {aside}
         <ObjectPanelHost />
       </div>
-      <div className="flex shrink-0 gap-2 p-2 empty:hidden">
+      <div className="flex shrink-0 empty:hidden">
         <DrawerHost />
       </div>
     </div>

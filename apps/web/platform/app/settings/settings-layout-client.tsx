@@ -272,7 +272,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
           onWorkspaceCreate={() => setShowCreateWorkspaceDialog(true)}
         />
         <CreateWorkspaceDialog open={showCreateWorkspaceDialog} onOpenChange={setShowCreateWorkspaceDialog} />
-        <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden md:border-l md:border-border">
           <BreadcrumbHeader
             segments={segments}
             onSearch={handleSearch}

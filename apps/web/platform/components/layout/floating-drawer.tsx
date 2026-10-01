@@ -13,10 +13,10 @@ interface FloatingDrawerProps extends React.ComponentPropsWithoutRef<'div'> {
  * Shared shell for the top-nav drawers (notifications / calendar / agent).
  *
  * It renders as an in-flow flex sibling inside `ModuleContent`'s content row —
- * a rounded white card at a fixed width, stretched to fill the row height. The
- * row's `gap` provides the spacing to the panel / content on its left, so there
- * is no positioning or reservation logic here. On mobile it becomes a
- * full-screen sheet on top of the content.
+ * a fixed-width column stretched to fill the row height, attached with a
+ * `border-l` divider exactly like the object panels. There is no positioning
+ * or reservation logic here. On mobile it becomes a full-screen sheet on top
+ * of the content.
  *
  * Renders nothing while closed. Callers supply the drawer's header + body as
  * children (keep them in the usual `flex flex-col` / `flex-1` pattern).
@@ -36,9 +36,9 @@ export function FloatingDrawer({
     <div
       {...rest}
       className={cn(
-        'flex flex-col overflow-hidden bg-white dark:bg-background',
-        // Desktop: in-flow rounded card sibling in the content row.
-        'md:h-full md:shrink-0 md:rounded-xl',
+        'flex flex-col overflow-hidden bg-background',
+        // Desktop: in-flow column in the content row, divided by a left border.
+        'md:h-full md:shrink-0 md:border-l md:border-border',
         // Mobile: full-screen sheet below the mobile header.
         'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-[56px] max-md:z-50 max-md:!w-full',
         !skipAnimation && 'animate-in slide-in-from-right fade-in-50 duration-200',
