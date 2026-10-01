@@ -135,7 +135,7 @@ export class IframeManager {
     const existingContainer = document.getElementById('weld-container') as HTMLDivElement | null;
     if (existingContainer) {
       // Reuse if same widgetId
-      if (existingContainer.getAttribute('data-widget-id') === this.config.widgetId) {
+      if (existingContainer.dataset.widgetId === this.config.widgetId) {
         this.logger.debug('Reusing existing root container');
         this.rootContainer = existingContainer;
         this.appContainer = existingContainer.querySelector('.weld-app') as HTMLDivElement;
@@ -150,7 +150,7 @@ export class IframeManager {
     this.rootContainer = document.createElement('div');
     this.rootContainer.id = 'weld-container';
     this.rootContainer.className = 'weld-namespace';
-    this.rootContainer.setAttribute('data-widget-id', this.config.widgetId);
+    this.rootContainer.dataset.widgetId = this.config.widgetId;
 
     // Create app container
     this.appContainer = document.createElement('div');
