@@ -89,6 +89,40 @@ export const weldmeet = {
     joiningInfoJoin: 'Deelnemen',
     joiningInfoMeetingId: 'Vergader-ID',
   },
+  /** Getoond wanneer de browser microfoon / camera blokkeert. `{device}` is de
+   *  apparaatnaam zoals de site-instellingen van de browser die tonen. */
+  permissionHelp: {
+    microphoneTitle: 'Microfoontoegang geblokkeerd',
+    cameraTitle: 'Cameratoegang geblokkeerd',
+    microphoneDescription: 'Je browser blokkeert de toegang tot je microfoon voor deze site. Zo los je het op:',
+    cameraDescription: 'Je browser blokkeert de toegang tot je camera voor deze site. Zo los je het op:',
+    microphoneBlockedAction: 'Microfoontoegang geblokkeerd — klik voor hulp',
+    cameraBlockedAction: 'Cameratoegang geblokkeerd — klik voor hulp',
+    microphoneDevice: 'Microfoon',
+    cameraDevice: 'Camera',
+    steps: {
+      chromium: [
+        'Klik op het slot- of instellingenicoon links in de adresbalk.',
+        'Zoek "{device}" en zet het op "Toestaan".',
+        'Laad deze pagina opnieuw.',
+      ],
+      firefox: [
+        'Klik op het slotje in de adresbalk.',
+        'Verwijder de melding "Geblokkeerd" bij {device}.',
+        'Laad deze pagina opnieuw.',
+      ],
+      safari: [
+        'Open Safari → Instellingen voor deze website…',
+        'Zet "{device}" op "Sta toe".',
+        'Laad deze pagina opnieuw.',
+      ],
+      other: [
+        'Open de site-instellingen van je browser voor deze pagina.',
+        'Sta toegang tot "{device}" toe.',
+        'Laad deze pagina opnieuw.',
+      ],
+    },
+  },
   attendeeList: {
     title: 'Deelnemers',
     organizer: 'Organisator',

@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronUp, CircleAlert, Mic, MicOff, Video, VideoOff, type LucideIcon } from 'lucide-react';
 
-import { PermissionHelp } from './permission-help';
+import { PermissionHelp } from '@weldsuite/weldmeet-ui';
 
 export type PermState = 'granted' | 'denied' | 'prompt' | 'unknown';
 

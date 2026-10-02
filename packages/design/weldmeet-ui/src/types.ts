@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { VirtualBackgroundType } from './hooks/use-virtual-background';
+import type { PermissionHelpLabels } from './components/permission-help';
 
 export type ViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
@@ -96,6 +97,11 @@ export interface MeetingRoomViewProps {
   // ── Self state ────────────────────────────────────────────────────────────
   isMuted: boolean;
   isVideoOff: boolean;
+  /** The browser blocks microphone / camera access for this site. */
+  micBlocked?: boolean;
+  cameraBlocked?: boolean;
+  /** Copy for the blocked-permission help. English when omitted. */
+  permissionHelpLabels?: PermissionHelpLabels;
   isScreenSharing: boolean;
   handRaised: boolean;
   /** Set of peer ids (participant.id) whose hand is currently raised. Includes self when handRaised is true. */

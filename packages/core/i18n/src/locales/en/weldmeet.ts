@@ -88,6 +88,40 @@ export const weldmeet = {
     joiningInfoJoin: 'Join',
     joiningInfoMeetingId: 'Meeting ID',
   },
+  /** Shown when the browser blocks mic / camera access. `{device}` is the
+   *  device name as the browser's site settings show it. */
+  permissionHelp: {
+    microphoneTitle: 'Microphone access blocked',
+    cameraTitle: 'Camera access blocked',
+    microphoneDescription: 'Your browser is blocking microphone access for this site. To fix it:',
+    cameraDescription: 'Your browser is blocking camera access for this site. To fix it:',
+    microphoneBlockedAction: 'Microphone access blocked — click for help',
+    cameraBlockedAction: 'Camera access blocked — click for help',
+    microphoneDevice: 'Microphone',
+    cameraDevice: 'Camera',
+    steps: {
+      chromium: [
+        'Click the lock or tune icon on the left side of the address bar.',
+        'Find "{device}" and switch it to "Allow".',
+        'Reload this page.',
+      ],
+      firefox: [
+        'Click the lock icon in the address bar.',
+        'Remove the "Blocked" entry for {device}.',
+        'Reload this page.',
+      ],
+      safari: [
+        'Open Safari → Settings for This Website…',
+        'Set "{device}" to "Allow".',
+        'Reload this page.',
+      ],
+      other: [
+        "Open your browser's site settings for this page.",
+        'Allow access to "{device}".',
+        'Reload this page.',
+      ],
+    },
+  },
   attendeeList: {
     title: 'Attendees',
     organizer: 'Organizer',

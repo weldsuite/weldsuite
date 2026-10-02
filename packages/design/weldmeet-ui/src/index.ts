@@ -27,6 +27,12 @@ export {
 export { ParticipantTile, ScreenShareTile, useIsSpeaking, getPersonTheme, getInitials, type ParticipantTileProps, type ScreenShareTileProps } from './components/participant-tile';
 export { ParticipantContextMenu, type ParticipantContextMenuProps } from './components/participant-context-menu';
 export { CallControlsBar, type CallControlsBarProps } from './components/call-controls-bar';
+export {
+  PermissionHelp,
+  DEFAULT_PERMISSION_HELP_LABELS,
+  type PermissionHelpLabels,
+  type PermissionKind,
+} from './components/permission-help';
 export { MeetingRoomView } from './components/meeting-room-view';
 export { MeetingHeader } from './components/meeting-header';
 export { MeetingRightPanel, type RightPanelKind } from './components/meeting-right-panel';

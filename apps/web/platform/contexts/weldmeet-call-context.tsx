@@ -87,6 +87,11 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
+/** RTK `self.mediaPermissions` values meaning the browser or OS blocks the device. */
+function isPermissionBlocked(permission: string | undefined): boolean {
+  return permission === 'DENIED' || permission === 'SYSTEM_DENIED';
+}
+
 interface CallBroadcastMessage {
   type: string;
   payload: Record<string, unknown>;
@@ -171,6 +176,9 @@ interface WeldMeetCallState {
   status: MeetingCallStatus;
   isMuted: boolean;
   isVideoOff: boolean;
+  /** The browser (or OS) blocks microphone / camera access for this site. */
+  micBlocked: boolean;
+  cameraBlocked: boolean;
   isScreenSharing: boolean;
   duration: number;
   meeting: RealtimeKitClient | null;
@@ -282,6 +290,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const [status, setStatus] = useState<MeetingCallStatus>('idle');
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [duration, setDuration] = useState(0);
   const [meeting, setMeeting] = useState<RealtimeKitClient | null>(null);
@@ -522,6 +532,65 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     };
   }, [meeting]);
 
+  // Mirror the real mic / camera state. isMuted / isVideoOff start from what
+  // we *asked* RTK for, but RTK can join with a device off anyway: when the
+  // browser blocks the permission, getUserMedia fails and RTK silently joins
+  // without that track. Read meeting.self once joined and on every RTK media
+  // or permission update, so the control bar never shows a device as on
+  // while the self tile shows it off.
+  useEffect(() => {
+    if (!meeting) return;
+    const self = meeting.self;
+    const sync = () => {
+      setIsMuted(!self.audioEnabled);
+      setIsVideoOff(!self.videoEnabled);
+      const permissions = self.mediaPermissions;
+      setMicBlocked(isPermissionBlocked(permissions?.audio));
+      setCameraBlocked(isPermissionBlocked(permissions?.video));
+    };
+    sync();
+    self.on('audioUpdate', sync);
+    self.on('videoUpdate', sync);
+    self.on('mediaPermissionUpdate', sync);
+    return () => {
+      self.off('audioUpdate', sync);
+      self.off('videoUpdate', sync);
+      self.off('mediaPermissionUpdate', sync);
+    };
+  }, [meeting]);
+
+  // The browser's own permission state catches a block RTK hasn't reported
+  // yet (device joined off, never requested) and clears it when the user
+  // allows access in site settings mid-call. The initial read only ever
+  // *sets* blocked: an OS-level block (RTK SYSTEM_DENIED) still reads as
+  // 'granted' here and must not be cleared.
+  useEffect(() => {
+    if (!meeting) return;
+    const query = navigator.permissions?.query?.bind(navigator.permissions);
+    if (!query) return;
+    let cancelled = false;
+    const statuses: PermissionStatus[] = [];
+    const watch = (name: 'microphone' | 'camera', setBlocked: (blocked: boolean) => void) => {
+      query({ name: name as PermissionName })
+        .then((status) => {
+          if (cancelled) return;
+          if (status.state === 'denied') setBlocked(true);
+          status.onchange = () => {
+            if (status.state === 'denied') setBlocked(true);
+            else if (status.state === 'granted') setBlocked(false);
+          };
+          statuses.push(status);
+        })
+        .catch(() => { /* permission name not queryable in this browser */ });
+    };
+    watch('microphone', setMicBlocked);
+    watch('camera', setCameraBlocked);
+    return () => {
+      cancelled = true;
+      for (const status of statuses) status.onchange = null;
+    };
+  }, [meeting]);
+
   // Subscribe to hand-raise + host-controls broadcasts from other participants.
   // RealtimeKit's own `participants.broadcastMessage` is reused (no extra
   // worker), so it works for both signed-in users and meeting-portal guests.
@@ -593,6 +662,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     setDuration(0);
     setIsMuted(false);
     setIsVideoOff(false);
+    setMicBlocked(false);
+    setCameraBlocked(false);
     setIsScreenSharing(false);
     setHandRaised(false);
     setHandRaisedParticipants(new Set());
@@ -885,17 +956,24 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, getClient, cleanup, queryClient, fireLeaveRequest]);
 
-  const toggleMute = useCallback(() => {
+  const toggleMute = useCallback(async () => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
       meeting.self.disableAudio();
       setIsMuted(true);
       playMuteSound();
-    } else {
-      meeting.self.enableAudio();
-      setIsMuted(false);
-      playUnmuteSound();
+      return;
     }
+    try {
+      await meeting.self.enableAudio();
+    } catch (err) {
+      console.error('[WeldMeet] enableAudio failed:', err);
+    }
+    // RTK resolves without a track when the browser blocks the mic, so read
+    // the real state instead of assuming the unmute worked.
+    const nowEnabled = meeting.self.audioEnabled;
+    setIsMuted(!nowEnabled);
+    if (nowEnabled) playUnmuteSound();
   }, [meeting]);
 
   const toggleVideo = useCallback(async () => {
@@ -940,6 +1018,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       console.log('[WeldMeet] toggleVideo: getUserMedia probe succeeded, releasing test stream');
     } catch (permErr) {
       console.error('[WeldMeet] camera permission denied or no camera available:', permErr);
+      if (permErr instanceof DOMException && permErr.name === 'NotAllowedError') setCameraBlocked(true);
       return;
     }
 
@@ -1160,6 +1239,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     status,
     isMuted,
     isVideoOff,
+    micBlocked,
+    cameraBlocked,
     isScreenSharing,
     duration,
     meeting,
